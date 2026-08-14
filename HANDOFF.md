@@ -2,9 +2,11 @@
 
 **What this is:** Tempest AI, a behavioral proof agent — it *executes* diffs (base vs head under
 identical deterministic conditions) and reports divergences with minimized, runnable evidence.
-Built from `tempest-master-prompt.md` (the contract) on 2026-08-13. Session rules live in
-`CLAUDE.md`; phase status with REAL gate outputs lives in `docs/PLAN.md`; every deviation is an
-ADR in `docs/DECISIONS.md`.
+Built from `tempest-master-prompt.md` (the v1 contract) on 2026-08-13; the desktop/enterprise
+era is governed additionally by the Phase 8+ master prompt (Laws L8–L14 + tri-boundary contract,
+both now in `CLAUDE.md`). Phase status with REAL gate outputs: v1 in `docs/PLAN.md`, desktop in
+`docs/PLAN-DESKTOP.md`; the Phase 8 truth audit is `docs/AUDIT-PHASE8.md`; the three company
+numbers live in `docs/METRICS.md`; every deviation is an ADR in `docs/DECISIONS.md`.
 
 ## Status at a glance (2026-08-13)
 
@@ -19,6 +21,7 @@ ADR in `docs/DECISIONS.md`.
 | 6 CI integration | ✅ code | live-PR gate needs GitHub publish (ADR-0005); selftest workflow rehearses it |
 | — Desktop app | ✅ Tempest.app installed to /Applications; frozen engine sidecar (23 MB, 2 s to healthy), live-tested end to end incl. in-app proof runs + clean shutdown watchdog | rebuild: ./apps/desktop/build-server.sh then pnpm tauri build |
 | 7 Hardening | 🔶 | flake hunt ✅, schema-migration tests ✅, `SANDBOX_REVIEW.md` ✅ (container leg needs a Docker machine), perf ✅ 3.9 s |
+| **8 Truth Audit** | ✅ 2026-08-13 | `docs/AUDIT-PHASE8.md` — clean-clone verify green, 30/30×20 fresh, byte-identical bundle diffs, 8/8 reason codes emittable, **3 honesty defects found & fixed test-first** (blessed-with-zero-comparable-inputs, EnvRepro traceback, silent .ts skip); proof rate: fixture 100%, real-world unmeasured (stated plainly). **Phases 9–18 wait for owner review** — see `docs/PLAN-DESKTOP.md`, ADR-0011..0013, `docs/METRICS.md` |
 
 ## Run it
 
