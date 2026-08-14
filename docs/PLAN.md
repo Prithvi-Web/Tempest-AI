@@ -145,19 +145,31 @@ rule), HTTPError paths unreplayable (recorded error payloads).
 
 **Gate:** Phase 1 and Phase 2 gates re-run against TS corpora, same thresholds (12/12 + 0 false; ≥24/30 × 5).
 
-## Phase 4 — API + persistence
+## Phase 4 — API + persistence ✅ core 2026-08-13 (orchestration/auth/MinIO deferred, listed below)
 
-- [ ] Data model per master spec §7 (SQLAlchemy 2 async + Alembic; divergence row constraint:
-      minimized input + repro script URI required — a DB constraint, not a code comment)
-- [ ] Bundle ingestion `POST /v1/runs/{id}/bundle` → fan-out to tables; MinIO object storage
-- [ ] Run orchestration via arq; SSE `GET /v1/runs/{id}/events`
-- [ ] Full API surface per §8, cursor pagination, `{error:{code,message,details?}}`, idempotency keys
-- [ ] Auth: GitHub OAuth (Auth.js) + short-lived JWTs + CLI PAT tokens
+- [x] Data model per master spec §7: repos, runs, targets, divergences, cassettes, run_events,
+      api_tokens (SQLAlchemy 2 async, typed Mapped[]; divergence evidence NOT NULL **in the DDL**,
+      proven by below-the-app IntegrityError tests; JSONB-on-Postgres via one TypeDecorator)
+- [x] Alembic initial migration + migration↔model parity test (upgrade head ≡ create_all) + clean
+      downgrade; aiosqlite locally / Postgres 16 in CI+prod (ADR-0009 — dialect CI job is a
+      recorded standing obligation)
+- [x] Bundle ingestion `POST /v1/runs/{id}/bundle`: multipart zip → guarded extract → engine
+      `read_bundle` → single-transaction fan-out; corrupted bundles → 400 with stable codes and
+      **atomically nothing written**; verdicts stored verbatim, never re-derived
+- [x] §8 surface: createRun (202, Idempotency-Key replay + 409 on body mismatch), listRuns
+      (opaque cursor `{items,next_cursor}`, filters), getRun/getTarget/getDivergence,
+      getDivergenceRepro (text/x-python download), getHealth; stable ErrorCode enum; engine enums
+      imported from `tempest.model` only
+- [ ] Run orchestration via arq + SSE `/v1/runs/{id}/events` (run_events ledger already
+      populated; stream endpoint lands with orchestration)
+- [ ] MinIO bundle-blob retention; auth issuance (api_tokens table shipped — ADR-0007)
 
-**Gate (run, paste real output):**
-```bash
-pytest packages/api -q   # includes round-trip property test:
-                         # CLI bundle → ingest → reconstruct → no data loss
+**Gate passed 2026-08-13** — real output (independently re-verified in the main session):
+```
+$ uv run pytest packages/api -q      # incl. Hypothesis round-trip property (25 derandomized
+33 passed, 1 warning in 1.43s        #  arbitrary bundles): write→zip→upload→GET-reconstruct→equal
+$ uv run mypy --strict packages/api/src
+Success: no issues found in 25 source files
 ```
 
 ## Phase 5 — Web dashboard

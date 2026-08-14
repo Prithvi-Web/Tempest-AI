@@ -1,6 +1,212 @@
 {
   "components": {
     "schemas": {
+      "Body_uploadRunBundle": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_uploadRunBundle",
+        "type": "object"
+      },
+      "DivergenceClass": {
+        "description": "Taxonomy of observable behavior differences (master spec stage 7).",
+        "enum": [
+          "RETURN_VALUE",
+          "EXCEPTION_TYPE",
+          "EXCEPTION_MESSAGE",
+          "EFFECT_SEQUENCE",
+          "EFFECT_ARGUMENTS",
+          "CASSETTE_MISS",
+          "CRASH",
+          "HANG",
+          "OUTPUT_STREAM"
+        ],
+        "title": "DivergenceClass",
+        "type": "string"
+      },
+      "DivergenceDetail": {
+        "properties": {
+          "args_literal": {
+            "title": "Args Literal",
+            "type": "string"
+          },
+          "base_summary": {
+            "title": "Base Summary",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "divergence_class": {
+            "$ref": "#/components/schemas/DivergenceClass"
+          },
+          "head_summary": {
+            "title": "Head Summary",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kwargs_literal": {
+            "title": "Kwargs Literal",
+            "type": "string"
+          },
+          "minimized_args": {
+            "title": "Minimized Args",
+            "type": "string"
+          },
+          "minimized_kwargs": {
+            "title": "Minimized Kwargs",
+            "type": "string"
+          },
+          "repro_filename": {
+            "title": "Repro Filename",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "shrink_path": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Shrink Path",
+            "type": "array"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "target_id",
+          "divergence_class",
+          "severity",
+          "detail",
+          "minimized_args",
+          "minimized_kwargs",
+          "run_id",
+          "args_literal",
+          "kwargs_literal",
+          "shrink_path",
+          "base_summary",
+          "head_summary",
+          "repro_filename"
+        ],
+        "title": "DivergenceDetail",
+        "type": "object"
+      },
+      "DivergenceSummary": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "divergence_class": {
+            "$ref": "#/components/schemas/DivergenceClass"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "minimized_args": {
+            "title": "Minimized Args",
+            "type": "string"
+          },
+          "minimized_kwargs": {
+            "title": "Minimized Kwargs",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "target_id",
+          "divergence_class",
+          "severity",
+          "detail",
+          "minimized_args",
+          "minimized_kwargs"
+        ],
+        "title": "DivergenceSummary",
+        "type": "object"
+      },
+      "ErrorBody": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "ErrorCode": {
+        "description": "Stable machine-readable codes for the `{error: {code, message, details?}}` envelope.\nRenderers switch on these; the strings are frozen.",
+        "enum": [
+          "VALIDATION_ERROR",
+          "NOT_FOUND",
+          "IDEMPOTENCY_CONFLICT",
+          "RUN_NOT_PENDING",
+          "BUNDLE_INVALID",
+          "BUNDLE_SCHEMA_UNSUPPORTED",
+          "BUNDLE_MISMATCH",
+          "INTERNAL"
+        ],
+        "title": "ErrorCode",
+        "type": "string"
+      },
+      "ErrorEnvelope": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "title": "ErrorEnvelope",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "engine_version": {
@@ -24,6 +230,502 @@
         ],
         "title": "HealthResponse",
         "type": "object"
+      },
+      "Lang": {
+        "enum": [
+          "PYTHON",
+          "TYPESCRIPT"
+        ],
+        "title": "Lang",
+        "type": "string"
+      },
+      "Page_RunSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RunSummary]",
+        "type": "object"
+      },
+      "ReasonCode": {
+        "description": "Machine-readable blocking reasons attached to every UNPROVEN verdict (Law L2).",
+        "enum": [
+          "TARGET_UNREACHABLE",
+          "ENV_REPRODUCTION_FAILED",
+          "HARNESS_SYNTHESIS_FAILED",
+          "UNINTERCEPTABLE_EFFECT",
+          "NONDETERMINISTIC_BASE",
+          "SANDBOX_UNAVAILABLE",
+          "VALUE_UNSERIALIZABLE",
+          "RECORD_REPLAY_UNAVAILABLE"
+        ],
+        "title": "ReasonCode",
+        "type": "string"
+      },
+      "RunCreate": {
+        "properties": {
+          "base_sha": {
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Base Sha",
+            "type": "string"
+          },
+          "head_sha": {
+            "pattern": "^[0-9a-f]{40}$",
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "repo": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Repo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo",
+          "base_sha",
+          "head_sha"
+        ],
+        "title": "RunCreate",
+        "type": "object"
+      },
+      "RunCreated": {
+        "properties": {
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "title": "RunCreated",
+        "type": "object"
+      },
+      "RunDetail": {
+        "properties": {
+          "base_deps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Deps"
+          },
+          "base_sha": {
+            "title": "Base Sha",
+            "type": "string"
+          },
+          "budget_max_inputs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Max Inputs"
+          },
+          "bundle_created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Created At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "divergence_count": {
+            "title": "Divergence Count",
+            "type": "integer"
+          },
+          "engine_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Version"
+          },
+          "head_deps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Deps"
+          },
+          "head_sha": {
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "repo": {
+            "title": "Repo",
+            "type": "string"
+          },
+          "schema_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Version"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetSummary"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "repo",
+          "base_sha",
+          "head_sha",
+          "status",
+          "verdict",
+          "created_at",
+          "target_count",
+          "divergence_count",
+          "schema_version",
+          "engine_version",
+          "bundle_created_at",
+          "base_deps",
+          "head_deps",
+          "budget_max_inputs",
+          "targets"
+        ],
+        "title": "RunDetail",
+        "type": "object"
+      },
+      "RunStatus": {
+        "description": "Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);\norchestration states are added \u2014 deliberately breaking the generated TS \u2014 when arq lands.",
+        "enum": [
+          "PENDING",
+          "COMPLETE"
+        ],
+        "title": "RunStatus",
+        "type": "string"
+      },
+      "RunSummary": {
+        "properties": {
+          "base_sha": {
+            "title": "Base Sha",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "divergence_count": {
+            "title": "Divergence Count",
+            "type": "integer"
+          },
+          "head_sha": {
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "repo": {
+            "title": "Repo",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "repo",
+          "base_sha",
+          "head_sha",
+          "status",
+          "verdict",
+          "created_at",
+          "target_count",
+          "divergence_count"
+        ],
+        "title": "RunSummary",
+        "type": "object"
+      },
+      "Severity": {
+        "description": "Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE.",
+        "enum": [
+          "LOW",
+          "NORMAL",
+          "HEADLINE"
+        ],
+        "title": "Severity",
+        "type": "string"
+      },
+      "TargetClassification": {
+        "description": "Stage-1 classification of a changed symbol.",
+        "enum": [
+          "PURE_CANDIDATE",
+          "IMPURE_RECORDABLE",
+          "UNREACHABLE"
+        ],
+        "title": "TargetClassification",
+        "type": "string"
+      },
+      "TargetDetail": {
+        "properties": {
+          "changed_line_coverage": {
+            "title": "Changed Line Coverage",
+            "type": "number"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/TargetClassification"
+          },
+          "divergence_count": {
+            "title": "Divergence Count",
+            "type": "integer"
+          },
+          "divergences": {
+            "items": {
+              "$ref": "#/components/schemas/DivergenceSummary"
+            },
+            "title": "Divergences",
+            "type": "array"
+          },
+          "equivalent_inputs": {
+            "title": "Equivalent Inputs",
+            "type": "integer"
+          },
+          "file_path": {
+            "title": "File Path",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inputs_run": {
+            "title": "Inputs Run",
+            "type": "integer"
+          },
+          "lang": {
+            "$ref": "#/components/schemas/Lang"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "qualname": {
+            "title": "Qualname",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReasonCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason_detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Detail"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "unprovable_inputs": {
+            "title": "Unprovable Inputs",
+            "type": "integer"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "file_path",
+          "module",
+          "qualname",
+          "lang",
+          "classification",
+          "verdict",
+          "reason_code",
+          "changed_line_coverage",
+          "divergence_count",
+          "reason_detail",
+          "inputs_run",
+          "equivalent_inputs",
+          "unprovable_inputs",
+          "divergences"
+        ],
+        "title": "TargetDetail",
+        "type": "object"
+      },
+      "TargetSummary": {
+        "properties": {
+          "changed_line_coverage": {
+            "title": "Changed Line Coverage",
+            "type": "number"
+          },
+          "classification": {
+            "$ref": "#/components/schemas/TargetClassification"
+          },
+          "divergence_count": {
+            "title": "Divergence Count",
+            "type": "integer"
+          },
+          "file_path": {
+            "title": "File Path",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "lang": {
+            "$ref": "#/components/schemas/Lang"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "qualname": {
+            "title": "Qualname",
+            "type": "string"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReasonCode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/Verdict"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "file_path",
+          "module",
+          "qualname",
+          "lang",
+          "classification",
+          "verdict",
+          "reason_code",
+          "changed_line_coverage",
+          "divergence_count"
+        ],
+        "title": "TargetSummary",
+        "type": "object"
+      },
+      "Verdict": {
+        "description": "The only verdicts Tempest can emit (Law L2).",
+        "enum": [
+          "DIVERGENT",
+          "EQUIVALENT_UNDER_BUDGET",
+          "UNPROVEN",
+          "ERROR"
+        ],
+        "title": "Verdict",
+        "type": "string"
       }
     }
   },
@@ -34,6 +736,111 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/divergences/{divergence_id}": {
+      "get": {
+        "operationId": "getDivergence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "divergence_id",
+            "required": true,
+            "schema": {
+              "title": "Divergence Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DivergenceDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Get Divergence",
+        "tags": [
+          "divergences"
+        ]
+      }
+    },
+    "/v1/divergences/{divergence_id}/repro.py": {
+      "get": {
+        "description": "The standalone reproduction script, byte-for-byte as the bundle carried it.",
+        "operationId": "getDivergenceRepro",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "divergence_id",
+            "required": true,
+            "schema": {
+              "title": "Divergence Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/x-python": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "text/x-python": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "text/x-python": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Get Divergence Repro",
+        "tags": [
+          "divergences"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "getHealth",
@@ -52,6 +859,368 @@
         "summary": "Get Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/v1/runs": {
+      "get": {
+        "description": "Newest-first run listing. Each run appears exactly once across a cursor walk.",
+        "operationId": "listRuns",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RunStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "verdict",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Verdict"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Verdict"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RunSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Create a pending run; the CLI uploads its bundle to it afterwards. Returns 202.",
+        "operationId": "createRun",
+        "parameters": [
+          {
+            "description": "Replaying the same key with the same body returns the original run_id.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replaying the same key with the same body returns the original run_id.",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Create Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}": {
+      "get": {
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/bundle": {
+      "post": {
+        "description": "Ingest a CLI-produced `.tempest.zip` (multipart field `file`) into this pending run.\nRejected bundles write nothing; the fan-out is one transaction.",
+        "operationId": "uploadRunBundle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_uploadRunBundle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Upload Run Bundle",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/targets/{target_id}": {
+      "get": {
+        "operationId": "getTarget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_id",
+            "required": true,
+            "schema": {
+              "title": "Target Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Get Target",
+        "tags": [
+          "targets"
         ]
       }
     }

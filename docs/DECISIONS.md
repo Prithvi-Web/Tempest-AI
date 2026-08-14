@@ -149,6 +149,43 @@ counterpart; naively "comparing" it produces a fake CRASH divergence (base can't
 refactors no longer produce fake CRASH findings (regression-locked by the pyfix gate's no-op
 half).
 
+## ADR-0009 — Phase 4 persistence: aiosqlite locally, Postgres 16 in CI/prod; JSONB via TypeDecorator
+
+**Date:** 2026-08-13 · **Status:** accepted
+
+**Context.** Spec §5 pins PostgreSQL 16 with JSONB for observation payloads. This development
+machine has no Docker (ADR-0003) and therefore no local Postgres, yet Phase 4's gate requires
+real API tests against a real database on this machine.
+
+**Decision.**
+1. The API reads `TEMPEST_DATABASE_URL`; default `sqlite+aiosqlite:///./tempest-dev.db`. Local
+   tests run the real ASGI app against a file-backed aiosqlite database per test (real HTTP →
+   real SQL, no mocked layers). CI and production run Postgres 16 via asyncpg — the compose stack
+   already provisions it.
+2. JSON payload columns (`divergences.shrink_path`, `run_events.payload`, `cassettes.ledger`)
+   are declared once through a `JSONPayload` TypeDecorator (`tempest_api/db/types.py`): JSONB on
+   the postgresql dialect, plain JSON elsewhere. Models never branch on dialect.
+3. Schema management: Alembic (`packages/api/alembic/`, initial revision `0001`) is the
+   migration path for Postgres. On sqlite the app creates the schema from metadata at startup; a
+   parity test (`packages/api/tests/test_migrations.py`) proves `alembic upgrade head` and the
+   models produce the identical schema, so the two paths cannot drift silently.
+4. Bundle-integrity rule 1 (BUNDLE_SCHEMA.md) is enforced as DB-level NOT NULL columns on
+   `divergences` (`minimized_args`, `minimized_kwargs`, `repro_filename`, `repro_script`),
+   verified by below-the-application inserts in the test suite.
+
+**Risk (stated plainly).** SQLite is not Postgres: JSON vs JSONB semantics, TEXT accepting NUL
+bytes that Postgres rejects, looser type affinity, different concurrency behavior. Green local
+tests do not prove Postgres behavior. **Mitigation — dialect-conditional tests in CI:** the API
+suite takes its database from `TEMPEST_DATABASE_URL`, so a CI job with a Postgres 16 service
+runs the *identical* suite against the real dialect. That job is a standing obligation recorded
+here — it is not yet wired (`.github/workflows/ci.yml` is outside this change's scope) and must
+land with the CI-integration phase; until then, Postgres coverage is a known gap, not a silent
+assumption. The round-trip property strategy already excludes NUL to keep the contract portable
+across both dialects. Orchestration dependencies (arq/Redis/MinIO object storage for bundles)
+are deliberately not added in this slice — no unused dependencies; they arrive with the
+orchestration work, at which point bundle blobs move from ingest-and-discard to MinIO-backed
+storage per §5.
+
 ## ADR-0010 — Phase 2 scope: corpus provenance, NET interception level, import-time effects
 
 **Date:** 2026-08-13 · **Status:** accepted

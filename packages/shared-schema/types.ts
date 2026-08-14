@@ -4,6 +4,43 @@
  */
 
 export interface paths {
+    "/v1/divergences/{divergence_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Divergence */
+        get: operations["getDivergence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/divergences/{divergence_id}/repro.py": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Divergence Repro
+         * @description The standalone reproduction script, byte-for-byte as the bundle carried it.
+         */
+        get: operations["getDivergenceRepro"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/health": {
         parameters: {
             query?: never;
@@ -21,10 +58,165 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description Newest-first run listing. Each run appears exactly once across a cursor walk.
+         */
+        get: operations["listRuns"];
+        put?: never;
+        /**
+         * Create Run
+         * @description Create a pending run; the CLI uploads its bundle to it afterwards. Returns 202.
+         */
+        post: operations["createRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["getRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Run Bundle
+         * @description Ingest a CLI-produced `.tempest.zip` (multipart field `file`) into this pending run.
+         *     Rejected bundles write nothing; the fan-out is one transaction.
+         */
+        post: operations["uploadRunBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/targets/{target_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Target */
+        get: operations["getTarget"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_uploadRunBundle */
+        Body_uploadRunBundle: {
+            /** File */
+            file: string;
+        };
+        /**
+         * DivergenceClass
+         * @description Taxonomy of observable behavior differences (master spec stage 7).
+         * @enum {string}
+         */
+        DivergenceClass: "RETURN_VALUE" | "EXCEPTION_TYPE" | "EXCEPTION_MESSAGE" | "EFFECT_SEQUENCE" | "EFFECT_ARGUMENTS" | "CASSETTE_MISS" | "CRASH" | "HANG" | "OUTPUT_STREAM";
+        /** DivergenceDetail */
+        DivergenceDetail: {
+            /** Args Literal */
+            args_literal: string;
+            /** Base Summary */
+            base_summary: string;
+            /** Detail */
+            detail: string;
+            divergence_class: components["schemas"]["DivergenceClass"];
+            /** Head Summary */
+            head_summary: string;
+            /** Id */
+            id: number;
+            /** Kwargs Literal */
+            kwargs_literal: string;
+            /** Minimized Args */
+            minimized_args: string;
+            /** Minimized Kwargs */
+            minimized_kwargs: string;
+            /** Repro Filename */
+            repro_filename: string;
+            /** Run Id */
+            run_id: number;
+            severity: components["schemas"]["Severity"];
+            /** Shrink Path */
+            shrink_path: string[];
+            /** Target Id */
+            target_id: number;
+        };
+        /** DivergenceSummary */
+        DivergenceSummary: {
+            /** Detail */
+            detail: string;
+            divergence_class: components["schemas"]["DivergenceClass"];
+            /** Id */
+            id: number;
+            /** Minimized Args */
+            minimized_args: string;
+            /** Minimized Kwargs */
+            minimized_kwargs: string;
+            severity: components["schemas"]["Severity"];
+            /** Target Id */
+            target_id: number;
+        };
+        /** ErrorBody */
+        ErrorBody: {
+            code: components["schemas"]["ErrorCode"];
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            } | null;
+            /** Message */
+            message: string;
+        };
+        /**
+         * ErrorCode
+         * @description Stable machine-readable codes for the `{error: {code, message, details?}}` envelope.
+         *     Renderers switch on these; the strings are frozen.
+         * @enum {string}
+         */
+        ErrorCode: "VALIDATION_ERROR" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" | "RUN_NOT_PENDING" | "BUNDLE_INVALID" | "BUNDLE_SCHEMA_UNSUPPORTED" | "BUNDLE_MISMATCH" | "INTERNAL";
+        /** ErrorEnvelope */
+        ErrorEnvelope: {
+            error: components["schemas"]["ErrorBody"];
+        };
         /** HealthResponse */
         HealthResponse: {
             /** Engine Version */
@@ -37,6 +229,173 @@ export interface components {
              */
             status: "ok";
         };
+        /**
+         * Lang
+         * @enum {string}
+         */
+        Lang: "PYTHON" | "TYPESCRIPT";
+        /** Page[RunSummary] */
+        Page_RunSummary_: {
+            /** Items */
+            items: components["schemas"]["RunSummary"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+        };
+        /**
+         * ReasonCode
+         * @description Machine-readable blocking reasons attached to every UNPROVEN verdict (Law L2).
+         * @enum {string}
+         */
+        ReasonCode: "TARGET_UNREACHABLE" | "ENV_REPRODUCTION_FAILED" | "HARNESS_SYNTHESIS_FAILED" | "UNINTERCEPTABLE_EFFECT" | "NONDETERMINISTIC_BASE" | "SANDBOX_UNAVAILABLE" | "VALUE_UNSERIALIZABLE" | "RECORD_REPLAY_UNAVAILABLE";
+        /** RunCreate */
+        RunCreate: {
+            /** Base Sha */
+            base_sha: string;
+            /** Head Sha */
+            head_sha: string;
+            /** Repo */
+            repo: string;
+        };
+        /** RunCreated */
+        RunCreated: {
+            /** Run Id */
+            run_id: number;
+        };
+        /** RunDetail */
+        RunDetail: {
+            /** Base Deps */
+            base_deps: string | null;
+            /** Base Sha */
+            base_sha: string;
+            /** Budget Max Inputs */
+            budget_max_inputs: number | null;
+            /** Bundle Created At */
+            bundle_created_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Divergence Count */
+            divergence_count: number;
+            /** Engine Version */
+            engine_version: string | null;
+            /** Head Deps */
+            head_deps: string | null;
+            /** Head Sha */
+            head_sha: string;
+            /** Id */
+            id: number;
+            /** Repo */
+            repo: string;
+            /** Schema Version */
+            schema_version: number | null;
+            status: components["schemas"]["RunStatus"];
+            /** Target Count */
+            target_count: number;
+            /** Targets */
+            targets: components["schemas"]["TargetSummary"][];
+            verdict: components["schemas"]["Verdict"] | null;
+        };
+        /**
+         * RunStatus
+         * @description Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);
+         *     orchestration states are added — deliberately breaking the generated TS — when arq lands.
+         * @enum {string}
+         */
+        RunStatus: "PENDING" | "COMPLETE";
+        /** RunSummary */
+        RunSummary: {
+            /** Base Sha */
+            base_sha: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Divergence Count */
+            divergence_count: number;
+            /** Head Sha */
+            head_sha: string;
+            /** Id */
+            id: number;
+            /** Repo */
+            repo: string;
+            status: components["schemas"]["RunStatus"];
+            /** Target Count */
+            target_count: number;
+            verdict: components["schemas"]["Verdict"] | null;
+        };
+        /**
+         * Severity
+         * @description Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE.
+         * @enum {string}
+         */
+        Severity: "LOW" | "NORMAL" | "HEADLINE";
+        /**
+         * TargetClassification
+         * @description Stage-1 classification of a changed symbol.
+         * @enum {string}
+         */
+        TargetClassification: "PURE_CANDIDATE" | "IMPURE_RECORDABLE" | "UNREACHABLE";
+        /** TargetDetail */
+        TargetDetail: {
+            /** Changed Line Coverage */
+            changed_line_coverage: number;
+            classification: components["schemas"]["TargetClassification"];
+            /** Divergence Count */
+            divergence_count: number;
+            /** Divergences */
+            divergences: components["schemas"]["DivergenceSummary"][];
+            /** Equivalent Inputs */
+            equivalent_inputs: number;
+            /** File Path */
+            file_path: string;
+            /** Id */
+            id: number;
+            /** Inputs Run */
+            inputs_run: number;
+            lang: components["schemas"]["Lang"];
+            /** Module */
+            module: string;
+            /** Qualname */
+            qualname: string;
+            reason_code: components["schemas"]["ReasonCode"] | null;
+            /** Reason Detail */
+            reason_detail: string | null;
+            /** Run Id */
+            run_id: number;
+            /** Unprovable Inputs */
+            unprovable_inputs: number;
+            verdict: components["schemas"]["Verdict"];
+        };
+        /** TargetSummary */
+        TargetSummary: {
+            /** Changed Line Coverage */
+            changed_line_coverage: number;
+            classification: components["schemas"]["TargetClassification"];
+            /** Divergence Count */
+            divergence_count: number;
+            /** File Path */
+            file_path: string;
+            /** Id */
+            id: number;
+            lang: components["schemas"]["Lang"];
+            /** Module */
+            module: string;
+            /** Qualname */
+            qualname: string;
+            reason_code: components["schemas"]["ReasonCode"] | null;
+            /** Run Id */
+            run_id: number;
+            verdict: components["schemas"]["Verdict"];
+        };
+        /**
+         * Verdict
+         * @description The only verdicts Tempest can emit (Law L2).
+         * @enum {string}
+         */
+        Verdict: "DIVERGENT" | "EQUIVALENT_UNDER_BUDGET" | "UNPROVEN" | "ERROR";
     };
     responses: never;
     parameters: never;
@@ -46,6 +405,86 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getDivergence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                divergence_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DivergenceDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getDivergenceRepro: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                divergence_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/x-python": string;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/x-python": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/x-python": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     getHealth: {
         parameters: {
             query?: never;
@@ -62,6 +501,236 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    listRuns: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+                status?: components["schemas"]["RunStatus"] | null;
+                verdict?: components["schemas"]["Verdict"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RunSummary_"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    createRun: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Replaying the same key with the same body returns the original run_id. */
+                "Idempotency-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunCreated"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    uploadRunBundle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_uploadRunBundle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                target_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetDetail"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };

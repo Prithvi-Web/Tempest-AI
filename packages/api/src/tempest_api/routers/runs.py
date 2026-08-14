@@ -137,11 +137,7 @@ async def list_runs(
     verdict: Verdict | None = None,
 ) -> Page[RunSummary]:
     """Newest-first run listing. Each run appears exactly once across a cursor walk."""
-    stmt = (
-        select(Run, _TARGET_COUNT, _DIVERGENCE_COUNT)
-        .order_by(Run.id.desc())
-        .limit(limit + 1)
-    )
+    stmt = select(Run, _TARGET_COUNT, _DIVERGENCE_COUNT).order_by(Run.id.desc()).limit(limit + 1)
     if cursor is not None:
         try:
             stmt = stmt.where(Run.id < decode_cursor(cursor))
@@ -177,8 +173,13 @@ async def upload_run_bundle(run_id: int, file: UploadFile, session: SessionDep) 
     Rejected bundles write nothing; the fan-out is one transaction."""
     run = await session.get(Run, run_id)
     if run is None:
-        raise ApiError(404, ErrorCode.NOT_FOUND, f"run {run_id} does not exist — create it "
-                       "with POST /v1/runs before uploading its bundle", {"run_id": run_id})
+        raise ApiError(
+            404,
+            ErrorCode.NOT_FOUND,
+            f"run {run_id} does not exist — create it "
+            "with POST /v1/runs before uploading its bundle",
+            {"run_id": run_id},
+        )
     bundle = parse_bundle_zip(await file.read())
     await ingest_bundle(session, run, bundle)
     await session.commit()

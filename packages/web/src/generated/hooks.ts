@@ -4,11 +4,74 @@ import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/lib/api-client";
 
+export function useGetDivergence(divergence_id: number) {
+  return useQuery({
+    queryKey: ["getDivergence", divergence_id],
+    queryFn: async () => {
+      const { data, error } = await client.GET("/v1/divergences/{divergence_id}", {
+        params: { path: { divergence_id } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export function useGetDivergenceRepro(divergence_id: number) {
+  return useQuery({
+    queryKey: ["getDivergenceRepro", divergence_id],
+    queryFn: async () => {
+      const { data, error } = await client.GET("/v1/divergences/{divergence_id}/repro.py", {
+        params: { path: { divergence_id } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 export function useGetHealth() {
   return useQuery({
     queryKey: ["getHealth"],
     queryFn: async () => {
       const { data, error } = await client.GET("/v1/health");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export function useListRuns() {
+  return useQuery({
+    queryKey: ["listRuns"],
+    queryFn: async () => {
+      const { data, error } = await client.GET("/v1/runs");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export function useGetRun(run_id: number) {
+  return useQuery({
+    queryKey: ["getRun", run_id],
+    queryFn: async () => {
+      const { data, error } = await client.GET("/v1/runs/{run_id}", {
+        params: { path: { run_id } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+export function useGetTarget(target_id: number) {
+  return useQuery({
+    queryKey: ["getTarget", target_id],
+    queryFn: async () => {
+      const { data, error } = await client.GET("/v1/targets/{target_id}", {
+        params: { path: { target_id } },
+      });
       if (error) throw error;
       return data;
     },

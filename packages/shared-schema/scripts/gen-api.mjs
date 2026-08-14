@@ -48,6 +48,7 @@ export const client = createClient<paths>({ baseUrl: apiBaseUrl });
 
 // 4. hooks from the spec's operations
 const spec = JSON.parse(readFileSync(join(schemaDir, "openapi.json"), "utf8"));
+const TS_PRIMITIVES = { integer: "number", number: "number", boolean: "boolean", string: "string" };
 const hooks = [];
 for (const [path, methods] of Object.entries(spec.paths ?? {}).sort()) {
   for (const [method, op] of Object.entries(methods)) {
@@ -56,11 +57,23 @@ for (const [path, methods] of Object.entries(spec.paths ?? {}).sort()) {
     }
     const name = op.operationId[0].toUpperCase() + op.operationId.slice(1);
     if (method === "get") {
-      hooks.push(`export function use${name}() {
+      // Path params become hook arguments (typed from the spec) and query-key members;
+      // openapi-fetch requires them in the init object, so plain-path hooks stay arg-free.
+      const pathParams = (op.parameters ?? []).filter((p) => p.in === "path");
+      const args = pathParams
+        .map((p) => `${p.name}: ${TS_PRIMITIVES[p.schema?.type] ?? "string"}`)
+        .join(", ");
+      const key = [JSON.stringify(op.operationId), ...pathParams.map((p) => p.name)].join(", ");
+      const init = pathParams.length
+        ? `, {
+        params: { path: { ${pathParams.map((p) => p.name).join(", ")} } },
+      }`
+        : "";
+      hooks.push(`export function use${name}(${args}) {
   return useQuery({
-    queryKey: [${JSON.stringify(op.operationId)}],
+    queryKey: [${key}],
     queryFn: async () => {
-      const { data, error } = await client.GET(${JSON.stringify(path)});
+      const { data, error } = await client.GET(${JSON.stringify(path)}${init});
       if (error) throw error;
       return data;
     },

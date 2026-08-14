@@ -6,16 +6,13 @@ The cursor is opaque to clients. `next_cursor` is null on the last page. A malfo
 
 import base64
 import binascii
-from typing import Generic, TypeVar
 
 from pydantic import BaseModel
-
-T = TypeVar("T")
 
 _PREFIX = "v1:"
 
 
-class Page(BaseModel, Generic[T]):
+class Page[T](BaseModel):
     items: list[T]
     next_cursor: str | None
 
