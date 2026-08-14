@@ -23,7 +23,7 @@ from tempest.execute.dual import (
     prove_impure_target,
     prove_target,
 )
-from tempest.execute.runner import run_batch
+from tempest.execute.runner import PersistentWorker
 from tempest.execute.sandbox import DockerSandbox, ProcessSandbox, Sandbox
 from tempest.generate.inputs import Budget
 from tempest.generate.mining import mine_literals
@@ -173,17 +173,24 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
                     cfg=compare_cfg,
                 )
             else:
-                outcome = prove_target(
-                    base_env.worktree,
-                    head_env.worktree,
-                    module,
-                    sym.symbol,
-                    changed_lines=changed_in_span,
-                    sandbox=sandbox,
-                    budget=budget,
-                    mined=mined,
-                    cfg=compare_cfg,
-                )
+                # One worker pair serves every batch for this target (spawn economics); the
+                # 3x divergence confirmations inside stay on fresh process pairs (§14.2).
+                with (
+                    PersistentWorker(base_env.worktree, module, sym.symbol, sandbox) as base_worker,
+                    PersistentWorker(head_env.worktree, module, sym.symbol, sandbox) as head_worker,
+                ):
+                    outcome = prove_target(
+                        base_env.worktree,
+                        head_env.worktree,
+                        module,
+                        sym.symbol,
+                        changed_lines=changed_in_span,
+                        sandbox=sandbox,
+                        budget=budget,
+                        mined=mined,
+                        cfg=compare_cfg,
+                        worker_pair=(base_worker, head_worker),
+                    )
             records.append(
                 _finished_record(
                     fd.path,
@@ -356,15 +363,22 @@ def _minimize(
     compare_cfg: CompareConfig,
     cfg: ProveConfig,
 ) -> "_Minimized":
-    def rerun(args_l: str, kwargs_l: str) -> Diverged | None:
-        (b,) = run_batch(base_env.worktree, module, qualname, [(args_l, kwargs_l)], sandbox)
-        (h,) = run_batch(head_env.worktree, module, qualname, [(args_l, kwargs_l)], sandbox)
-        result = compare(b, h, compare_cfg)
-        return result if isinstance(result, Diverged) else None
+    # One fresh worker pair per divergence: shrink probes share it (the same state model as
+    # the detection batch), instead of paying two interpreter spawns per shrink attempt.
+    with (
+        PersistentWorker(base_env.worktree, module, qualname, sandbox) as base_worker,
+        PersistentWorker(head_env.worktree, module, qualname, sandbox) as head_worker,
+    ):
 
-    result = minimize_input(
-        rerun, d.args_literal, d.kwargs_literal, max_attempts=cfg.minimize_attempts
-    )
+        def rerun(args_l: str, kwargs_l: str) -> Diverged | None:
+            (b,) = base_worker.run([(args_l, kwargs_l)])
+            (h,) = head_worker.run([(args_l, kwargs_l)])
+            result = compare(b, h, compare_cfg)
+            return result if isinstance(result, Diverged) else None
+
+        result = minimize_input(
+            rerun, d.args_literal, d.kwargs_literal, max_attempts=cfg.minimize_attempts
+        )
     if result is None:
         return _Minimized(d.args_literal, d.kwargs_literal, ())
     return _Minimized(result.args_literal, result.kwargs_literal, result.shrink_path)

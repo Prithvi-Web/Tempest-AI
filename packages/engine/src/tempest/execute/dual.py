@@ -23,7 +23,7 @@ from tempest.compare.compare import (
     UnprovableKind,
     compare,
 )
-from tempest.execute.runner import run_batch
+from tempest.execute.runner import PersistentWorker, run_batch
 from tempest.execute.sandbox import Sandbox
 from tempest.generate.inputs import Budget, CandidateInput, generate_inputs
 from tempest.generate.mutate import mutate_input
@@ -169,6 +169,7 @@ def prove_target(
     budget: Budget,
     mined: list[object] | None = None,
     cfg: CompareConfig | None = None,
+    worker_pair: "tuple[PersistentWorker, PersistentWorker] | None" = None,
 ) -> TargetOutcome:
     cfg = cfg or CompareConfig()
     adapter = synthesize(head_root, module, qualname, sandbox=sandbox, seed=budget.seed)
@@ -177,8 +178,12 @@ def prove_target(
 
     candidates = generate_inputs(adapter.introspection, mined=mined or [], budget=budget)
     literals = [(c.args_literal, c.kwargs_literal) for c in candidates]
-    base_obs = run_batch(base_root, module, qualname, literals, sandbox)
-    head_obs = run_batch(head_root, module, qualname, literals, sandbox)
+    if worker_pair is not None:
+        base_obs = worker_pair[0].run(literals)
+        head_obs = worker_pair[1].run(literals)
+    else:
+        base_obs = run_batch(base_root, module, qualname, literals, sandbox)
+        head_obs = run_batch(head_root, module, qualname, literals, sandbox)
 
     # One coverage-guided top-up round: mutate the inputs that reached changed lines.
     if changed_lines and len(literals) < budget.max_inputs:
@@ -193,8 +198,12 @@ def prove_target(
             : budget.max_inputs - len(literals)
         ]
         if mutants:
-            base_obs += run_batch(base_root, module, qualname, mutants, sandbox)
-            head_obs += run_batch(head_root, module, qualname, mutants, sandbox)
+            if worker_pair is not None:
+                base_obs += worker_pair[0].run(mutants)
+                head_obs += worker_pair[1].run(mutants)
+            else:
+                base_obs += run_batch(base_root, module, qualname, mutants, sandbox)
+                head_obs += run_batch(head_root, module, qualname, mutants, sandbox)
             literals += mutants
             candidates += [
                 CandidateInput(args_literal=a, kwargs_literal=k, provenance="MUTATED")

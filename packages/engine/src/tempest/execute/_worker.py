@@ -334,6 +334,26 @@ def do_invoke(job: dict[str, Any], canonical: _CanonicalModule) -> None:
         _emit(payload)
 
 
+def do_serve(job: dict[str, Any], canonical: _CanonicalModule) -> None:
+    """Persistent pure-path worker: one process, many batches over stdin (JSONL), a
+    `batch_end` sentinel after each. The target module imports once and stays loaded — the
+    same state model as one large batch, which the pure path already runs. Determinism
+    (record/replay) batches never use serve mode: their shim install/uninstall lifecycle owns
+    process boundaries and stays one-process-per-batch."""
+    for line in sys.stdin:
+        text = line.strip()
+        if not text:
+            continue
+        request: dict[str, Any] = json.loads(text)
+        if request.get("shutdown"):
+            return
+        batch = dict(job)
+        batch["inputs"] = request["inputs"]
+        batch["determinism"] = None
+        do_invoke(batch, canonical)
+        _emit({"batch_end": True})
+
+
 def main() -> None:
     with open(sys.argv[1], encoding="utf-8") as fh:
         job: dict[str, Any] = json.load(fh)
@@ -343,6 +363,8 @@ def main() -> None:
     canonical = cast(_CanonicalModule, importlib.import_module("canonical"))
     if job["mode"] == "introspect":
         do_introspect(job["module"], job["qualname"])
+    elif job["mode"] == "serve":
+        do_serve(job, canonical)
     else:
         do_invoke(job, canonical)
 

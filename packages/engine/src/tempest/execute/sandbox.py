@@ -29,7 +29,13 @@ class Sandbox(Protocol):
         ...
 
     def popen(
-        self, cmd: list[str], *, cwd: Path, env: dict[str, str], scratch: Path
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        scratch: Path,
+        stdin_pipe: bool = False,
     ) -> subprocess.Popen[bytes]: ...
 
 
@@ -56,7 +62,13 @@ class ProcessSandbox:
         return job
 
     def popen(
-        self, cmd: list[str], *, cwd: Path, env: dict[str, str], scratch: Path
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        scratch: Path,
+        stdin_pipe: bool = False,
     ) -> subprocess.Popen[bytes]:
         return subprocess.Popen(
             cmd,
@@ -64,7 +76,7 @@ class ProcessSandbox:
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
             preexec_fn=_set_child_limits,
         )
@@ -162,7 +174,13 @@ class DockerSandbox:
         ]
 
     def popen(
-        self, cmd: list[str], *, cwd: Path, env: dict[str, str], scratch: Path
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        scratch: Path,
+        stdin_pipe: bool = False,
     ) -> subprocess.Popen[bytes]:
         container_cmd = self.translate_command(cmd, workdir=cwd, scratch=scratch)
         wrapped = self.wrap_command(container_cmd, workdir=cwd, scratch=scratch)
@@ -171,6 +189,6 @@ class DockerSandbox:
             env={"PATH": "/usr/bin:/bin:/usr/local/bin"},
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
         )
