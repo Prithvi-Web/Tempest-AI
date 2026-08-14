@@ -126,3 +126,25 @@ back to dev mode.
 
 **Consequences.** The user must create the GitHub OAuth app before any real deployment; documented
 in `docs/QUESTIONS.md` Q4.
+
+## ADR-0008 — First-party fixture sandbox gate + added-symbol semantics
+
+**Date:** 2026-08-13 · **Status:** accepted
+
+**Context.** (a) The Phase 1/2 gates must run on this Docker-less machine without violating L6.
+(b) The pyfix gate exposed a semantic hole: a helper function added only in head has no base
+counterpart; naively "comparing" it produces a fake CRASH divergence (base can't even import it).
+
+**Decision.**
+1. `ProcessSandbox` is reachable only when BOTH hold: the target repo carries a committed
+   `.tempest-first-party` marker with the exact token, AND `TEMPEST_DEV=1` is set. Everything
+   else follows ADR-0003 (Docker or `UNPROVEN(SANDBOX_UNAVAILABLE)`). The CLI prints a loud
+   banner whenever the first-party path is active.
+2. Symbols (or whole files) that exist only in head are not differential targets — new code
+   cannot change existing behavior by itself; its effect is proven through its changed callers.
+   Deleted-only symbols likewise have no head side to execute. Both rules live in
+   `tempest/prove.py` next to the diff walk.
+
+**Consequences.** Fixture gates run identically on this machine and in CI; extract-helper
+refactors no longer produce fake CRASH findings (regression-locked by the pyfix gate's no-op
+half).

@@ -18,6 +18,10 @@ src = ["packages/engine/src", "packages/api/src"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# typer's declarative Option-in-default pattern is the library's documented API
+"packages/engine/src/tempest/cli/main.py" = ["B008"]
+
 [tool.mypy]
 strict = true
 python_version = "3.12"

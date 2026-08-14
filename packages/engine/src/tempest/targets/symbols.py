@@ -86,6 +86,11 @@ def _collect_defs(tree: ast.Module) -> list[SymbolSpan]:
     return spans
 
 
+def all_symbol_names(src: str) -> frozenset[str]:
+    """Every dotted def name in the module — used to tell added symbols from changed ones."""
+    return frozenset(s.symbol for s in _collect_defs(ast.parse(src)))
+
+
 def enclosing_symbols(src: str, changed_lines: set[int]) -> list[SymbolSpan]:
     """The innermost def enclosing each changed line, unique, in source order."""
     tree = ast.parse(src)

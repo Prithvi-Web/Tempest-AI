@@ -18,6 +18,8 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run mypy --strict packages/engine/src packages/api/src
       - run: uv run pytest packages/engine packages/api -q --cov --cov-fail-under=85
+        env:
+          TEMPEST_DEV: "1"  # permits ProcessSandbox for the first-party pyfix gate (ADR-0008)
 
   node:
     runs-on: ubuntu-latest

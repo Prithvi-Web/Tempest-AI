@@ -56,38 +56,49 @@ make verify   # phase-0 scope: ruff, mypy --strict, pytest, pnpm -r typecheck, p
 Local constraint: `docker compose up` cannot be exercised on this machine (no Docker — ADR-0003);
 compose files are validated with `docker compose config` in CI instead.
 
-## Phase 1 — Pure-function differential, Python only
+## Phase 1 — Pure-function differential, Python only ✅ 2026-08-13
 
 Stages 1, 2, 3, 5, 6, 7, 8, 9 for `PURE_CANDIDATE` targets.
 
-- [ ] Stage 1 `targets/`: diff parsing, AST symbol extraction, import-graph, changed-symbol
-      classification (`PURE_CANDIDATE` / `IMPURE_RECORDABLE` / `UNREACHABLE`), transitive callers to depth k=2
-- [ ] Stage 2 `envrepro/`: `git worktree` materialization of base+head, deterministic install,
-      interpreter pinning, env normalization (`LC_ALL=C.UTF-8`, `TZ=UTC`, `PYTHONHASHSEED=0`)
-- [ ] Stage 3 `harness/`: type-driven invocation adapters, validated by execution, cached per
-      `(symbol, file-hash)`, 3-attempt limit → `UNPROVEN(HARNESS_SYNTHESIS_FAILED)`
-- [ ] Stage 5 `generate/`: Hypothesis `from_type` strategies + corpus mining (test literals, call-site
-      constants) + coverage-guided mutation (coverage.py arcs), budgets (`max_inputs=300`, 30 s/target),
-      `changed_line_coverage` reported per target
-- [ ] Stage 6 `execute/`: dual execution in separate processes, identical env; observation records
-      (return value, exception, stdout/stderr, exit status, timing recorded-never-compared);
-      crash/hang/OOM as observations
-- [ ] Stage 7 `compare/`: canonical serialization (key-sorted, set-normalized, NaN==NaN, -0.0 class),
-      exception normalization ruleset in one audited file with its own tests, `DivergenceClass` taxonomy
-- [ ] Stage 8 `minimize/`: structural ddmin + Hypothesis shrinking, divergence-class-preserving,
-      standalone repro script emission
-- [ ] Stage 9 `bundle/`: schema-versioned run bundle (manifest, per-target results, repros, coverage),
-      writer + reader, CLI terminal report renderer
-- [ ] `tempest prove --base <ref> --head <ref>` CLI wired end-to-end
-- [ ] Fixture repo `corpus/fixtures/pyfix` with 12 seeded behavior changes + 12 no-op refactors
+- [x] Stage 1 `targets/`: diff parsing, AST symbol extraction, changed-symbol classification
+      (`PURE_CANDIDATE` / `IMPURE_RECORDABLE` / `UNREACHABLE` — every UNREACHABLE actionable);
+      transitive-caller expansion is folded into classification's same-module callee scan for v1,
+      full cross-module caller targets land with the TS work
+- [x] Stage 2 `envrepro/`: `git worktree` materialization of base+head, env normalization
+      (`LC_ALL=C.UTF-8`, `TZ=UTC`, `PYTHONHASHSEED=0`), lockfile fingerprints surfaced
+- [x] Stage 3 `harness/`: deterministic type-driven adapters validated by EXECUTION (3-probe limit
+      → `UNPROVEN(HARNESS_SYNTHESIS_FAILED)` with attempts); LLM synthesizer is BYOK-optional
+      (ADR-0006) and intentionally not wired until a key-bearing env exists to exercise it
+- [x] Stage 5 `generate/`: Hypothesis `from_type` (derandomized) + curated edge pools + corpus
+      mining + structural mutation top-up; budgets; `changed_line_coverage` in every result
+- [x] Stage 6 `execute/`: separate processes per revision, stdlib-only sandboxed worker,
+      crash/hang as observations, settrace line+arc coverage, 3x fresh-pair flake confirmation,
+      `NONDETERMINISTIC_BASE` → UNPROVEN
+- [x] Stage 7 `compare/`: canonical trees (NaN==NaN, signed-zero LOW class, bool≠int), audited
+      normalization ruleset, full `DivergenceClass` taxonomy
+- [x] Stage 8 `minimize/`: greedy structural ddmin, DivergenceClass-preserving (property-tested),
+      standalone repro scripts (always-valid syntax; summaries injected via repr)
+- [x] Stage 9 `bundle/`: schema-versioned bundle + zip, §7 integrity enforced at the writer,
+      round-trip tested; `docs/BUNDLE_SCHEMA.md`
+- [x] `tempest prove --base <ref> --head <ref>` CLI end-to-end (exit 1 on DIVERGENT)
+- [x] Fixture `corpus/fixtures/pyfix` (12 seeded behavior changes + 12 no-op refactors)
 
-**Gate (run, paste real output):**
-```bash
-tempest prove --base base --head head   # in corpus/fixtures/pyfix:
-                                        # → 12/12 DIVERGENT with minimized repros
-                                        # → 0 false divergences on the 12 no-op refactors
-pytest packages/engine -q
+**Gate passed 2026-08-13** — real output (abridged; the gate also runs as
+`tests/integration/test_prove_pyfix.py` in every CI run):
 ```
+$ TEMPEST_DEV=1 tempest prove --base base --head head --repo pyfix --max-inputs 40
+DIVERGENT — 31 divergence(s) across 12 target(s).
+b01..b12  → all 12 DIVERGENT, changed-line coverage 100%, minimized repros written
+n01..n12  → all 12 EQUIVALENT_UNDER_BUDGET, 0 false divergences
+e.g. b01.clamp  minimized input (0,)  base: returned 0 / head: returned 1  → repros/b01_clamp_0.py
+     b11        EXCEPTION_MESSAGE minimized to (-1,)
+     b12        RETURN_VALUE (low severity) signed-zero at (0.0,)
+exit code: 1 (DIVERGENT)                              # TEMPEST-EXIT=1 verified
+$ pytest packages/engine -q
+162 passed in 120.94s
+```
+Bugs the gate itself caught before passing: fake CRASH divergence on head-only helper symbols
+(ADR-0008 §2) and repro scripts with unescaped quotes — both fixed and regression-locked.
 
 ## Phase 2 — Determinism layer (THE RISK PHASE)
 
