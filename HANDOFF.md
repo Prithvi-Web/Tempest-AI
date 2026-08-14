@@ -1,5 +1,10 @@
 # HANDOFF — read me first
 
+> **Continuing the roadmap?** Read **`docs/HANDOFF-PHASES.md`** — the entry point for the
+> remaining phases (11–18), the standing traps, the resume commands, and the owner decision
+> queue. Phases 8, 9, 10 and the perf rework are done (see the table below).
+
+
 **What this is:** Tempest AI, a behavioral proof agent — it *executes* diffs (base vs head under
 identical deterministic conditions) and reports divergences with minimized, runnable evidence.
 Built from `tempest-master-prompt.md` (the v1 contract) on 2026-08-13; the desktop/enterprise
