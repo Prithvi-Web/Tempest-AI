@@ -1,0 +1,59 @@
+# Phase 6 self-test: run the composite action against the seeded pyfix fixture and assert the
+# whole contract — DIVERGENT is detected, the check fails, the comment carries the evidence,
+# and the forbidden word never appears on the CI surface (Law L2).
+#
+# User repos need Docker for the sandbox; this self-test uses TEMPEST_DEV=1 plus the committed
+# first-party fixture marker, so it exercises the ProcessSandbox path (ADR-0008) and stays fast.
+name: tempest-selftest
+
+on:
+  pull_request:
+    paths:
+      - "packages/engine/**"
+      - "action/**"
+      - "corpus/**"
+      - ".github/workflows/tempest-selftest.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    env:
+      TEMPEST_DEV: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Materialize the pyfix fixture (12 seeded behavior changes + 12 no-op refactors)
+        run: python3 corpus/fixtures/pyfix/make_fixture.py "$RUNNER_TEMP/pyfix"
+
+      - name: Run the action against the fixture (DIVERGENT expected)
+        id: tempest
+        uses: ./action
+        continue-on-error: true # the assertion step below is the real gate
+        with:
+          repo: ${{ runner.temp }}/pyfix
+          base: base
+          head: head
+          max-inputs: "40"
+          comment: "false" # keep tempest's own PRs free of fixture noise
+          build-sandbox-image: "false" # ProcessSandbox path — no Docker needed
+
+      - name: Assert the action behaved per contract
+        env:
+          OUTCOME: ${{ steps.tempest.outcome }}
+          VERDICT: ${{ steps.tempest.outputs.verdict }}
+          COMMENT_PATH: ${{ steps.tempest.outputs.comment-path }}
+          BUNDLE_PATH: ${{ steps.tempest.outputs.bundle-path }}
+        run: |
+          test "$OUTCOME" = "failure"    # DIVERGENT must fail the check
+          test "$VERDICT" = "DIVERGENT"
+          test -f "$BUNDLE_PATH/manifest.json"
+          test -f "$BUNDLE_PATH/targets.json"
+          grep -qF '## Tempest verdict: `DIVERGENT`' "$COMMENT_PATH"
+          grep -qF 'b01.clamp' "$COMMENT_PATH"   # seeded change caught, named in the table
+          grep -qF 'Minimized input' "$COMMENT_PATH"
+          grep -qF 'Reproduction script' "$COMMENT_PATH"
+          ! grep -wq 'SAFE' "$COMMENT_PATH"      # Law L2 holds on the CI surface
+          echo "self-test contract held: verdict=$VERDICT, evidence present, comment honest"

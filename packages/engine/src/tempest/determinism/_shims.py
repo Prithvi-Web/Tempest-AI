@@ -478,17 +478,29 @@ def _shim_urlopen(url: Any, *args: Any, **kwargs: Any) -> Any:
     url_text = url if isinstance(url, str) else getattr(url, "full_url", repr(url))
     call = f"urlopen({url_text})"
 
+    import urllib.error
+
     def live() -> dict[str, Any]:
         _allow_internal.value = True
         try:
             with _saved["urlopen"](url, *args, **kwargs) as resp:
                 body = resp.read()
                 return {
+                    "ok": True,
                     "status": resp.status,
                     "headers": list(resp.headers.items()),
                     "body": body,
                     "url": resp.url,
                 }
+        except urllib.error.HTTPError as exc:
+            return {
+                "ok": False,
+                "status": exc.code,
+                "reason": str(exc.reason),
+                "headers": list(exc.headers.items()) if exc.headers else [],
+                "body": exc.read(),
+                "url": url_text,
+            }
         finally:
             _allow_internal.value = False
 
@@ -497,6 +509,10 @@ def _shim_urlopen(url: Any, *args: Any, **kwargs: Any) -> Any:
     for name, value in payload["headers"]:
         headers[name] = value
     fp = io.BytesIO(payload["body"])
+    if not payload.get("ok", True):
+        raise urllib.error.HTTPError(
+            str(payload["url"]), int(payload["status"]), str(payload["reason"]), headers, fp
+        )
     response = urllib.response.addinfourl(fp, headers, str(payload["url"]), int(payload["status"]))
     return response
 

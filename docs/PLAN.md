@@ -100,22 +100,40 @@ $ pytest packages/engine -q
 Bugs the gate itself caught before passing: fake CRASH divergence on head-only helper symbols
 (ADR-0008 §2) and repro scripts with unescaped quotes — both fixed and regression-locked.
 
-## Phase 2 — Determinism layer (THE RISK PHASE)
+## Phase 2 — Determinism layer (THE RISK PHASE) ✅ 2026-08-13 — 30/30
 
-Record/replay for clock, random, fs, net, proc in Python. Cassette = ordered content-addressed ledger.
+Record/replay for clock, random, fs, net, proc in Python. Cassette = ordered ledger, keyed
+`(surface, normalized_call, per-key ordinal)`; per-input sessions + an import-session so
+`from x import y` bindings capture the shims (`determinism/_shims.py`, stdlib-only, copied into
+the sandbox beside the worker).
 
-- [ ] `determinism/cassette.py`: interaction ledger, keying `(surface, normalized_call_signature, ordinal)`
-- [ ] `determinism/record.py` + `replay.py`: shim installer injected into target processes
-- [ ] Shims: clock (`time.*`, `datetime.now/utcnow`), random (`random`, `os.urandom`, `uuid4`, `secrets`),
-      fs (`open`, `os.*`, `pathlib`), net (`socket`-guard + `http.client` layer), proc (`subprocess`, `os.environ`)
-- [ ] Effect-divergence detection: sequence diff, cassette miss = `DIVERGENT`, first divergent index
-- [ ] Un-interceptable surface → `UNPROVEN(UNINTERCEPTABLE_EFFECT)` naming the exact surface
-- [ ] 30-function real-world corpus (10 HTTP, 10 fs, 10 time/random) + `tempest.dev.corpus_check`
+- [x] Session/cassette ledger with per-key ordinal queues and global order
+- [x] Shims: clock (`time.time/_ns/monotonic/_ns`, `datetime.now/utcnow/today`), random
+      (`random.*` incl. index-keyed choice + permutation-keyed shuffle, `os.urandom` → covers
+      uuid4/secrets), fs (`open` r/w/a with content capture, `os.listdir/path.exists/getcwd`,
+      env proxy), net (`urlopen` incl. HTTPError replay + raw-socket guard — ADR-0010), proc
+      (`subprocess.run`, `os.system`, Popen guard)
+- [x] Effect divergence: ledger comparison with first divergent index; cassette miss =
+      `DIVERGENT(CASSETTE_MISS)`; internal-machinery interactions excluded from the ledger
+- [x] Un-interceptable surface → `UNPROVEN(UNINTERCEPTABLE_EFFECT)` naming the exact surface
+- [x] `prove_impure_target`: record → base replay-verify → head replay, 3x flake confirmation,
+      wired into `tempest prove` for IMPURE_RECORDABLE targets
+- [x] 30-function corpus (10 HTTP via loopback, 10 fs, 10 time/random) + `tempest.dev.corpus_check`
+      (in `make verify`)
 
-**Gate (run, paste real output; if <24/30 stable, STOP and report to the user):**
-```bash
-python -m tempest.dev.corpus_check --min-pass 24 --repeats 5   # byte-identical observations across 5 runs
+**Gate passed 2026-08-13** — real output:
 ```
+$ python -m tempest.dev.corpus_check --min-pass 24 --repeats 5
+tempest corpus check: 30 impure functions × 5 replays
+  STABLE   httpfns.fetch_user_name('__LOOPBACK__',)
+  ... (all 30 lines STABLE — incl. retry_on_404, double_read_same_endpoint,
+       shuffled_copy, request_id, append_audit_line, env_or_file_setting)
+30/30 stable across 5 consecutive replays        # bar: ≥24 — exit 0
+```
+Real bugs the phase surfaced and fixed: from-import bindings bypassing shims (fixed via
+pre-import install + import-session), loopback server threads polluting the ledger (internal
+thread flagging), record-side urlopen env probes leaking into effects (internal-passthrough
+rule), HTTPError paths unreplayable (recorded error payloads).
 
 ## Phase 3 — TypeScript support
 
@@ -161,12 +179,26 @@ pnpm gen:api && git diff --exit-code packages/shared-schema packages/web/src/gen
 
 ## Phase 6 — CI integration
 
-- [ ] GitHub Action wrapping the CLI
-- [ ] PR check: fail only on `DIVERGENT`; `UNPROVEN` = neutral status + loud explanation
-- [ ] PR comment with minimized repros; `tempest.toml` respected
+- [x] GitHub Action wrapping the CLI (`action/action.yml` + `action/README.md`): installs the
+      engine via `uv tool install`, runs `tempest prove`, always uploads the run bundle as an
+      artifact, renders the comment with `tempest ci-comment`, posts/updates a single PR comment
+      (`<!-- tempest-report -->` marker, `gh api`)
+- [x] PR check: fail only on `DIVERGENT` (or `ERROR` — Tempest's own failure); `UNPROVEN` =
+      exit 0 + one `::warning` annotation per unexercised target with its reason code
+- [x] PR comment with minimized repros (`tempest ci-comment --bundle <dir>` — deterministic GFM;
+      golden-tested in `tests/unit/test_ci_comment.py`); `tempest.toml` respected
+      (`tempest/config.py`: `[budgets] max_inputs`/`max_wall_seconds`, `[compare] float_rel_tol`,
+      `[ignore] globs`; precedence CLI flag > file > default; unknown keys are a listed hard
+      error; tested in `tests/unit/test_config.py`)
+- [x] Self-test workflow `.github/workflows/tempest-selftest.yml`: runs the action against the
+      materialized pyfix fixture on every PR (TEMPEST_DEV=1 ProcessSandbox path, ADR-0008) and
+      asserts DIVERGENT is caught, the check fails, and the comment carries the evidence
 
 **Gate:** end-to-end on a real GitHub repo — a seeded behavior-change PR → check fails with the
-minimized repro in the comment (requires the repo to be published to GitHub first).
+minimized repro in the comment (requires the repo to be published to GitHub first; the selftest
+workflow is that gate's standing rehearsal, and the full pipeline — prove → bundle → ci-comment →
+verdict-case logic incl. the jq annotations — was executed locally against pyfix: 12/12 divergent,
+exit 1, comment rendered with minimized inputs + repros).
 
 ## Phase 7 — Hardening
 

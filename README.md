@@ -36,6 +36,7 @@ never pays for anyone's runs.
 - `packages/ts-sidecar` — TypeScript analysis sidecar (JSON-RPC over stdio)
 - `packages/api` — FastAPI ingestion/orchestration; `packages/web` — Next.js dashboard
 - `packages/shared-schema` — generated OpenAPI + TS types (zero-drift contract)
+- `action/` — composite GitHub Action wrapping the CLI (PR check + evidence comment)
 - `corpus/` — real-world validation corpora and fixture repos
 - `docs/` — `PLAN.md` (phases + gates), `ARCHITECTURE.md`, `DECISIONS.md` (ADRs), `BUNDLE_SCHEMA.md`
 

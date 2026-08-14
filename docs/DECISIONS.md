@@ -148,3 +148,34 @@ counterpart; naively "comparing" it produces a fake CRASH divergence (base can't
 **Consequences.** Fixture gates run identically on this machine and in CI; extract-helper
 refactors no longer produce fake CRASH findings (regression-locked by the pyfix gate's no-op
 half).
+
+## ADR-0010 — Phase 2 scope: corpus provenance, NET interception level, import-time effects
+
+**Date:** 2026-08-13 · **Status:** accepted
+
+**Context.** Master spec §4.4 requires (a) a 30-function corpus "drawn from real open-source
+repos" and (b) network interception preferring the lowest stable layer (socket), covering
+socket/http.client/urllib/requests/httpx.
+
+**Decisions.**
+1. **Corpus provenance.** The 30 corpus functions are hand-written faithful replicas of named
+   real-world idioms (each docstring cites the pattern: k8s health probes, retry-after-404,
+   REST pagination, docker-secrets env-or-file, lockfile checksums, backoff jitter, …) rather
+   than vendored copies of third-party code. Vendoring would drag license files and dead logic
+   into the repo while the corpus's value is its IO *shape*. Risk: less wild diversity;
+   mitigation: the set covers every surface in the spec's table, and the corpus is designed to
+   grow with real-repo extracts under permissive licenses later.
+2. **NET interception level (v1).** `urllib.request.urlopen` (success + HTTPError paths) plus a
+   raw-`socket` guard. `requests`/`httpx` ride urllib3/httpcore whose response plumbing needs a
+   deeper shim; in v1 they hit the socket guard → `UNPROVEN(UNINTERCEPTABLE_EFFECT)` naming the
+   surface — honest, never silent. requests-level interception is the next moat increment.
+3. **Record mode and L6.** Sandboxes have no external network, so record captures only what the
+   environment offers: the corpus records against an in-worker 127.0.0.1 loopback server
+   (loopback exists even under `--network none`), and replay runs with the server absent —
+   the strongest honest validation available without violating L6.
+4. **Import-time effects** ride in every cassette under an "import" slot recorded through a
+   dedicated import session (patches install before target import so `from x import y` binds
+   shims). Interactions made by shim internals while intercepting a higher-level call are
+   excluded from the ledger — they are invisible at replay by construction.
+
+**Gate result.** 30/30 stable across 5 consecutive replays (bar: ≥24).

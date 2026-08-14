@@ -1,0 +1,223 @@
+# Tempest AI — composite GitHub Action wrapping the `tempest` CLI (docs/PLAN.md Phase 6).
+#
+# Check policy (Law L2 — honest verdicts, enforced at the end of this file):
+#   DIVERGENT               → check FAILS (evidence in the PR comment + artifact)
+#   ERROR                   → check FAILS (Tempest's own failure, never blamed on the change)
+#   UNPROVEN                → check passes but is LOUD (::warning per unexercised target)
+#   EQUIVALENT_UNDER_BUDGET → check passes; the wording never claims correctness
+name: "Tempest AI behavioral proof"
+description: >-
+  Executes base and head side by side under identical conditions and reports where observable
+  behavior diverges, with minimized inputs and standalone repro scripts. Verdicts are
+  DIVERGENT / EQUIVALENT_UNDER_BUDGET / UNPROVEN / ERROR — evidence, not opinion.
+branding:
+  icon: "cloud-lightning"
+  color: "purple"
+
+inputs:
+  base:
+    description: "Base (pre-change) git ref, e.g. github.event.pull_request.base.sha"
+    required: true
+  head:
+    description: "Head (post-change) git ref"
+    required: false
+    default: "HEAD"
+  max-inputs:
+    description: "Per-target input budget (empty: 300, or [budgets].max_inputs in tempest.toml)"
+    required: false
+    default: ""
+  float-tolerance:
+    description: >-
+      Opt-in relative float tolerance (empty: exact comparison, or [compare].float_rel_tol
+      in tempest.toml)
+    required: false
+    default: ""
+  repo:
+    description: "Path to the repository under test (empty: the workflow workspace)"
+    required: false
+    default: ""
+  comment:
+    description: "Post/update the single PR comment (set 'false' to only generate it)"
+    required: false
+    default: "true"
+  build-sandbox-image:
+    description: "Build the tempest-sandbox Docker image (set 'false' for first-party fixtures)"
+    required: false
+    default: "true"
+  artifact-name:
+    description: "Name for the uploaded run-bundle artifact"
+    required: false
+    default: "tempest-run-bundle"
+  github-token:
+    description: "Token used to post/update the PR comment (needs pull-requests: write)"
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  verdict:
+    description: "DIVERGENT | EQUIVALENT_UNDER_BUDGET | UNPROVEN | ERROR"
+    value: ${{ steps.conclusion.outputs.verdict }}
+  bundle-path:
+    description: "Directory containing manifest.json, targets.json and repros/"
+    value: ${{ steps.prove.outputs.bundle-path }}
+  comment-path:
+    description: "Path of the generated GitHub-flavored-markdown comment"
+    value: ${{ steps.render.outputs.comment-path }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install the tempest CLI from this action's engine
+      shell: bash
+      run: |
+        uv tool install --python 3.12 "${GITHUB_ACTION_PATH}/../packages/engine"
+        echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+    - name: Prepare the execution sandbox (Law L6 — never unsandboxed)
+      shell: bash
+      env:
+        BUILD_IMAGE: ${{ inputs.build-sandbox-image }}
+      run: |
+        # tempest runs from $RUNNER_TEMP/tempest-ci so the DockerSandbox's relative
+        # docker/seccomp-tempest.json path resolves without writing into the user's workspace.
+        mkdir -p "$RUNNER_TEMP/tempest-ci/docker"
+        cp "${GITHUB_ACTION_PATH}/../docker/seccomp-tempest.json" "$RUNNER_TEMP/tempest-ci/docker/"
+        if [ "$BUILD_IMAGE" = "true" ] && command -v docker >/dev/null 2>&1 \
+            && docker info >/dev/null 2>&1; then
+          docker build -t tempest-sandbox:latest \
+            -f "${GITHUB_ACTION_PATH}/../docker/Dockerfile.sandbox" \
+            "${GITHUB_ACTION_PATH}/../docker"
+        else
+          echo "::notice title=Tempest sandbox::No sandbox image was built (Docker unavailable or build disabled). User-repo targets will be UNPROVEN(SANDBOX_UNAVAILABLE) — never silently unsandboxed (ADR-0003); first-party fixtures use ProcessSandbox (ADR-0008)."
+        fi
+
+    - name: tempest prove
+      id: prove
+      shell: bash
+      working-directory: ${{ runner.temp }}/tempest-ci
+      env:
+        TEMPEST_BASE: ${{ inputs.base }}
+        TEMPEST_HEAD: ${{ inputs.head }}
+        TEMPEST_REPO: ${{ inputs.repo }}
+        TEMPEST_MAX_INPUTS: ${{ inputs.max-inputs }}
+        TEMPEST_FLOAT_TOL: ${{ inputs.float-tolerance }}
+      run: |
+        repo_dir="${TEMPEST_REPO:-$GITHUB_WORKSPACE}"
+        args=(--base "$TEMPEST_BASE" --head "$TEMPEST_HEAD" --repo "$repo_dir"
+              --out "$RUNNER_TEMP/tempest-run")
+        [ -z "$TEMPEST_MAX_INPUTS" ] || args+=(--max-inputs "$TEMPEST_MAX_INPUTS")
+        [ -z "$TEMPEST_FLOAT_TOL" ] || args+=(--float-tolerance "$TEMPEST_FLOAT_TOL")
+        set +e
+        tempest prove "${args[@]}"
+        prove_exit=$?
+        set -e
+        # The conclusion step decides pass/fail from the bundle verdict, after the bundle
+        # artifact and the PR comment exist — a DIVERGENT run must still publish its evidence.
+        echo "exit-code=$prove_exit" >> "$GITHUB_OUTPUT"
+        echo "bundle-path=$RUNNER_TEMP/tempest-run" >> "$GITHUB_OUTPUT"
+
+    - name: Upload the run bundle (every run is replayable — Law L7)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ runner.temp }}/tempest-run
+          ${{ runner.temp }}/tempest-run.tempest.zip
+        if-no-files-found: warn
+
+    - name: Render the PR comment
+      id: render
+      shell: bash
+      env:
+        PROVE_EXIT: ${{ steps.prove.outputs.exit-code }}
+      run: |
+        comment="$RUNNER_TEMP/tempest-comment.md"
+        if [ -f "$RUNNER_TEMP/tempest-run/manifest.json" ]; then
+          tempest ci-comment --bundle "$RUNNER_TEMP/tempest-run" > "$comment"
+        else
+          {
+            echo "<!-- tempest-report -->"
+            echo '## Tempest verdict: `ERROR`'
+            echo
+            echo "Tempest itself failed before writing a run bundle (prove exit code ${PROVE_EXIT})."
+            echo "See the job log. This is a Tempest failure, not a statement about the change."
+          } > "$comment"
+        fi
+        echo "comment-path=$comment" >> "$GITHUB_OUTPUT"
+
+    - name: Post or update the single PR comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        COMMENT_ENABLED: ${{ inputs.comment }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        COMMENT_PATH: ${{ steps.render.outputs.comment-path }}
+      run: |
+        if [ "$COMMENT_ENABLED" != "true" ]; then
+          echo "comment posting disabled (comment: false)"
+          exit 0
+        fi
+        if [ -z "$PR_NUMBER" ]; then
+          echo "not a pull_request event — skipping the PR comment"
+          exit 0
+        fi
+        marker='<!-- tempest-report -->'
+        existing=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+          --jq "[.[] | select(.body | startswith(\"$marker\")) | .id][0] // empty")
+        if [ -n "$existing" ]; then
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
+            -F "body=@${COMMENT_PATH}" --silent
+          echo "updated tempest comment ${existing} in place"
+        else
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            -F "body=@${COMMENT_PATH}" --silent
+          echo "posted the tempest comment"
+        fi
+
+    - name: Verdict to check conclusion (fail only on DIVERGENT or ERROR)
+      id: conclusion
+      shell: bash
+      env:
+        PROVE_EXIT: ${{ steps.prove.outputs.exit-code }}
+      run: |
+        manifest="$RUNNER_TEMP/tempest-run/manifest.json"
+        targets="$RUNNER_TEMP/tempest-run/targets.json"
+        if [ ! -f "$manifest" ]; then
+          echo "verdict=ERROR" >> "$GITHUB_OUTPUT"
+          echo "::error title=Tempest ERROR::tempest prove failed before writing a bundle (exit code ${PROVE_EXIT}). This is a Tempest failure, not a verdict about the change."
+          exit 1
+        fi
+        verdict=$(jq -r '.verdict' "$manifest")
+        echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+        # Loud honesty: every UNPROVEN target is a visible warning, whatever the run verdict.
+        jq -r '.[] | select(.verdict == "UNPROVEN")
+          | "::warning title=Tempest UNPROVEN — \(.module).\(.qualname)::\(.reason_code // "UNPROVEN"): \((.reason_detail // "no detail recorded") | gsub("\n"; " "))"' \
+          "$targets"
+        case "$verdict" in
+          DIVERGENT)
+            n=$(jq '[.[] | select(.verdict == "DIVERGENT")] | length' "$targets")
+            echo "::error title=Tempest DIVERGENT::${n} target(s) changed observable behavior. Minimized inputs and repro scripts are in the PR comment and the run-bundle artifact."
+            exit 1
+            ;;
+          ERROR)
+            echo "::error title=Tempest ERROR::Tempest itself failed — see the run-bundle artifact. Not a verdict about the change."
+            exit 1
+            ;;
+          UNPROVEN)
+            echo "::warning title=Tempest UNPROVEN::Nothing could be exercised. Nothing is blessed — this is an honest refusal, not a pass."
+            exit 0
+            ;;
+          EQUIVALENT_UNDER_BUDGET)
+            echo "Tempest: targets behaved identically under budget. This is not proof of correctness — it is what was exercised."
+            exit 0
+            ;;
+          *)
+            echo "::error title=Tempest::unrecognized verdict '${verdict}' in the bundle manifest"
+            exit 1
+            ;;
+        esac

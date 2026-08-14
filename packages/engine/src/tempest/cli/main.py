@@ -30,28 +30,41 @@ def prove(
     base: str = typer.Option(..., help="Base (pre-change) git ref"),
     head: str = typer.Option("HEAD", help="Head (post-change) git ref"),
     repo: Path = typer.Option(Path.cwd(), help="Repository root"),
-    max_inputs: int = typer.Option(300, help="Per-target input budget"),
+    max_inputs: int | None = typer.Option(
+        None,
+        help="Per-target input budget (default 300; overrides [budgets].max_inputs "
+        "in tempest.toml)",
+    ),
     seed: int = typer.Option(0, help="Deterministic generation seed"),
     float_tolerance: float | None = typer.Option(
-        None, help="Opt-in relative float tolerance (default: exact comparison)"
+        None,
+        help="Opt-in relative float tolerance (default: exact comparison; overrides "
+        "[compare].float_rel_tol in tempest.toml)",
     ),
     out: Path | None = typer.Option(None, help="Bundle output directory"),
 ) -> None:
     """Execute base and head side by side and report where behavior diverges — with evidence."""
     from tempest.cli.report import render_report
+    from tempest.config import TempestConfig, TempestConfigError
     from tempest.model import Verdict
     from tempest.prove import ProveConfig, run_prove
 
     console = Console()
+    try:
+        file_cfg = TempestConfig.load(repo)
+    except TempestConfigError as exc:
+        console.print(f"[bold red]{exc}[/bold red]")
+        raise typer.Exit(2) from None
     result = run_prove(
         ProveConfig(
             repo=repo,
             base=base,
             head=head,
-            max_inputs=max_inputs,
+            max_inputs=file_cfg.effective_max_inputs(max_inputs),
             seed=seed,
-            float_rel_tol=float_tolerance,
+            float_rel_tol=file_cfg.effective_float_rel_tol(float_tolerance),
             out=out,
+            ignore_globs=file_cfg.ignore_globs,
         )
     )
     if result.sandbox_kind == "process-first-party":
@@ -62,3 +75,29 @@ def prove(
     render_report(result.bundle, console)
     console.print(f"bundle: {result.bundle_dir}\nzip:    {result.zip_path}")
     raise typer.Exit(1 if result.bundle.manifest.verdict is Verdict.DIVERGENT else 0)
+
+
+@app.command(name="ci-comment")
+def ci_comment(
+    bundle: Path = typer.Option(
+        ..., help="Run-bundle directory (contains manifest.json, targets.json, repros/)"
+    ),
+) -> None:
+    """Render a run bundle as a GitHub-flavored-markdown PR comment on stdout."""
+    from tempest.bundle.bundle import BundleIntegrityError, read_bundle
+    from tempest.cli.ci_comment import render_ci_comment
+
+    missing = [name for name in ("manifest.json", "targets.json") if not (bundle / name).exists()]
+    if missing:
+        typer.echo(
+            f"error: {bundle} is not a run bundle (missing {', '.join(missing)}). "
+            "Pass the directory `tempest prove` printed after `bundle:`.",
+            err=True,
+        )
+        raise typer.Exit(2)
+    try:
+        parsed = read_bundle(bundle)
+    except BundleIntegrityError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from None
+    typer.echo(render_ci_comment(parsed), nl=False)

@@ -17,7 +17,8 @@ verify-python:
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy --strict packages/engine/src packages/api/src
-	uv run pytest packages/engine packages/api -q --cov --cov-fail-under=85
+	TEMPEST_DEV=1 uv run pytest packages/engine packages/api -q --cov --cov-fail-under=85
+	uv run python -m tempest.dev.corpus_check --min-pass 24 --repeats 5
 
 verify-node:
 	pnpm -r typecheck

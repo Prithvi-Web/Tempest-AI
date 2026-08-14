@@ -15,8 +15,14 @@ from tempest.bundle.bundle import (
     write_bundle,
 )
 from tempest.compare.compare import CompareConfig, Diverged, compare
+from tempest.config import is_ignored
 from tempest.envrepro.worktree import MaterializedEnv, materialize
-from tempest.execute.dual import FoundDivergence, TargetOutcome, prove_target
+from tempest.execute.dual import (
+    FoundDivergence,
+    TargetOutcome,
+    prove_impure_target,
+    prove_target,
+)
 from tempest.execute.runner import run_batch
 from tempest.execute.sandbox import DockerSandbox, ProcessSandbox, Sandbox
 from tempest.generate.inputs import Budget
@@ -52,6 +58,7 @@ class ProveConfig:
     float_rel_tol: float | None = None
     out: Path | None = None
     minimize_attempts: int = 60
+    ignore_globs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,7 +80,8 @@ def _select_sandbox(repo: Path) -> tuple[Sandbox | None, str, str | None]:
         and os.environ.get("TEMPEST_DEV") == "1"
     ):
         return ProcessSandbox(), "process-first-party", None
-    docker = DockerSandbox()
+    # TEMPEST_DOCKER points at an alternative container binary (e.g. podman).
+    docker = DockerSandbox(docker_binary=os.environ.get("TEMPEST_DOCKER", "docker"))
     if docker.available():
         return docker, "docker", None
     return (
@@ -105,6 +113,8 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
     repro_scripts: dict[str, str] = {}
 
     for fd in diffs:
+        if is_ignored(fd.path, cfg.ignore_globs):
+            continue  # [ignore].globs in tempest.toml — the user declared this path out of scope
         if fd.status != "modified":
             # Added symbols/files have no base counterpart to differ FROM — new code cannot
             # change existing behavior by itself; its effect is proven through changed callers.
@@ -141,35 +151,34 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
                     )
                 )
                 continue
-            if classified.classification is TargetClassification.IMPURE_RECORDABLE:
-                records.append(
-                    _unproven_record(
-                        fd.path,
-                        module,
-                        sym,
-                        classified.classification,
-                        ReasonCode.RECORD_REPLAY_UNAVAILABLE,
-                        f"`{module}.{sym.symbol}` touches recordable IO; the record/replay "
-                        "determinism layer (Phase 2, docs/PLAN.md) is required to prove it. "
-                        "Nothing is blessed meanwhile.",
-                    )
-                )
-                continue
-
             changed_in_span = frozenset(
                 line for line in fd.changed_head_lines if sym.span[0] <= line <= sym.span[1]
             )
-            outcome = prove_target(
-                base_env.worktree,
-                head_env.worktree,
-                module,
-                sym.symbol,
-                changed_lines=changed_in_span,
-                sandbox=sandbox,
-                budget=Budget(max_inputs=cfg.max_inputs, seed=cfg.seed),
-                mined=mined,
-                cfg=compare_cfg,
-            )
+            budget = Budget(max_inputs=cfg.max_inputs, seed=cfg.seed)
+            if classified.classification is TargetClassification.IMPURE_RECORDABLE:
+                outcome = prove_impure_target(
+                    base_env.worktree,
+                    head_env.worktree,
+                    module,
+                    sym.symbol,
+                    changed_lines=changed_in_span,
+                    sandbox=sandbox,
+                    budget=budget,
+                    mined=mined,
+                    cfg=compare_cfg,
+                )
+            else:
+                outcome = prove_target(
+                    base_env.worktree,
+                    head_env.worktree,
+                    module,
+                    sym.symbol,
+                    changed_lines=changed_in_span,
+                    sandbox=sandbox,
+                    budget=budget,
+                    mined=mined,
+                    cfg=compare_cfg,
+                )
             records.append(
                 _finished_record(
                     fd.path,
@@ -182,6 +191,7 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
                     compare_cfg,
                     cfg,
                     repro_scripts,
+                    classification=classified.classification,
                 )
             )
 
@@ -248,6 +258,8 @@ def _finished_record(
     compare_cfg: CompareConfig,
     cfg: ProveConfig,
     repro_scripts: dict[str, str],
+    *,
+    classification: TargetClassification = TargetClassification.PURE_CANDIDATE,
 ) -> TargetRecord:
     divergence_records: list[DivergenceRecord] = []
     seen_minimized: set[tuple[DivergenceClass, str, str]] = set()
@@ -295,7 +307,7 @@ def _finished_record(
         module=module,
         qualname=sym.symbol,
         lang=Lang.PYTHON,
-        classification=TargetClassification.PURE_CANDIDATE,
+        classification=classification,
         verdict=outcome.verdict,
         reason_code=outcome.reason_code,
         reason_detail=outcome.reason_detail,

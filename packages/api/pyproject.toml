@@ -4,8 +4,13 @@ version = "0.1.0"
 description = "Tempest AI — bundle ingestion and dashboard API"
 requires-python = ">=3.12"
 dependencies = [
+    "aiosqlite>=0.22.1",
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
     "fastapi>=0.116",
     "pydantic>=2.11",
+    "python-multipart>=0.0.32",
+    "sqlalchemy[asyncio]>=2.0",
     "tempest-engine",
     "uvicorn>=0.35",
 ]

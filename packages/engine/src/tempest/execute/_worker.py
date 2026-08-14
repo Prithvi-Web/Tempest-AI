@@ -129,7 +129,7 @@ def _start_loopback(routes: dict[str, Any], port: int, shims: Any = None) -> obj
                 shims.allow_internal_in_this_thread()
             super().setup()
 
-        def do_GET(self) -> None:  # noqa: N802  # http.server API name
+        def do_GET(self) -> None:  # http.server API name
             route = routes.get(self.path)
             if route is None:
                 self.send_response(404)
