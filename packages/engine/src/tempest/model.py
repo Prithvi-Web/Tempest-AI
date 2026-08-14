@@ -131,3 +131,5 @@ class Observation:
     exit_status: int = 0
     timing: Timing = field(default_factory=lambda: Timing(wall_ns=0, cpu_ns=0))
     unrepresentable: str | None = None
+    executed_lines: frozenset[int] = frozenset()
+    executed_arcs: frozenset[tuple[int, int]] = frozenset()
