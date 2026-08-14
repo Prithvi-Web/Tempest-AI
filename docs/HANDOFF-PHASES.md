@@ -153,6 +153,18 @@ brand) → 13 → then 12/14/15/16 as the owner clears their [ASK ME] purchases 
 9. **PLAN checkboxes flip only with real gate output pasted.** Claimed-passing is failing.
 10. **macOS RLIMIT_NPROC is per-UID** — don't cap it (throttles the whole session); fork bombs
     are bounded by the per-input timeout + pgroup-SIGKILL instead.
+11. **This Mac is fast; CI Linux runners are not.** Worker startup (spawn + interpreter boot +
+    target import) is ~30 ms here and can be seconds there. It must never be charged to the
+    per-input timeout — `_STARTUP_GRACE_S` in `execute/runner.py` covers the first result after
+    a spawn, or a healthy fast input is mismarked `HUNG` and Tempest invents a HANG divergence.
+    Any new timing assertion needs the same headroom.
+12. **GitHub Actions raw logs need repo-admin auth** — an outside agent cannot read them, and the
+    web view truncates large steps. The `python` job therefore tees pytest output and appends the
+    tail to `$GITHUB_STEP_SUMMARY` on failure, which IS readable from the public checks API
+    (`GET /repos/{owner}/{repo}/commits/{sha}/check-runs` → `output.summary`). Keep that step.
+13. **Pushing needs the owner.** The CLI has no stored GitHub credential (the repo is published
+    and pushed through GitHub Desktop). Commit locally, then ask the owner to click *Push origin*.
+    Remote: `https://github.com/Prithvi-Web/Tempest-AI.git`.
 
 ---
 
