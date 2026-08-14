@@ -23,7 +23,7 @@ jobs:
     env:
       TEMPEST_DEV: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Materialize the pyfix fixture (12 seeded behavior changes + 12 no-op refactors)
         run: python3 corpus/fixtures/pyfix/make_fixture.py "$RUNNER_TEMP/pyfix"

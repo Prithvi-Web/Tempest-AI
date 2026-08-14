@@ -36,3 +36,4 @@ packages/desktop/src-tauri/binaries/
 .env
 .env.local
 packages/desktop/src-tauri/target/
+.gstack/

@@ -9,22 +9,37 @@ jobs:
   python:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
       - run: uv sync --all-packages
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run mypy --strict packages/engine/src packages/api/src
-      - run: uv run pytest packages/engine packages/api -q --cov --cov-fail-under=85
+      - name: pytest
+        run: |
+          set -o pipefail
+          uv run pytest packages/engine packages/api -q --cov --cov-fail-under=85 \
+            2>&1 | tee /tmp/pytest.log
         env:
           TEMPEST_DEV: "1"  # permits ProcessSandbox for the first-party pyfix gate (ADR-0008)
+      - name: surface pytest failure in the job summary
+        # Actions logs need repo-admin auth to fetch; the job summary is readable from the
+        # checks API, so a failure explains itself without anyone opening the web UI.
+        if: failure()
+        run: |
+          {
+            echo '## pytest failed'
+            echo '```'
+            tail -n 120 /tmp/pytest.log || echo '(no pytest log captured)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   node:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -36,11 +51,11 @@ jobs:
   desktop:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
       - uses: actions/setup-node@v4
@@ -58,8 +73,8 @@ jobs:
   contract-check:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
       - uses: actions/setup-node@v4
@@ -80,7 +95,7 @@ jobs:
   forbidden-verdict-grep:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: the string SAFE must not appear in the product surface (Law L2)
         run: |
           ! grep -rn --include='*.py' --include='*.ts' --include='*.tsx' -w 'SAFE' packages/
@@ -88,5 +103,5 @@ jobs:
   compose-validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: docker compose -f docker/compose.yaml config -q
