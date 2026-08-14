@@ -17,6 +17,7 @@ export const commands = {
 	startLocalProve: (request: LocalProveRequest) => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_local_prove", { request })),
 	searchDivergences: (q: string, limit: number | null) => typedError<SearchResults, SidecarFailure>(__TAURI_INVOKE("search_divergences", { q, limit })),
 	cancelRun: (runId: number) => typedError<CancelAccepted, SidecarFailure>(__TAURI_INVOKE("cancel_run", { runId })),
+	listLogRecords: (limit: number | null, level: string | null) => typedError<LogRecordOut[], SidecarFailure>(__TAURI_INVOKE("list_log_records", { limit, level })),
 };
 
 /** Events */
@@ -405,6 +406,50 @@ export type LocalProveRequest = {
 	head: Head,
 	max_inputs?: number,
 	repo_path: RepoPath,
+};
+
+/**
+ * `LogRecordOut`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "LogRecordOut",
+ *   "type": "object",
+ *   "required": [
+ *     "component",
+ *     "level",
+ *     "message",
+ *     "ts"
+ *   ],
+ *   "properties": {
+ *     "component": {
+ *       "title": "Component",
+ *       "type": "string"
+ *     },
+ *     "level": {
+ *       "title": "Level",
+ *       "type": "string"
+ *     },
+ *     "message": {
+ *       "title": "Message",
+ *       "type": "string"
+ *     },
+ *     "ts": {
+ *       "title": "Ts",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type LogRecordOut = {
+	component: string,
+	level: string,
+	message: string,
+	ts: string,
 };
 
 /**

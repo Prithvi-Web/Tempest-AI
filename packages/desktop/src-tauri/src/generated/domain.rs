@@ -1054,6 +1054,53 @@ impl LocalProveRequest {
         Default::default()
     }
 }
+#[doc = "`LogRecordOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"LogRecordOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"component\","]
+#[doc = "    \"level\","]
+#[doc = "    \"message\","]
+#[doc = "    \"ts\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"component\": {"]
+#[doc = "      \"title\": \"Component\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"level\": {"]
+#[doc = "      \"title\": \"Level\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"message\": {"]
+#[doc = "      \"title\": \"Message\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"ts\": {"]
+#[doc = "      \"title\": \"Ts\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct LogRecordOut {
+    pub component: ::std::string::String,
+    pub level: ::std::string::String,
+    pub message: ::std::string::String,
+    pub ts: ::std::string::String,
+}
+impl LogRecordOut {
+    pub fn builder() -> builder::LogRecordOut {
+        Default::default()
+    }
+}
 #[doc = "`PageRunSummary`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -3178,6 +3225,88 @@ pub mod builder {
                 head: Ok(value.head),
                 max_inputs: Ok(value.max_inputs),
                 repo_path: Ok(value.repo_path),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct LogRecordOut {
+        component: ::std::result::Result<::std::string::String, ::std::string::String>,
+        level: ::std::result::Result<::std::string::String, ::std::string::String>,
+        message: ::std::result::Result<::std::string::String, ::std::string::String>,
+        ts: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for LogRecordOut {
+        fn default() -> Self {
+            Self {
+                component: Err("no value supplied for component".to_string()),
+                level: Err("no value supplied for level".to_string()),
+                message: Err("no value supplied for message".to_string()),
+                ts: Err("no value supplied for ts".to_string()),
+            }
+        }
+    }
+    impl LogRecordOut {
+        pub fn component<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.component = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for component: {e}"));
+            self
+        }
+        pub fn level<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.level = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for level: {e}"));
+            self
+        }
+        pub fn message<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.message = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for message: {e}"));
+            self
+        }
+        pub fn ts<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.ts = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for ts: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<LogRecordOut> for super::LogRecordOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: LogRecordOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                component: value.component?,
+                level: value.level?,
+                message: value.message?,
+                ts: value.ts?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::LogRecordOut> for LogRecordOut {
+        fn from(value: super::LogRecordOut) -> Self {
+            Self {
+                component: Ok(value.component),
+                level: Ok(value.level),
+                message: Ok(value.message),
+                ts: Ok(value.ts),
             }
         }
     }

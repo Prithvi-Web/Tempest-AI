@@ -64,6 +64,7 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <button onClick={() => navigate({ view: "logs" })}>LOGS</button>
         <button className="primary" onClick={() => navigate({ view: "prove" })}>
           NEW PROOF
         </button>

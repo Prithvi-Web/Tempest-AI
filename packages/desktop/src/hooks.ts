@@ -100,3 +100,12 @@ export function useSearchDivergences(q: string) {
     enabled: q.trim().length > 0,
   });
 }
+
+export function useListLogRecords(limit?: number, level?: string | null) {
+  return useQuery({
+    queryKey: ["listLogRecords", limit ?? null, level ?? null],
+    queryFn: () => unwrap(commands.listLogRecords(limit ?? null, level ?? null)),
+    // Logs are a live surface: keep polling so the view follows the engine.
+    refetchInterval: 3000,
+  });
+}

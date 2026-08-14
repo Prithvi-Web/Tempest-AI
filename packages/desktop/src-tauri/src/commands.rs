@@ -9,8 +9,8 @@ use std::sync::Arc;
 use serde_json::{json, Map, Value};
 
 use crate::generated::domain::{
-    CancelAccepted, DivergenceDetail, HealthResponse, LocalProveRequest, PageRunSummary,
-    RunCreated, RunDetail, RunEventOut, SearchResults, TargetDetail, Verdict,
+    CancelAccepted, DivergenceDetail, HealthResponse, LocalProveRequest, LogRecordOut,
+    PageRunSummary, RunCreated, RunDetail, RunEventOut, SearchResults, TargetDetail, Verdict,
 };
 use crate::supervisor::{RpcError, Supervisor, DEFAULT_CALL_TIMEOUT};
 
@@ -158,6 +158,23 @@ pub fn search_divergences(
         params.insert("limit".into(), json!(limit));
     }
     call_typed(&state, "searchDivergences", Value::Object(params))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_log_records(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    limit: Option<u32>,
+    level: Option<String>,
+) -> CmdResult<Vec<LogRecordOut>> {
+    let mut params = Map::new();
+    if let Some(limit) = limit {
+        params.insert("limit".into(), json!(limit));
+    }
+    if let Some(level) = level {
+        params.insert("level".into(), Value::String(level));
+    }
+    call_typed(&state, "listLogs", Value::Object(params))
 }
 
 #[cfg(test)]

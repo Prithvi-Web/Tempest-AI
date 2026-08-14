@@ -5,6 +5,7 @@ import { events } from "./generated/bindings";
 import { useGetHealth } from "./hooks";
 import { useRoute } from "./router";
 import { DivergenceView } from "./views/DivergenceView";
+import { LogsView } from "./views/LogsView";
 import { ProveView } from "./views/ProveView";
 import { RunsView } from "./views/RunsView";
 import { RunView } from "./views/RunView";
@@ -58,6 +59,7 @@ export function App() {
       {route.view === "target" && <TargetView id={route.id} navigate={navigate} />}
       {route.view === "divergence" && <DivergenceView id={route.id} navigate={navigate} />}
       {route.view === "prove" && <ProveView navigate={navigate} />}
+      {route.view === "logs" && <LogsView navigate={navigate} />}
     </div>
   );
 }

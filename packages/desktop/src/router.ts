@@ -7,7 +7,8 @@ export type Route =
   | { view: "run"; id: number }
   | { view: "target"; id: number }
   | { view: "divergence"; id: number }
-  | { view: "prove" };
+  | { view: "prove" }
+  | { view: "logs" };
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
@@ -17,12 +18,14 @@ export function parseRoute(search: string): Route {
   if (view === "target" && Number.isFinite(id)) return { view: "target", id };
   if (view === "divergence" && Number.isFinite(id)) return { view: "divergence", id };
   if (view === "prove") return { view: "prove" };
+  if (view === "logs") return { view: "logs" };
   return { view: "runs" };
 }
 
 export function routeHref(route: Route): string {
   if (route.view === "runs") return "?";
   if (route.view === "prove") return "?view=prove";
+  if (route.view === "logs") return "?view=logs";
   return `?view=${route.view}&id=${route.id}`;
 }
 
