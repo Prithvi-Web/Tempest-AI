@@ -23,7 +23,7 @@ from sqlalchemy.pool import ConnectionPoolEntry
 
 from tempest_api.db.base import Base
 
-REVISION_CHAIN: tuple[str, ...] = ("0001", "0002")
+REVISION_CHAIN: tuple[str, ...] = ("0001", "0002", "0003")
 HEAD_REVISION: str = REVISION_CHAIN[-1]
 
 # Forward steps, keyed by from-revision; each mirrors the alembic script that takes the schema
@@ -33,6 +33,7 @@ _FORWARD_STEPS: dict[str, tuple[str, ...]] = {
         "ALTER TABLE runs ADD COLUMN sandbox_tier TEXT",
         "ALTER TABLE runs ADD COLUMN sandbox_assurance TEXT",
     ),
+    "0002": ("ALTER TABLE runs ADD COLUMN bundle_digest TEXT",),
 }
 
 
@@ -74,12 +75,14 @@ def check_not_newer(url: str) -> None:
 
 def install_sqlite_pragmas(engine: AsyncEngine) -> None:
     """WAL journal mode on every connection — the local store is a concurrently-read desktop
-    database, and WAL keeps readers unblocked during ingest writes."""
+    database, and WAL keeps readers unblocked during ingest writes. Foreign keys are enforced
+    so ON DELETE CASCADE behaves exactly as it does on Postgres (budget pruning relies on it)."""
 
     @event.listens_for(engine.sync_engine, "connect")
     def _on_connect(dbapi_conn: DBAPIConnection, _record: ConnectionPoolEntry) -> None:
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
 

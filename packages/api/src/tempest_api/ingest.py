@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tempest.bundle.bundle import RunBundle, read_bundle
 from tempest.model import BUNDLE_SCHEMA_VERSION
+from tempest_api.bundlestore import bundle_store, enforce_budget
 from tempest_api.db.models import Divergence, Run, Target
 from tempest_api.errors import ApiError
 from tempest_api.ledger import append_run_event
@@ -219,8 +220,13 @@ async def ingest_bundle(session: AsyncSession, run: Run, bundle: RunBundle) -> N
 
 
 async def ingest_zip_bytes(session: AsyncSession, run: Run, data: bytes) -> RunBundle:
-    """THE ingestion code path — parse, integrity, run-match, fan-out — shared verbatim by the
-    upload endpoint and the local prove worker. Returns the parsed bundle for reporting."""
+    """THE ingestion code path — parse, integrity, run-match, fan-out, then blob storage +
+    budget (ADR-0017) — shared verbatim by the upload endpoint and the local prove worker.
+    Returns the parsed bundle for reporting."""
     bundle = parse_bundle_zip(data)
     await ingest_bundle(session, run, bundle)
+    store = bundle_store()
+    run.bundle_digest = store.put(data)
+    await session.flush()
+    await enforce_budget(session, store)
     return bundle

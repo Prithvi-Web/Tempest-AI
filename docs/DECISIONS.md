@@ -397,3 +397,24 @@ lifespan) is a versioned act:
 sqlite-only. Every future alembic revision must extend `REVISION_CHAIN` + `_FORWARD_STEPS`;
 forgetting either fails `test_revision_chain_matches_alembic_scripts` or the forward-migration
 equivalence test. Migrations heavier than SQLite `ALTER`s need a new strategy and a new ADR.
+
+## ADR-0017 — Content-addressed bundle store with GC + size budget (Phase 11)
+
+**Context.** Bundles were written under per-run directories with no dedup, no bound on disk
+use, and no single place an export/replay could hand back the original artifact (L7).
+
+**Decision.** `tempest_api/bundlestore.py`: every ingested `.tempest.zip` is stored once under
+`<data_dir>/bundles/<aa>/<sha256>.tempest.zip` (atomic tmp+rename write; identical content
+shares one blob). `runs.bundle_digest` (alembic `0003`) references the blob. GC removes only
+blobs no run references. A user-controlled budget (`TEMPEST_BUNDLE_BUDGET_BYTES`, unset/0 =
+unlimited, read per-ingest so the desktop can change it without restart) prunes the OLDEST
+bundle-bearing runs — row and blob together, cascading through targets/divergences/events —
+and never the newest run: the run just proved always survives, and every surviving run keeps
+its evidence. Pending runs without bundles are never pruned. SQLite now runs with
+`PRAGMA foreign_keys=ON` so ON DELETE CASCADE matches Postgres exactly.
+
+**Consequences.** Ingest and local prove share the one hook in `ingest_zip_bytes`. A rolled-back
+ingest can orphan a blob; orphans are collected on the next enforce pass — never the reverse
+(a run pointing at a deleted blob) except in the sub-millisecond window between row deletion
+flush and commit, accepted and documented here. Budget pruning deletes user history by design;
+the budget is opt-in and the newest run is contractually safe.
