@@ -46,38 +46,87 @@ export const client = createClient<paths>({ baseUrl: apiBaseUrl });
 `,
 );
 
-// 4. hooks from the spec's operations
+// 4. hooks from the spec's operations. Spec-driven and shape-free: every parameter type is
+//    *referenced* from the generated `paths` types (never restated as a primitive), so a
+//    Pydantic change flows through to each hook signature. Path params become flat hook
+//    arguments; query params become one optional (when all-optional) typed `query` object.
+//    GETs whose success response is non-JSON (e.g. the text/x-python repro script) get a
+//    `parseAs: "text"` hook plus a `urlFor*` absolute-URL builder for real download links.
 const spec = JSON.parse(readFileSync(join(schemaDir, "openapi.json"), "utf8"));
-const TS_PRIMITIVES = { integer: "number", number: "number", boolean: "boolean", string: "string" };
 const hooks = [];
+let needsPathsType = false;
+let needsBaseUrl = false;
 for (const [path, methods] of Object.entries(spec.paths ?? {}).sort()) {
   for (const [method, op] of Object.entries(methods)) {
     if (!op.operationId) {
       throw new Error(`gen:api: ${method.toUpperCase()} ${path} has no operationId — every route must set one`);
     }
     const name = op.operationId[0].toUpperCase() + op.operationId.slice(1);
-    if (method === "get") {
-      // Path params become hook arguments (typed from the spec) and query-key members;
-      // openapi-fetch requires them in the init object, so plain-path hooks stay arg-free.
-      const pathParams = (op.parameters ?? []).filter((p) => p.in === "path");
-      const args = pathParams
-        .map((p) => `${p.name}: ${TS_PRIMITIVES[p.schema?.type] ?? "string"}`)
-        .join(", ");
-      const key = [JSON.stringify(op.operationId), ...pathParams.map((p) => p.name)].join(", ");
-      const init = pathParams.length
-        ? `, {
-        params: { path: { ${pathParams.map((p) => p.name).join(", ")} } },
+    if (method !== "get") continue;
+
+    const paramsType = `paths[${JSON.stringify(path)}]["get"]["parameters"]`;
+    const pathParams = (op.parameters ?? []).filter((p) => p.in === "path");
+    const queryParams = (op.parameters ?? []).filter((p) => p.in === "query");
+
+    const pathArgs = pathParams.map(
+      (p) => `${p.name}: ${paramsType}["path"][${JSON.stringify(p.name)}]`,
+    );
+    const args = [...pathArgs];
+    const keyParts = [JSON.stringify(op.operationId), ...pathParams.map((p) => p.name)];
+    const initParts = [];
+    if (pathParams.length > 0) {
+      needsPathsType = true;
+      initParts.push(`path: { ${pathParams.map((p) => p.name).join(", ")} }`);
+    }
+    if (queryParams.length > 0) {
+      needsPathsType = true;
+      const allOptional = queryParams.every((p) => !p.required);
+      args.push(
+        allOptional
+          ? `query: NonNullable<${paramsType}["query"]> = {}`
+          : `query: ${paramsType}["query"]`,
+      );
+      keyParts.push("query");
+      initParts.push("query");
+    }
+
+    const successContent = (op.responses?.["200"] ?? {}).content ?? {};
+    const contentTypes = Object.keys(successContent).sort();
+    const isText =
+      !contentTypes.includes("application/json") && contentTypes.some((t) => t.startsWith("text/"));
+
+    const initOpts = [];
+    if (initParts.length > 0) initOpts.push(`params: { ${initParts.join(", ")} }`);
+    if (isText) initOpts.push(`parseAs: "text"`);
+    const init = initOpts.length
+      ? `, {
+        ${initOpts.join(",\n        ")},
       }`
-        : "";
-      hooks.push(`export function use${name}(${args}) {
+      : "";
+
+    hooks.push(`export function use${name}(${args.join(", ")}) {
   return useQuery({
-    queryKey: [${key}],
+    queryKey: [${keyParts.join(", ")}],
     queryFn: async () => {
       const { data, error } = await client.GET(${JSON.stringify(path)}${init});
       if (error) throw error;
       return data;
     },
   });
+}`);
+
+    // A non-JSON GET is a downloadable artifact (Law L7) — emit the absolute-URL builder so
+    // views offer a real <a href> download instead of hand-assembling API paths.
+    if (isText && pathParams.length > 0) {
+      needsBaseUrl = true;
+      const substitutions = pathParams
+        .map(
+          (p) =>
+            `.replace(${JSON.stringify(`{${p.name}}`)}, encodeURIComponent(String(${p.name})))`,
+        )
+        .join("");
+      hooks.push(`export function urlFor${name}(${pathArgs.join(", ")}): string {
+  return apiBaseUrl + ${JSON.stringify(path)}${substitutions};
 }`);
     }
   }
@@ -87,7 +136,9 @@ writeFileSync(
   join(webSrc, "generated/hooks.ts"),
   `${BANNER}import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/lib/api-client";
+import ${needsBaseUrl ? "{ apiBaseUrl, client }" : "{ client }"} from "@/lib/api-client";${
+    needsPathsType ? `\nimport type { paths } from "@tempest/shared-schema/types";` : ""
+  }
 
 ${hooks.join("\n\n")}
 `,

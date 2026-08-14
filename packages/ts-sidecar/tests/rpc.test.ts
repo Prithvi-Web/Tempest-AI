@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDispatcher } from "../src/index.js";
-import { Dispatcher, INTERNAL_ERROR, METHOD_NOT_FOUND, PARSE_ERROR } from "../src/rpc.js";
+import { buildDispatcher } from "../src/index.ts";
+import { Dispatcher, INTERNAL_ERROR, METHOD_NOT_FOUND, PARSE_ERROR } from "../src/rpc.ts";
 
 describe("JSON-RPC dispatcher", () => {
   it("answers ping with sidecar identity", async () => {

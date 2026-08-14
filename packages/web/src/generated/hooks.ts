@@ -2,9 +2,10 @@
 // packages/api/src/tempest_api/schemas/ (CLAUDE.md §9). CI fails on drift.
 import { useQuery } from "@tanstack/react-query";
 
-import { client } from "@/lib/api-client";
+import { apiBaseUrl, client } from "@/lib/api-client";
+import type { paths } from "@tempest/shared-schema/types";
 
-export function useGetDivergence(divergence_id: number) {
+export function useGetDivergence(divergence_id: paths["/v1/divergences/{divergence_id}"]["get"]["parameters"]["path"]["divergence_id"]) {
   return useQuery({
     queryKey: ["getDivergence", divergence_id],
     queryFn: async () => {
@@ -17,17 +18,22 @@ export function useGetDivergence(divergence_id: number) {
   });
 }
 
-export function useGetDivergenceRepro(divergence_id: number) {
+export function useGetDivergenceRepro(divergence_id: paths["/v1/divergences/{divergence_id}/repro.py"]["get"]["parameters"]["path"]["divergence_id"]) {
   return useQuery({
     queryKey: ["getDivergenceRepro", divergence_id],
     queryFn: async () => {
       const { data, error } = await client.GET("/v1/divergences/{divergence_id}/repro.py", {
         params: { path: { divergence_id } },
+        parseAs: "text",
       });
       if (error) throw error;
       return data;
     },
   });
+}
+
+export function urlForGetDivergenceRepro(divergence_id: paths["/v1/divergences/{divergence_id}/repro.py"]["get"]["parameters"]["path"]["divergence_id"]): string {
+  return apiBaseUrl + "/v1/divergences/{divergence_id}/repro.py".replace("{divergence_id}", encodeURIComponent(String(divergence_id)));
 }
 
 export function useGetHealth() {
@@ -41,18 +47,20 @@ export function useGetHealth() {
   });
 }
 
-export function useListRuns() {
+export function useListRuns(query: NonNullable<paths["/v1/runs"]["get"]["parameters"]["query"]> = {}) {
   return useQuery({
-    queryKey: ["listRuns"],
+    queryKey: ["listRuns", query],
     queryFn: async () => {
-      const { data, error } = await client.GET("/v1/runs");
+      const { data, error } = await client.GET("/v1/runs", {
+        params: { query },
+      });
       if (error) throw error;
       return data;
     },
   });
 }
 
-export function useGetRun(run_id: number) {
+export function useGetRun(run_id: paths["/v1/runs/{run_id}"]["get"]["parameters"]["path"]["run_id"]) {
   return useQuery({
     queryKey: ["getRun", run_id],
     queryFn: async () => {
@@ -65,7 +73,7 @@ export function useGetRun(run_id: number) {
   });
 }
 
-export function useGetTarget(target_id: number) {
+export function useGetTarget(target_id: paths["/v1/targets/{target_id}"]["get"]["parameters"]["path"]["target_id"]) {
   return useQuery({
     queryKey: ["getTarget", target_id],
     queryFn: async () => {

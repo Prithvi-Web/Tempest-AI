@@ -29,7 +29,21 @@ export type MethodHandler = (params: unknown) => unknown | Promise<unknown>;
 export const PARSE_ERROR = -32700;
 export const INVALID_REQUEST = -32600;
 export const METHOD_NOT_FOUND = -32601;
+export const INVALID_PARAMS = -32602;
 export const INTERNAL_ERROR = -32603;
+
+/** Throw from a handler to control the JSON-RPC error code (e.g. INVALID_PARAMS). */
+export class RpcError extends Error {
+  // no TS parameter properties here — the sidecar runs under Node's strip-only mode,
+  // which rejects non-erasable syntax
+  readonly code: number;
+
+  constructor(code: number, message: string) {
+    super(message);
+    this.name = "RpcError";
+    this.code = code;
+  }
+}
 
 export class Dispatcher {
   private readonly methods = new Map<string, MethodHandler>();
@@ -64,8 +78,9 @@ export class Dispatcher {
     try {
       return { jsonrpc: "2.0", id: req.id, result: await handler(req.params) };
     } catch (err) {
+      const code = err instanceof RpcError ? err.code : INTERNAL_ERROR;
       const message = err instanceof Error ? err.message : String(err);
-      return { jsonrpc: "2.0", id: req.id, error: { code: INTERNAL_ERROR, message } };
+      return { jsonrpc: "2.0", id: req.id, error: { code, message } };
     }
   }
 }

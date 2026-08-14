@@ -5,6 +5,7 @@
   "description": "TypeScript analysis sidecar — JSON-RPC 2.0 over stdio to the Python core.",
   "type": "module",
   "scripts": {
+    "start": "node --experimental-strip-types src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -15,5 +16,8 @@
     "@types/node": "^22.15.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "ts-morph": "^28.0.0"
   }
 }

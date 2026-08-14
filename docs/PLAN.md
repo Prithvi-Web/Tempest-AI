@@ -135,15 +135,24 @@ pre-import install + import-session), loopback server threads polluting the ledg
 thread flagging), record-side urlopen env probes leaking into effects (internal-passthrough
 rule), HTTPError paths unreplayable (recorded error payloads).
 
-## Phase 3 — TypeScript support
+## Phase 3 — TypeScript support (analysis half ✅ 2026-08-13; gate NOT met yet — execution half open)
 
-- [ ] `ts-sidecar`: JSON-RPC over stdio; ts-morph target selection over tsconfig (aliases, project refs)
-- [ ] type→arbitrary compiler (TS type → fast-check arbitrary)
-- [ ] Node determinism shims: `--import` loader, `Date`/`Math.random`/`crypto`/timers/fs/http/child_process/env
-- [ ] V8 precise coverage via inspector protocol
-- [ ] TS fixture corpus equivalent to Phase 1's + impure corpus equivalent to Phase 2's
+- [x] `ts-sidecar` analysis: JSON-RPC over stdio; ts-morph target selection over tsconfig
+      (path aliases; project references still root-only), innermost-fn resolution, classification
+      mirroring the Python rules (27 sidecar tests, real temp projects, zero mocks)
+- [x] `valuePools`: type-checker-driven deterministic per-parameter pools (numbers/strings/
+      unions/optionals/interfaces/Records; NaN/Infinity as `specials`) — the fast-check
+      compiler's precursor
+- [x] Python bridge `targets/ts_sidecar.py` (persistent client, 30s deadlines, actionable
+      unavailable-errors; launched via `node --experimental-strip-types`, locked erasable-only)
+- [ ] Node execution worker + determinism shims (`--import` loader: Date/Math.random/crypto/
+      timers/fs/http/child_process/env)
+- [ ] V8 precise coverage via inspector protocol; type→fast-check arbitrary compiler
+- [ ] TS fixture corpora (12+12 and 30-impure equivalents); stage-1/5 engine wiring for
+      `Lang.TYPESCRIPT`
 
-**Gate:** Phase 1 and Phase 2 gates re-run against TS corpora, same thresholds (12/12 + 0 false; ≥24/30 × 5).
+**Gate:** Phase 1 and Phase 2 gates re-run against TS corpora, same thresholds (12/12 + 0 false;
+≥24/30 × 5). **Not yet run — the boxes above stay honest.**
 
 ## Phase 4 — API + persistence ✅ core 2026-08-13 (orchestration/auth/MinIO deferred, listed below)
 
@@ -172,22 +181,31 @@ $ uv run mypy --strict packages/api/src
 Success: no issues found in 25 source files
 ```
 
-## Phase 5 — Web dashboard
+## Phase 5 — Web dashboard (views ✅ 2026-08-13; E2E + SSE timeline open)
 
-- [ ] Runs list (verdict chips, filters, honest empty state)
-- [ ] Run detail (SSE stage timeline; per-target table; **prominent "Not proven" panel**)
-- [ ] Divergence detail (minimized input | base vs head observation diff | repro script copy/download;
-      collapsible original input + shrink path)
-- [ ] Target detail (changed-line coverage, arc-discovery curve, cassette summary)
-- [ ] Repo settings (budgets, tolerances → writes `tempest.toml` PR, not server-only config)
-- [ ] Generated client + hooks only; zero handwritten API types; exhaustive switches with `never` guards
-- [ ] a11y: keyboard nav, focus states, `prefers-reduced-motion`, WCAG AA
+- [x] Runs list (verdict chips, `?verdict=` filter as URL state, cursor pagination, honest empty
+      state with real CLI/API commands)
+- [x] Run detail (per-target table grouped by classification; **double-bordered NOT PROVEN
+      panel** with reason chips; deps-mismatch warning; SSE stage timeline pending the
+      `RunEvent`/`Stage` contract — see API-gap list in session log)
+- [x] Divergence detail (minimized input + copy; base vs head side-by-side; repro script via
+      generated text hook with copy/download; collapsible original input + shrink path)
+- [x] Target detail (CSS coverage bar — green only at 100%, inputs/equivalent/unprovable counts,
+      divergence links; arc-curve + cassette summary pending contract fields)
+- [ ] Repo settings view (budgets/tolerances → tempest.toml PR)
+- [x] Generated client + hooks only (generator now emits path/query-param typed hooks +
+      `urlFor*` for text downloads); zero handwritten API shapes; exhaustive switches over all
+      8 contract enums with `assertNever` — drift gate proven empirically (fake variant → 4 TS
+      errors)
+- [x] a11y: keyboard-first rows, global `:focus-visible` ring, `prefers-reduced-motion`, dense
+      mono instrument-panel aesthetic
+- [ ] Dev-mode Zod boundary parse; ESLint no-raw-fetch rule; Playwright E2E (integrated pass)
 
-**Gate (run, paste real output):**
-```bash
-pnpm test:e2e   # Playwright vs real API + seeded DB: CLI-run → ingest → render → repro-download
-pnpm gen:api && git diff --exit-code packages/shared-schema packages/web/src/generated
-```
+**Gate — drift half passed 2026-08-13** (`pnpm gen:api && git diff --exit-code …` → zero drift,
+byte-identical across reruns; typecheck + `next build` green, 4 routes). **E2E half not yet run**
+(Playwright suite is an open item above). Live smoke was executed instead: real pyfix run →
+real API ingest → all four routes rendered with zero console errors, incl. an all-UNPROVEN run
+(SANDBOX_UNAVAILABLE) and an error-envelope path.
 
 ## Phase 6 — CI integration
 

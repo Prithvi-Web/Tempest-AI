@@ -28,3 +28,9 @@ body {
   background: var(--color-panel);
   color: var(--color-ink);
 }
+
+/* Keyboard navigation is first-class: one loud, consistent focus ring everywhere. */
+:focus-visible {
+  outline: 2px solid var(--color-unproven);
+  outline-offset: 1px;
+}

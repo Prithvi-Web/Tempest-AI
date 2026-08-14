@@ -6,6 +6,8 @@
     "moduleResolution": "bundler",
     "types": ["node"],
     "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true
