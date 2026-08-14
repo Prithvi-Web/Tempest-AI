@@ -65,17 +65,6 @@ services:
       minio:
         condition: service_healthy
 
-  web:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.web
-    environment:
-      NEXT_PUBLIC_TEMPEST_API: http://localhost:8000
-    ports:
-      - "3000:3000"
-    depends_on:
-      - api
-
 volumes:
   pgdata:
   miniodata:

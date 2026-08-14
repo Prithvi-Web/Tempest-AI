@@ -9,6 +9,6 @@
     "gen:api": "node packages/shared-schema/scripts/gen-api.mjs",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "test:e2e": "pnpm --filter @tempest/web test:e2e"
+    "test:e2e": "pnpm --filter @tempest/desktop test:e2e"
   }
 }
