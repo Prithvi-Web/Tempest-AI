@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.hypothesis/
+
+# Node
+node_modules/
+.next/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# Tempest run artifacts
+.tempest/
+*.tempest.zip
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# env
+.env
+.env.local
