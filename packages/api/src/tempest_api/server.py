@@ -62,7 +62,10 @@ def main() -> None:
     threading.Thread(target=_watch_parent, args=(os.getppid(),), daemon=True).start()
 
     # Deferred imports: the app snapshot must see the environment configured above.
+    from tempest.crashlog import install_crash_capture
     from tempest_api.app import create_app
+
+    install_crash_capture()  # Phase 17: sidecar crashes leave a scrubbed local record
 
     if stdio:
         from tempest_api.stdiorpc import serve_stdio
