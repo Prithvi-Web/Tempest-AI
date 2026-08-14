@@ -51,7 +51,7 @@ hiddenimports = (
 )
 
 a = Analysis(
-    [str(REPO / "apps" / "desktop" / "server-entry.py")],
+    [str(REPO / "packages" / "desktop" / "server-entry.py")],
     pathex=[],
     binaries=[],
     datas=datas,

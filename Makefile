@@ -24,11 +24,11 @@ gen-contracts:
 	cargo typify packages/shared-schema/domain-schema.json \
 		--additional-derive specta::Type \
 		-o packages/desktop/src-tauri/src/generated/domain.rs
-	cargo run -q --manifest-path $(DESKTOP_MANIFEST) --bin export_bindings
+	cargo run -q --manifest-path $(DESKTOP_MANIFEST) -p tempest-desktop-devtools --bin export_bindings
 
 verify-desktop:
-	cargo clippy --manifest-path $(DESKTOP_MANIFEST) --all-targets -- -D warnings
-	cargo test -q --manifest-path $(DESKTOP_MANIFEST)
+	cargo clippy --manifest-path $(DESKTOP_MANIFEST) --workspace --all-targets -- -D warnings
+	cargo test -q --manifest-path $(DESKTOP_MANIFEST) --workspace
 	pnpm --filter @tempest/desktop typecheck
 	@! grep -rn --include='*.ts' --include='*.tsx' 'from "@tauri-apps/api/core"' \
 		packages/desktop/src | grep -v "src/generated/" \

@@ -45,8 +45,8 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
+      - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
+      - run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace
       - run: pnpm --filter @tempest/desktop typecheck
 
   contract-check:

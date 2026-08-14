@@ -4,7 +4,8 @@
 use std::path::PathBuf;
 
 fn main() {
-    let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../src/generated/bindings.ts");
+    let target =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../src/generated/bindings.ts");
     tempest_desktop_lib::specta_builder()
         .export(
             // No BigInt-style types cross this boundary: the domain schema pins every integer

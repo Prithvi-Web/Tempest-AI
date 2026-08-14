@@ -8,7 +8,7 @@ import math
 import random
 from typing import Any
 
-from hypothesis import given, settings
+from hypothesis import given, seed, settings
 from hypothesis import strategies as st
 
 _SAFE_NAMES: dict[str, object] = {
@@ -106,7 +106,12 @@ def _literal_ok(value: object) -> bool:
 def _hypothesis_examples(strategy: st.SearchStrategy[Any], count: int) -> list[object]:
     collected: list[object] = []
 
-    @settings(max_examples=count, database=None, deadline=None, derandomize=True)
+    # Explicit @seed, NOT derandomize=True: derandomize derives its stream from a digest of the
+    # test function (source/path-dependent), so a frozen PyInstaller runtime generated different
+    # inputs than the venv CLI — caught by the cli-vs-desktop parity gate. A literal seed is
+    # identical in every runtime.
+    @seed(1729)
+    @settings(max_examples=count, database=None, deadline=None)
     @given(strategy)
     def collect(value: object) -> None:
         collected.append(value)

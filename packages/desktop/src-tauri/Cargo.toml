@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "devtools"]
+
 [package]
 name = "tempest-desktop"
 version = "0.1.0"
