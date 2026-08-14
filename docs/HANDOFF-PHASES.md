@@ -196,6 +196,11 @@ blocked on owner resources either way; 18's design-partner gate needs the first 
     `TEMPEST_FORCE_POWER_PAUSE`, which outranks the opt-out. Precedence: FORCE > NO > probes.
 18. **`make verify | tail` lies about the exit code** — the pipe reports tail's status. Use
     `set -o pipefail` (or read `PIPESTATUS[0]`) before believing a piped verify.
+19. **Planted secrets vs GitHub push protection:** realistic Slack-shaped fixtures in the
+    redaction suite BLOCK the owner's push (Slack tokens carry no checksum, so GitHub cannot
+    tell fake from real; ghp_/sk- plants pass because their checksums fail). Keep plants
+    letter-segmented (`xoxb-PLANTED-FAKE-…`) — same redactor pattern, no scanner match. The
+    one historical hit was cleared via GitHub's "used in tests" bypass (it was fictional).
 
 ---
 

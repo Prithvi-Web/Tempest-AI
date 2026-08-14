@@ -17,7 +17,9 @@ _PLANTED: dict[str, str] = {
     "github-pat": "ghp_16C7e42F292c6912E7710c838347Ae178B4a",
     "fine-grained-pat": "github_pat_11ABCDEFG0123456789_planted",
     "api-secret-key": "sk-proj-Zx9y8W7v6U5t4S3r2Q1p0OnMlKjIhGfEdCbA",
-    "slack-token": "xoxb-2444333222111-0123456789012-AbCdEfGhIjKlMnOpQrStUvWx",
+    # Letter-segmented on purpose: a digit-realistic Slack shape trips GitHub push
+    # protection (no checksum to validate against, unlike ghp_/sk- plants) — trap 19.
+    "slack-token": "xoxb-PLANTED-FAKE-TEMPEST-REDACTION-FIXTURE-AAAABBBB",
     "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJwbGFudGVkIn0.planted-signature-material",
     "hex-secret": "d3b07384d113edec49eaa6238ad5ff00d3b07384d113edec49eaa6238ad5ff00",
     "env-value": "planted-env-secret-value-31337",

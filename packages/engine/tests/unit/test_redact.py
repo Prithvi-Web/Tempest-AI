@@ -9,7 +9,10 @@ PLANTED_SECRETS = [
     "AKIAIOSFODNN7EXAMPLE",  # AWS access key id
     "ghp_16C7e42F292c6912E7710c838347Ae178B4a",  # GitHub PAT
     "sk-proj-Zx9y8W7v6U5t4S3r2Q1p0OnMlKjIhGfEdCbA",  # API key
-    "xoxb-2444333222111-0123456789012-AbCdEfGhIjKlMnOpQrStUvWx",  # Slack bot token
+    # Slack-shaped plant. Deliberately NOT digit-segmented like a real token: Slack tokens
+    # carry no checksum, so a realistic shape trips GitHub push protection (it did — trap 19).
+    # The redactor's pattern matches this exactly as it matches the real shape.
+    "xoxb-PLANTED-FAKE-TEMPEST-REDACTION-FIXTURE-AAAABBBB",
     "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.T-secret-signature-segment",  # JWT
     "d3b07384d113edec49eaa6238ad5ff00d3b07384d113edec49eaa6238ad5ff00",  # 64-hex secret
     "hunter2-super-secret-env-value",  # env var value (planted via context)
