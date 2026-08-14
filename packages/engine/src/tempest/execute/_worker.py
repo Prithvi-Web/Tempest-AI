@@ -27,6 +27,9 @@ class _CanonicalModule(Protocol):
     @staticmethod
     def canonicalize(obj: object) -> object: ...
 
+    @staticmethod
+    def parse_input_literal(text: str) -> object: ...
+
 
 def _emit(payload: dict[str, object]) -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
@@ -117,8 +120,8 @@ def do_invoke(job: dict[str, Any], canonical: _CanonicalModule) -> None:
     for entry in job["inputs"]:
         index: int = entry["index"]
         try:
-            args = tuple(ast.literal_eval(entry["args"]))
-            kwargs = dict(ast.literal_eval(entry["kwargs"]))
+            args = tuple(cast(tuple[Any, ...], canonical.parse_input_literal(entry["args"])))
+            kwargs = dict(cast(dict[str, Any], canonical.parse_input_literal(entry["kwargs"])))
         except (ValueError, SyntaxError):
             _emit({"index": index, "fatal": "input", "error": traceback.format_exc(limit=2)})
             continue

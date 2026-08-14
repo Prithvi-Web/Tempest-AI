@@ -7,6 +7,7 @@ Invariants (tested in tests/unit/test_canonical.py):
   encoding nor fingerprinting works, `Unrepresentable` is raised — a value is never silently equal
 """
 
+import ast
 import base64
 import dataclasses
 import json
@@ -37,6 +38,51 @@ _REJECTED_TYPES = (
     types.CoroutineType,
     type,
 )
+
+
+def parse_input_literal(text: str) -> object:
+    """Parse the transport form of an input: Python literals extended with nan/inf.
+
+    `repr()` emits `nan`/`inf`/`-inf` for those floats, which `ast.literal_eval` rejects. This
+    parser validates the AST down to literal nodes plus the bare names nan/inf, then evaluates
+    with an empty builtins namespace — it cannot execute code.
+    """
+    try:
+        return ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        pass
+    tree = ast.parse(text, mode="eval")
+    if not _is_extended_literal(tree.body):
+        raise ValueError(f"not a transportable input literal: {text[:80]!r}")
+    return eval(  # AST-validated to literals + nan/inf, empty builtins
+        compile(tree, "<input-literal>", "eval"),
+        {"__builtins__": {}},
+        {"nan": math.nan, "inf": math.inf},
+    )
+
+
+def _is_extended_literal(node: ast.expr) -> bool:
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, ast.Name):
+        return node.id in ("nan", "inf")
+    if isinstance(node, ast.UnaryOp):
+        return isinstance(node.op, ast.USub | ast.UAdd) and _is_extended_literal(node.operand)
+    if isinstance(node, ast.Tuple | ast.List | ast.Set):
+        return all(_is_extended_literal(e) for e in node.elts)
+    if isinstance(node, ast.Dict):
+        return all(k is not None and _is_extended_literal(k) for k in node.keys) and all(
+            _is_extended_literal(v) for v in node.values
+        )
+    if isinstance(node, ast.Call):
+        # repr() of set()/frozenset({...}) — allow exactly those constructors over literal args.
+        return (
+            isinstance(node.func, ast.Name)
+            and node.func.id in ("set", "frozenset")
+            and not node.keywords
+            and all(_is_extended_literal(a) for a in node.args)
+        )
+    return False
 
 
 def canonicalize(obj: object) -> Canon:
