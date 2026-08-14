@@ -32,7 +32,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r typecheck
       - run: pnpm -r test
-      - run: pnpm --filter @tempest/web exec next build
 
   desktop:
     runs-on: macos-latest
@@ -67,7 +66,7 @@ jobs:
       - run: cargo install cargo-typify --locked
       - run: make gen-contracts
       - run: |
-          git diff --exit-code packages/shared-schema packages/web/src/generated \
+          git diff --exit-code packages/shared-schema \
             packages/desktop/src/generated packages/desktop/src-tauri/src/generated
 
   forbidden-verdict-grep:

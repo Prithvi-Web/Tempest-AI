@@ -1,4 +1,4 @@
-import { useGetDivergence, useGetDivergenceRepro } from "@/generated/hooks";
+import { useGetDivergence, useGetDivergenceRepro } from "../hooks";
 
 import type { Route } from "../router";
 

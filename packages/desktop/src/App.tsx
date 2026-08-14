@@ -1,5 +1,8 @@
-import { useGetHealth } from "@/generated/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 
+import { events } from "./generated/bindings";
+import { useGetHealth } from "./hooks";
 import { useRoute } from "./router";
 import { DivergenceView } from "./views/DivergenceView";
 import { ProveView } from "./views/ProveView";
@@ -10,6 +13,18 @@ import { TargetView } from "./views/TargetView";
 export function App() {
   const [route, navigate] = useRoute();
   const health = useGetHealth();
+  const queryClient = useQueryClient();
+
+  // Typed sidecar lifecycle event: when the supervisor reports the engine (re)became healthy,
+  // every stale query refetches immediately instead of waiting for its own retry clock.
+  useEffect(() => {
+    const unlisten = events.sidecarStateEvent.listen((event) => {
+      if (event.payload.state === "healthy") void queryClient.invalidateQueries();
+    });
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [queryClient]);
 
   return (
     <div className="shell">

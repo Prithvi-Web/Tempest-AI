@@ -30,6 +30,9 @@ verify-desktop:
 	cargo clippy --manifest-path $(DESKTOP_MANIFEST) --all-targets -- -D warnings
 	cargo test -q --manifest-path $(DESKTOP_MANIFEST)
 	pnpm --filter @tempest/desktop typecheck
+	@! grep -rn --include='*.ts' --include='*.tsx' 'from "@tauri-apps/api/core"' \
+		packages/desktop/src | grep -v "src/generated/" \
+		|| (echo "handwritten invoke() is banned — use the generated bindings (§9b)"; exit 1)
 
 verify-python:
 	uv run ruff check
@@ -41,11 +44,11 @@ verify-python:
 verify-node:
 	pnpm -r typecheck
 	pnpm -r test
-	pnpm --filter @tempest/web build
+	pnpm --filter @tempest/desktop build
 
 verify-contract:
 	$(MAKE) gen-contracts
-	git diff --exit-code packages/shared-schema packages/web/src/generated \
+	git diff --exit-code packages/shared-schema \
 		packages/desktop/src/generated packages/desktop/src-tauri/src/generated
 
 verify-grep-safe:

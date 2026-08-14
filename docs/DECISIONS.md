@@ -301,3 +301,25 @@ tightens to "no tier available → UNPROVEN" (expected to be near-zero machines)
 (ADR-0008) remains a first-party-fixture-only dev path and is unaffected. This is the highest-risk
 phase of the desktop plan; an external security review is a scheduled gate item, and Phase 10
 blocks GA until the escape matrix is green.
+
+## ADR-0014 — Delete the Next.js web dashboard; desktop SPA is the one renderer
+
+**Date:** 2026-08-14 · **Status:** accepted
+
+**Context.** Phase 9 (desktop master prompt §1) makes Tempest a desktop application and orders
+dead paths deleted, not deprecated: "half-migrated code is how flawless integration dies." The
+five views already exist in the desktop SPA on generated contracts; the web package's remaining
+open items (SSE timeline, Playwright E2E, repo-settings) were superseded by ADR-0012.
+
+**Decision.** `packages/web` (Next.js 15 app, its generated api-client/hooks, and the web build
+steps in Makefile/CI) is deleted outright. The generation pipeline shrinks to schema outputs
+(`openapi.json`, `types.ts`) plus the desktop tri-boundary generators. The desktop webview is
+the only UI renderer; it consumes generated `bindings.ts` exclusively — a `make verify-desktop`
+grep bans importing `@tauri-apps/api/core` outside `src/generated` (the no-handwritten-invoke
+rule, enforced the same way the S-A-F-E grep enforces L2). The E2E obligation transfers to
+`pnpm --filter @tempest/desktop test:e2e` (Phase 9 gate item, still open).
+
+**Consequences.** The optional self-hosted sync server (Phase 13) will need its own thin admin
+UI someday — that is a new, server-scoped surface, not a resurrection of this package. Auth.js/
+GitHub OAuth (v1 §Auth) leaves the product surface with the web app; desktop/enterprise auth
+arrives as OIDC/SAML in Phase 14 (per the Phase 8+ table).

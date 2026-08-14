@@ -1,7 +1,6 @@
 import { useState } from "react";
 
-import { client } from "@/lib/api-client";
-
+import { startLocalProve } from "../hooks";
 import type { Route } from "../router";
 
 export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
@@ -15,19 +14,19 @@ export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
   async function start() {
     setBusy(true);
     setProblem(null);
-    const { data, error } = await client.POST("/v1/local/prove", {
-      body: { repo_path: repoPath.trim(), base, head, max_inputs: maxInputs },
-    });
-    setBusy(false);
-    if (error || !data) {
-      const detail =
-        error && typeof error === "object" && "error" in error
-          ? (error as { error: { message: string } }).error.message
-          : "the engine rejected the request";
-      setProblem(detail);
-      return;
+    try {
+      const created = await startLocalProve({
+        repo_path: repoPath.trim(),
+        base,
+        head,
+        max_inputs: maxInputs,
+      });
+      navigate({ view: "run", id: created.run_id });
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : "the engine rejected the request");
+    } finally {
+      setBusy(false);
     }
-    navigate({ view: "run", id: data.run_id });
   }
 
   return (

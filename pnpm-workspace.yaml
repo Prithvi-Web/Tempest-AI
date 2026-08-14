@@ -1,7 +1,6 @@
 packages:
   - "packages/shared-schema"
   - "packages/ts-sidecar"
-  - "packages/web"
   - "packages/desktop"
 allowBuilds:
   esbuild: true

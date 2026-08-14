@@ -1,4 +1,4 @@
-import { useListRuns } from "@/generated/hooks";
+import { useListRuns } from "../hooks";
 
 import type { Route } from "../router";
 

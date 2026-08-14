@@ -1,4 +1,4 @@
-import { useGetTarget } from "@/generated/hooks";
+import { useGetTarget } from "../hooks";
 
 import type { Route } from "../router";
 
@@ -8,7 +8,8 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
   if (target.isPending) return <p className="dim">loading target #{id}…</p>;
   if (target.isError) return <p className="yellow">could not load target #{id}</p>;
   const t = target.data;
-  const pct = Math.round(t.changed_line_coverage * 100);
+  // float-over-JSON is number|null in the contract; coverage is always finite in practice
+  const pct = Math.round((t.changed_line_coverage ?? 0) * 100);
 
   return (
     <main>

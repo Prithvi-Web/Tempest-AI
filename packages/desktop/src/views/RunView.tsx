@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import { useGetRun } from "@/generated/hooks";
+import { useGetRun } from "../hooks";
 
 import type { Route } from "../router";
 
@@ -120,10 +120,14 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
                     <span className={`chip ${t.verdict}`}>{t.verdict}</span>
                   </td>
                   <td>
-                    <div className="bar" title={`${Math.round(t.changed_line_coverage * 100)}%`}>
+                    {/* float-over-JSON is number|null in the contract; coverage is always finite */}
+                    <div
+                      className="bar"
+                      title={`${Math.round((t.changed_line_coverage ?? 0) * 100)}%`}
+                    >
                       <i
-                        className={t.changed_line_coverage >= 1 ? "full" : ""}
-                        style={{ width: `${Math.round(t.changed_line_coverage * 100)}%` }}
+                        className={(t.changed_line_coverage ?? 0) >= 1 ? "full" : ""}
+                        style={{ width: `${Math.round((t.changed_line_coverage ?? 0) * 100)}%` }}
                       />
                     </div>
                   </td>
