@@ -6,7 +6,12 @@ a base that disagrees with itself is NONDETERMINISTIC_BASE, never a head bug."""
 from pathlib import Path
 
 from tempest.compare.compare import Diverged
-from tempest.execute.dual import ConfirmOutcome, confirm_divergence, prove_target
+from tempest.execute.dual import (
+    ConfirmOutcome,
+    confirm_divergence,
+    prove_impure_target,
+    prove_target,
+)
 from tempest.execute.sandbox import ProcessSandbox
 from tempest.generate.inputs import Budget
 from tempest.model import DivergenceClass, ReasonCode, Severity, Verdict
@@ -151,3 +156,67 @@ class TestConfirmDivergence:
             return Diverged(cls, Severity.NORMAL, "x"), True, True
 
         assert confirm_divergence(rerun) is ConfirmOutcome.FLAKY
+
+
+class TestUnexercisedHonesty:
+    """Law L2: a target where zero inputs produced a comparable observation must be UNPROVEN —
+    EQUIVALENT_UNDER_BUDGET with equivalent_inputs=0 would bless a change nothing was proven
+    about (the Phase 8 truth-audit defect)."""
+
+    def test_all_unserializable_returns_is_unproven_not_blessed(self, tmp_path: Path) -> None:
+        base, head = _envs(
+            tmp_path,
+            "def make_adder(x: int):\n    return lambda y: y + x\n",
+            "def make_adder(x: int):\n    return lambda y: x + y\n",
+        )
+        outcome = prove_target(
+            base,
+            head,
+            "m",
+            "make_adder",
+            changed_lines=frozenset({2}),
+            sandbox=SANDBOX,
+            budget=Budget(max_inputs=12),
+        )
+        assert outcome.verdict is Verdict.UNPROVEN
+        assert outcome.reason_code is ReasonCode.VALUE_UNSERIALIZABLE
+        assert outcome.inputs_run > 0
+        assert outcome.unprovable_inputs == outcome.inputs_run
+        assert outcome.equivalent_inputs == 0
+        assert outcome.reason_detail is not None
+        assert "0 of" in outcome.reason_detail  # states exactly how much was comparable
+
+    def test_partially_unserializable_stays_equivalent_with_honest_counts(
+        self, tmp_path: Path
+    ) -> None:
+        src = "def f(x: int):\n    return (lambda: x) if x < 0 else x\n"
+        base, head = _envs(tmp_path, src, src.replace("else x", "else x + 0"))
+        outcome = prove_target(
+            base,
+            head,
+            "m",
+            "f",
+            changed_lines=frozenset({2}),
+            sandbox=SANDBOX,
+            budget=Budget(max_inputs=20),
+        )
+        assert outcome.verdict is Verdict.EQUIVALENT_UNDER_BUDGET
+        assert outcome.equivalent_inputs > 0
+        assert outcome.unprovable_inputs > 0  # the negative inputs stay honestly unprovable
+
+    def test_impure_unserializable_value_is_value_unserializable_not_nondeterministic(
+        self, tmp_path: Path
+    ) -> None:
+        src = "import time\n\n\ndef stamp():\n    return (time.time(), lambda: None)\n"
+        base, head = _envs(tmp_path, src, src.replace("lambda: None", "lambda: 0"))
+        outcome = prove_impure_target(
+            base,
+            head,
+            "m",
+            "stamp",
+            changed_lines=frozenset({5}),
+            sandbox=SANDBOX,
+            budget=Budget(max_inputs=4),
+        )
+        assert outcome.verdict is Verdict.UNPROVEN
+        assert outcome.reason_code is ReasonCode.VALUE_UNSERIALIZABLE

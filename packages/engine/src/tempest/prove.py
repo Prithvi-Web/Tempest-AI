@@ -37,7 +37,7 @@ from tempest.model import (
     TargetClassification,
     Verdict,
 )
-from tempest.targets.diff import changed_files
+from tempest.targets.diff import FileDiff, changed_files
 from tempest.targets.symbols import (
     SymbolSpan,
     all_symbol_names,
@@ -104,7 +104,7 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
     cache = repo / ".tempest" / "cache"
     base_env = materialize(repo, cfg.base, cache)
     head_env = materialize(repo, cfg.head, cache)
-    diffs = changed_files(repo, cfg.base, cfg.head)
+    diffs = changed_files(repo, cfg.base, cfg.head, patterns=("*.py", "*.ts", "*.tsx"))
     sandbox, sandbox_kind, sandbox_reason = _select_sandbox(repo)
     compare_cfg = CompareConfig(float_rel_tol=cfg.float_rel_tol)
     mined = mine_literals(head_env.worktree) if sandbox is not None else []
@@ -119,6 +119,11 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
             # Added symbols/files have no base counterpart to differ FROM — new code cannot
             # change existing behavior by itself; its effect is proven through changed callers.
             # Deleted files likewise have no head side to execute.
+            continue
+        if fd.path.endswith((".ts", ".tsx")):
+            # §14.1: TypeScript execution (record/replay + coverage) is not wired yet — the
+            # change is surfaced as UNPROVEN, never silently out of scope.
+            records.append(_ts_unexercised_record(fd))
             continue
         head_src = (head_env.worktree / fd.path).read_text(encoding="utf-8")
         base_symbols = all_symbol_names((base_env.worktree / fd.path).read_text(encoding="utf-8"))
@@ -219,6 +224,28 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
         zip_path=zip_path,
         sandbox_kind=sandbox_kind,
         sandbox_reason=sandbox_reason,
+    )
+
+
+def _ts_unexercised_record(fd: FileDiff) -> TargetRecord:
+    return TargetRecord(
+        file_path=fd.path,
+        module=_module_name(fd.path),
+        qualname="__file__",
+        lang=Lang.TYPESCRIPT,
+        classification=TargetClassification.UNREACHABLE,
+        verdict=Verdict.UNPROVEN,
+        reason_code=ReasonCode.RECORD_REPLAY_UNAVAILABLE,
+        reason_detail=(
+            f"`{fd.path}` changed but TypeScript execution (record/replay + coverage) is not "
+            "wired yet (Phase 3, in progress) — this change was NOT exercised and is not "
+            "being blessed"
+        ),
+        inputs_run=0,
+        equivalent_inputs=0,
+        unprovable_inputs=0,
+        changed_line_coverage=0.0,
+        divergences=(),
     )
 
 

@@ -46,8 +46,10 @@ def prove(
     """Execute base and head side by side and report where behavior diverges — with evidence."""
     from tempest.cli.report import render_report
     from tempest.config import TempestConfig, TempestConfigError
-    from tempest.model import Verdict
+    from tempest.envrepro.worktree import EnvReproError
+    from tempest.model import ReasonCode, Verdict
     from tempest.prove import ProveConfig, run_prove
+    from tempest.targets.diff import DiffError
 
     console = Console()
     try:
@@ -55,18 +57,28 @@ def prove(
     except TempestConfigError as exc:
         console.print(f"[bold red]{exc}[/bold red]")
         raise typer.Exit(2) from None
-    result = run_prove(
-        ProveConfig(
-            repo=repo,
-            base=base,
-            head=head,
-            max_inputs=file_cfg.effective_max_inputs(max_inputs),
-            seed=seed,
-            float_rel_tol=file_cfg.effective_float_rel_tol(float_tolerance),
-            out=out,
-            ignore_globs=file_cfg.ignore_globs,
+    try:
+        result = run_prove(
+            ProveConfig(
+                repo=repo,
+                base=base,
+                head=head,
+                max_inputs=file_cfg.effective_max_inputs(max_inputs),
+                seed=seed,
+                float_rel_tol=file_cfg.effective_float_rel_tol(float_tolerance),
+                out=out,
+                ignore_globs=file_cfg.ignore_globs,
+            )
         )
-    )
+    except (EnvReproError, DiffError) as exc:
+        # Law L2: environment reproduction failing is UNPROVEN territory, stated plainly —
+        # never a raw traceback, never a blessing.
+        console.print(f"[bold red]UNPROVEN — {ReasonCode.ENV_REPRODUCTION_FAILED}: {exc}[/bold red]")
+        console.print(
+            "Nothing was executed and nothing is blessed. Check that both refs exist in "
+            "this repository and that it is a valid git checkout."
+        )
+        raise typer.Exit(2) from None
     if result.sandbox_kind == "process-first-party":
         console.print(
             "[bold yellow]⚠ first-party fixture mode: ProcessSandbox in use "

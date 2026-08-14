@@ -6,6 +6,7 @@ Timing is never consulted. Equality is decided over canonical trees only.
 
 import math
 from dataclasses import dataclass
+from enum import StrEnum
 
 from tempest.compare.normalize import normalize_message
 from tempest.model import DivergenceClass, InputOutcome, Observation, Severity
@@ -31,11 +32,21 @@ class Diverged:
     first_divergent_effect: int | None = None
 
 
+class UnprovableKind(StrEnum):
+    """Why one input could not be compared — drives the target-level ReasonCode when a whole
+    target ends up with zero comparable inputs (Law L2: that target is UNPROVEN, never blessed)."""
+
+    UNINTERCEPTABLE = "UNINTERCEPTABLE"
+    REPLAY_UNSTABLE = "REPLAY_UNSTABLE"
+    UNSERIALIZABLE = "UNSERIALIZABLE"
+
+
 @dataclass(frozen=True)
 class Unprovable:
     """This input's behavior could not be compared — surfaces as UNPROVEN, never as equal."""
 
     reason: str
+    kind: UnprovableKind
 
 
 type CompareResult = Equal | Diverged | Unprovable
@@ -44,11 +55,13 @@ type CompareResult = Equal | Diverged | Unprovable
 def compare(base: Observation, head: Observation, cfg: CompareConfig) -> CompareResult:
     if base.uninterceptable is not None:
         return Unprovable(
-            reason=f"base reached an un-interceptable surface: {base.uninterceptable}"
+            reason=f"base reached an un-interceptable surface: {base.uninterceptable}",
+            kind=UnprovableKind.UNINTERCEPTABLE,
         )
     if head.uninterceptable is not None:
         return Unprovable(
-            reason=f"head reached an un-interceptable surface: {head.uninterceptable}"
+            reason=f"head reached an un-interceptable surface: {head.uninterceptable}",
+            kind=UnprovableKind.UNINTERCEPTABLE,
         )
     if head.cassette_miss is not None and base.cassette_miss is None:
         # Head asked for an interaction base never made — head is doing something new.
@@ -60,12 +73,19 @@ def compare(base: Observation, head: Observation, cfg: CompareConfig) -> Compare
     if base.cassette_miss is not None:
         return Unprovable(
             reason=f"base replay missed its own cassette ({base.cassette_miss}) — "
-            "replay is unstable for this input"
+            "replay is unstable for this input",
+            kind=UnprovableKind.REPLAY_UNSTABLE,
         )
     if base.unrepresentable is not None:
-        return Unprovable(reason=f"base observation unrepresentable: {base.unrepresentable}")
+        return Unprovable(
+            reason=f"base observation unrepresentable: {base.unrepresentable}",
+            kind=UnprovableKind.UNSERIALIZABLE,
+        )
     if head.unrepresentable is not None:
-        return Unprovable(reason=f"head observation unrepresentable: {head.unrepresentable}")
+        return Unprovable(
+            reason=f"head observation unrepresentable: {head.unrepresentable}",
+            kind=UnprovableKind.UNSERIALIZABLE,
+        )
 
     if base.outcome is not head.outcome:
         if InputOutcome.HUNG in (base.outcome, head.outcome):

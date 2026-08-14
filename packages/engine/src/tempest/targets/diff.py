@@ -21,8 +21,13 @@ class DiffError(Exception):
     pass
 
 
-def changed_files(repo: Path, base_ref: str, head_ref: str) -> list[FileDiff]:
-    """Python files changed between two refs, with exact changed line sets per side."""
+def changed_files(
+    repo: Path,
+    base_ref: str,
+    head_ref: str,
+    patterns: tuple[str, ...] = ("*.py",),
+) -> list[FileDiff]:
+    """Files matching `patterns` changed between two refs, with exact line sets per side."""
     result = subprocess.run(
         [
             "git",
@@ -34,7 +39,7 @@ def changed_files(repo: Path, base_ref: str, head_ref: str) -> list[FileDiff]:
             "--unified=0",
             f"{base_ref}..{head_ref}",
             "--",
-            "*.py",
+            *patterns,
         ],
         capture_output=True,
         text=True,

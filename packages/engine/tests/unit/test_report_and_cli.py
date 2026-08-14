@@ -162,3 +162,16 @@ class TestCliProve:
     def test_version_flag_still_works(self) -> None:
         result = runner.invoke(app, ["version"])
         assert result.exit_code == 0
+
+
+class TestCliEnvReproduction:
+    def test_unknown_ref_is_env_reproduction_failed_not_a_traceback(self, tmp_path: Path) -> None:
+        repo = _micro_repo(tmp_path, marker=True)
+        os.environ["TEMPEST_DEV"] = "1"
+        result = runner.invoke(
+            app,
+            ["prove", "--base", "no-such-ref", "--head", "head", "--repo", str(repo)],
+        )
+        assert result.exit_code == 2, result.output
+        assert "ENV_REPRODUCTION_FAILED" in result.output
+        assert "no-such-ref" in result.output  # names the ref so the fix is obvious

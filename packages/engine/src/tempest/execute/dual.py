@@ -7,6 +7,7 @@ Failure-mode defenses built in (master spec §14):
 - §14.5 in-process leakage: every run is a separate worker process pair.
 """
 
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -14,7 +15,14 @@ from pathlib import Path
 from typing import cast
 
 from tempest.compare.canonical import Canon, canonical_bytes
-from tempest.compare.compare import CompareConfig, Diverged, Equal, Unprovable, compare
+from tempest.compare.compare import (
+    CompareConfig,
+    Diverged,
+    Equal,
+    Unprovable,
+    UnprovableKind,
+    compare,
+)
 from tempest.execute.runner import run_batch
 from tempest.execute.sandbox import Sandbox
 from tempest.generate.inputs import Budget, CandidateInput, generate_inputs
@@ -37,6 +45,57 @@ class ConfirmOutcome(StrEnum):
     CONFIRMED = "CONFIRMED"
     FLAKY = "FLAKY"
     NONDETERMINISTIC_BASE = "NONDETERMINISTIC_BASE"
+
+
+class _UnprovableTally:
+    """Counts why inputs were uncomparable, so a target with ZERO comparable inputs gets an
+    honest UNPROVEN with the dominant reason — never EQUIVALENT_UNDER_BUDGET over nothing
+    (Law L2: EQUIVALENT means N inputs produced identical behavior; N must be > 0)."""
+
+    def __init__(self) -> None:
+        self.counts: Counter[UnprovableKind] = Counter()
+        self.samples: dict[UnprovableKind, str] = {}
+        self.flaky = 0
+
+    @property
+    def total(self) -> int:
+        return sum(self.counts.values()) + self.flaky
+
+    def add(self, u: Unprovable) -> None:
+        self.counts[u.kind] += 1
+        self.samples.setdefault(u.kind, u.reason)
+
+    def unexercised_reason(self, inputs_run: int) -> tuple[ReasonCode, str]:
+        parts = [
+            f"{n} {kind.value.lower().replace('_', ' ')}"
+            for kind, n in sorted(self.counts.items())
+            if n
+        ]
+        if self.flaky:
+            parts.append(f"{self.flaky} unconfirmable-flaky")
+        breakdown = ", ".join(parts)
+        if inputs_run == 0:
+            return (
+                ReasonCode.HARNESS_SYNTHESIS_FAILED,
+                "input generation produced no inputs for this signature — nothing was "
+                "exercised, so nothing is being blessed",
+            )
+        for kind, code in (
+            (UnprovableKind.UNSERIALIZABLE, ReasonCode.VALUE_UNSERIALIZABLE),
+            (UnprovableKind.UNINTERCEPTABLE, ReasonCode.UNINTERCEPTABLE_EFFECT),
+        ):
+            if self.counts[kind]:
+                return (
+                    code,
+                    f"0 of {inputs_run} inputs produced a comparable observation ({breakdown}) "
+                    f"— e.g. {self.samples[kind]}. Nothing was exercised comparably, so "
+                    "nothing is being blessed",
+                )
+        return (
+            ReasonCode.NONDETERMINISTIC_BASE,
+            f"0 of {inputs_run} inputs produced a comparable observation ({breakdown}) — "
+            "behavior did not stay stable under identical conditions (Law L3)",
+        )
 
 
 @dataclass(frozen=True)
@@ -143,7 +202,7 @@ def prove_target(
             ]
 
     equivalent = 0
-    unprovable = 0
+    tally = _UnprovableTally()
     confirmed: list[FoundDivergence] = []
     seen_classes: set[tuple[str, DivergenceClass]] = set()
 
@@ -153,7 +212,7 @@ def prove_target(
             equivalent += 1
             continue
         if isinstance(result, Unprovable):
-            unprovable += 1
+            tally.add(result)
             continue
         if len(confirmed) >= _MAX_CONFIRMATIONS:
             continue
@@ -190,7 +249,7 @@ def prove_target(
                 "as a head bug",
             )
         if confirmation is ConfirmOutcome.FLAKY:
-            unprovable += 1
+            tally.flaky += 1
             continue
         assert isinstance(result, Diverged)
         confirmed.append(
@@ -208,16 +267,45 @@ def prove_target(
     covered = frozenset().union(*(o.executed_lines for o in head_obs)) if head_obs else frozenset()
     coverage = len(covered & changed_lines) / len(changed_lines) if changed_lines else 1.0
 
-    verdict = Verdict.DIVERGENT if confirmed else Verdict.EQUIVALENT_UNDER_BUDGET
+    return _derive_outcome(
+        module,
+        qualname,
+        confirmed=confirmed,
+        equivalent=equivalent,
+        tally=tally,
+        inputs_run=len(literals),
+        coverage=coverage,
+    )
+
+
+def _derive_outcome(
+    module: str,
+    qualname: str,
+    *,
+    confirmed: list[FoundDivergence],
+    equivalent: int,
+    tally: _UnprovableTally,
+    inputs_run: int,
+    coverage: float,
+) -> TargetOutcome:
+    """EQUIVALENT_UNDER_BUDGET requires at least one comparable, identical input; a target where
+    every input was uncomparable is UNPROVEN with the dominant blocking reason (Law L2)."""
+    if confirmed:
+        verdict, reason_code, reason_detail = Verdict.DIVERGENT, None, None
+    elif equivalent > 0:
+        verdict, reason_code, reason_detail = Verdict.EQUIVALENT_UNDER_BUDGET, None, None
+    else:
+        verdict = Verdict.UNPROVEN
+        reason_code, reason_detail = tally.unexercised_reason(inputs_run)
     return TargetOutcome(
         module=module,
         qualname=qualname,
         verdict=verdict,
-        reason_code=None,
-        reason_detail=None,
-        inputs_run=len(literals),
+        reason_code=reason_code,
+        reason_detail=reason_detail,
+        inputs_run=inputs_run,
         equivalent_inputs=equivalent,
-        unprovable_inputs=unprovable,
+        unprovable_inputs=tally.total,
         changed_line_coverage=coverage,
         divergences=tuple(confirmed),
     )
@@ -281,7 +369,12 @@ def prove_impure_target(
     replay_job = DeterminismJob(mode="replay", cassettes=cassettes, loopback_port=loopback_port)
     base_rep = run_batch(base_root, module, qualname, literals, sandbox, determinism=replay_job)
     for i, (rec, rep) in enumerate(zip(base_rec, base_rep, strict=True)):
-        if not isinstance(compare(rec, rep, cfg), Equal):
+        verify = compare(rec, rep, cfg)
+        if isinstance(verify, Unprovable) and verify.kind is UnprovableKind.UNSERIALIZABLE:
+            # The value cannot be compared at all — that is not replay instability; the
+            # per-input tally below owns it (VALUE_UNSERIALIZABLE if nothing else compares).
+            continue
+        if not isinstance(verify, Equal):
             return _unproven(
                 module,
                 qualname,
@@ -301,7 +394,7 @@ def prove_impure_target(
         )
 
     equivalent = 0
-    unprovable = 0
+    tally = _UnprovableTally()
     confirmed: list[FoundDivergence] = []
 
     for (args_l, kwargs_l), b_obs, h_obs in zip(literals, base_rec, head_obs, strict=True):
@@ -310,7 +403,7 @@ def prove_impure_target(
             equivalent += 1
             continue
         if isinstance(result, Unprovable):
-            unprovable += 1
+            tally.add(result)
             continue
         if len(confirmed) >= _MAX_CONFIRMATIONS:
             continue
@@ -360,7 +453,7 @@ def prove_impure_target(
                 f"base record/replay disagrees with itself on input {args_l} (Law L3)",
             )
         if confirmation is ConfirmOutcome.FLAKY:
-            unprovable += 1
+            tally.flaky += 1
             continue
         assert isinstance(result, Diverged)
         confirmed.append(
@@ -377,16 +470,12 @@ def prove_impure_target(
 
     covered = frozenset().union(*(o.executed_lines for o in head_obs)) if head_obs else frozenset()
     coverage = len(covered & changed_lines) / len(changed_lines) if changed_lines else 1.0
-    verdict = Verdict.DIVERGENT if confirmed else Verdict.EQUIVALENT_UNDER_BUDGET
-    return TargetOutcome(
-        module=module,
-        qualname=qualname,
-        verdict=verdict,
-        reason_code=None,
-        reason_detail=None,
+    return _derive_outcome(
+        module,
+        qualname,
+        confirmed=confirmed,
+        equivalent=equivalent,
+        tally=tally,
         inputs_run=len(literals),
-        equivalent_inputs=equivalent,
-        unprovable_inputs=unprovable,
-        changed_line_coverage=coverage,
-        divergences=tuple(confirmed),
+        coverage=coverage,
     )
