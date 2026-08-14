@@ -11,8 +11,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import cast
 
-from tempest.compare.canonical import canonical_bytes
+from tempest.compare.canonical import Canon, canonical_bytes
 from tempest.compare.compare import CompareConfig, Diverged, Equal, Unprovable, compare
 from tempest.execute.runner import run_batch
 from tempest.execute.sandbox import Sandbox
@@ -76,7 +77,7 @@ def observation_summary(obs: Observation) -> str:
         return f"raised {obs.raised.type_name}: {obs.raised.message}"[:200]
     if obs.unrepresentable is not None:
         return f"returned an unrepresentable value ({obs.unrepresentable})"
-    return f"returned {canonical_bytes(obs.return_canon).decode()[:200]}"
+    return f"returned {canonical_bytes(cast(Canon, obs.return_canon)).decode()[:200]}"
 
 
 def confirm_divergence(
