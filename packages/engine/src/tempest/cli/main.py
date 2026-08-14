@@ -7,6 +7,8 @@ from rich.console import Console
 
 import tempest
 from tempest.cli import doctor as doctor_cmd
+from tempest.cli.logs import logs_app
+from tempest.crashlog import install_crash_capture
 
 app = typer.Typer(
     name="tempest",
@@ -14,11 +16,13 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 doctor_cmd.register(app)
+app.add_typer(logs_app, name="logs")
 
 
 @app.callback()
 def main() -> None:
     """Tempest proves behavior; it never guesses."""
+    install_crash_capture()  # Phase 17: unhandled crashes leave a scrubbed local record
 
 
 @app.command()
