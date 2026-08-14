@@ -160,9 +160,21 @@ class SeatbeltSandbox:
     ) -> dict[str, object]:
         return job
 
-    def _read_roots(self) -> tuple[Path, ...]:
-        # The interpreter must read its own install; a uv-managed CPython lives under ~/.local.
-        roots = {Path(sys.base_prefix), Path(sys.prefix)}
+    def _read_roots(self, interpreter: Path) -> tuple[Path, ...]:
+        """Every path the sandboxed worker must be able to READ to even start: the interpreter
+        being exec'd (which may be a symlink under ~/.local/bin), its resolved binary, and its
+        install prefix — plus the engine process's own prefixes and the uv python store. Without
+        the interpreter carve, a home-based CPython cannot be read and the worker never launches
+        (HARNESS_SYNTHESIS_FAILED) even though the sandbox is otherwise fine."""
+        real = interpreter.resolve()
+        roots = {
+            Path(sys.base_prefix),
+            Path(sys.prefix),
+            interpreter,
+            interpreter.parent,  # the bin/ dir holding the symlink
+            real,
+            real.parent.parent,  # <prefix> of a <prefix>/bin/python layout
+        }
         uv = Path.home() / ".local" / "share" / "uv"
         if uv.exists():
             roots.add(uv)
@@ -180,7 +192,10 @@ class SeatbeltSandbox:
         binary = self._binary()
         if binary is None:  # available() is checked before selection; belt-and-braces
             raise RuntimeError("sandbox-exec vanished between selection and launch")
-        profile = seatbelt_profile(repo=cwd, scratch=scratch, read_roots=self._read_roots())
+        interpreter = Path(cmd[0])
+        profile = seatbelt_profile(
+            repo=cwd, scratch=scratch, read_roots=self._read_roots(interpreter)
+        )
         profile_path = scratch / "tempest.sb"
         profile_path.write_text(profile, encoding="utf-8")
         wrapped = [binary, "-f", str(profile_path), *cmd]

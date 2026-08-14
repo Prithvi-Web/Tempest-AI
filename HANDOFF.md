@@ -23,6 +23,8 @@ numbers live in `docs/METRICS.md`; every deviation is an ADR in `docs/DECISIONS.
 | 7 Hardening | 🔶 | flake hunt ✅, schema-migration tests ✅, `SANDBOX_REVIEW.md` ✅ (container leg needs a Docker machine), perf ✅ 3.9 s |
 | **8 Truth Audit** | ✅ 2026-08-13 | `docs/AUDIT-PHASE8.md` — clean-clone verify green, 30/30×20 fresh, byte-identical bundle diffs, 8/8 reason codes emittable, **3 honesty defects found & fixed test-first** (blessed-with-zero-comparable-inputs, EnvRepro traceback, silent .ts skip); proof rate: fixture 100%, real-world unmeasured (stated plainly) — see `docs/PLAN-DESKTOP.md`, ADR-0011..0013, `docs/METRICS.md` |
 | **9 Desktop Shell Migration** | ✅ core 2026-08-14 (owner said go) | `packages/desktop`: stdio JSON-RPC Boundary A (no TCP anywhere, `lsof`-verified), typify + tauri-specta generated tri-boundary types with drift gate, owned-pgroup supervisor w/ crash restart, five views on typed bindings, **Next.js web package deleted** (ADR-0014). Gates: contract zero-drift · Rust 10/10 · roundtrip **10000/10000** · cli-vs-desktop parity **byte-identical** (gate caught + fixed a real frozen-runtime generation bug) · SIGKILL orphan **2.7 s**. Open: desktop Playwright E2E, clean-VM leg |
+| **10 Sandboxing w/o Docker** | ✅ macOS T2 2026-08-14 | **This machine now proves untrusted user repos with no Docker** — `SeatbeltSandbox` (deny-default `sandbox-exec`, ADR-0015). Ladder T1 Docker→T2 Seatbelt→UNPROVEN; tier in bundle(v2)→API→CLI+UI. Escape suite **T2 27/27 contained, T3 18/27 leaked**; egress **0** (L10); T2 overhead **1.16×**. Open (CI/other-OS): Linux bwrap + Windows AppContainer legs, netns capture, T1 Docker perf delta, external security review ([ASK ME]) |
+| **Perf** | ✅ 2026-08-14 | Persistent worker pairs: pyfix **118.5 s → 20.0 s (5.9×)**, full test suite 155 s → 60 s; identical verdicts, 0 false alarms preserved. Confirmations stay on fresh process pairs (§14.2) |
 
 ## Run it
 
@@ -37,9 +39,11 @@ uv run python corpus/fixtures/pyfix/make_fixture.py /tmp/pyfix   # the Phase 1 f
 
 ## Traps (standalone — don't relearn these)
 
-1. **No Docker on this machine.** User repos → `UNPROVEN(SANDBOX_UNAVAILABLE)` by design (Law
-   L6, ADR-0003). First-party fixtures run via ProcessSandbox ONLY with the repo marker file +
-   `TEMPEST_DEV=1` (ADR-0008). Never weaken this.
+1. **No Docker on this machine — but user repos now run under macOS T2 Seatbelt** (ADR-0015),
+   not `SANDBOX_UNAVAILABLE`. Ladder: T1 Docker → T2 `sandbox-exec` (macOS, always present) →
+   UNPROVEN. `TEMPEST_NO_SEATBELT=1` forces the no-tier path (tests use it). First-party
+   fixtures still run via ProcessSandbox with the repo marker + `TEMPEST_DEV=1` (ADR-0008).
+   T3/ProcessSandbox is NEVER offered for untrusted user code (escape suite: it leaks 18/27).
 2. **The worker is stdlib-only** (`execute/_worker.py`): it runs where tempest isn't installed;
    `canonical.py` and `_shims.py` are copied into scratch beside it. Anything it imports must
    stay stdlib.

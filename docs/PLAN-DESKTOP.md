@@ -73,24 +73,40 @@ orphan check: zero sidecar processes survive SIGKILL of the host (cleared in 2.7
 ## Phase 10 — Sandboxing Without Docker ⚠️ (the phase that can kill the product)
 
 - [ ] Tiered isolation, selected at runtime, tier always recorded in the bundle:
-      T1 Docker/Colima/Podman if present · T2 macOS `sandbox-exec`+App Sandbox / Windows
-      AppContainer+Job Object / Linux bubblewrap+seccomp-bpf+userns+cgroups v2 ·
+      T1 Docker/Colima/Podman if present · T2 macOS `sandbox-exec` (SHIPPED) / Windows
+      AppContainer+Job Object (CI) / Linux bubblewrap+seccomp-bpf+userns+cgroups v2 (CI) ·
       T3 separate user + rlimits (reported in the UI as reduced assurance, limitation named)
-- [ ] Every tier enforces: no network, read-only FS except one scratch mount, no `~` access
-      outside the target repo, CPU/memory/wall limits, no unconstrained children
-- [ ] Escape test suite: 25+ adversarial payloads (egress, traversal, fork bombs, privilege
-      escalation, parent-kill, `~/.ssh` read, Tempest-DB read, persistence) × 3 OSes × all tiers
-- [ ] Egress monitor (L10) wired into CI; zero outbound packets from runner processes
-- [ ] T1-vs-T2 performance delta documented (>3× slower is a surfaced finding, not hidden)
-- [ ] External security review scheduled → noted in `docs/DECISIONS.md`
+- [x] **macOS T2 lands** (`SeatbeltSandbox`, ADR-0015): `select_sandbox` ladder T1→T2→UNPROVEN;
+      this machine now proves untrusted user repos with no Docker (was SANDBOX_UNAVAILABLE)
+- [x] Enforced on T2: network denied outright, home denied except the repo worktree +
+      interpreter, writes only to the scratch mount, children inherit the sandbox, CPU/wall
+      limits; fork bombs bounded by timeout + pgroup-SIGKILL (macOS NPROC is per-UID)
+- [x] Escape suite: 27 adversarial payloads (6 egress, 6 secret/home read, 5 persistence, 6
+      process/privilege, fork bomb, 2 controls) through the real `sandbox.popen` path —
+      **T2 contains 27/27**, T3 leaks 18/27; wired into `make verify` + an integration test
+- [x] Egress monitor (L10): **0 outbound connections** on T2 (`tempest.dev.egress_check`)
+- [x] Tier recorded in every bundle (manifest v2) → API (runs table, Alembic 0002) → CLI report
+      + desktop UI chip; reduced assurance flagged. Never silently degraded (§3)
+- [x] T2 perf delta measured: **1.16×** the no-wrapper baseline (~5 ms/spawn), well under the 3× bar
+- [x] External security review scheduled → ADR-0015 ([ASK ME]: engagement + budget)
+- [ ] Linux (bubblewrap) + Windows (AppContainer) T2 backends, and the true T3 (separate-user):
+      CI/other-OS follow-ups — this host is macOS-only
+- [ ] netns deny-all packet-capture leg (a Linux construct) — CI
 
-*Gate:*
+*Gate — real output, 2026-08-14 (macOS T2):*
 ```
-python -m tempest.dev.escape_suite --all-tiers --all-os   # paste the full matrix
-python -m tempest.dev.egress_check --expect-zero
+$ python -m tempest.dev.escape_suite --tier T2
+27/27 contained on tier T2
+escape suite: every hostile payload contained.
+$ python -m tempest.dev.escape_suite --tier T3      # baseline: the tier distinction is real
+9/27 contained on tier T3        (network, home reads, /tmp writes, parent-kill all leak)
+$ python -m tempest.dev.egress_check --expect-zero
+outbound connections that succeeded: 0 (required: 0)
+egress check: zero outbound connections from sandboxed runner code (L10).
 ```
-*Machine constraint (stated, not hidden): this dev machine has no Docker and only macOS — the
-cross-OS legs run in CI runners; the audit records which legs ran where.*
+*Machine constraint (stated, not hidden): this dev machine has no Docker and only macOS. The T1
+Docker delta and the Linux/Windows escape legs run in CI runners; the matrix marks each
+PENDING(CI) rather than skipping it silently.*
 
 ## Phase 11 — Local-First Data & Performance
 
