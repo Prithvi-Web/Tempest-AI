@@ -39,3 +39,4 @@ packages/desktop/src-tauri/target/
 .gstack/
 bench/bench.json
 bench/soak.json
+bench/soak-8h.log
