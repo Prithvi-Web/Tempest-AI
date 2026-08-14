@@ -1,69 +1,92 @@
-//! Tempest desktop shell: pick a free loopback port, launch the bundled engine+API sidecar
-//! against the app's data directory, and open the UI with the port injected before load.
-//! The sidecar is killed when the app exits — no orphan servers.
+//! Tempest desktop shell: spawn the bundled engine sidecar under full supervision (owned
+//! process group, health checks, crash restart) and speak JSON-RPC 2.0 over its stdio —
+//! no TCP socket ever listens (CLAUDE.md §9b Boundary A). The webview reaches the sidecar
+//! only through typed Tauri commands (Boundary B).
 
-use std::net::TcpListener;
-use std::sync::Mutex;
+pub mod framing;
+pub mod supervisor;
 
-use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_shell::process::CommandChild;
-use tauri_plugin_shell::ShellExt;
+use std::path::PathBuf;
+use std::sync::Arc;
 
-struct Sidecar(Mutex<Option<CommandChild>>);
+use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
-fn free_port() -> u16 {
-    // Bind port 0 on loopback, read the assignment, release it for the sidecar to claim.
-    TcpListener::bind(("127.0.0.1", 0))
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .unwrap_or(8765)
+use supervisor::{SpawnConfig, Supervisor, DEFAULT_CALL_TIMEOUT};
+
+/// Bundled beside the app binary in production; staged by build-server.sh in dev.
+fn sidecar_program() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|err| format!("current_exe: {err}"))?;
+    let beside = exe
+        .parent()
+        .ok_or_else(|| "app binary has no parent directory".to_string())?
+        .join("tempest-server");
+    if beside.exists() {
+        return Ok(beside);
+    }
+    let staged = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries")
+        .join(format!("tempest-server-{}", env!("TEMPEST_TARGET_TRIPLE")));
+    if staged.exists() {
+        return Ok(staged);
+    }
+    Err(format!(
+        "tempest-server sidecar not found beside {exe:?} nor at {staged:?} — run \
+         packages/desktop/build-server.sh"
+    ))
+}
+
+/// Boundary B stepping stone: one generic bridge command, replaced by per-operation typed
+/// commands + generated bindings in the tri-boundary contract step.
+#[tauri::command]
+fn sidecar_call(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    method: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    state.call(&method, params, DEFAULT_CALL_TIMEOUT).map_err(|err| err.to_string())
 }
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .manage(Sidecar(Mutex::new(None)))
         .setup(|app| {
-            let port = free_port();
-            let data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("app data dir must resolve");
+            let data_dir = app.path().app_data_dir().expect("app data dir must resolve");
             std::fs::create_dir_all(&data_dir)?;
+            let program = sidecar_program().map_err(std::io::Error::other)?;
+            let supervisor = Supervisor::new(SpawnConfig {
+                program,
+                args: vec![
+                    "--stdio".into(),
+                    "--data-dir".into(),
+                    data_dir.to_string_lossy().into_owned(),
+                ],
+            });
+            let handle = app.handle().clone();
+            supervisor.set_listener(Arc::new(move |state: &str| {
+                let _ = handle.emit("sidecar-state", state.to_string());
+            }));
+            app.manage(Arc::clone(&supervisor));
+            // Health-wait happens off the main thread — the window appears immediately and the
+            // UI shows sidecar state from the events above until the first ping succeeds.
+            std::thread::spawn(move || {
+                if let Err(err) = supervisor.start() {
+                    eprintln!("[tempest] sidecar failed to start: {err}");
+                }
+            });
 
-            let (_rx, child) = app
-                .shell()
-                .sidecar("tempest-server")
-                .expect("sidecar binary bundled")
-                .args([
-                    "--port",
-                    &port.to_string(),
-                    "--data-dir",
-                    data_dir.to_string_lossy().as_ref(),
-                ])
-                .spawn()
-                .expect("engine sidecar failed to spawn");
-            app.state::<Sidecar>().0.lock().unwrap().replace(child);
-
-            // The UI reads this before creating its API client; retries cover startup time.
-            let init = format!(
-                "window.__TEMPEST_API__ = 'http://127.0.0.1:{port}';"
-            );
             WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Tempest")
                 .inner_size(1180.0, 800.0)
                 .min_inner_size(760.0, 520.0)
-                .initialization_script(&init)
                 .build()?;
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![sidecar_call])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                if let Some(child) = app.state::<Sidecar>().0.lock().unwrap().take() {
-                    let _ = child.kill();
-                }
+                // Blocking sweep: after this, no sidecar or runner process exists (L11).
+                app.state::<Arc<Supervisor>>().shutdown();
             }
         });
 }
