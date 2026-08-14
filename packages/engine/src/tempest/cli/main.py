@@ -6,12 +6,14 @@ import typer
 from rich.console import Console
 
 import tempest
+from tempest.cli import doctor as doctor_cmd
 
 app = typer.Typer(
     name="tempest",
     help="Tempest AI — behavioral proof agent. Executes diffs; reports divergence with evidence.",
     no_args_is_help=True,
 )
+doctor_cmd.register(app)
 
 
 @app.callback()
