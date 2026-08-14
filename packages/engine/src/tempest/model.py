@@ -134,3 +134,6 @@ class Observation:
     unrepresentable: str | None = None
     executed_lines: frozenset[int] = frozenset()
     executed_arcs: frozenset[tuple[int, int]] = frozenset()
+    cassette_miss: str | None = None
+    uninterceptable: str | None = None
+    cassette: object | None = None  # record-mode only: the JSON-able interaction ledger

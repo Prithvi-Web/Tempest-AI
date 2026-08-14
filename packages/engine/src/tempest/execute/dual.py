@@ -236,3 +236,157 @@ def _unproven(module: str, qualname: str, reason_code: ReasonCode, detail: str) 
         changed_line_coverage=0.0,
         divergences=(),
     )
+
+
+def prove_impure_target(
+    base_root: Path,
+    head_root: Path,
+    module: str,
+    qualname: str,
+    *,
+    changed_lines: frozenset[int],
+    sandbox: Sandbox,
+    budget: Budget,
+    mined: list[object] | None = None,
+    cfg: CompareConfig | None = None,
+    loopback_routes: dict[str, object] | None = None,
+    loopback_port: int = 0,
+) -> TargetOutcome:
+    """IMPURE_RECORDABLE flow: record once on base → verify replay stability on base →
+    replay head from the identical cassette (Law L3: identical conditions or UNPROVEN)."""
+    from tempest.execute.runner import DeterminismJob
+
+    cfg = cfg or CompareConfig()
+    adapter = synthesize(head_root, module, qualname, sandbox=sandbox, seed=budget.seed)
+    if isinstance(adapter, SynthesisFailure):
+        return _unproven(module, qualname, adapter.reason_code, adapter.detail)
+
+    candidates = generate_inputs(adapter.introspection, mined=mined or [], budget=budget)
+    literals = [(c.args_literal, c.kwargs_literal) for c in candidates]
+
+    record_job = DeterminismJob(
+        mode="record", loopback_routes=loopback_routes, loopback_port=loopback_port
+    )
+    base_rec = run_batch(base_root, module, qualname, literals, sandbox, determinism=record_job)
+    surface = next((o.uninterceptable for o in base_rec if o.uninterceptable), None)
+    if surface is not None:
+        return _unproven(
+            module,
+            qualname,
+            ReasonCode.UNINTERCEPTABLE_EFFECT,
+            f"could not exercise `{module}.{qualname}` — {surface}",
+        )
+
+    cassettes: dict[int, object] = {i: o.cassette for i, o in enumerate(base_rec)}
+    replay_job = DeterminismJob(mode="replay", cassettes=cassettes, loopback_port=loopback_port)
+    base_rep = run_batch(base_root, module, qualname, literals, sandbox, determinism=replay_job)
+    for i, (rec, rep) in enumerate(zip(base_rec, base_rep, strict=True)):
+        if not isinstance(compare(rec, rep, cfg), Equal):
+            return _unproven(
+                module,
+                qualname,
+                ReasonCode.NONDETERMINISTIC_BASE,
+                f"base replay does not reproduce its own recording on input "
+                f"{literals[i][0]} — determinism could not be reached (Law L3)",
+            )
+
+    head_obs = run_batch(head_root, module, qualname, literals, sandbox, determinism=replay_job)
+    surface = next((o.uninterceptable for o in head_obs if o.uninterceptable), None)
+    if surface is not None:
+        return _unproven(
+            module,
+            qualname,
+            ReasonCode.UNINTERCEPTABLE_EFFECT,
+            f"could not exercise `{module}.{qualname}` on head — {surface}",
+        )
+
+    equivalent = 0
+    unprovable = 0
+    confirmed: list[FoundDivergence] = []
+
+    for (args_l, kwargs_l), b_obs, h_obs in zip(literals, base_rec, head_obs, strict=True):
+        result = compare(b_obs, h_obs, cfg)
+        if isinstance(result, Equal):
+            equivalent += 1
+            continue
+        if isinstance(result, Unprovable):
+            unprovable += 1
+            continue
+        if len(confirmed) >= _MAX_CONFIRMATIONS:
+            continue
+
+        def rerun(
+            attempt: int, args_l: str = args_l, kwargs_l: str = kwargs_l
+        ) -> tuple[Diverged | None, bool, bool]:
+            (fresh_rec,) = run_batch(
+                base_root,
+                module,
+                qualname,
+                [(args_l, kwargs_l)],
+                sandbox,
+                determinism=DeterminismJob(
+                    mode="record", loopback_routes=loopback_routes, loopback_port=loopback_port
+                ),
+            )
+            single_replay = DeterminismJob(
+                mode="replay", cassettes={0: fresh_rec.cassette}, loopback_port=loopback_port
+            )
+            (fresh_rep,) = run_batch(
+                base_root,
+                module,
+                qualname,
+                [(args_l, kwargs_l)],
+                sandbox,
+                determinism=single_replay,
+            )
+            base_ok = isinstance(compare(fresh_rec, fresh_rep, cfg), Equal)
+            (fresh_head,) = run_batch(
+                head_root,
+                module,
+                qualname,
+                [(args_l, kwargs_l)],
+                sandbox,
+                determinism=single_replay,
+            )
+            pair = compare(fresh_rec, fresh_head, cfg)
+            return (pair if isinstance(pair, Diverged) else None), base_ok, True
+
+        confirmation = confirm_divergence(rerun)
+        if confirmation is ConfirmOutcome.NONDETERMINISTIC_BASE:
+            return _unproven(
+                module,
+                qualname,
+                ReasonCode.NONDETERMINISTIC_BASE,
+                f"base record/replay disagrees with itself on input {args_l} (Law L3)",
+            )
+        if confirmation is ConfirmOutcome.FLAKY:
+            unprovable += 1
+            continue
+        assert isinstance(result, Diverged)
+        confirmed.append(
+            FoundDivergence(
+                args_literal=args_l,
+                kwargs_literal=kwargs_l,
+                divergence_class=result.divergence_class,
+                severity=result.severity,
+                detail=result.detail,
+                base_summary=observation_summary(b_obs),
+                head_summary=observation_summary(h_obs),
+            )
+        )
+
+    covered = frozenset().union(*(o.executed_lines for o in head_obs)) if head_obs else frozenset()
+    coverage = len(covered & changed_lines) / len(changed_lines) if changed_lines else 1.0
+    verdict = Verdict.DIVERGENT if confirmed else Verdict.EQUIVALENT_UNDER_BUDGET
+    return TargetOutcome(
+        module=module,
+        qualname=qualname,
+        verdict=verdict,
+        reason_code=None,
+        reason_detail=None,
+        inputs_run=len(literals),
+        equivalent_inputs=equivalent,
+        unprovable_inputs=unprovable,
+        changed_line_coverage=coverage,
+        divergences=tuple(confirmed),
+    )

@@ -1,13 +1,18 @@
 """The in-sandbox worker. STDLIB-ONLY — this file is copied into the scratch mount and executed
-by the target repo's interpreter, where tempest is not installed. It imports `canonical` from a
-sibling copy the runner places next to it (single source of truth: tempest/compare/canonical.py).
+by the target repo's interpreter, where tempest is not installed. It imports `canonical` (and,
+for impure targets, `shims`) from sibling copies the runner places next to it.
 
 Protocol: `python worker.py job.json`; one JSON line per result on stdout, flushed immediately
-(the runner uses line arrival for hang detection). Target stdout/stderr are captured per input;
-the real stdout belongs to the protocol.
+(the runner uses line arrival for hang detection). Target stdout/stderr are captured per input.
+
+Determinism (job["determinism"]): mode "off" | "record" | "replay". Record wraps every input in
+a fresh shim Session and emits its cassette; replay feeds the recorded cassette back in. A
+cassette miss or an un-interceptable surface is reported as a dedicated field — evidence,
+never a silent pass.
 """
 
 import ast
+import hashlib
 import importlib
 import inspect
 import io
@@ -18,6 +23,10 @@ import traceback
 from contextlib import redirect_stderr, redirect_stdout
 from types import FrameType
 from typing import Any, Protocol, cast
+
+# The worker's own instrumentation must survive shim installation.
+_PERF_NS = time.perf_counter_ns
+_CPU_NS = time.process_time_ns
 
 
 class _CanonicalModule(Protocol):
@@ -107,24 +116,144 @@ class _Tracer:
         return self.local_trace
 
 
+def _start_loopback(routes: dict[str, Any], port: int, shims: Any = None) -> object:
+    """Serve canned routes on 127.0.0.1 for the HTTP corpus (record mode only)."""
+    import http.server
+    import threading
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def setup(self) -> None:
+            # Handler threads are spawned per request; their own clock/env use is server
+            # machinery, not target behavior — keep it out of the ledger.
+            if shims is not None:
+                shims.allow_internal_in_this_thread()
+            super().setup()
+
+        def do_GET(self) -> None:  # noqa: N802  # http.server API name
+            route = routes.get(self.path)
+            if route is None:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"not found")
+                return
+            body = str(route.get("body", "")).encode()
+            self.send_response(int(route.get("status", 200)))
+            self.send_header("Content-Type", str(route.get("content_type", "text/plain")))
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:  # silence request logging
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+
+    def serve() -> None:
+        if shims is not None:
+            shims.allow_internal_in_this_thread()
+        server.serve_forever()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return server
+
+
+def _substitute_loopback(value: Any, port: int) -> Any:
+    if isinstance(value, str):
+        return value.replace("__LOOPBACK__", f"http://127.0.0.1:{port}")
+    if isinstance(value, tuple):
+        return tuple(_substitute_loopback(v, port) for v in value)
+    if isinstance(value, list):
+        return [_substitute_loopback(v, port) for v in value]
+    if isinstance(value, dict):
+        return {k: _substitute_loopback(v, port) for k, v in value.items()}
+    return value
+
+
+def _effects_payload(session: Any, shims: Any) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for e in session.ledger:
+        encoded = json.dumps(_encode_for_fingerprint(e.payload), sort_keys=True, default=repr)
+        out.append(
+            {
+                "surface": e.surface,
+                "call": e.call,
+                "ordinal": e.ordinal,
+                "args_fingerprint": hashlib.sha256(encoded.encode()).hexdigest()[:16],
+            }
+        )
+    return out
+
+
+def _encode_for_fingerprint(payload: Any) -> Any:
+    if isinstance(payload, bytes):
+        return {"__b64_len": len(payload), "__b64_head": payload[:64].hex()}
+    if isinstance(payload, list):
+        return [_encode_for_fingerprint(p) for p in payload]
+    if isinstance(payload, dict):
+        return {k: _encode_for_fingerprint(v) for k, v in payload.items()}
+    return payload
+
+
 def do_invoke(job: dict[str, Any], canonical: _CanonicalModule) -> None:
     module_name: str = job["module"]
     qualname: str = job["qualname"]
     target_file: str = job["target_file"]
+    det: dict[str, Any] = job.get("determinism") or {"mode": "off"}
+    mode: str = det.get("mode", "off")
+
+    shims: Any = None
+    if mode in ("record", "replay"):
+        shims = importlib.import_module("shims")
+
+    loopback_port = int(det.get("loopback_port") or 0)
+    if mode == "record" and det.get("loopback_routes"):
+        _start_loopback(det["loopback_routes"], loopback_port, shims)
+
+    cassettes: dict[str, Any] = det.get("cassettes") or {}
+
+    # Patches must be live BEFORE the target module is imported, so `from time import time`
+    # style bindings capture the shims. Import-time interactions ride in every input's cassette
+    # under "import" so replay workers reproduce the exact same module-load world.
+    import_session: Any = None
+    if shims is not None:
+        import_cassette = None
+        if mode == "replay":
+            for value in cassettes.values():
+                if isinstance(value, dict) and "import" in value:
+                    import_cassette = value["import"]
+                    break
+        import_session = shims.Session(mode=mode, cassette=import_cassette)
+        shims.install(import_session)
+
     try:
         fn = _resolve(module_name, qualname)
-    except BaseException:
+    except BaseException as exc:
+        if shims is not None:
+            detail = str(exc)
+            if isinstance(exc, shims.UninterceptableEffect):
+                shims.uninstall()
+                _emit({"fatal": "import", "uninterceptable": detail})
+                return
+            if isinstance(exc, shims.CassetteMiss):
+                shims.uninstall()
+                _emit({"fatal": "import", "cassette_miss": detail})
+                return
+            shims.uninstall()
         _emit({"fatal": "import", "error": traceback.format_exc(limit=5)})
         return
 
     for entry in job["inputs"]:
         index: int = entry["index"]
         try:
-            args = tuple(cast(tuple[Any, ...], canonical.parse_input_literal(entry["args"])))
-            kwargs = dict(cast(dict[str, Any], canonical.parse_input_literal(entry["kwargs"])))
+            args = tuple(cast("tuple[Any, ...]", canonical.parse_input_literal(entry["args"])))
+            kwargs = dict(cast("dict[str, Any]", canonical.parse_input_literal(entry["kwargs"])))
         except (ValueError, SyntaxError):
             _emit({"index": index, "fatal": "input", "error": traceback.format_exc(limit=2)})
             continue
+        if loopback_port:
+            args = _substitute_loopback(args, loopback_port)
+            kwargs = _substitute_loopback(kwargs, loopback_port)
 
         out_buf, err_buf = io.StringIO(), io.StringIO()
         tracer = _Tracer(target_file)
@@ -132,25 +261,46 @@ def do_invoke(job: dict[str, Any], canonical: _CanonicalModule) -> None:
         return_present = False
         return_canon: object = None
         unrepresentable: str | None = None
+        cassette_miss: str | None = None
+        uninterceptable: str | None = None
+        session: Any = None
 
-        wall0 = time.perf_counter_ns()
-        cpu0 = time.process_time_ns()
+        if shims is not None:
+            input_cassette = None
+            if mode == "replay":
+                raw_cassette = cassettes.get(str(index))
+                if isinstance(raw_cassette, dict):
+                    input_cassette = raw_cassette.get("input")
+                else:
+                    input_cassette = raw_cassette
+            session = shims.Session(mode=mode, cassette=input_cassette)
+            shims.set_session(session)
+
+        wall0 = _PERF_NS()
+        cpu0 = _CPU_NS()
         sys.settrace(tracer.global_trace)
         try:
             with redirect_stdout(out_buf), redirect_stderr(err_buf):
                 result = fn(*args, **kwargs)
         except BaseException as exc:
-            raised = {
-                "type": type(exc).__name__,
-                "module": type(exc).__module__,
-                "message": str(exc),
-            }
+            if shims is not None and isinstance(exc, shims.CassetteMiss):
+                cassette_miss = str(exc)
+            elif shims is not None and isinstance(exc, shims.UninterceptableEffect):
+                uninterceptable = str(exc)
+            else:
+                raised = {
+                    "type": type(exc).__name__,
+                    "module": type(exc).__module__,
+                    "message": str(exc),
+                }
         finally:
             sys.settrace(None)
-        wall = time.perf_counter_ns() - wall0
-        cpu = time.process_time_ns() - cpu0
+            if shims is not None:
+                shims.set_session(import_session)  # keep patches; park interactions harmlessly
+        wall = _PERF_NS() - wall0
+        cpu = _CPU_NS() - cpu0
 
-        if raised is None:
+        if raised is None and cassette_miss is None and uninterceptable is None:
             try:
                 return_canon = canonical.canonicalize(result)
                 return_present = True
@@ -158,22 +308,30 @@ def do_invoke(job: dict[str, Any], canonical: _CanonicalModule) -> None:
                 reason = getattr(exc, "reason", None)
                 unrepresentable = reason if isinstance(reason, str) else repr(exc)
 
-        _emit(
-            {
-                "index": index,
-                "outcome": "COMPLETED",
-                "return_present": return_present,
-                "return_canon": return_canon,
-                "raised": raised,
-                "stdout": out_buf.getvalue(),
-                "stderr": err_buf.getvalue(),
-                "wall_ns": wall,
-                "cpu_ns": cpu,
-                "lines": sorted(tracer.lines),
-                "arcs": sorted(list(a) for a in tracer.arcs),
-                "unrepresentable": unrepresentable,
-            }
-        )
+        payload: dict[str, object] = {
+            "index": index,
+            "outcome": "COMPLETED",
+            "return_present": return_present,
+            "return_canon": return_canon,
+            "raised": raised,
+            "stdout": out_buf.getvalue(),
+            "stderr": err_buf.getvalue(),
+            "wall_ns": wall,
+            "cpu_ns": cpu,
+            "lines": sorted(tracer.lines),
+            "arcs": sorted(list(a) for a in tracer.arcs),
+            "unrepresentable": unrepresentable,
+            "cassette_miss": cassette_miss,
+            "uninterceptable": uninterceptable,
+        }
+        if session is not None:
+            payload["effects"] = _effects_payload(session, shims)
+            if mode == "record":
+                payload["cassette"] = {
+                    "import": import_session.cassette_data(),
+                    "input": session.cassette_data(),
+                }
+        _emit(payload)
 
 
 def main() -> None:

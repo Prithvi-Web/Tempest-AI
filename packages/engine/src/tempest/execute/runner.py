@@ -18,10 +18,29 @@ from pathlib import Path
 from typing import cast
 
 import tempest.compare.canonical as _canonical_module
+import tempest.determinism._shims as _shims_module
 import tempest.execute._worker as _worker_module
 from tempest.envrepro.worktree import normalized_env
 from tempest.execute.sandbox import Sandbox
-from tempest.model import InputOutcome, Observation, RaisedInfo, Timing
+from tempest.model import EffectEntry, InputOutcome, Observation, RaisedInfo, Timing
+
+
+@dataclass(frozen=True)
+class DeterminismJob:
+    """Determinism instructions for one batch: record fresh cassettes, or replay given ones."""
+
+    mode: str  # "record" | "replay"
+    cassettes: dict[int, object] | None = None  # input index → recorded ledger (replay)
+    loopback_routes: dict[str, object] | None = None  # corpus HTTP fixtures (record only)
+    loopback_port: int = 0
+
+    def to_job(self) -> dict[str, object]:
+        return {
+            "mode": self.mode,
+            "cassettes": {str(k): v for k, v in (self.cassettes or {}).items()},
+            "loopback_routes": self.loopback_routes,
+            "loopback_port": self.loopback_port,
+        }
 
 
 @dataclass(frozen=True)
@@ -41,6 +60,7 @@ def _prepare_scratch(scratch: Path) -> None:
     scratch.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(_worker_module.__file__, scratch / "worker.py")
     shutil.copyfile(_canonical_module.__file__, scratch / "canonical.py")
+    shutil.copyfile(_shims_module.__file__, scratch / "shims.py")
 
 
 def _sys_path_for(root: Path) -> list[str]:
@@ -138,6 +158,7 @@ def run_batch(
     *,
     per_input_timeout: float = 10.0,
     python: str = sys.executable,
+    determinism: DeterminismJob | None = None,
 ) -> list[Observation]:
     """Execute every (args_literal, kwargs_literal) input, restarting workers across crashes."""
     results: dict[int, Observation] = {}
@@ -154,6 +175,7 @@ def run_batch(
                 "target_file": _target_file(root, module),
                 "sys_path": _sys_path_for(root),
                 "scratch": str(scratch),
+                "determinism": determinism.to_job() if determinism else None,
                 "inputs": [
                     {"index": i, "args": inputs[i][0], "kwargs": inputs[i][1]} for i in pending
                 ],
@@ -207,11 +229,23 @@ def _completed_observation(p: dict[str, object]) -> Observation:
     lines_raw = cast("list[object]", p.get("lines", []))
     arcs_raw = cast("list[list[int]]", p.get("arcs", []))
     unrep = p.get("unrepresentable")
+    miss = p.get("cassette_miss")
+    unint = p.get("uninterceptable")
+    effects_raw = cast("list[dict[str, object]]", p.get("effects", []))
     return Observation(
         outcome=InputOutcome.COMPLETED,
         return_present=bool(p["return_present"]),
         return_canon=p["return_canon"],
         raised=raised,
+        effects=tuple(
+            EffectEntry(
+                surface=str(e["surface"]),
+                call=str(e["call"]),
+                ordinal=int(str(e["ordinal"])),
+                args_fingerprint=str(e["args_fingerprint"]),
+            )
+            for e in effects_raw
+        ),
         stdout=str(p["stdout"]),
         stderr=str(p["stderr"]),
         exit_status=0,
@@ -221,6 +255,9 @@ def _completed_observation(p: dict[str, object]) -> Observation:
         executed_arcs=frozenset(
             (int(a[0]), int(a[1])) for a in arcs_raw if isinstance(a, list) and len(a) == 2
         ),
+        cassette_miss=miss if isinstance(miss, str) else None,
+        uninterceptable=unint if isinstance(unint, str) else None,
+        cassette=p.get("cassette"),
     )
 
 

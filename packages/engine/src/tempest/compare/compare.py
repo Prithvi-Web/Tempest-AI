@@ -42,6 +42,26 @@ type CompareResult = Equal | Diverged | Unprovable
 
 
 def compare(base: Observation, head: Observation, cfg: CompareConfig) -> CompareResult:
+    if base.uninterceptable is not None:
+        return Unprovable(
+            reason=f"base reached an un-interceptable surface: {base.uninterceptable}"
+        )
+    if head.uninterceptable is not None:
+        return Unprovable(
+            reason=f"head reached an un-interceptable surface: {head.uninterceptable}"
+        )
+    if head.cassette_miss is not None and base.cassette_miss is None:
+        # Head asked for an interaction base never made — head is doing something new.
+        return Diverged(
+            DivergenceClass.CASSETTE_MISS,
+            Severity.NORMAL,
+            f"head issued an interaction base never issued: {head.cassette_miss}",
+        )
+    if base.cassette_miss is not None:
+        return Unprovable(
+            reason=f"base replay missed its own cassette ({base.cassette_miss}) — "
+            "replay is unstable for this input"
+        )
     if base.unrepresentable is not None:
         return Unprovable(reason=f"base observation unrepresentable: {base.unrepresentable}")
     if head.unrepresentable is not None:
