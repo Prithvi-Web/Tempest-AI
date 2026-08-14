@@ -190,12 +190,17 @@ class TestDockerSandbox:
 
     def test_popen_launches_the_wrapped_argv(self, tmp_path: Path) -> None:
         # substituting `echo` for docker makes the child print the exact argv popen assembled,
-        # proving the L6 flags survive from wrap_command into the spawned process.
+        # proving the L6 flags + host→container path translation survive into the spawned
+        # process: the host interpreter becomes the image's python3 and scratch files are
+        # addressed via the /scratch mount.
         echo = shutil.which("echo")
         assert echo is not None
         sandbox = DockerSandbox(docker_binary=echo)
         with sandbox.popen(
-            ["python", "/scratch/worker.py"], cwd=tmp_path, env={}, scratch=tmp_path
+            [sys.executable, "-s", "-B", str(tmp_path / "worker.py"), str(tmp_path / "job.json")],
+            cwd=tmp_path,
+            env={},
+            scratch=tmp_path,
         ) as proc:
             assert proc.stdout is not None
             out = proc.stdout.read().decode()
@@ -203,7 +208,9 @@ class TestDockerSandbox:
         assert out.startswith("run --rm --network none --read-only")
         assert "--cap-drop ALL" in out
         assert f"{tmp_path}:/scratch" in out
-        assert out.rstrip().endswith("tempest-sandbox:latest python /scratch/worker.py")
+        assert out.rstrip().endswith(
+            "tempest-sandbox:latest python3 -s -B /scratch/worker.py /scratch/job.json"
+        )
 
     def test_command_assembly_enforces_l6(self) -> None:
         sandbox = DockerSandbox()
@@ -219,3 +226,62 @@ class TestDockerSandbox:
         assert "--memory" in joined
         assert "--pids-limit" in joined
         assert "--user" in joined
+
+    def test_translate_command_maps_interpreter_and_scratch_paths(self, tmp_path: Path) -> None:
+        # The exact argv the runner builds (host interpreter + host scratch files) must become
+        # container-resolvable: the image's python3 addressing the /scratch mount. Flags pass
+        # through untouched.
+        sandbox = DockerSandbox()
+        workdir = tmp_path / "repo"
+        scratch = tmp_path / "scratch"
+        cmd = [
+            sys.executable,
+            "-s",
+            "-B",
+            str(scratch / "worker.py"),
+            str(scratch / "job.json"),
+        ]
+        assert sandbox.translate_command(cmd, workdir=workdir, scratch=scratch) == [
+            "python3",
+            "-s",
+            "-B",
+            "/scratch/worker.py",
+            "/scratch/job.json",
+        ]
+
+    def test_translate_job_maps_sys_path_scratch_and_target_file(self, tmp_path: Path) -> None:
+        # Job-file content crosses into the container too: worktree paths land under /repo,
+        # scratch under /scratch; everything else (mode, inputs, …) is untouched.
+        sandbox = DockerSandbox()
+        workdir = tmp_path / "repo"
+        scratch = tmp_path / "scratch"
+        job: dict[str, object] = {
+            "mode": "invoke",
+            "module": "pkg.mod",
+            "qualname": "f",
+            "target_file": str(workdir / "src" / "pkg" / "mod.py"),
+            "sys_path": [str(workdir), str(workdir / "src")],
+            "scratch": str(scratch),
+            "inputs": [{"index": 0, "args": "(1,)", "kwargs": "{}"}],
+        }
+        translated = sandbox.translate_job(job, workdir=workdir, scratch=scratch)
+        assert translated["target_file"] == "/repo/src/pkg/mod.py"
+        assert translated["sys_path"] == ["/repo", "/repo/src"]
+        assert translated["scratch"] == "/scratch"
+        assert translated["mode"] == "invoke"
+        assert translated["inputs"] == job["inputs"]
+        # the caller's dict is not mutated — translation produces a new mapping
+        assert job["scratch"] == str(scratch)
+        assert job["sys_path"] == [str(workdir), str(workdir / "src")]
+
+    def test_translate_job_leaves_foreign_paths_alone(self, tmp_path: Path) -> None:
+        sandbox = DockerSandbox()
+        job: dict[str, object] = {"sys_path": ["/somewhere/else"], "scratch": "/also/else"}
+        translated = sandbox.translate_job(
+            job, workdir=tmp_path / "repo", scratch=tmp_path / "scratch"
+        )
+        assert translated == job
+
+    def test_process_sandbox_translate_job_is_identity(self, tmp_path: Path) -> None:
+        job: dict[str, object] = {"scratch": str(tmp_path), "sys_path": [str(tmp_path)]}
+        assert ProcessSandbox().translate_job(job, workdir=tmp_path, scratch=tmp_path) is job

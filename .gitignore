@@ -22,6 +22,11 @@ dist/
 .tempest/
 *.tempest.zip
 
+# Desktop sidecar build output (binaries never enter git)
+apps/desktop/build/
+apps/desktop/dist/
+apps/desktop/src-tauri/binaries/
+
 # OS / editor
 .DS_Store
 .idea/

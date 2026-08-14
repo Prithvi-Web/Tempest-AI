@@ -1,9 +1,24 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+
 import { useGetRun } from "@/generated/hooks";
 
 import type { Route } from "../router";
 
 export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => void }) {
   const run = useGetRun(id);
+  const queryClient = useQueryClient();
+  const stillRunning = run.data?.status === "PENDING";
+
+  // Poll while the proof executes. invalidateQueries (not a render-time refetch chain): an
+  // unchanged poll causes no re-render, so any render-driven scheduling would silently stop.
+  useEffect(() => {
+    if (!stillRunning) return;
+    const timer = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: ["getRun", id] });
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [stillRunning, id, queryClient]);
 
   if (run.isPending) return <p className="dim">loading run #{id}…</p>;
   if (run.isError) return <p className="yellow">could not load run #{id}</p>;
@@ -40,7 +55,6 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
         {data.engine_version ? ` · engine ${data.engine_version}` : ""}
         {isPending ? " · executing base and head side by side…" : ""}
       </p>
-      <PendingRefetcher active={isPending} refetch={run.refetch} />
 
       {unproven.length > 0 && (
         <div className="panel notproven">
@@ -127,11 +141,4 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
       )}
     </main>
   );
-}
-
-function PendingRefetcher({ active, refetch }: { active: boolean; refetch: () => void }) {
-  if (active) {
-    setTimeout(refetch, 1500);
-  }
-  return null;
 }

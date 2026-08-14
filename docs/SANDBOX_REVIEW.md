@@ -39,6 +39,9 @@ arbitrary repo code; the sandbox is the only thing between that code and the hos
 - [ ] **Container-leg execution review on a Docker-equipped machine** (this dev host has no
       Docker — ADR-0003): verify the seccomp allowlist boots CPython 3.12 on aarch64+x86_64,
       probe `/proc` visibility, confirm no capability leaks (`capsh --print` inside).
+- [ ] Container-leg path translation (argv + job-file host→`/repo`,`/scratch` mapping,
+      `translate_command`/`translate_job`) implemented but not yet executed against a live
+      daemon — unit-tested pure-functionally only.
 - [ ] Escape-attempt corpus (fork bombs, fd exhaustion, `/proc/self/mem`, unix sockets) run in CI
       where Docker exists.
 - [ ] Decide policy for record-mode egress on user repos (currently: none — no network in the

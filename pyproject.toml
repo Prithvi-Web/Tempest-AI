@@ -5,6 +5,7 @@ members = ["packages/engine", "packages/api"]
 dev = [
     "httpx>=0.28",
     "mypy>=1.17",
+    "pyinstaller>=6.22.0",
     "pytest>=8.4",
     "pytest-cov>=6.2",
     "ruff>=0.12",

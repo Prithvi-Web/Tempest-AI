@@ -15,6 +15,9 @@ dependencies = [
     "uvicorn>=0.35",
 ]
 
+[project.scripts]
+tempest-server = "tempest_api.server:main"
+
 [dependency-groups]
 dev = [
     "httpx>=0.28",

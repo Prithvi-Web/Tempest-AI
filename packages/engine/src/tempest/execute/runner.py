@@ -10,7 +10,6 @@ import queue
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import threading
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ import tempest.compare.canonical as _canonical_module
 import tempest.determinism._shims as _shims_module
 import tempest.execute._worker as _worker_module
 from tempest.envrepro.worktree import normalized_env
+from tempest.execute.interpreter import find_worker_python
 from tempest.execute.sandbox import Sandbox
 from tempest.model import EffectEntry, InputOutcome, Observation, RaisedInfo, Timing
 
@@ -83,7 +83,11 @@ def _spawn(
     sandbox: Sandbox, scratch: Path, root: Path, job: dict[str, object], python: str
 ) -> subprocess.Popen[bytes]:
     job_path = scratch / "job.json"
-    job_path.write_text(json.dumps(job), encoding="utf-8")
+    # Backends that execute elsewhere (DockerSandbox) rewrite host paths inside the job to
+    # their container mount points; ProcessSandbox is the identity.
+    job_path.write_text(
+        json.dumps(sandbox.translate_job(job, workdir=root, scratch=scratch)), encoding="utf-8"
+    )
     return sandbox.popen(
         [python, "-s", "-B", str(scratch / "worker.py"), str(job_path)],
         cwd=root,
@@ -113,9 +117,10 @@ def introspect_target(
     qualname: str,
     sandbox: Sandbox,
     *,
-    python: str = sys.executable,
+    python: str | None = None,
     timeout: float = 20.0,
 ) -> TargetIntrospection | None:
+    worker_python = python if python is not None else find_worker_python()
     with tempfile.TemporaryDirectory(prefix="tempest-scratch-") as scratch_dir:
         scratch = Path(scratch_dir)
         _prepare_scratch(scratch)
@@ -126,7 +131,7 @@ def introspect_target(
             "sys_path": _sys_path_for(root),
             "scratch": str(scratch),
         }
-        proc = _spawn(sandbox, scratch, root, job, python)
+        proc = _spawn(sandbox, scratch, root, job, worker_python)
         try:
             stdout, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -157,10 +162,11 @@ def run_batch(
     sandbox: Sandbox,
     *,
     per_input_timeout: float = 10.0,
-    python: str = sys.executable,
+    python: str | None = None,
     determinism: DeterminismJob | None = None,
 ) -> list[Observation]:
     """Execute every (args_literal, kwargs_literal) input, restarting workers across crashes."""
+    worker_python = python if python is not None else find_worker_python()
     results: dict[int, Observation] = {}
     pending = list(range(len(inputs)))
 
@@ -180,7 +186,7 @@ def run_batch(
                     {"index": i, "args": inputs[i][0], "kwargs": inputs[i][1]} for i in pending
                 ],
             }
-            proc = _spawn(sandbox, scratch, root, job, python)
+            proc = _spawn(sandbox, scratch, root, job, worker_python)
             lines: queue.Queue[bytes | None] = queue.Queue()
             reader = threading.Thread(target=_read_lines, args=(proc, lines), daemon=True)
             reader.start()
