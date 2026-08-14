@@ -27,7 +27,7 @@ def _load_fixture_module():  # type: ignore[no-untyped-def]  # returns a module
 
 
 @pytest.fixture(scope="module")
-def pyfix_result(tmp_path_factory: pytest.TempPathFactory):  # type: ignore[no-untyped-def]
+def pyfix_result(tmp_path_factory: pytest.TempPathFactory):  # type: ignore[no-untyped-def]  # yields (fixture, result)
     fixture = _load_fixture_module()
     repo = fixture.build(tmp_path_factory.mktemp("pyfix") / "repo")
     os.environ["TEMPEST_DEV"] = "1"
@@ -36,7 +36,7 @@ def pyfix_result(tmp_path_factory: pytest.TempPathFactory):  # type: ignore[no-u
 
 
 class TestPhase1Gate:
-    def test_all_12_behavior_changes_are_divergent(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]
+    def test_all_12_behavior_changes_are_divergent(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]  # untyped fixture tuple
         fixture, result = pyfix_result
         verdict_by_module = {t.module: t.verdict for t in result.bundle.targets}
         missed = [
@@ -44,7 +44,7 @@ class TestPhase1Gate:
         ]
         assert missed == [], f"behavior changes NOT caught: {missed}"
 
-    def test_zero_false_divergences_on_noop_refactors(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]
+    def test_zero_false_divergences_on_noop_refactors(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]  # untyped fixture tuple
         fixture, result = pyfix_result
         false_alarms = [
             t.module
@@ -59,7 +59,7 @@ class TestPhase1Gate:
             noop_verdicts
         )
 
-    def test_every_divergence_has_minimized_input_and_repro(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]
+    def test_every_divergence_has_minimized_input_and_repro(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]  # untyped fixture tuple
         _, result = pyfix_result
         for t in result.bundle.targets:
             for d in t.divergences:
@@ -68,12 +68,12 @@ class TestPhase1Gate:
                 script = result.bundle.repro_scripts[d.repro_filename]
                 compile(script, d.repro_filename, "exec")
 
-    def test_run_verdict_is_divergent_and_bundle_round_trips(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]
+    def test_run_verdict_is_divergent_and_bundle_round_trips(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]  # untyped fixture tuple
         _, result = pyfix_result
         assert result.bundle.manifest.verdict is Verdict.DIVERGENT
         assert read_bundle(result.bundle_dir) == result.bundle
         assert result.zip_path.exists()
 
-    def test_first_party_sandbox_was_used_and_declared(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]
+    def test_first_party_sandbox_was_used_and_declared(self, pyfix_result) -> None:  # type: ignore[no-untyped-def]  # untyped fixture tuple
         _, result = pyfix_result
         assert result.sandbox_kind == "process-first-party"

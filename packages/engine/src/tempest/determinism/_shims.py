@@ -569,15 +569,15 @@ def install(session: Session) -> None:
     _random_module.choice = _shim_choice
     _random_module.shuffle = _shim_shuffle
     os.environ = _EnvironProxy(_saved["os.environ"])  # noqa: B003  # proxy swap, not a clear
-    builtins.open = _shim_open  # type: ignore[assignment]
-    io.open = _shim_open  # type: ignore[assignment]
+    builtins.open = _shim_open  # type: ignore[assignment]  # module attr swap
+    io.open = _shim_open  # type: ignore[assignment]  # module attr swap
     os.listdir = _shim_listdir
     _os_path.exists = _shim_exists
     os.getcwd = _shim_getcwd
-    _subprocess_module.run = _shim_subprocess_run  # type: ignore[assignment]
-    _subprocess_module.Popen = _GuardedPopen  # type: ignore[misc,assignment]
+    _subprocess_module.run = _shim_subprocess_run  # type: ignore[assignment]  # module attr swap
+    _subprocess_module.Popen = _GuardedPopen  # type: ignore[misc,assignment]  # module attr swap
     os.system = _shim_os_system
-    _socket_module.socket = _GuardedSocket  # type: ignore[misc,assignment]
+    _socket_module.socket = _GuardedSocket  # type: ignore[misc,assignment]  # module attr swap
     urllib.request.urlopen = _shim_urlopen
 
 
@@ -591,7 +591,7 @@ def uninstall() -> None:
     _time_module.time_ns = _saved["time.time_ns"]
     _time_module.monotonic = _saved["time.monotonic"]
     _time_module.monotonic_ns = _saved["time.monotonic_ns"]
-    _dt_module.datetime = _saved["datetime"]  # type: ignore[misc]
+    _dt_module.datetime = _saved["datetime"]  # type: ignore[misc]  # module attr restore
     os.urandom = _saved["os.urandom"]
     _random_module.random = _saved["random.random"]
     _random_module.randint = _saved["random.randint"]
@@ -602,14 +602,14 @@ def uninstall() -> None:
     _random_module.shuffle = _saved["random.shuffle"]
     os.environ = _saved["os.environ"]  # noqa: B003  # restoring the real mapping
     builtins.open = _saved["open"]
-    io.open = _saved["io.open"]  # type: ignore[assignment]
+    io.open = _saved["io.open"]  # type: ignore[assignment]  # module attr restore
     os.listdir = _saved["os.listdir"]
     _os_path.exists = _saved["os.path.exists"]
     os.getcwd = _saved["os.getcwd"]
     _subprocess_module.run = _saved["subprocess.run"]
-    _subprocess_module.Popen = _saved["subprocess.Popen"]  # type: ignore[misc]
+    _subprocess_module.Popen = _saved["subprocess.Popen"]  # type: ignore[misc]  # module attr restore
     os.system = _saved["os.system"]
-    _socket_module.socket = _saved["socket.socket"]  # type: ignore[misc]
+    _socket_module.socket = _saved["socket.socket"]  # type: ignore[misc]  # module attr restore
     urllib.request.urlopen = _saved["urlopen"]
     _active = None
     _saved.clear()
