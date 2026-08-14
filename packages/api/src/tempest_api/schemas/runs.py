@@ -41,4 +41,6 @@ class RunDetail(RunSummary):
     base_deps: str | None
     head_deps: str | None
     budget_max_inputs: int | None
+    sandbox_tier: str | None
+    sandbox_assurance: str | None
     targets: list[TargetSummary]

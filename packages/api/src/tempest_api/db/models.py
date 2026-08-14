@@ -67,6 +67,9 @@ class Run(Base):
     base_deps: Mapped[str | None] = mapped_column(Text)
     head_deps: Mapped[str | None] = mapped_column(Text)
     budget_max_inputs: Mapped[int | None] = mapped_column(Integer)
+    # ADR-0015: the isolation tier this run used, so the UI can never miss a degraded tier.
+    sandbox_tier: Mapped[str | None] = mapped_column(Text)
+    sandbox_assurance: Mapped[str | None] = mapped_column(Text)
     idempotency_key: Mapped[str | None] = mapped_column(String(200), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

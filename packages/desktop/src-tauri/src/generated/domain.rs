@@ -1373,6 +1373,8 @@ impl RunCreated {
 #[doc = "    \"head_sha\","]
 #[doc = "    \"id\","]
 #[doc = "    \"repo\","]
+#[doc = "    \"sandbox_assurance\","]
+#[doc = "    \"sandbox_tier\","]
 #[doc = "    \"schema_version\","]
 #[doc = "    \"status\","]
 #[doc = "    \"target_count\","]
@@ -1466,6 +1468,28 @@ impl RunCreated {
 #[doc = "      \"title\": \"Repo\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"sandbox_assurance\": {"]
+#[doc = "      \"title\": \"Sandbox Assurance\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"sandbox_tier\": {"]
+#[doc = "      \"title\": \"Sandbox Tier\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"schema_version\": {"]
 #[doc = "      \"title\": \"Schema Version\","]
 #[doc = "      \"anyOf\": ["]
@@ -1522,6 +1546,8 @@ pub struct RunDetail {
     pub head_sha: ::std::string::String,
     pub id: i32,
     pub repo: ::std::string::String,
+    pub sandbox_assurance: ::std::option::Option<::std::string::String>,
+    pub sandbox_tier: ::std::option::Option<::std::string::String>,
     pub schema_version: ::std::option::Option<i32>,
     pub status: RunStatus,
     pub target_count: i32,
@@ -3063,6 +3089,14 @@ pub mod builder {
         head_sha: ::std::result::Result<::std::string::String, ::std::string::String>,
         id: ::std::result::Result<i32, ::std::string::String>,
         repo: ::std::result::Result<::std::string::String, ::std::string::String>,
+        sandbox_assurance: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        sandbox_tier: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
         schema_version: ::std::result::Result<::std::option::Option<i32>, ::std::string::String>,
         status: ::std::result::Result<super::RunStatus, ::std::string::String>,
         target_count: ::std::result::Result<i32, ::std::string::String>,
@@ -3085,6 +3119,8 @@ pub mod builder {
                 head_sha: Err("no value supplied for head_sha".to_string()),
                 id: Err("no value supplied for id".to_string()),
                 repo: Err("no value supplied for repo".to_string()),
+                sandbox_assurance: Err("no value supplied for sandbox_assurance".to_string()),
+                sandbox_tier: Err("no value supplied for sandbox_tier".to_string()),
                 schema_version: Err("no value supplied for schema_version".to_string()),
                 status: Err("no value supplied for status".to_string()),
                 target_count: Err("no value supplied for target_count".to_string()),
@@ -3204,6 +3240,26 @@ pub mod builder {
                 .map_err(|e| format!("error converting supplied value for repo: {e}"));
             self
         }
+        pub fn sandbox_assurance<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.sandbox_assurance = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for sandbox_assurance: {e}"));
+            self
+        }
+        pub fn sandbox_tier<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.sandbox_tier = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for sandbox_tier: {e}"));
+            self
+        }
         pub fn schema_version<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::option::Option<i32>>,
@@ -3272,6 +3328,8 @@ pub mod builder {
                 head_sha: value.head_sha?,
                 id: value.id?,
                 repo: value.repo?,
+                sandbox_assurance: value.sandbox_assurance?,
+                sandbox_tier: value.sandbox_tier?,
                 schema_version: value.schema_version?,
                 status: value.status?,
                 target_count: value.target_count?,
@@ -3294,6 +3352,8 @@ pub mod builder {
                 head_sha: Ok(value.head_sha),
                 id: Ok(value.id),
                 repo: Ok(value.repo),
+                sandbox_assurance: Ok(value.sandbox_assurance),
+                sandbox_tier: Ok(value.sandbox_tier),
                 schema_version: Ok(value.schema_version),
                 status: Ok(value.status),
                 target_count: Ok(value.target_count),

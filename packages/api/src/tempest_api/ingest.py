@@ -154,6 +154,8 @@ async def ingest_bundle(session: AsyncSession, run: Run, bundle: RunBundle) -> N
     run.base_deps = manifest.base_deps
     run.head_deps = manifest.head_deps
     run.budget_max_inputs = manifest.budget_max_inputs
+    run.sandbox_tier = manifest.sandbox_tier
+    run.sandbox_assurance = manifest.sandbox_assurance
 
     divergence_total = 0
     for position, record in enumerate(bundle.targets):

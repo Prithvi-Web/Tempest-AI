@@ -446,6 +446,28 @@
           "title": "Repo",
           "type": "string"
         },
+        "sandbox_assurance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sandbox Assurance"
+        },
+        "sandbox_tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sandbox Tier"
+        },
         "schema_version": {
           "anyOf": [
             {
@@ -502,6 +524,8 @@
         "base_deps",
         "head_deps",
         "budget_max_inputs",
+        "sandbox_tier",
+        "sandbox_assurance",
         "targets"
       ],
       "title": "RunDetail",

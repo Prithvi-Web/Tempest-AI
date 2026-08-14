@@ -118,5 +118,7 @@ def run_detail(run: Run) -> RunDetail:
         base_deps=run.base_deps,
         head_deps=run.head_deps,
         budget_max_inputs=run.budget_max_inputs,
+        sandbox_tier=run.sandbox_tier,
+        sandbox_assurance=run.sandbox_assurance,
         targets=targets,
     )

@@ -509,6 +509,8 @@ export type RunCreated = {
  *     "head_sha",
  *     "id",
  *     "repo",
+ *     "sandbox_assurance",
+ *     "sandbox_tier",
  *     "schema_version",
  *     "status",
  *     "target_count",
@@ -602,6 +604,28 @@ export type RunCreated = {
  *       "title": "Repo",
  *       "type": "string"
  *     },
+ *     "sandbox_assurance": {
+ *       "title": "Sandbox Assurance",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "sandbox_tier": {
+ *       "title": "Sandbox Tier",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
  *     "schema_version": {
  *       "title": "Schema Version",
  *       "anyOf": [
@@ -658,6 +682,8 @@ export type RunDetail = {
 	head_sha: string,
 	id: number,
 	repo: string,
+	sandbox_assurance: string | null,
+	sandbox_tier: string | null,
 	schema_version: number | null,
 	status: RunStatus,
 	target_count: number,

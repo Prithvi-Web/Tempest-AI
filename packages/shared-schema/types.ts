@@ -344,6 +344,10 @@ export interface components {
             id: number;
             /** Repo */
             repo: string;
+            /** Sandbox Assurance */
+            sandbox_assurance: string | null;
+            /** Sandbox Tier */
+            sandbox_tier: string | null;
             /** Schema Version */
             schema_version: number | null;
             status: components["schemas"]["RunStatus"];

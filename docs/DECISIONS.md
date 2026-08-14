@@ -323,3 +323,47 @@ rule, enforced the same way the S-A-F-E grep enforces L2). The E2E obligation tr
 UI someday — that is a new, server-scoped surface, not a resurrection of this package. Auth.js/
 GitHub OAuth (v1 §Auth) leaves the product surface with the web app; desktop/enterprise auth
 arrives as OIDC/SAML in Phase 14 (per the Phase 8+ table).
+
+## ADR-0015 — Tiered OS-native sandboxing (Phase 10): macOS T2 Seatbelt lands
+
+**Date:** 2026-08-14 · **Status:** accepted (macOS T2 shipped; Linux/Windows T2 + T3 tracked)
+
+**Context.** ADR-0003 made "no container runtime → UNPROVEN(SANDBOX_UNAVAILABLE)". On a Mac with
+no Docker that meant a 0% proof rate for every user repo — the exact wall Phase 10 exists to
+remove. The Phase 8+ prompt specifies a runtime-selected tier ladder with the tier recorded in
+every bundle and never silently degraded.
+
+**Decision.**
+1. **Tier ladder** (`execute/sandbox.py::select_sandbox`), strongest first, for USER repos:
+   T1 `DockerSandbox` → T2 `SeatbeltSandbox` (macOS) → UNPROVEN. First-party fixtures keep
+   picking trusted `ProcessSandbox` directly (ADR-0008) and never enter the ladder.
+2. **macOS T2 = `sandbox-exec`** with a deny-default SBPL profile (`seatbelt_profile`): network
+   denied outright; the whole home denied and re-allowed only for the repo worktree and the
+   interpreter's own install (no `~` path outside the repo is reachable); writes only to the one
+   scratch mount; exec'd children inherit the profile (no `no-sandbox`). Paths are canonicalized
+   because macOS returns `/var/folders/…` for temp dirs while Seatbelt evaluates the real
+   `/private/var/…` — an unresolved subpath would void the scratch mount.
+3. **T3 (rlimit-only ProcessSandbox) is NOT offered for user code.** The escape matrix shows it
+   contains only 9/27 vectors (network, home reads, `/tmp` writes, parent-kill all leak). Handing
+   untrusted repos to it would be the "silent degrade" failure this ladder prevents. The genuine
+   T3 (separate-user) and the Linux (bubblewrap+seccomp+userns+cgroups) / Windows (AppContainer +
+   Job Object) T2 backends are follow-ups tracked in `docs/PLAN-DESKTOP.md`.
+4. **The tier is data, not a promise.** Recorded in the bundle manifest (schema bumped v1→v2,
+   forward-compatible read), rendered in the CLI report, and carried to the UI; reduced-assurance
+   tiers name their limitation.
+
+**Evidence (this machine, 2026-08-14).**
+- Escape suite: **T2 contains 27/27**; T3 leaks 18/27 (`python -m tempest.dev.escape_suite`).
+- Egress (L10): **0 outbound connections** across 6 network vectors under T2
+  (`python -m tempest.dev.egress_check --expect-zero`).
+- Perf: T2 Seatbelt wrapping adds ~5 ms/spawn — **1.16× the no-wrapper baseline**, far under the
+  3× bar. (T1 Docker delta needs a Docker-equipped machine — CI leg.)
+
+**Scheduled external security review.** The T2 profile, the escape corpus, and the sync-server
+boundary (Phase 13) are to be reviewed by an external application-security firm before GA
+(prompt §10). Owner action ([ASK ME]): engagement + budget. Until then the escape suite + egress
+gate are the standing in-repo evidence, re-run in `make verify`.
+
+**Consequences.** On macOS the SANDBOX_UNAVAILABLE path is now only reached when both Docker and
+Seatbelt are forced off (`TEMPEST_NO_SEATBELT=1`, used by tests to exercise it). The HANDOFF trap
+"no Docker → SANDBOX_UNAVAILABLE" is superseded on macOS by "no Docker → T2 Seatbelt".

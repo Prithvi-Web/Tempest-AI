@@ -5,6 +5,18 @@ import { useGetRun } from "../hooks";
 
 import type { Route } from "../router";
 
+const TIER_LABELS: Record<string, string> = {
+  T1: "T1 · container isolation",
+  T2: "T2 · OS-native (macOS Seatbelt)",
+  T3: "T3 · reduced assurance",
+  fixture: "first-party fixture (trusted)",
+  none: "none — nothing executed",
+};
+
+function tierLabel(tier: string): string {
+  return TIER_LABELS[tier] ?? tier;
+}
+
 export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => void }) {
   const run = useGetRun(id);
   const queryClient = useQueryClient();
@@ -55,6 +67,16 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
         {data.engine_version ? ` · engine ${data.engine_version}` : ""}
         {isPending ? " · executing base and head side by side…" : ""}
       </p>
+      {data.sandbox_tier && data.sandbox_tier !== "unknown" && (
+        <p>
+          <span className={`chip ${data.sandbox_assurance === "reduced" ? "UNPROVEN" : "neutral"}`}>
+            sandbox {tierLabel(data.sandbox_tier)}
+          </span>
+          {data.sandbox_assurance === "reduced" && (
+            <span className="yellow"> — reduced assurance, see the named limitation</span>
+          )}
+        </p>
+      )}
 
       {unproven.length > 0 && (
         <div className="panel notproven">
