@@ -216,3 +216,88 @@ socket/http.client/urllib/requests/httpx.
    excluded from the ledger — they are invisible at replay by construction.
 
 **Gate result.** 30/30 stable across 5 consecutive replays (bar: ≥24).
+
+## ADR-0011 — Tauri v2 over Electron for the desktop shell; language-per-part policy
+
+**Date:** 2026-08-13 · **Status:** accepted
+
+**Context.** The Phase 8+ master prompt makes Tempest a desktop application. A shell choice and a
+language allocation across the three boundaries (engine/host/UI) had to be fixed. A working Tauri
+v2 shell already exists (`apps/desktop`, shipped 2026-08-13) with a frozen PyInstaller engine
+sidecar — built before this ADR, validating the choice in practice.
+
+**Decision.** Tauri v2, not Electron:
+1. **Footprint & memory** — system webview instead of a bundled Chromium: ~10–20 MB shell vs
+   150+ MB, and idle RAM that can meet the Phase 11 <250 MB budget with the sidecar included.
+2. **Security posture** — Rust host, capability-scoped IPC, no Node runtime in the UI process
+   (the Phase 8+ prompt bans one outright). Electron's main-process Node is a standing liability
+   in enterprise security review.
+3. **Signing/updater story** — first-class signed-manifest updater and per-OS bundling that fits
+   L13 (signed or it doesn't ship).
+
+**Language-per-part policy (owner directive, 2026-08-13: "build things in Rust if needed to make
+things faster; choose which language is best for which part").**
+- **Rust** — the host: window/tray, sidecar lifecycle + supervision, OS sandbox construction,
+  keychain, updater, hash-chained audit log, Ed25519 license verification. Also the designated
+  home for hot-path ports (canonical-bytes encoding, bundle hashing, ledger diff) **only** behind
+  differential parity tests proving byte-identical output vs the Python implementation.
+- **Python** — the engine of record: the nine stages and the determinism moat (30/30×20 validated).
+  Rewriting proven ground now would trade verified correctness for speculative speed; ports are
+  earned via the parity gate above, not assumed.
+- **TypeScript** — webview UI only, consuming generated types (§9b tri-boundary contract).
+
+**Consequences.** WebView2/WebKitGTK rendering differences become a test matrix concern
+(Phase 12 clean-VM gates cover it); the tri-boundary contract (L12) becomes load-bearing and is
+gated by `contract-check`.
+
+## ADR-0012 — Local-first with an optional self-hosted sync server
+
+**Date:** 2026-08-13 · **Status:** accepted
+
+**Context.** v1 treated FastAPI+Postgres as the product backend. The Phase 8+ prompt inverts
+this: the desktop app must be fully functional offline (L8), and source must never leave the
+machine without opt-in (L9/L10).
+
+**Decision.**
+1. SQLite (WAL) is the local primary store; the FastAPI surface becomes an embedded local sidecar
+   the desktop app owns. There is no mandatory cloud dependency; the current sidecar already runs
+   engine+API locally against the app's data directory.
+2. Team features arrive as an **optional, self-hosted** sync server (Phase 13): Postgres + object
+   storage in a customer-run container. The desktop pushes bundles only for repos explicitly
+   configured for sharing, with source-snippet redaction ON by default at the boundary.
+3. Sync is content-addressed, resumable, idempotent, delta-only; bundles stay immutable so
+   conflict resolution is designed out rather than handled.
+4. Licensing and updates must both work fully offline (Phase 15) — no license server on the
+   critical path, ever (L8: local-first must not degrade because a license server is unreachable).
+
+**Consequences.** Postgres-specific work moves behind the sync server boundary; the v1 dialect
+obligation (ADR-0009) transfers to the server component. The web dashboard's remaining v1 gaps
+(SSE timeline, Playwright E2E) are superseded by the desktop SPA migration in Phase 9 — tracked
+there, not silently dropped.
+
+## ADR-0013 — Tiered OS-native sandboxing replaces Docker-required
+
+**Date:** 2026-08-13 · **Status:** accepted
+
+**Context.** v1's L6 assumed Docker (ADR-0003: no Docker → UNPROVEN(SANDBOX_UNAVAILABLE)).
+Enterprise laptops frequently have no Docker and IT often forbids it; a desktop product that
+shrugs on every such machine has a proof rate of zero exactly where it is being sold (the Phase 8
+audit measured this machine at that limit — every user-repo target is SANDBOX_UNAVAILABLE here).
+
+**Decision.** Runtime-selected isolation tiers, the selected tier recorded in every bundle and
+shown in the UI (never silently degraded):
+- **T1** Docker/Colima/Podman when present (strongest, existing v1 path).
+- **T2 (default)** OS-native: macOS `sandbox-exec` profile + App Sandbox entitlements; Windows
+  AppContainer + Job Object + restricted token; Linux bubblewrap + seccomp-bpf + user namespaces
+  + cgroups v2.
+- **T3 (degraded)** separate user + resource limits — reported in the UI as reduced assurance
+  with the specific limitation named.
+Every tier must enforce: no network, read-only FS except one scratch mount, no `~` access outside
+the target repo, CPU/memory/wall limits, no unconstrained child spawning. The Phase 10 gate is an
+adversarial escape suite (25+ payloads × 3 OSes × all tiers) plus the L10 egress monitor.
+
+**Consequences.** ADR-0003's "no Docker → UNPROVEN" rule survives only until T2 lands, then
+tightens to "no tier available → UNPROVEN" (expected to be near-zero machines). ProcessSandbox
+(ADR-0008) remains a first-party-fixture-only dev path and is unaffected. This is the highest-risk
+phase of the desktop plan; an external security review is a scheduled gate item, and Phase 10
+blocks GA until the escape matrix is green.

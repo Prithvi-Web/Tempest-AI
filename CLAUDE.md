@@ -64,6 +64,34 @@ container runtime: the run is `UNPROVEN` with `reason_code=SANDBOX_UNAVAILABLE` 
 **L7 — Reproducible run artifacts.** Every run writes a self-contained, replayable bundle.
 A divergence a user cannot re-run themselves is worthless.
 
+### Desktop-era Laws (Phase 8+ master prompt — additive; L1–L7 all still binding)
+
+**L8 — Local-first is absolute.** Every core capability works with the network cable unplugged:
+prove a change, view history, export a repro, read a bundle. Cloud is additive. A feature that
+requires network to function is not a core feature.
+
+**L9 — Source code never leaves the machine without explicit, per-repo, opt-in consent.** Not in
+telemetry, not in crash reports, not in diagnostic bundles, not in error strings. This is the claim
+the enterprise sale rests on, and it must be **provable by test**, not by policy document (see L10).
+
+**L10 — Egress is tested, not promised.** CI runs the full corpus inside a network namespace with a
+deny-all egress monitor. Any outbound connection in local mode fails the build. The test output is
+a sales artifact — publish it.
+
+**L11 — The user's machine is not your CI runner.** Every long operation is cancellable, budgeted,
+and yields to the user. Tempest must never make a laptop unusable: CPU affinity caps, memory
+ceilings, and a hard "pause on battery / on thermal pressure" behavior.
+
+**L12 — Three boundaries, one truth.** Type drift across the Python↔Rust↔TypeScript boundary is the
+defining integration risk of the desktop architecture, and it is solved by **generation, not
+discipline** (see the Tri-Boundary Contract below).
+
+**L13 — Signed or it doesn't ship.** No unsigned artifact reaches a user, ever, including dev
+builds shared with design partners.
+
+**L14 — Every destructive or privileged action is audit-logged** to an append-only, tamper-evident
+local log, regardless of whether the customer has enterprise features enabled.
+
 ---
 
 ## 5. Stack (fixed — deviations require an ADR in docs/DECISIONS.md)
@@ -123,6 +151,46 @@ Non-empty diff = red build. No overrides.
   in component-level tests, with handlers generated from the OpenAPI spec.
 - Loading, empty, error, and partial states are designed for every view before the happy path is
   styled. `UNPROVEN` is a first-class UI state, not an error toast.
+
+---
+
+## 9b. Tri-Boundary Contract (desktop — Phase 8+ §3) — the L12 mechanism
+
+The v1 contract above (one boundary: Python API ↔ TS web) still holds. Desktop adds two more:
+
+```
+   Python engine  ──(A)──►  Rust host (Tauri)  ──(B)──►  TypeScript webview
+        │                                                        │
+        └───────────────────────(C: domain types)────────────────┘
+```
+
+**Root of truth:** the Pydantic v2 models remain the single source of all domain types
+(`RunBundle`, `TargetResult`, `Divergence`, `Observation`, `Cassette`, `Verdict`,
+`DivergenceClass`, `ReasonCode`, `Stage`, `ErrorCode`).
+
+- **Boundary A (Python ↔ Rust):** JSON-RPC 2.0 over stdio with length-prefixed framing — never
+  HTTP-on-TCP (a listening port fails enterprise security review; the current shell's
+  HTTP-on-127.0.0.1 is a v1-era bridge that Phase 9 must replace). Types: Pydantic JSON Schema →
+  `typify` → committed generated Rust. The sidecar is a child process the Rust host owns: started,
+  health-checked, restarted with backoff, killed on exit — process-group ownership so orphans are
+  impossible even under SIGKILL.
+- **Boundary B (Rust ↔ TS):** Tauri IPC with `tauri-specta`-generated bindings for every command
+  and event. Handwritten `invoke()` calls are banned; ESLint enforces it.
+- **Boundary C (Python ↔ TS):** the same JSON Schema → `json-schema-to-typescript` → committed
+  generated domain types. Rust and TS both derive from one schema; they cannot disagree.
+
+**The gate** (runs in `predev`, `prebuild`, and CI as `contract-check`; no overrides, ever):
+
+```
+make gen:contracts && git diff --exit-code packages/desktop/src/generated packages/desktop/src-tauri/src/generated
+```
+
+**Enum discipline:** every enum exhaustively matched in all three languages — Rust `match` with no
+wildcard arm, TS `switch` with a `never` guard, Python `assert_never`. Adding a `ReasonCode` in
+Python must break the Rust build *and* the TS build. That is the design working.
+
+**Round-trip property test:** arbitrary `RunBundle` values generated in Python → serialize →
+deserialize in Rust → re-serialize → deserialize in TS → structural equality. Runs in CI.
 
 ---
 
