@@ -24,9 +24,10 @@ jobs:
             2>&1 | tee /tmp/pytest.log
         env:
           TEMPEST_DEV: "1"  # permits ProcessSandbox for the first-party pyfix gate (ADR-0008)
-      - name: surface pytest failure in the job summary
-        # Actions logs need repo-admin auth to fetch; the job summary is readable from the
-        # checks API, so a failure explains itself without anyone opening the web UI.
+      - name: surface pytest failure
+        # Actions logs AND job summaries both need a signed-in session, even on a public repo.
+        # Check annotations do not — so the failing test lines are emitted as ::error:: too,
+        # making a red build diagnosable from the public API alone.
         if: failure()
         run: |
           {
@@ -35,6 +36,15 @@ jobs:
             tail -n 120 /tmp/pytest.log || echo '(no pytest log captured)'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /tmp/pytest.log ]; then
+            grep -E '^(FAILED|ERROR) ' /tmp/pytest.log | head -n 20 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            grep -E '^[0-9]+ (passed|failed)|Required test coverage' /tmp/pytest.log |
+              tail -n 3 | while IFS= read -r line; do echo "::error::$line"; done
+          else
+            echo "::error::pytest produced no log file"
+          fi
 
   node:
     runs-on: ubuntu-latest
