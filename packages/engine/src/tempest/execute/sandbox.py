@@ -1,9 +1,15 @@
-"""Sandbox backends (Law L6 + ADR-0003).
+"""Sandbox backends (Law L6 + ADR-0003 + ADR-0015 tiered isolation).
 
-DockerSandbox is the only backend for user repos: no network, read-only rootfs, scratch tmpfs,
-memory/pids limits, non-root, seccomp. ProcessSandbox exists solely so Tempest's own first-party
-fixtures and corpus can run on machines without a container runtime; the CLI refuses it for
-arbitrary repos and reports UNPROVEN(SANDBOX_UNAVAILABLE) instead.
+Tier ladder (selected at runtime by `select_sandbox`, tier recorded in every bundle):
+  T1  DockerSandbox         — no network, read-only rootfs, scratch tmpfs, mem/pids limits,
+                              non-root, seccomp. The strongest backend.
+  T2  SeatbeltSandbox (mac) — OS-native: sandbox-exec deny-default profile — no network, home
+                              denied except the repo, writes only to the scratch mount, children
+                              inherit the sandbox. No Docker required.
+  T3  ProcessSandbox        — separate process + rlimits + session isolation. Reduced assurance,
+                              reported as such; first-party fixtures always, user repos only when
+                              no stronger tier exists AND the user has opted in.
+Never silently unsandboxed: with no tier available the run is UNPROVEN(SANDBOX_UNAVAILABLE).
 """
 
 import resource
@@ -43,10 +49,15 @@ def _set_child_limits() -> None:
     # Hard CPU ceiling so a spinning child dies even if the parent does; no core dumps.
     resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    if sys.platform == "linux":
-        # Address-space limits are only reliable on Linux; macOS dev runs rely on the
-        # per-input timeout, production runs rely on the container's --memory limit.
-        resource.setrlimit(resource.RLIMIT_AS, (1 << 31, 1 << 31))  # pragma: no cover — Linux-only
+    if sys.platform == "linux":  # pragma: no cover — Linux-only
+        # Address-space limits and per-sandbox process caps are only reliable on Linux (macOS
+        # RLIMIT_NPROC is per-UID, so capping it would throttle the whole login session, not just
+        # the runner). On macOS a fork bomb is bounded instead by the per-input wall timeout plus
+        # the SIGKILL of the runner's whole process group — proven by tempest.dev.escape_suite.
+        resource.setrlimit(resource.RLIMIT_AS, (1 << 31, 1 << 31))
+        _soft, hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        target = 256 if hard == resource.RLIM_INFINITY else min(256, hard)
+        resource.setrlimit(resource.RLIMIT_NPROC, (target, hard))
 
 
 @dataclass(frozen=True)
@@ -72,6 +83,109 @@ class ProcessSandbox:
     ) -> subprocess.Popen[bytes]:
         return subprocess.Popen(
             cmd,
+            cwd=cwd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
+            start_new_session=True,
+            preexec_fn=_set_child_limits,
+        )
+
+
+def _sb_quote(path: Path) -> str:
+    """A path as an SBPL string literal. Backslash and double-quote are the only metacharacters
+    inside an SBPL "..." literal; escape them so a crafted worktree path cannot break out."""
+    return str(path).replace("\\", "\\\\").replace('"', '\\"')
+
+
+def seatbelt_profile(*, repo: Path, scratch: Path, read_roots: tuple[Path, ...]) -> str:
+    """Deny-default Seatbelt (SBPL) profile — the macOS T2 containment (ADR-0015).
+
+    Reads are broadly allowed (a no-network sandbox cannot exfiltrate what it reads) EXCEPT the
+    whole home directory, which is denied and then re-allowed only for the repo worktree and the
+    interpreter's own install — so no `~` path outside the target repo is reachable. Writes are
+    denied everywhere but the single scratch mount, the network is denied outright, and exec'd
+    children inherit this same profile (no `no-sandbox`). Last-matching-rule-wins ordering is
+    load-bearing: the home deny sits above the repo/interpreter/scratch re-allows.
+    """
+    # Resolve to canonical paths: macOS temp dirs come back as /var/folders/... but Seatbelt
+    # evaluates the real /private/var/folders/..., so an unresolved subpath silently never
+    # matches (the scratch mount would not actually be writable).
+    home = Path.home().resolve()
+    repo = repo.resolve()
+    scratch = scratch.resolve()
+    read_roots = tuple(r.resolve() for r in read_roots)
+    carve = "\n".join(
+        f'(allow file-read* (subpath "{_sb_quote(root)}"))' for root in (repo, *read_roots)
+    )
+    return f"""(version 1)
+(deny default)
+(allow process-fork)
+(allow process-exec*)
+(allow signal (target self))
+(allow sysctl-read)
+(allow mach-lookup)
+(allow file-read*)
+(deny file-read* (subpath "{_sb_quote(home)}"))
+{carve}
+(allow file-read* file-write* (subpath "{_sb_quote(scratch)}"))
+(deny network*)
+"""
+
+
+@dataclass(frozen=True)
+class SeatbeltSandbox:
+    """macOS T2 (ADR-0015): OS-native isolation via `sandbox-exec`, no Docker required.
+
+    The worker runs as `sandbox-exec -f <profile> <python> ...` under a deny-default profile
+    (see `seatbelt_profile`). Runs on the host, so `translate_job` is the identity. Escape
+    containment (no network, no write outside scratch, no home read outside the repo, children
+    inherit the sandbox) is proven by `tempest.dev.escape_suite`.
+    """
+
+    sandbox_exec: str = "/usr/bin/sandbox-exec"
+    tier: str = "T2"
+
+    def _binary(self) -> str | None:
+        if Path(self.sandbox_exec).exists():
+            return self.sandbox_exec
+        return shutil.which("sandbox-exec")
+
+    def available(self) -> bool:
+        return sys.platform == "darwin" and self._binary() is not None
+
+    def translate_job(
+        self, job: dict[str, object], *, workdir: Path, scratch: Path
+    ) -> dict[str, object]:
+        return job
+
+    def _read_roots(self) -> tuple[Path, ...]:
+        # The interpreter must read its own install; a uv-managed CPython lives under ~/.local.
+        roots = {Path(sys.base_prefix), Path(sys.prefix)}
+        uv = Path.home() / ".local" / "share" / "uv"
+        if uv.exists():
+            roots.add(uv)
+        return tuple(sorted(roots))
+
+    def popen(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        scratch: Path,
+        stdin_pipe: bool = False,
+    ) -> subprocess.Popen[bytes]:
+        binary = self._binary()
+        if binary is None:  # available() is checked before selection; belt-and-braces
+            raise RuntimeError("sandbox-exec vanished between selection and launch")
+        profile = seatbelt_profile(repo=cwd, scratch=scratch, read_roots=self._read_roots())
+        profile_path = scratch / "tempest.sb"
+        profile_path.write_text(profile, encoding="utf-8")
+        wrapped = [binary, "-f", str(profile_path), *cmd]
+        return subprocess.Popen(
+            wrapped,
             cwd=cwd,
             env=env,
             stdout=subprocess.PIPE,
@@ -192,3 +306,48 @@ class DockerSandbox:
             stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
         )
+
+
+@dataclass(frozen=True)
+class SandboxSelection:
+    """The chosen backend, its tier (T1/T2/T3/none), and — when none — the actionable reason
+    the run is UNPROVEN(SANDBOX_UNAVAILABLE). The tier is recorded in every bundle and shown in
+    the UI; degradation is never silent (failure-mode #3)."""
+
+    sandbox: "Sandbox | None"
+    tier: str
+    kind: str
+    reason: str | None = None
+    assurance: str = "full"  # "full" (T1/T2) | "reduced" (T3) | "none"
+
+
+def select_sandbox(
+    *, docker_binary: str = "docker", allow_seatbelt: bool = True
+) -> SandboxSelection:
+    """Tier ladder for USER repos (ADR-0015), strongest first. First-party fixtures pick
+    ProcessSandbox directly (trusted code) and never come here.
+
+    T3 (rlimit-only ProcessSandbox) is deliberately NOT offered for untrusted user code: it does
+    not contain network or filesystem, so handing it arbitrary repos would be the exact "silent
+    degrade" failure this ladder exists to prevent. On macOS T2 (Seatbelt) is always available,
+    so the degraded rung is effectively unreachable here; the genuine T3 (separate-user) path is
+    a Linux/Windows follow-up tracked in docs/PLAN-DESKTOP.md.
+    """
+    docker = DockerSandbox(docker_binary=docker_binary)
+    if docker.available():
+        return SandboxSelection(docker, tier="T1", kind="docker", assurance="full")
+    if allow_seatbelt:
+        seatbelt = SeatbeltSandbox()
+        if seatbelt.available():
+            return SandboxSelection(seatbelt, tier="T2", kind="seatbelt", assurance="full")
+    return SandboxSelection(
+        None,
+        tier="none",
+        kind="none",
+        assurance="none",
+        reason=(
+            "no OS-native sandbox tier available (Law L6 forbids unsandboxed execution of repo "
+            "code): install Docker Desktop for T1, or run on macOS for the T2 Seatbelt backend, "
+            "or in CI with a container runtime"
+        ),
+    )

@@ -164,11 +164,14 @@ class TestLocalProveHonestPath:
     def test_unsandboxable_repo_is_all_unproven_not_an_error(
         self, api: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """No marker file + no container runtime → the engine refuses to execute (Law L6) and
+        """No marker file + no sandbox tier at all → the engine refuses to execute (Law L6) and
         reports UNPROVEN(SANDBOX_UNAVAILABLE) per target. That is the CORRECT outcome — the run
-        completes, blesses nothing, and the ledger ends in `complete`, not `error`."""
+        completes, blesses nothing, and the ledger ends in `complete`, not `error`. Both tiers
+        are disabled so this exercises the genuine no-tier path on every OS (on macOS T2 Seatbelt
+        would otherwise contain it — see test_user_repo_runs_under_t2_seatbelt)."""
         repo = _micro_repo(tmp_path, marker=False)
         monkeypatch.setenv("TEMPEST_DOCKER", "/nonexistent/docker")
+        monkeypatch.setenv("TEMPEST_NO_SEATBELT", "1")
         monkeypatch.setenv("TEMPEST_DATA_DIR", str(tmp_path / "appdata"))
 
         run_id = _start_prove(api, repo)

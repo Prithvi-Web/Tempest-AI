@@ -18,6 +18,26 @@ _VERDICT_STYLE = {
 }
 
 
+_TIER_LABEL = {
+    "T1": ("green", "T1 · container isolation"),
+    "T2": ("green", "T2 · OS-native sandbox (macOS Seatbelt)"),
+    "T3": ("yellow", "T3 · reduced assurance"),
+    "fixture": ("cyan", "first-party fixture (trusted, in-repo corpus)"),
+    "none": ("red", "no sandbox — nothing executed"),
+    "unknown": ("dim", "tier not recorded"),
+}
+
+
+def _render_tier(bundle: RunBundle, console: Console) -> None:
+    """The isolation tier, always visible — never let a degraded tier pass unnoticed (§3)."""
+    tier = bundle.manifest.sandbox_tier
+    colour, label = _TIER_LABEL.get(tier, ("dim", f"tier {tier}"))
+    line = f"[{colour}]sandbox: {label}[/{colour}]"
+    if bundle.manifest.sandbox_assurance == "reduced":
+        line += " [yellow]— REDUCED ASSURANCE, see the named limitation[/yellow]"
+    console.print(line)
+
+
 def render_report(bundle: RunBundle, console: Console) -> None:
     m = bundle.manifest
     style = _VERDICT_STYLE[m.verdict]
@@ -45,6 +65,7 @@ def render_report(bundle: RunBundle, console: Console) -> None:
             border_style=style.split()[-1],
         )
     )
+    _render_tier(bundle, console)
     if m.base_deps != m.head_deps:
         console.print(
             f"[yellow]dependencies changed between revisions "

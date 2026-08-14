@@ -24,7 +24,7 @@ from tempest.execute.dual import (
     prove_target,
 )
 from tempest.execute.runner import PersistentWorker
-from tempest.execute.sandbox import DockerSandbox, ProcessSandbox, Sandbox
+from tempest.execute.sandbox import ProcessSandbox, Sandbox, SandboxSelection, select_sandbox
 from tempest.generate.inputs import Budget
 from tempest.generate.mining import mine_literals
 from tempest.minimize.ddmin import minimize_input
@@ -68,27 +68,29 @@ class ProveResult:
     zip_path: Path
     sandbox_kind: str
     sandbox_reason: str | None
+    sandbox_tier: str = "unknown"
+    sandbox_assurance: str = "unknown"
 
 
-def _select_sandbox(repo: Path) -> tuple[Sandbox | None, str, str | None]:
-    """ADR-0003/ADR-0008: first-party fixtures run in ProcessSandbox; user repos require Docker;
-    no Docker → no execution, UNPROVEN(SANDBOX_UNAVAILABLE). Never silently unsandboxed."""
+def _select_sandbox(repo: Path) -> SandboxSelection:
+    """Pick the isolation backend and record its tier (ADR-0003/0008/0015):
+    first-party fixtures → trusted ProcessSandbox; user repos → the tier ladder
+    (T1 Docker → T2 Seatbelt → UNPROVEN). Never silently unsandboxed."""
     marker = repo / ".tempest-first-party"
     if (
         marker.exists()
         and marker.read_text(encoding="utf-8").strip() == _FIRST_PARTY_MARKER
         and os.environ.get("TEMPEST_DEV") == "1"
     ):
-        return ProcessSandbox(), "process-first-party", None
+        return SandboxSelection(
+            ProcessSandbox(), tier="fixture", kind="process-first-party", assurance="trusted"
+        )
     # TEMPEST_DOCKER points at an alternative container binary (e.g. podman).
-    docker = DockerSandbox(docker_binary=os.environ.get("TEMPEST_DOCKER", "docker"))
-    if docker.available():
-        return docker, "docker", None
-    return (
-        None,
-        "none",
-        "no container runtime found (Law L6 forbids unsandboxed execution of repo code) — "
-        "install Docker Desktop or run inside CI with Docker available",
+    # TEMPEST_NO_SEATBELT=1 forces the ladder past T2 — used by the escape suite to isolate a
+    # tier under test, and to exercise the genuine no-tier (SANDBOX_UNAVAILABLE) path.
+    return select_sandbox(
+        docker_binary=os.environ.get("TEMPEST_DOCKER", "docker"),
+        allow_seatbelt=os.environ.get("TEMPEST_NO_SEATBELT") != "1",
     )
 
 
@@ -105,7 +107,9 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
     base_env = materialize(repo, cfg.base, cache)
     head_env = materialize(repo, cfg.head, cache)
     diffs = changed_files(repo, cfg.base, cfg.head, patterns=("*.py", "*.ts", "*.tsx"))
-    sandbox, sandbox_kind, sandbox_reason = _select_sandbox(repo)
+    selection = _select_sandbox(repo)
+    sandbox = selection.sandbox
+    sandbox_kind, sandbox_reason = selection.kind, selection.reason
     compare_cfg = CompareConfig(float_rel_tol=cfg.float_rel_tol)
     mined = mine_literals(head_env.worktree) if sandbox is not None else []
 
@@ -219,6 +223,8 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
         base_deps=base_env.deps_fingerprint,
         head_deps=head_env.deps_fingerprint,
         budget_max_inputs=cfg.max_inputs,
+        sandbox_tier=selection.tier,
+        sandbox_assurance=selection.assurance,
     )
     bundle = RunBundle(manifest=manifest, targets=targets, repro_scripts=repro_scripts)
     out_dir = cfg.out or (
@@ -231,6 +237,8 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
         zip_path=zip_path,
         sandbox_kind=sandbox_kind,
         sandbox_reason=sandbox_reason,
+        sandbox_tier=selection.tier,
+        sandbox_assurance=selection.assurance,
     )
 
 

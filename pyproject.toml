@@ -22,6 +22,9 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # typer's declarative Option-in-default pattern is the library's documented API
 "packages/engine/src/tempest/cli/main.py" = ["B008"]
+# A catalog of embedded adversarial payload sources: the strings are code-as-data, uniformly
+# f-quoted for brace consistency, and must not be reflowed to satisfy line-length.
+"packages/engine/src/tempest/dev/escape_suite.py" = ["E501", "F541"]
 
 [tool.mypy]
 strict = true

@@ -127,6 +127,11 @@ def test_stdio_sidecar_end_to_end(tmp_path: Path) -> None:
         "PATH": f"{Path.home() / '.local' / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
     }
     env.pop("TEMPEST_DEV", None)  # production posture: no dev sandbox, honesty must hold
+    # Force the genuine no-tier path so the assertions below hold on every OS (on macOS T2
+    # Seatbelt would otherwise contain core.py and report DIVERGENT — that path is covered by
+    # the CLI T2 test and the escape suite). This test's job is the honest all-UNPROVEN wiring.
+    env["TEMPEST_NO_SEATBELT"] = "1"
+    env["TEMPEST_DOCKER"] = "/nonexistent/docker"
     proc = subprocess.Popen(
         [uv, "run", "--no-sync", "tempest-server", "--stdio", "--data-dir", str(data_dir)],
         cwd=REPO_ROOT,

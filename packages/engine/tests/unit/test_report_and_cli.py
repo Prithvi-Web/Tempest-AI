@@ -5,8 +5,10 @@ UNREACHABLE."""
 import io
 import os
 import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 
@@ -136,6 +138,7 @@ class TestCliProve:
         repo = _micro_repo(tmp_path, marker=False)
         os.environ.pop("TEMPEST_DEV", None)
         os.environ["TEMPEST_DOCKER"] = "/nonexistent/docker"  # deterministic on Docker-equipped CI
+        os.environ["TEMPEST_NO_SEATBELT"] = "1"  # force past T2 to reach the genuine no-tier path
         try:
             result = runner.invoke(
                 app,
@@ -154,10 +157,42 @@ class TestCliProve:
         finally:
             os.environ["TEMPEST_DEV"] = "1"
             del os.environ["TEMPEST_DOCKER"]
+            del os.environ["TEMPEST_NO_SEATBELT"]
         assert result.exit_code == 0, result.output
         assert "UNPROVEN" in result.output
         assert "SANDBOX_UNAVAILABLE" in result.output
         assert "Nothing is blessed" in result.output
+
+    def test_user_repo_runs_under_t2_seatbelt_on_macos(self, tmp_path: Path) -> None:
+        """The Phase 10 product win: a user repo (no first-party marker) is contained by the
+        macOS T2 Seatbelt backend with no Docker — real execution, real evidence, tier recorded."""
+        if sys.platform != "darwin":
+            pytest.skip("Seatbelt is macOS-only; other OS tiers are CI-gated")
+        repo = _micro_repo(tmp_path, marker=False)  # NOT a first-party fixture
+        os.environ.pop("TEMPEST_DEV", None)
+        os.environ["TEMPEST_DOCKER"] = "/nonexistent/docker"
+        try:
+            result = runner.invoke(
+                app,
+                [
+                    "prove",
+                    "--base",
+                    "base",
+                    "--head",
+                    "head",
+                    "--repo",
+                    str(repo),
+                    "--max-inputs",
+                    "8",
+                ],
+            )
+        finally:
+            os.environ["TEMPEST_DEV"] = "1"
+            del os.environ["TEMPEST_DOCKER"]
+        assert result.exit_code == 1, result.output  # DIVERGENT (core.double changed)
+        assert "DIVERGENT" in result.output
+        assert "T2" in result.output and "Seatbelt" in result.output
+        assert "SANDBOX_UNAVAILABLE" not in result.output
 
     def test_version_flag_still_works(self) -> None:
         result = runner.invoke(app, ["version"])

@@ -46,6 +46,7 @@ verify-python:
 	uv run mypy --strict packages/engine/src packages/api/src
 	TEMPEST_DEV=1 uv run pytest packages/engine packages/api -q --cov --cov-fail-under=85
 	uv run python -m tempest.dev.corpus_check --min-pass 24 --repeats 5
+	uv run python -m tempest.dev.escape_suite --tier T2   # Phase 10 containment (macOS T2)
 
 verify-node:
 	pnpm -r typecheck

@@ -8,7 +8,7 @@ build until the frontend handles it.
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-BUNDLE_SCHEMA_VERSION = 1
+BUNDLE_SCHEMA_VERSION = 2  # v2: manifest carries sandbox_tier + sandbox_assurance (ADR-0015)
 """Integer schema version stamped into every run bundle manifest (docs/BUNDLE_SCHEMA.md)."""
 
 

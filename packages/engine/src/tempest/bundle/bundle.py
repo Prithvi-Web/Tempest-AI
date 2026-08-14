@@ -70,6 +70,10 @@ class RunManifest:
     base_deps: str
     head_deps: str
     budget_max_inputs: int
+    # The isolation tier this run actually used (ADR-0015). Recorded in every bundle so the tier
+    # can never silently degrade unnoticed — it is surfaced in the CLI report, the UI, and CI.
+    sandbox_tier: str = "unknown"
+    sandbox_assurance: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -164,6 +168,9 @@ def _manifest_from(raw: dict[str, Any]) -> RunManifest:
         base_deps=str(raw["base_deps"]),
         head_deps=str(raw["head_deps"]),
         budget_max_inputs=int(raw["budget_max_inputs"]),
+        # Forward-compatible read: a v1 bundle predates tiered sandboxing → "unknown".
+        sandbox_tier=str(raw.get("sandbox_tier", "unknown")),
+        sandbox_assurance=str(raw.get("sandbox_assurance", "unknown")),
     )
 
 
