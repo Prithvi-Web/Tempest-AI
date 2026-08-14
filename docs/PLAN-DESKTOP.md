@@ -25,33 +25,49 @@ tests. Phase 9 evolves this shell to the §3 architecture; it does not start fro
 
 ## Phase 9 — Desktop Shell Migration
 
-- [ ] Restructure `apps/desktop` → `packages/desktop` (workspace consistency with the plan text)
-- [ ] Boundary A: replace HTTP-on-127.0.0.1 with JSON-RPC 2.0 over stdio + length-prefixed
-      framing to the sidecar (no listening TCP port anywhere in local mode)
-- [ ] Boundary A types: Pydantic `model_json_schema()` → `typify` → committed
-      `src-tauri/src/generated/domain.rs`
-- [ ] Boundary B: `tauri-specta` → committed `src/generated/bindings.ts`; ESLint ban on
-      handwritten `invoke()`
-- [ ] Boundary C: same JSON Schema → `json-schema-to-typescript` → committed
-      `src/generated/domain.ts`
-- [ ] `make gen:contracts` + CI job `contract-check` extended to the desktop generated dirs
-- [ ] Sidecar supervision: health checks, crash restart with backoff, process-group/job-object
-      ownership (orphan-free under SIGKILL of the host)
-- [ ] Port the five views to the desktop SPA; delete `packages/web` (Next.js) — removal ADR;
-      `git grep next` in package manifests returns nothing
-- [ ] Round-trip property test: Python → Rust → TS → structural equality, in CI
-- [ ] Rust host test suite (currently zero tests) incl. a process-table assertion after SIGKILL
-- [ ] Clean-VM validation: app launches with no Python/Node/Docker installed; full prove-run
-      completes; bundle byte-identical to the CLI's for the same commit
+- [x] Restructure `apps/desktop` → `packages/desktop` (aa65156; history preserved via git-mv)
+- [x] Boundary A: JSON-RPC 2.0 over stdio with Content-Length framing (`tempest-server --stdio`,
+      `tempest_api.stdiorpc`; dispatch table derived from the live routes). Verified on the
+      installed app: `lsof` shows **zero listening TCP sockets** on any tempest process
+- [x] Boundary A types: openapi.json → domain-schema.json (int32-pinned) → `cargo typify` →
+      committed `src-tauri/src/generated/domain.rs` with `specta::Type` derives
+- [x] Boundary B: `tauri-specta` → committed `src/generated/bindings.ts` (8 typed commands +
+      typed `SidecarStateEvent`); handwritten-`invoke` ban enforced as a `verify-desktop` grep
+      (same mechanism as the S-A-F-E grep; a dedicated ESLint setup remains a nice-to-have)
+- [x] Boundary C: the TS domain types ship inside generated `bindings.ts` (same schema through
+      the same pipeline); `shared-schema/types.ts` remains the committed API-level artifact —
+      no third generator needed (recorded in ADR-0014)
+- [x] `make gen-contracts` + widened `contract-check` (schema + both desktop generated dirs) in
+      Makefile and CI; regeneration proven deterministic (second run diffs empty)
+- [x] Sidecar supervision: owned child in its own process group, rpc.ping health loop, crash
+      restart with capped backoff, rpc.shutdown→SIGTERM→SIGKILL group sweep; typed lifecycle
+      events to the UI
+- [x] Five views on generated bindings; `packages/web` deleted (ADR-0014); dead-package grep
+      clean outside historical docs
+- [x] Round-trip gate: **10000/10000** payloads byte-stable Python→Rust→TS (Pydantic + serde +
+      ajv legs, all against the one schema)
+- [x] Rust suite: 10 tests (framing codec, enum-discipline exhaustive matches, supervisor
+      crash-restart/timeout-correlation/no-orphan-shutdown against a real protocol peer)
+- [ ] Playwright/WebDriver E2E against the real app (`pnpm --filter @tempest/desktop test:e2e`
+      is wired but the suite is not written yet)
+- [ ] Clean-VM validation: needs VMs this machine does not have — CI/manual follow-up; the
+      local equivalents (frozen-sidecar parity, orphan gate, no-toolchain .app) are green
 
-*Gate:*
+*Gate — real output, 2026-08-14:*
 ```
-make gen:contracts && git diff --exit-code packages/desktop/src/generated packages/desktop/src-tauri/src/generated
-cargo clippy --all-targets -- -D warnings && cargo test --workspace
-pnpm --filter desktop typecheck && pnpm --filter desktop test
-python -m tempest.dev.roundtrip --py-rust-ts --iterations 10000
-python -m tempest.dev.parity --cli-vs-desktop
-# SIGKILL the app mid-run → process-table assertion: zero orphaned sidecars/runners
+$ make verify-contract                        → git diff --exit-code … (zero drift)   exit 0
+$ cargo clippy --workspace --all-targets -- -D warnings   → clean
+$ cargo test -q --workspace                   → 10 passed, 0 failed
+$ pnpm --filter @tempest/desktop typecheck && pnpm --filter @tempest/desktop build → ✓ built
+$ uv run python -m tempest.dev.roundtrip --py-rust-ts --iterations 10000
+roundtrip py→rust→ts: 10000/10000 payloads byte-stable across all three languages
+$ uv run python -m tempest.dev.parity --cli-vs-desktop
+cli-vs-desktop parity: byte-identical bundles (targets.json, 1 repro script(s),
+manifest minus created_at) — the shipped sidecar and the CLI produce the same evidence
+  (this gate first CAUGHT a real bug: Hypothesis derandomize is runtime-digest-seeded, so the
+   frozen binary generated different inputs than the venv CLI — fixed with an explicit @seed)
+$ uv run python -m tempest.dev.orphan_check
+orphan check: zero sidecar processes survive SIGKILL of the host (cleared in 2.7s, bar 15s)
 ```
 
 ## Phase 10 — Sandboxing Without Docker ⚠️ (the phase that can kill the product)

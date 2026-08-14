@@ -45,8 +45,14 @@ testpaths = ["packages/engine/tests", "packages/api/tests"]
 source_pkgs = ["tempest", "tempest_api"]
 branch = true
 parallel = true
-# Phase 2 in progress
-omit = ["*/tempest/determinism/*"]
+omit = [
+    # Phase 2 in progress (behavior pinned by execution tests — HANDOFF trap #8)
+    "*/tempest/determinism/*",
+    # Verification gates, not product code: corpus_check / roundtrip / parity / orphan_check
+    # run as their own commands inside `make verify` and the Phase 9 gate list — measuring
+    # their pytest coverage would gate the testers, not the product.
+    "*/tempest/dev/*",
+]
 
 [tool.coverage.report]
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
