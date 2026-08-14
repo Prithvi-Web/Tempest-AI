@@ -7,7 +7,7 @@ export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 DESKTOP_MANIFEST := packages/desktop/src-tauri/Cargo.toml
 
 .PHONY: verify verify-python verify-node verify-desktop verify-contract verify-grep-safe \
-	gen-contracts sync
+	gen-contracts ensure-sidecar sync
 
 sync:
 	uv sync --all-packages
@@ -26,7 +26,13 @@ gen-contracts:
 		-o packages/desktop/src-tauri/src/generated/domain.rs
 	cargo run -q --manifest-path $(DESKTOP_MANIFEST) -p tempest-desktop-devtools --bin export_bindings
 
-verify-desktop:
+# tauri-build refuses to compile without the externalBin staged, and the sidecar binary never
+# enters git — a clean clone must build it before any cargo step can run.
+ensure-sidecar:
+	@test -f "packages/desktop/src-tauri/binaries/tempest-server-$$(rustc -vV | sed -n 's/host: //p')" \
+		|| ./packages/desktop/build-server.sh
+
+verify-desktop: ensure-sidecar
 	cargo clippy --manifest-path $(DESKTOP_MANIFEST) --workspace --all-targets -- -D warnings
 	cargo test -q --manifest-path $(DESKTOP_MANIFEST) --workspace
 	pnpm --filter @tempest/desktop typecheck

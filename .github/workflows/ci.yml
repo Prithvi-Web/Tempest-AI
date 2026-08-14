@@ -40,11 +40,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: corepack enable
+      - run: uv sync --all-packages
       - run: pnpm install --frozen-lockfile
+      # tauri-build requires the externalBin staged before any cargo step compiles
+      - run: ./packages/desktop/build-server.sh
       - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
       - run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace
       - run: pnpm --filter @tempest/desktop typecheck
@@ -64,6 +70,8 @@ jobs:
       - run: uv sync --all-packages
       - run: pnpm install --frozen-lockfile
       - run: cargo install cargo-typify --locked
+      # tauri-build requires the externalBin staged before any cargo step compiles
+      - run: ./packages/desktop/build-server.sh
       - run: make gen-contracts
       - run: |
           git diff --exit-code packages/shared-schema \
