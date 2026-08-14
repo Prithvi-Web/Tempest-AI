@@ -1,3 +1,4 @@
+# fresh run 2026-08-13 at commit 2358b97 (post-audit-fixes) — command: uv run python -m tempest.dev.corpus_check --min-pass 24 --repeats 20
 tempest corpus check: 30 impure functions x 20 replays
   STABLE   httpfns.fetch_user_name('__LOOPBACK__',)
   STABLE   httpfns.check_health('__LOOPBACK__',)
@@ -31,4 +32,4 @@ tempest corpus check: 30 impure functions x 20 replays
   STABLE   timerandfns.expiry_deadline(3600,)
 
 30/30 stable across 20 consecutive replays
-FLAKE-HUNT-EXIT=0
+FLAKE_HUNT_EXIT=0

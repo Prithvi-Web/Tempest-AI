@@ -73,7 +73,8 @@ def prove(
     except (EnvReproError, DiffError) as exc:
         # Law L2: environment reproduction failing is UNPROVEN territory, stated plainly —
         # never a raw traceback, never a blessing.
-        console.print(f"[bold red]UNPROVEN — {ReasonCode.ENV_REPRODUCTION_FAILED}: {exc}[/bold red]")
+        code = ReasonCode.ENV_REPRODUCTION_FAILED
+        console.print(f"[bold red]UNPROVEN — {code}: {exc}[/bold red]")
         console.print(
             "Nothing was executed and nothing is blessed. Check that both refs exist in "
             "this repository and that it is a valid git checkout."
