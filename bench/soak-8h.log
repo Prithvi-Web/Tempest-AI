@@ -1,0 +1,4 @@
+soak: 0.9m rss=108.2MB iters=1 proves=1 failures=0
+soak: 1.8m rss=95.9MB iters=3 proves=3 failures=0
+soak: 2.7m rss=96.2MB iters=5 proves=5 failures=0
+soak: 3.4m rss=95.8MB iters=6 proves=6 failures=0

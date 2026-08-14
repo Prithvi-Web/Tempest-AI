@@ -129,9 +129,7 @@ def test_older_db_is_forward_migrated_to_head(
     reference = tmp_path / "reference.db"
     command.upgrade(_alembic_config(reference), "head")
     assert _stamp(old) == HEAD_REVISION
-    assert _widths_stripped(_schema_snapshot(old)) == _widths_stripped(
-        _schema_snapshot(reference)
-    )
+    assert _widths_stripped(_schema_snapshot(old)) == _widths_stripped(_schema_snapshot(reference))
 
 
 def test_newer_db_is_refused_without_modification(

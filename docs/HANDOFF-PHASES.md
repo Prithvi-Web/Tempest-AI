@@ -5,8 +5,9 @@ repo `HANDOFF.md` (read that first — status table + traps) and `docs/PLAN-DESK
 Phase 9–18 checklist with exact gate commands). This file adds the *how to resume*, the standing
 traps you must not relearn, and the owner decisions that block specific phases.
 
-**As of 2026-08-14 · published at `github.com/Prithvi-Web/Tempest-AI` · CI green on `main`
-(`1f408d3`, all 6 jobs) · working tree clean · `make verify` exit 0 from a clean clone.**
+**As of 2026-08-14 (evening) · published at `github.com/Prithvi-Web/Tempest-AI` · CI green on
+`main` at `1f408d3`; Phase 11 commits are LOCAL, awaiting the owner's push · `make verify`
+exit 0 with the Phase 11 work in · 8-hour soak in flight (see §2).**
 
 ---
 
@@ -20,7 +21,9 @@ traps you must not relearn, and the owner decisions that block specific phases.
 6. `docs/AUDIT-PHASE8.md`, `docs/METRICS.md` — the truth audit + the three numbers.
 
 **User is a non-coder** — plain English, copy-paste commands, verify by running the real app.
-**No subagents / inline work** (user preference). **Check in after each feature**, flawless bar.
+**Subagents ALLOWED as of 14 Aug 2026** ("use as many as needed") — but their code meets the
+same flawless bar and you verify it with real gates, never their reports.
+**Check in after each phase/feature**, flawless bar.
 
 ---
 
@@ -32,6 +35,7 @@ traps you must not relearn, and the owner decisions that block specific phases.
 | 9 Desktop Shell | ✅ core | stdio JSON-RPC (no TCP), Rust supervisor, generated tri-boundary types + drift gate, 5 views on typed bindings, **Next.js `packages/web` deleted** (ADR-0014) |
 | 10 Sandboxing w/o Docker | ✅ macOS T2 | `SeatbeltSandbox` (ADR-0015); escape suite **27/27**, egress **0**, tier→bundle→API→UI |
 | Perf | ✅ | `PersistentWorker` — pyfix **118→20 s (5.9×)** |
+| **11 Local-First Data & Perf** | ✅ 5/6 boxes 2026-08-14 (ADR-0016..0019) | Versioned WAL store w/ refuse-newer; content-addressed bundle store + budget GC; FTS + `.tempest` import/export; bench gate green (`bench_guard: PASS`, darwin baseline committed, CI `bench` job added); L11 cancel <2 s + battery/thermal pause. **Open: the 8-hour soak** (harness landed, 2-min validation PASS −4.87%; 8-h run started 13:33 → `bench/soak.json` ≈21:33) |
 
 **Architecture now:** Python engine (the nine stages + determinism moat — the validated core;
 kept in Python by ADR-0011, user-confirmed) · Rust host (`packages/desktop/src-tauri`: supervisor,
@@ -175,6 +179,17 @@ brand) → 13 → then 12/14/15/16 as the owner clears their [ASK ME] purchases 
     installed; Linux CI skips the former and — before trap 14 — lacked the latter, so the two
     coverage totals differ by design. When touching the coverage config or adding skips, sanity
     check what the LINUX denominator will look like, not just the local one.
+16. **Growing any VARCHAR-backed enum changes the computed column width** — the parity test
+    fails until a widening alembic migration ships (see `0004`, ADR-0019). For the LOCAL
+    sqlite store such width-only revisions are stamp-only forward steps (`_FORWARD_STEPS`
+    entry `()`): sqlite type affinity ignores widths, and the forward-equivalence test
+    compares width-insensitively for exactly that case. Never relax the parity test itself.
+17. **Battery/thermal pause (L11) vs gates:** every gate/suite invocation must run with
+    `TEMPEST_NO_POWER_PAUSE=1` (Makefile + both conftests set it) or an unplugged laptop
+    pauses proves and the gate hangs. Pause tests force the condition with
+    `TEMPEST_FORCE_POWER_PAUSE`, which outranks the opt-out. Precedence: FORCE > NO > probes.
+18. **`make verify | tail` lies about the exit code** — the pipe reports tail's status. Use
+    `set -o pipefail` (or read `PIPESTATUS[0]`) before believing a piped verify.
 
 ---
 

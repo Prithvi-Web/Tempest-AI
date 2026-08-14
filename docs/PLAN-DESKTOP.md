@@ -110,16 +110,39 @@ PENDING(CI) rather than skipping it silently.*
 
 ## Phase 11 — Local-First Data & Performance
 
-- [ ] SQLite (WAL) primary store + migration framework + forward+backward migration test
-      (older app refuses newer DB cleanly, never corrupts)
-- [ ] Content-addressed bundle store with GC + user-controlled size budget
-- [ ] FTS over divergences; `.tempest` portable import/export
-- [ ] Targets asserted in CI on a 4-core profile: cold launch <1.5 s; 10k-run list first paint
-      <200 ms @60 fps; 5 MB observation detail <400 ms; idle <250 MB RAM / <1% CPU
-- [ ] L11: cancel stops everything <2 s; battery/thermal pause engages
-- [ ] 8-hour soak: memory growth <10%
+- [x] SQLite (WAL) primary store + migration framework + forward+backward migration test
+      (older app refuses newer DB cleanly, never corrupts) — 2026-08-14, ADR-0016.
+      `test_migrations.py` 8/8: fresh DB stamped at head with `journal_mode=wal`; 0001-stamped
+      DB forward-migrates to a schema equal to `upgrade head`; future-stamped DB raises
+      `NewerDatabaseError` with the file hash-verified byte-identical; in-code chain
+      drift-gated against `alembic/versions/`.
+- [x] Content-addressed bundle store with GC + user-controlled size budget — 2026-08-14,
+      ADR-0017. `test_bundle_store.py` 7/7: sha256 blobs dedup; GC removes only unreferenced;
+      `TEMPEST_BUNDLE_BUDGET_BYTES` prunes oldest runs (row+blob, cascades verified), never
+      the newest, never pending runs.
+- [x] FTS over divergences; `.tempest` portable import/export — 2026-08-14, ADR-0018.
+      `test_search_and_portability.py` 9/9: FTS5 index synced by triggers (pruned runs leave
+      the index), operator junk inert; export byte-identical to ingest (L7); import idempotent
+      by digest, round-trips through `fetch_bundle`. Desktop search UI on generated bindings.
+- [x] Engine/API targets asserted in CI (`bench` job, 4-core ubuntu profile) — 2026-08-14.
+      This machine: cold launch **0.297 s** (<1.5), 10k-run list **1.06 ms** (<200),
+      5 MB observation **23.9 ms** (<400), idle **112.4 MB** (<250) / **0.0 %** CPU (<1).
+      `bench_guard: PASS (bench/bench.json, darwin)` — darwin baseline committed; linux
+      baseline pends first CI run (guard prints PENDING(baseline), absolutes still bind).
+      Webview first-paint + app-level cold launch stay PENDING(desktop-e2e), stated in
+      bench.json.
+- [x] L11: cancel stops everything <2 s; battery/thermal pause engages — 2026-08-14,
+      ADR-0019. `test_cancel_and_power.py` 8/8 (pgroup kill <2 s measured; cancelled scope
+      refuses spawns; pause engages/resumes/cancel-unblocks) + `test_cancel_run.py` 3/3
+      (running prove → CANCELLED with children dead and thread unwound in <2 s — measured
+      0.85 s for the whole test; RUN_NOT_ACTIVE on idle runs). Desktop CANCEL button wired.
+- [ ] 8-hour soak: memory growth <10% — harness landed (`tempest.dev.soak`); 2-minute
+      validation run PASS (growth −4.87%, 4 real proves, 0 failures); **the 8-hour run started
+      2026-08-14 13:33 local, result lands in `bench/soak.json` ≈21:33** — box flips only with
+      that output pasted.
 
 *Gate:* `make bench && python -m tempest.dev.bench_guard --max-regression 15` (fails the build)
+— **live in CI as the `bench` job and green on this machine as of 2026-08-14.**
 
 ## Phase 12 — Distribution: Signing, Notarization, MDM
 

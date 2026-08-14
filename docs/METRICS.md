@@ -52,6 +52,16 @@ prove time. What is measurable today:
 
 Phase 18's gate instruments the real number end-to-end from a signed install.
 
+## Phase 11 performance envelope (measured 2026-08-14, this machine, `make bench`)
+
+All five absolute targets pass with wide margin — `bench_guard: PASS (bench/bench.json, darwin)`:
+cold launch (spawn → first stdio health) **0.297 s** (target <1.5 s) · first list page against
+a 10,000-run store **1.06 ms** (<200 ms) · 5 MB observation detail **23.9 ms** (<400 ms) ·
+idle **112.4 MB RSS** (<250 MB) / **0.0 % CPU** (<1 %). Guarded in CI (`bench` job, 4-core
+ubuntu profile) with a 15 % regression bar per committed platform baseline. Soak (8-hour,
+memory growth <10 %): 2-minute validation run PASS at **−4.87 %** growth; the 8-hour result
+lands in `bench/soak.json`.
+
 ## Bundle determinism (supporting evidence for all three)
 
 Two independent `tempest prove` runs of the same commit pair produce **byte-identical**
