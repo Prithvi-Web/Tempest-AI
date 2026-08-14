@@ -5,7 +5,8 @@ repo `HANDOFF.md` (read that first — status table + traps) and `docs/PLAN-DESK
 Phase 9–18 checklist with exact gate commands). This file adds the *how to resume*, the standing
 traps you must not relearn, and the owner decisions that block specific phases.
 
-**As of 2026-08-14 · HEAD `07d32d5` · working tree clean · `make verify` exit 0 from a clean clone.**
+**As of 2026-08-14 · published at `github.com/Prithvi-Web/Tempest-AI` · CI green on `main`
+(`1f408d3`, all 6 jobs) · working tree clean · `make verify` exit 0 from a clean clone.**
 
 ---
 
@@ -165,6 +166,15 @@ brand) → 13 → then 12/14/15/16 as the owner clears their [ASK ME] purchases 
 13. **Pushing needs the owner.** The CLI has no stored GitHub credential (the repo is published
     and pushed through GitHub Desktop). Commit locally, then ask the owner to click *Push origin*.
     Remote: `https://github.com/Prithvi-Web/Tempest-AI.git`.
+14. **The CI python job MUST install node deps** (`setup-node` + `corepack enable` +
+    `pnpm install --frozen-lockfile`) before pytest. Without them the six ts-sidecar bridge
+    tests skip silently and `ts_sidecar.py` coverage collapses (23% vs 80%) — Linux lands at
+    84.23% and the 85% gate fails while every test "passes." Silent suite-narrowing (§14.1);
+    fixed in `1f408d3`, do not regress it.
+15. **Local green ≠ CI green.** This Mac runs macOS-only tests (Seatbelt) and has node deps
+    installed; Linux CI skips the former and — before trap 14 — lacked the latter, so the two
+    coverage totals differ by design. When touching the coverage config or adding skips, sanity
+    check what the LINUX denominator will look like, not just the local one.
 
 ---
 
@@ -198,14 +208,13 @@ uv run tempest prove --base <ref> --head <ref> --repo <path>
 
 ## 7. Owner decision queue ([ASK ME] — surface these before the phase that needs them)
 
-1. **Git history slim (pre-publish):** the repo history still carries ~1.6 GB of old cargo build
-   blobs (`.git` ≈ 536 MB). Blocked this session by the auto-mode permission classifier. Mirror
-   backup is safe at `Desktop/Claude Code/.tempest-backup-pre-history-slim.git`. To do it (owner
-   or an interactive session): `git filter-repo --force --invert-paths --path
-   apps/desktop/src-tauri/target/` then `git gc --prune=now --aggressive`. **Publishing works
-   without it** (largest blob 57 MB < GitHub's 100 MB limit) — it's just bulky.
-2. **GitHub Desktop publish** — still pending; unlocks the Phase 6 live-PR gate
-   (`tempest-selftest.yml`).
+1. ~~Git history slim~~ **DONE** (verified 14 Aug: `.git` 1.4 MB, largest historical blob
+   0.2 MB, all commits intact). Backup at `Desktop/Claude Code/.tempest-backup-pre-history-slim.git`
+   can be deleted once the owner is comfortable.
+2. ~~GitHub publish~~ **DONE** — live at `https://github.com/Prithvi-Web/Tempest-AI` (Public).
+   **CI fully green on `main`** as of `1f408d3` (all 6 jobs). Natural next step: open a PR with
+   a seeded behavior change to fire `tempest-selftest.yml` — the Phase 6 live-PR gate — and
+   record the first real-world proof-rate number in `docs/METRICS.md`.
 3. **External security review** of the T2 profile + escape corpus + sync boundary (ADR-0015,
    prompt §10) — engagement + budget. Before GA.
 4. **Phase 12:** Apple Developer ID + Windows EV code-signing certificates (purchases).

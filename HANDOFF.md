@@ -3,6 +3,7 @@
 > **Continuing the roadmap?** Read **`docs/HANDOFF-PHASES.md`** — the entry point for the
 > remaining phases (11–18), the standing traps, the resume commands, and the owner decision
 > queue. Phases 8, 9, 10 and the perf rework are done (see the table below).
+> **Published:** `github.com/Prithvi-Web/Tempest-AI` — CI green on `main` (`1f408d3`, 6/6 jobs).
 
 
 **What this is:** Tempest AI, a behavioral proof agent — it *executes* diffs (base vs head under
@@ -64,9 +65,10 @@ uv run python corpus/fixtures/pyfix/make_fixture.py /tmp/pyfix   # the Phase 1 f
 8. Coverage bar is 85%; `determinism/*` is temporarily omitted from measurement while Phase 2/3
    iterate (its behavior is pinned by execution tests) — remove the omit when things settle.
 
-## Publish to GitHub (owner's step — GitHub Desktop)
+## GitHub (published 2026-08-14)
 
-1. Open GitHub Desktop → File → **Add Local Repository** → choose `Desktop/Claude Code/tempest`.
-2. **Publish repository** (pick the visibility you want).
-3. After publish: open a PR with any seeded change to run `tempest-selftest.yml` — that is the
-   Phase 6 live gate.
+Live at **`https://github.com/Prithvi-Web/Tempest-AI`** (Public); history slimmed pre-publish;
+CI green on `main`. Pushes go through the owner's GitHub Desktop (**Push origin**) — no stored
+CLI credential. **Next live gate:** open a PR with any seeded behavior change to run
+`tempest-selftest.yml` (Phase 6's live-PR gate), then record the first real-world proof rate in
+`docs/METRICS.md`.
