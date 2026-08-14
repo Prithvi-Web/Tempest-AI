@@ -64,6 +64,13 @@ lands in `bench/soak.json`.
 
 ## Bundle determinism (supporting evidence for all three)
 
+**Strengthened 2026-08-14:** determinism now extends to the zip CONTAINER itself — entry
+timestamps pinned to the zip epoch and permissions to 0644, so a bundle's bytes are a pure
+function of its content. Caught by Linux CI: delta sync hashes the container, and mtime leakage
+made re-zipped identical content hash differently across a 2-second boundary (invisible on a
+fast local machine). Pinned by `test_wire_bytes_are_wall_clock_independent`.
+
+
 Two independent `tempest prove` runs of the same commit pair produce **byte-identical**
 `targets.json` and all 31 repro scripts, and manifests identical except `created_at`
 (timestamps are recorded, never compared). Nondeterminism in Tempest itself: **none observed**

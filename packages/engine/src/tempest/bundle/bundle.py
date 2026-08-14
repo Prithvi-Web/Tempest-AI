@@ -128,10 +128,21 @@ def write_bundle(bundle: RunBundle, out_dir: Path) -> Path:
 
     zip_path = out_dir.with_suffix(".tempest.zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(out_dir / "manifest.json", "manifest.json")
-        zf.write(out_dir / "targets.json", "targets.json")
+
+        def _add(path: Path, arcname: str) -> None:
+            # The zip CONTAINER must be a pure function of bundle content (L7): entry
+            # timestamps are pinned to the zip epoch and permissions to 0644, or re-zipping
+            # identical content seconds apart yields different bytes — which broke delta
+            # sync's content addressing on Linux CI (same-second timestamps hid it locally).
+            info = zipfile.ZipInfo(arcname, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            zf.writestr(info, path.read_bytes())
+
+        _add(out_dir / "manifest.json", "manifest.json")
+        _add(out_dir / "targets.json", "targets.json")
         for name in sorted(bundle.repro_scripts):
-            zf.write(repro_dir / name, f"repros/{name}")
+            _add(repro_dir / name, f"repros/{name}")
     return zip_path
 
 

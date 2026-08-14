@@ -26,7 +26,10 @@ def _populate_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEMPEST_DIAG_PLANTED_TOKEN", PLANTED)
     monkeypatch.setenv("TEMPEST_TELEMETRY", "1")
     logger = get_logger("diagnose-test")
-    logger.info("engine started for %s", f"/Users/prithvivinay/secret-repo with {PLANTED}")
+    # The planted path must live under THIS machine's real home — the diagnose command
+    # builds its redaction context from Path.home(), so a hardcoded /Users/… path is
+    # invisible to the scrubber on Linux CI (first-run catch).
+    logger.info("engine started for %s", f"{Path.home()}/secret-repo with {PLANTED}")
     record_run_aggregate(verdict="DIVERGENT", sandbox_tier="T2", unproven_reasons=(), duration_ms=5)
     try:
         raise ValueError(f"crash carrying {PLANTED}")
@@ -51,10 +54,12 @@ def test_diagnose_produces_a_redacted_inspectable_archive(
         assert "logs.jsonl" in names
         assert any(n.startswith("crashes/") for n in names)
         assert "telemetry.json" in names
+        home, username = str(Path.home()), Path.home().name
         for name in names:
             content = archive.read(name).decode("utf-8", errors="replace")
             assert PLANTED not in content, f"planted secret leaked into {name}"
-            assert "prithvivinay" not in content, f"home identity leaked into {name}"
+            assert home not in content, f"home path leaked into {name}"
+            assert username not in content, f"home identity leaked into {name}"
         manifest = archive.read("MANIFEST.txt").decode()
         for name in sorted(names - {"MANIFEST.txt"}):
             assert name in manifest, "the manifest lists every member"

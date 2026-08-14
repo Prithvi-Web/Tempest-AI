@@ -61,3 +61,17 @@ def test_opt_in_passes_bytes_through_untouched(api, monkeypatch: pytest.MonkeyPa
     assert source_sharing_enabled() is True
     original = _bundle_zip_with_planted_source(api)
     assert strip_source_for_sync(original) == original, "opt-in sharing is byte-exact"
+
+
+def test_wire_bytes_are_wall_clock_independent(api, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Delta-sync hashes the zip CONTAINER, so it must be a pure function of bundle content.
+    Zip entry timestamps have 2-second granularity — the sleep forces the two strips across a
+    timestamp boundary, which is exactly how Linux CI caught the mtime leak this test pins."""
+    import time
+
+    monkeypatch.delenv("TEMPEST_SYNC_SHARE_SOURCE", raising=False)
+    original = _bundle_zip_with_planted_source(api)
+    first = strip_source_for_sync(original)
+    time.sleep(2.1)
+    second = strip_source_for_sync(original)
+    assert first == second, "same content seconds apart must produce identical wire bytes"
