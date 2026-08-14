@@ -34,8 +34,24 @@ jobs:
       - run: pnpm -r test
       - run: pnpm --filter @tempest/web exec next build
 
+  desktop:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml
+      - run: pnpm --filter @tempest/desktop typecheck
+
   contract-check:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -44,11 +60,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
       - run: corepack enable
       - run: uv sync --all-packages
       - run: pnpm install --frozen-lockfile
-      - run: pnpm gen:api
-      - run: git diff --exit-code packages/shared-schema packages/web/src/generated
+      - run: cargo install cargo-typify --locked
+      - run: make gen-contracts
+      - run: |
+          git diff --exit-code packages/shared-schema packages/web/src/generated \
+            packages/desktop/src/generated packages/desktop/src-tauri/src/generated
 
   forbidden-verdict-grep:
     runs-on: ubuntu-latest

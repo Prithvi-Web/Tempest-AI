@@ -2,16 +2,34 @@
 # list is the v1 done bar. Never claim completion without pasting real output of `make verify`.
 
 SHELL := /bin/bash
-export PATH := $(HOME)/.local/bin:$(PATH)
+export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 
-.PHONY: verify verify-python verify-node verify-contract verify-grep-safe sync
+DESKTOP_MANIFEST := packages/desktop/src-tauri/Cargo.toml
+
+.PHONY: verify verify-python verify-node verify-desktop verify-contract verify-grep-safe \
+	gen-contracts sync
 
 sync:
 	uv sync --all-packages
 	pnpm install --frozen-lockfile
 
-verify: verify-python verify-node verify-contract verify-grep-safe
+verify: verify-python verify-node verify-desktop verify-contract verify-grep-safe
 	@echo "── verify: all live steps green ──"
+
+# Tri-boundary generation (CLAUDE.md §9b): Pydantic → openapi.json → domain-schema.json →
+# typify (Rust) + tauri-specta (TS bindings). Committed output, diffed by verify-contract.
+gen-contracts:
+	pnpm gen:api
+	node packages/shared-schema/scripts/gen-domain-schema.mjs
+	cargo typify packages/shared-schema/domain-schema.json \
+		--additional-derive specta::Type \
+		-o packages/desktop/src-tauri/src/generated/domain.rs
+	cargo run -q --manifest-path $(DESKTOP_MANIFEST) --bin export_bindings
+
+verify-desktop:
+	cargo clippy --manifest-path $(DESKTOP_MANIFEST) --all-targets -- -D warnings
+	cargo test -q --manifest-path $(DESKTOP_MANIFEST)
+	pnpm --filter @tempest/desktop typecheck
 
 verify-python:
 	uv run ruff check
@@ -26,8 +44,9 @@ verify-node:
 	pnpm --filter @tempest/web build
 
 verify-contract:
-	pnpm gen:api
-	git diff --exit-code packages/shared-schema packages/web/src/generated
+	$(MAKE) gen-contracts
+	git diff --exit-code packages/shared-schema packages/web/src/generated \
+		packages/desktop/src/generated packages/desktop/src-tauri/src/generated
 
 verify-grep-safe:
 	@! grep -rn --include='*.py' --include='*.ts' --include='*.tsx' -w 'SAFE' packages/ \

@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "Inflector"
+version = "0.11.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -31,6 +37,12 @@ checksum = "0e76a019e91224d279006ff972f1e984179a6e9feb050adba6ce8274aef23195"
 dependencies = [
  "alloc-no-stdlib",
 ]
+
+[[package]]
+name = "allocator-api2"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "android_system_properties"
@@ -316,8 +328,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link 0.2.1",
 ]
 
@@ -1205,6 +1219,17 @@ name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
+
+[[package]]
+name = "hashbrown"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash",
+]
 
 [[package]]
 name = "hashbrown"
@@ -2150,6 +2175,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2461,6 +2492,16 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "regress"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2057b2325e68a893284d1538021ab90279adac1139957ca2a74426c6f118fb48"
+dependencies = [
+ "hashbrown 0.16.1",
+ "memchr",
+]
 
 [[package]]
 name = "reqwest"
@@ -2871,6 +2912,59 @@ dependencies = [
 ]
 
 [[package]]
+name = "specta"
+version = "2.0.0-rc.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38f9a30cbcbb7011f1da7d73483983bf838af123883e45f2b36ed76328df9c50"
+dependencies = [
+ "chrono",
+ "paste",
+ "rustc_version",
+ "serde_json",
+ "specta-macros",
+]
+
+[[package]]
+name = "specta-macros"
+version = "2.0.0-rc.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2ce14957ecc2897f1f848b8255b6531d13ddf49cbcf506b7c2c9fb1d005593bb"
+dependencies = [
+ "Inflector",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "specta-serde"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee8a72b755ddb8949fd8f17c5db43f0e8a806ea587d9bc602ee3f73240c00029"
+dependencies = [
+ "specta",
+ "specta-macros",
+]
+
+[[package]]
+name = "specta-typescript"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "639404ee95557f2f8b7e4cb773ffefd45304c7ab8ba21ac83b69051595e083c0"
+dependencies = [
+ "specta",
+]
+
+[[package]]
+name = "specta-util"
+version = "0.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29b1fc02b446f7244a92924fe68c0555921209f1d342990cd1539e9138e69502"
+dependencies = [
+ "specta",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3074,6 +3168,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serialize-to-javascript",
+ "specta",
  "swift-rs",
  "tauri-build",
  "tauri-macros",
@@ -3204,6 +3299,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-specta"
+version = "2.0.0-rc.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee080f36d2ac17ce2f3a82fb53f02d664e8345457de51b56dad3c394dacc41a2"
+dependencies = [
+ "heck 0.5.0",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-serde",
+ "specta-typescript",
+ "specta-util",
+ "tauri",
+ "tauri-specta-macros",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "tauri-specta-macros"
+version = "2.0.0-rc.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a59dfdce06c98d8d211619bea5fdb39486d8a8c558e12b2d2ce255972320012"
+dependencies = [
+ "darling",
+ "heck 0.5.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "tauri-utils"
 version = "2.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3256,11 +3382,16 @@ dependencies = [
 name = "tempest-desktop"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "libc",
+ "regress",
  "serde",
  "serde_json",
+ "specta",
+ "specta-typescript",
  "tauri",
  "tauri-build",
+ "tauri-specta",
 ]
 
 [[package]]

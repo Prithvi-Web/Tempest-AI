@@ -3,15 +3,17 @@
 //! no TCP socket ever listens (CLAUDE.md §9b Boundary A). The webview reaches the sidecar
 //! only through typed Tauri commands (Boundary B).
 
+pub mod commands;
 pub mod framing;
+pub mod generated;
 pub mod supervisor;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
-use supervisor::{SpawnConfig, Supervisor, DEFAULT_CALL_TIMEOUT};
+use supervisor::{SpawnConfig, Supervisor};
 
 /// Bundled beside the app binary in production; staged by build-server.sh in dev.
 fn sidecar_program() -> Result<PathBuf, String> {
@@ -35,20 +37,29 @@ fn sidecar_program() -> Result<PathBuf, String> {
     ))
 }
 
-/// Boundary B stepping stone: one generic bridge command, replaced by per-operation typed
-/// commands + generated bindings in the tri-boundary contract step.
-#[tauri::command]
-fn sidecar_call(
-    state: tauri::State<'_, Arc<Supervisor>>,
-    method: String,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    state.call(&method, params, DEFAULT_CALL_TIMEOUT).map_err(|err| err.to_string())
+/// Boundary B command registry — the single list `tauri-specta` exports to
+/// `packages/desktop/src/generated/bindings.ts` and the app registers as its invoke handler.
+pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::<tauri::Wry>::new()
+        .commands(tauri_specta::collect_commands![
+            commands::get_health,
+            commands::list_runs,
+            commands::get_run,
+            commands::list_run_events,
+            commands::get_target,
+            commands::get_divergence,
+            commands::get_divergence_repro,
+            commands::start_local_prove,
+        ])
+        .events(tauri_specta::collect_events![commands::SidecarStateEvent])
 }
 
 pub fn run() {
+    let specta = specta_builder();
     tauri::Builder::default()
-        .setup(|app| {
+        .invoke_handler(specta.invoke_handler())
+        .setup(move |app| {
+            specta.mount_events(app);
             let data_dir = app.path().app_data_dir().expect("app data dir must resolve");
             std::fs::create_dir_all(&data_dir)?;
             let program = sidecar_program().map_err(std::io::Error::other)?;
@@ -62,7 +73,8 @@ pub fn run() {
             });
             let handle = app.handle().clone();
             supervisor.set_listener(Arc::new(move |state: &str| {
-                let _ = handle.emit("sidecar-state", state.to_string());
+                use tauri_specta::Event;
+                let _ = commands::SidecarStateEvent { state: state.to_string() }.emit(&handle);
             }));
             app.manage(Arc::clone(&supervisor));
             // Health-wait happens off the main thread — the window appears immediately and the
@@ -80,7 +92,6 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![sidecar_call])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
