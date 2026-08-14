@@ -24,6 +24,12 @@ from tempest.execute.interpreter import find_worker_python
 from tempest.execute.sandbox import Sandbox
 from tempest.model import EffectEntry, InputOutcome, Observation, RaisedInfo, Timing
 
+# One-time cost of bringing a worker up (process spawn + interpreter boot + target import).
+# It is NOT per-input latency, so the first result after a spawn gets this on top of the
+# per-input budget. Without it a cold or loaded machine mismarks a perfectly fast first input
+# as HUNG — a wrong `DivergenceClass.HANG` verdict, not merely a slow run.
+_STARTUP_GRACE_S = 20.0
+
 
 @dataclass(frozen=True)
 class DeterminismJob:
@@ -201,8 +207,10 @@ def run_batch(
             cursor = 0  # position in `pending` we expect a result for next
             while cursor < len(pending):
                 expected = pending[cursor]
+                # Only the first result carries the worker's one-time startup cost.
+                budget = per_input_timeout + (_STARTUP_GRACE_S if cursor == 0 else 0.0)
                 try:
-                    raw = lines.get(timeout=per_input_timeout)
+                    raw = lines.get(timeout=budget)
                 except queue.Empty:
                     _kill(proc)
                     results[expected] = _hung_observation(per_input_timeout)
@@ -300,6 +308,7 @@ class PersistentWorker:
         respawns = 0
 
         while pending:
+            spawned_now = self._proc is None or self._proc.poll() is not None
             self._ensure()
             proc, lines = self._proc, self._lines
             assert proc is not None and proc.stdin is not None and lines is not None
@@ -325,8 +334,13 @@ class PersistentWorker:
             ended_early = False
             while cursor < len(pending):
                 expected = pending[cursor]
+                # Startup grace applies only to the first result off a freshly spawned worker;
+                # a warm worker's batches pay no startup cost.
+                budget = per_input_timeout + (
+                    _STARTUP_GRACE_S if (spawned_now and cursor == 0) else 0.0
+                )
                 try:
-                    raw = lines.get(timeout=per_input_timeout)
+                    raw = lines.get(timeout=budget)
                 except queue.Empty:
                     self._retire()
                     results[expected] = _hung_observation(per_input_timeout)

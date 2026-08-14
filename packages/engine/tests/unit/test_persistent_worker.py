@@ -105,3 +105,25 @@ class TestPersistentWorker:
                 os.kill(proc.pid, signal.SIGCONT)
         assert proc.poll() is not None
         worker.close()  # second close is a no-op, not an error
+
+
+_SLOW_IMPORT_MODULE = """
+import time
+
+time.sleep(2.0)  # stands in for a cold interpreter + heavy target import on a loaded machine
+
+
+def echo(x: int) -> int:
+    return x * 2
+"""
+
+
+def test_slow_worker_startup_is_not_mistaken_for_a_hang(tmp_path: Path) -> None:
+    """Regression: the per-input timeout must NOT have to cover one-time worker startup.
+    A module that takes 2 s to import, with a 1 s per-input budget, still returns COMPLETED —
+    otherwise a cold or loaded machine invents a HANG divergence out of a healthy fast input."""
+    (tmp_path / "m.py").write_text(_SLOW_IMPORT_MODULE)
+    with PersistentWorker(tmp_path, "m", "echo", SANDBOX) as worker:
+        (result,) = worker.run([("(21,)", "{}")], per_input_timeout=1.0)
+    assert result.outcome is InputOutcome.COMPLETED
+    assert result.return_canon == 42
