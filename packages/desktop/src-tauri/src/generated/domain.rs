@@ -207,6 +207,80 @@ impl BodyImportRunBundle {
         Default::default()
     }
 }
+#[doc = "`BundlePresenceRequest`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"BundlePresenceRequest\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"digests\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"digests\": {"]
+#[doc = "      \"title\": \"Digests\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      },"]
+#[doc = "      \"maxItems\": 1000"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct BundlePresenceRequest {
+    pub digests: ::std::vec::Vec<::std::string::String>,
+}
+impl BundlePresenceRequest {
+    pub fn builder() -> builder::BundlePresenceRequest {
+        Default::default()
+    }
+}
+#[doc = "`BundlePresenceResponse`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"BundlePresenceResponse\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"missing\","]
+#[doc = "    \"present\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"missing\": {"]
+#[doc = "      \"title\": \"Missing\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"present\": {"]
+#[doc = "      \"title\": \"Present\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct BundlePresenceResponse {
+    pub missing: ::std::vec::Vec<::std::string::String>,
+    pub present: ::std::vec::Vec<::std::string::String>,
+}
+impl BundlePresenceResponse {
+    pub fn builder() -> builder::BundlePresenceResponse {
+        Default::default()
+    }
+}
 #[doc = "202 for cancelRun: children are already signalled; the run lands in CANCELLED."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -2009,6 +2083,81 @@ impl SearchResults {
         Default::default()
     }
 }
+#[doc = "`ServerUrl`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"Server Url\","]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"maxLength\": 2000,"]
+#[doc = "  \"minLength\": 1"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, specta :: Type,
+)]
+#[serde(transparent)]
+pub struct ServerUrl(::std::string::String);
+impl ::std::ops::Deref for ServerUrl {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<ServerUrl> for ::std::string::String {
+    fn from(value: ServerUrl) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for ServerUrl {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for ServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for ServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for ServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for ServerUrl {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 #[doc = "Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -2087,6 +2236,109 @@ impl ::std::convert::TryFrom<::std::string::String> for Severity {
         value: ::std::string::String,
     ) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+#[doc = "`SyncPushRequest`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SyncPushRequest\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"server_url\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"server_url\": {"]
+#[doc = "      \"title\": \"Server Url\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"maxLength\": 2000,"]
+#[doc = "      \"minLength\": 1"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SyncPushRequest {
+    pub server_url: ServerUrl,
+}
+impl SyncPushRequest {
+    pub fn builder() -> builder::SyncPushRequest {
+        Default::default()
+    }
+}
+#[doc = "`SyncReport`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SyncReport\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"candidates\","]
+#[doc = "    \"errors\","]
+#[doc = "    \"failed\","]
+#[doc = "    \"pushed\","]
+#[doc = "    \"remaining\","]
+#[doc = "    \"skipped\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"candidates\": {"]
+#[doc = "      \"title\": \"Candidates\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"errors\": {"]
+#[doc = "      \"title\": \"Errors\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"failed\": {"]
+#[doc = "      \"title\": \"Failed\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"pushed\": {"]
+#[doc = "      \"title\": \"Pushed\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"remaining\": {"]
+#[doc = "      \"title\": \"Remaining\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"skipped\": {"]
+#[doc = "      \"title\": \"Skipped\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SyncReport {
+    pub candidates: i32,
+    pub errors: ::std::vec::Vec<::std::string::String>,
+    pub failed: i32,
+    pub pushed: i32,
+    pub remaining: i32,
+    pub skipped: i32,
+}
+impl SyncReport {
+    pub fn builder() -> builder::SyncReport {
+        Default::default()
     }
 }
 #[doc = "Stage-1 classification of a changed symbol."]
@@ -2559,6 +2811,103 @@ pub mod builder {
         fn from(value: super::BodyImportRunBundle) -> Self {
             Self {
                 file: Ok(value.file),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct BundlePresenceRequest {
+        digests:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+    }
+    impl ::std::default::Default for BundlePresenceRequest {
+        fn default() -> Self {
+            Self {
+                digests: Err("no value supplied for digests".to_string()),
+            }
+        }
+    }
+    impl BundlePresenceRequest {
+        pub fn digests<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.digests = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for digests: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<BundlePresenceRequest> for super::BundlePresenceRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: BundlePresenceRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                digests: value.digests?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::BundlePresenceRequest> for BundlePresenceRequest {
+        fn from(value: super::BundlePresenceRequest) -> Self {
+            Self {
+                digests: Ok(value.digests),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct BundlePresenceResponse {
+        missing:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        present:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+    }
+    impl ::std::default::Default for BundlePresenceResponse {
+        fn default() -> Self {
+            Self {
+                missing: Err("no value supplied for missing".to_string()),
+                present: Err("no value supplied for present".to_string()),
+            }
+        }
+    }
+    impl BundlePresenceResponse {
+        pub fn missing<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.missing = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for missing: {e}"));
+            self
+        }
+        pub fn present<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.present = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for present: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<BundlePresenceResponse> for super::BundlePresenceResponse {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: BundlePresenceResponse,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                missing: value.missing?,
+                present: value.present?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::BundlePresenceResponse> for BundlePresenceResponse {
+        fn from(value: super::BundlePresenceResponse) -> Self {
+            Self {
+                missing: Ok(value.missing),
+                present: Ok(value.present),
             }
         }
     }
@@ -4199,6 +4548,157 @@ pub mod builder {
             Self {
                 hits: Ok(value.hits),
                 query: Ok(value.query),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SyncPushRequest {
+        server_url: ::std::result::Result<super::ServerUrl, ::std::string::String>,
+    }
+    impl ::std::default::Default for SyncPushRequest {
+        fn default() -> Self {
+            Self {
+                server_url: Err("no value supplied for server_url".to_string()),
+            }
+        }
+    }
+    impl SyncPushRequest {
+        pub fn server_url<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::ServerUrl>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.server_url = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for server_url: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SyncPushRequest> for super::SyncPushRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SyncPushRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                server_url: value.server_url?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SyncPushRequest> for SyncPushRequest {
+        fn from(value: super::SyncPushRequest) -> Self {
+            Self {
+                server_url: Ok(value.server_url),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SyncReport {
+        candidates: ::std::result::Result<i32, ::std::string::String>,
+        errors:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        failed: ::std::result::Result<i32, ::std::string::String>,
+        pushed: ::std::result::Result<i32, ::std::string::String>,
+        remaining: ::std::result::Result<i32, ::std::string::String>,
+        skipped: ::std::result::Result<i32, ::std::string::String>,
+    }
+    impl ::std::default::Default for SyncReport {
+        fn default() -> Self {
+            Self {
+                candidates: Err("no value supplied for candidates".to_string()),
+                errors: Err("no value supplied for errors".to_string()),
+                failed: Err("no value supplied for failed".to_string()),
+                pushed: Err("no value supplied for pushed".to_string()),
+                remaining: Err("no value supplied for remaining".to_string()),
+                skipped: Err("no value supplied for skipped".to_string()),
+            }
+        }
+    }
+    impl SyncReport {
+        pub fn candidates<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.candidates = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for candidates: {e}"));
+            self
+        }
+        pub fn errors<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.errors = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for errors: {e}"));
+            self
+        }
+        pub fn failed<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.failed = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for failed: {e}"));
+            self
+        }
+        pub fn pushed<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.pushed = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for pushed: {e}"));
+            self
+        }
+        pub fn remaining<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.remaining = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for remaining: {e}"));
+            self
+        }
+        pub fn skipped<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.skipped = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for skipped: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SyncReport> for super::SyncReport {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SyncReport,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                candidates: value.candidates?,
+                errors: value.errors?,
+                failed: value.failed?,
+                pushed: value.pushed?,
+                remaining: value.remaining?,
+                skipped: value.skipped?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SyncReport> for SyncReport {
+        fn from(value: super::SyncReport) -> Self {
+            Self {
+                candidates: Ok(value.candidates),
+                errors: Ok(value.errors),
+                failed: Ok(value.failed),
+                pushed: Ok(value.pushed),
+                remaining: Ok(value.remaining),
+                skipped: Ok(value.skipped),
             }
         }
     }

@@ -14,6 +14,47 @@
       "title": "Body_importRunBundle",
       "type": "object"
     },
+    "BundlePresenceRequest": {
+      "properties": {
+        "digests": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "title": "Digests",
+          "type": "array"
+        }
+      },
+      "required": [
+        "digests"
+      ],
+      "title": "BundlePresenceRequest",
+      "type": "object"
+    },
+    "BundlePresenceResponse": {
+      "properties": {
+        "missing": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing",
+          "type": "array"
+        },
+        "present": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Present",
+          "type": "array"
+        }
+      },
+      "required": [
+        "present",
+        "missing"
+      ],
+      "title": "BundlePresenceResponse",
+      "type": "object"
+    },
     "CancelAccepted": {
       "description": "202 for cancelRun: children are already signalled; the run lands in CANCELLED.",
       "properties": {
@@ -781,6 +822,72 @@
       ],
       "title": "Severity",
       "type": "string"
+    },
+    "SyncPushRequest": {
+      "properties": {
+        "server_url": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Server Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_url"
+      ],
+      "title": "SyncPushRequest",
+      "type": "object"
+    },
+    "SyncReport": {
+      "properties": {
+        "candidates": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Candidates",
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Errors",
+          "type": "array"
+        },
+        "failed": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "pushed": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Pushed",
+          "type": "integer"
+        },
+        "remaining": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Remaining",
+          "type": "integer"
+        },
+        "skipped": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Skipped",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "candidates",
+        "pushed",
+        "skipped",
+        "failed",
+        "remaining",
+        "errors"
+      ],
+      "title": "SyncReport",
+      "type": "object"
     },
     "TargetClassification": {
       "description": "Stage-1 classification of a changed symbol.",

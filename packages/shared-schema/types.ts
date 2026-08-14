@@ -4,6 +4,27 @@
  */
 
 export interface paths {
+    "/v1/bundles/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Bundle Presence
+         * @description Which of these content digests this server's store already holds — the delta-only
+         *     primitive: a pushing peer sends only what is missing.
+         */
+        post: operations["checkBundlePresence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/divergences/{divergence_id}": {
         parameters: {
             query?: never;
@@ -250,6 +271,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sync/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Push
+         * @description Push every local bundle the server lacks. Never raises on an unreachable server —
+         *     the report says what remains queued (the store is the durable queue).
+         */
+        post: operations["syncPush"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/targets/{target_id}": {
         parameters: {
             query?: never;
@@ -280,6 +322,18 @@ export interface components {
         Body_uploadRunBundle: {
             /** File */
             file: string;
+        };
+        /** BundlePresenceRequest */
+        BundlePresenceRequest: {
+            /** Digests */
+            digests: string[];
+        };
+        /** BundlePresenceResponse */
+        BundlePresenceResponse: {
+            /** Missing */
+            missing: string[];
+            /** Present */
+            present: string[];
         };
         /**
          * CancelAccepted
@@ -545,6 +599,26 @@ export interface components {
          * @enum {string}
          */
         Severity: "LOW" | "NORMAL" | "HEADLINE";
+        /** SyncPushRequest */
+        SyncPushRequest: {
+            /** Server Url */
+            server_url: string;
+        };
+        /** SyncReport */
+        SyncReport: {
+            /** Candidates */
+            candidates: number;
+            /** Errors */
+            errors: string[];
+            /** Failed */
+            failed: number;
+            /** Pushed */
+            pushed: number;
+            /** Remaining */
+            remaining: number;
+            /** Skipped */
+            skipped: number;
+        };
         /**
          * TargetClassification
          * @description Stage-1 classification of a changed symbol.
@@ -618,6 +692,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    checkBundlePresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BundlePresenceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BundlePresenceResponse"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     getDivergence: {
         parameters: {
             query?: never;
@@ -1172,6 +1279,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchResults"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    syncPush: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SyncPushRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncReport"];
                 };
             };
             /** @description Unprocessable Entity */

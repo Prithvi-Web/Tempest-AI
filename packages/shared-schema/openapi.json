@@ -29,6 +29,47 @@
         "title": "Body_uploadRunBundle",
         "type": "object"
       },
+      "BundlePresenceRequest": {
+        "properties": {
+          "digests": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Digests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "digests"
+        ],
+        "title": "BundlePresenceRequest",
+        "type": "object"
+      },
+      "BundlePresenceResponse": {
+        "properties": {
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "present": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Present",
+            "type": "array"
+          }
+        },
+        "required": [
+          "present",
+          "missing"
+        ],
+        "title": "BundlePresenceResponse",
+        "type": "object"
+      },
       "CancelAccepted": {
         "description": "202 for cancelRun: children are already signalled; the run lands in CANCELLED.",
         "properties": {
@@ -758,6 +799,62 @@
         "title": "Severity",
         "type": "string"
       },
+      "SyncPushRequest": {
+        "properties": {
+          "server_url": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Server Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_url"
+        ],
+        "title": "SyncPushRequest",
+        "type": "object"
+      },
+      "SyncReport": {
+        "properties": {
+          "candidates": {
+            "title": "Candidates",
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "pushed": {
+            "title": "Pushed",
+            "type": "integer"
+          },
+          "remaining": {
+            "title": "Remaining",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "candidates",
+          "pushed",
+          "skipped",
+          "failed",
+          "remaining",
+          "errors"
+        ],
+        "title": "SyncReport",
+        "type": "object"
+      },
       "TargetClassification": {
         "description": "Stage-1 classification of a changed symbol.",
         "enum": [
@@ -955,6 +1052,48 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/bundles/presence": {
+      "post": {
+        "description": "Which of these content digests this server's store already holds \u2014 the delta-only\nprimitive: a pushing peer sends only what is missing.",
+        "operationId": "checkBundlePresence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BundlePresenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BundlePresenceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Check Bundle Presence",
+        "tags": [
+          "sync"
+        ]
+      }
+    },
     "/v1/divergences/{divergence_id}": {
       "get": {
         "operationId": "getDivergence",
@@ -1785,6 +1924,48 @@
         "summary": "Search Divergences",
         "tags": [
           "search"
+        ]
+      }
+    },
+    "/v1/sync/push": {
+      "post": {
+        "description": "Push every local bundle the server lacks. Never raises on an unreachable server \u2014\nthe report says what remains queued (the store is the durable queue).",
+        "operationId": "syncPush",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncPushRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Sync Push",
+        "tags": [
+          "sync"
         ]
       }
     },
