@@ -13,7 +13,15 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
       - run: uv sync --all-packages
+      # Without node deps the six ts-sidecar bridge tests silently skip and ts_sidecar.py
+      # coverage collapses (23% on Linux vs ~full locally) — the 84.23%-vs-85% CI failure.
+      # The python suite is only complete with the sidecar installable.
+      - run: pnpm install --frozen-lockfile
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run mypy --strict packages/engine/src packages/api/src
