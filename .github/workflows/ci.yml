@@ -25,6 +25,7 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run mypy --strict packages/engine/src packages/api/src
+      - run: uv run python -m tempest.dev.redaction_check --planted-secrets
       - name: pytest
         run: |
           set -o pipefail

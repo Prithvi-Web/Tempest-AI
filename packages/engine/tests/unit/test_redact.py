@@ -56,6 +56,13 @@ class TestPlantedSecretsDoNotSurvive:
         redacted = redact_text("cloning acme-payments-service failed", _context())
         assert "acme-payments-service" not in redacted
 
+    def test_username_is_removed_even_outside_home_paths(self) -> None:
+        # Usernames leak through temp paths too (/var/folders/…/pytest-of-<user>/…).
+        text = "scratch at /private/var/folders/7x/y/T/pytest-of-prithvivinay/case0/data"
+        redacted = redact_text(text, _context())
+        assert "prithvivinay" not in redacted
+        assert "case0/data" in redacted, "the rest of the path survives"
+
     def test_emails_are_removed(self) -> None:
         redacted = redact_text("reported by vinay.gopinath@gmail.com today", _context())
         assert "vinay.gopinath@gmail.com" not in redacted

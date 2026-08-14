@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 
 import tempest
+from tempest.cli import diagnose as diagnose_cmd
 from tempest.cli import doctor as doctor_cmd
 from tempest.cli.logs import logs_app
 from tempest.crashlog import install_crash_capture
@@ -16,6 +17,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 doctor_cmd.register(app)
+diagnose_cmd.register(app)
 app.add_typer(logs_app, name="logs")
 
 

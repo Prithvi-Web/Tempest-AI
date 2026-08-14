@@ -54,6 +54,11 @@ def redact_text(text: str, context: RedactionContext) -> str:
     if context.home_dir:
         home_path = re.compile(re.escape(context.home_dir.rstrip("/")) + r"[^\s'\"]*")
         out = home_path.sub(lambda m: "[PATH]/" + m.group(0).rstrip("/").rsplit("/", 1)[-1], out)
+        # The bare username leaks through paths OUTSIDE home too (temp dirs, /var/folders):
+        # scrub it wherever it appears. Privacy outranks fidelity for a common-word username.
+        username = context.home_dir.rstrip("/").rsplit("/", 1)[-1]
+        if username:
+            out = re.sub(rf"(?<!\w){re.escape(username)}(?!\w)", "[USER]", out)
     return out
 
 

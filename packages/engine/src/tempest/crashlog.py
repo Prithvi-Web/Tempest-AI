@@ -26,9 +26,7 @@ def capture_crash(exc: BaseException) -> Path | None:
     """Write one scrubbed crash record; returns its path, or None if even that failed —
     a broken disk must never turn one crash into two."""
     try:
-        context = RedactionContext(
-            env_secret_values=secret_env_values(), home_dir=str(Path.home())
-        )
+        context = RedactionContext(env_secret_values=secret_env_values(), home_dir=str(Path.home()))
         raw_tb = "".join(traceback.format_exception(exc))
         record = {
             "tempest_version": tempest.__version__,
@@ -49,9 +47,7 @@ def install_crash_capture() -> None:
     the CLI and the sidecar entrypoints so every surface crash leaves a scrubbed record."""
     previous = sys.excepthook
 
-    def _hook(
-        exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None
-    ) -> None:
+    def _hook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:
         capture_crash(exc)
         previous(exc_type, exc, tb)
 

@@ -61,8 +61,8 @@ def _data_dir_writable(data_dir: Path) -> bool:
         return False
 
 
-def run_doctor(json_output: bool) -> int:
-    console = Console()
+def collect_payload() -> dict[str, Any]:
+    """The full health report as data — shared by `doctor` and the diagnostic bundle."""
     selection = select_sandbox(
         docker_binary=os.environ.get("TEMPEST_DOCKER", "docker"),
         allow_seatbelt=os.environ.get("TEMPEST_NO_SEATBELT") != "1",
@@ -77,11 +77,8 @@ def run_doctor(json_output: bool) -> int:
         "data_dir_writable": _data_dir_writable(data_dir),
         "disk_headroom_1gb": disk_free_gb >= 1.0,
     }
-    pause = power_pause_reason()
-    ok = all(checks.values())
-
-    payload: dict[str, Any] = {
-        "ok": ok,
+    return {
+        "ok": all(checks.values()),
         "tempest": tempest.__version__,
         "python": platform.python_version(),
         "platform": f"{platform.system()} {platform.machine()}",
@@ -94,21 +91,33 @@ def run_doctor(json_output: bool) -> int:
         },
         "data_dir": str(data_dir),
         "disk_free_gb": round(disk_free_gb, 1),
-        "power_pause": pause,
+        "power_pause": power_pause_reason(),
         "checks": checks,
     }
+
+
+def run_doctor(json_output: bool) -> int:
+    console = Console()
+    payload = collect_payload()
+    ok: bool = payload["ok"]
+    checks = payload["checks"]
+    pause = payload["power_pause"]
+    data_dir, disk_free_gb = payload["data_dir"], payload["disk_free_gb"]
+    selection_view: dict[str, Any] = payload["sandbox"]
+    git = payload["git"]
     if json_output:
         console.print_json(jsonlib.dumps(payload))
         return 0 if ok else 1
 
     console.print(f"tempest {tempest.__version__} · python {payload['python']}")
     console.print(f"platform: {payload['platform']} · git: {git or 'MISSING'}")
-    if selection.sandbox is not None:
+    if checks["sandbox_available"]:
         console.print(
-            f"sandbox: {selection.tier} ({selection.kind}, assurance {selection.assurance})"
+            f"sandbox: {selection_view['tier']} ({selection_view['kind']}, "
+            f"assurance {selection_view['assurance']})"
         )
     else:
-        console.print(f"sandbox: NONE — {selection.reason}")
+        console.print(f"sandbox: NONE — {selection_view['reason']}")
     console.print(f"data dir: {data_dir} · disk free: {disk_free_gb:.1f} GB")
     if pause is not None:
         console.print(f"power: would pause — {pause}")

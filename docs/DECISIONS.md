@@ -465,3 +465,33 @@ VARCHAR — alembic `0004` widens `runs.status` (batch mode). For the LOCAL stor
 width-only revisions are stamp-only forward steps: SQLite type affinity ignores declared
 widths, and the forward-equivalence test compares width-insensitively. The alembic-vs-models
 parity gate remains byte-strict — every future enum growth must ship its widening migration.
+
+## ADR-0020 — Phase 17 observability: redaction-first, local-only, opt-in (L9/L10 preserved)
+
+**Context.** Phase 17 asks for crash reporting, telemetry, diagnostics, logging, and a health
+check — every one an outbound-candidate surface, in a product whose enterprise claim is "source
+never leaves the machine, provably" (L9) with a CI-tested zero-egress bar (L10).
+
+**Decision.** Redaction-first and local-only:
+1. `tempest.redact` is the single scrubbing engine (key blocks, secret env values, credential
+   shapes, emails, repo names, home paths → basename, the bare username anywhere — temp paths
+   leak it too — and traceback source echoes + frame symbols). Idempotent by marker design.
+   Proven adversarially: `tempest.dev.redaction_check --planted-secrets` (in `make verify` +
+   CI) and the unit suites plant real-shaped secrets — zero may survive (failure-mode #4).
+2. Crash records are scrubbed AT WRITE TIME (`tempest.crashlog`; excepthook in CLI + sidecar):
+   the raw traceback never touches disk, so no downstream path can leak what was never stored.
+3. Telemetry (`tempest.telemetry`) is counters-only by schema (runs, verdict/tier/UNPROVEN
+   distributions, duration total), strictly opt-in (`TEMPEST_TELEMETRY=1`, default OFF).
+4. `tempest diagnose` packages health report + logs + crashes + telemetry into a zip whose
+   every byte re-passes the redactor; the manifest is printed; the command transmits NOTHING.
+5. **No network transmission exists in Phase 17 at all** — Sentry-style upload would break the
+   L10 zero-egress proof in local mode. Transmission arrives only via the Phase 13 opt-in
+   self-hosted sync path with redaction at that boundary. `docs/PRIVACY.md` documents the
+   surfaces; `docs/SUPPORT.md` is the runbook.
+6. Structured logging (`tempest.obslog`): JSON lines, one shared rotating handler per file
+   (two handlers rotating one file would race the rename chain), never-raise emit, viewer via
+   `tempest logs show`.
+
+**Consequences.** Support asks for the diagnostic bundle, never raw logs. The scrubber grows
+by adding a planted secret FIRST (test-first, adversarial). Doctor (`tempest doctor`) is the
+support entry point with an honest exit code (no sandbox = FAIL).
