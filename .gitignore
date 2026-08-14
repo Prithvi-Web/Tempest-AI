@@ -38,3 +38,4 @@ packages/desktop/src-tauri/binaries/
 packages/desktop/src-tauri/target/
 .gstack/
 bench/bench.json
+bench/soak.json
