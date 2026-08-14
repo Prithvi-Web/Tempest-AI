@@ -23,17 +23,21 @@ from sqlalchemy.pool import ConnectionPoolEntry
 
 from tempest_api.db.base import Base
 
-REVISION_CHAIN: tuple[str, ...] = ("0001", "0002", "0003")
+REVISION_CHAIN: tuple[str, ...] = ("0001", "0002", "0003", "0004")
 HEAD_REVISION: str = REVISION_CHAIN[-1]
 
 # Forward steps, keyed by from-revision; each mirrors the alembic script that takes the schema
 # one revision further. SQLite ALTERs only — anything heavier gets a new strategy and an ADR.
+# A step may be EMPTY when the revision only changes declared VARCHAR widths (0004): SQLite's
+# type affinity ignores them, so the stamp advances with nothing to run; the forward-migration
+# equivalence test compares types width-insensitively for exactly this reason.
 _FORWARD_STEPS: dict[str, tuple[str, ...]] = {
     "0001": (
         "ALTER TABLE runs ADD COLUMN sandbox_tier TEXT",
         "ALTER TABLE runs ADD COLUMN sandbox_assurance TEXT",
     ),
     "0002": ("ALTER TABLE runs ADD COLUMN bundle_digest TEXT",),
+    "0003": (),
 }
 
 

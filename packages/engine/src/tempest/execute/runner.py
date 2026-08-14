@@ -20,6 +20,7 @@ import tempest.compare.canonical as _canonical_module
 import tempest.determinism._shims as _shims_module
 import tempest.execute._worker as _worker_module
 from tempest.envrepro.worktree import normalized_env
+from tempest.execute.cancel import current_scope
 from tempest.execute.interpreter import find_worker_python
 from tempest.execute.sandbox import Sandbox
 from tempest.model import EffectEntry, InputOutcome, Observation, RaisedInfo, Timing
@@ -95,18 +96,26 @@ def _spawn(
     stdin_pipe: bool = False,
 ) -> subprocess.Popen[bytes]:
     job_path = scratch / "job.json"
+    scope = current_scope()
+    if scope is not None:
+        # L11: a cancelled prove must never breed a new child — worker respawn paths unwind
+        # with ProveCancelled instead of resurrecting what cancel() just killed.
+        scope.raise_if_cancelled()
     # Backends that execute elsewhere (DockerSandbox) rewrite host paths inside the job to
     # their container mount points; ProcessSandbox is the identity.
     job_path.write_text(
         json.dumps(sandbox.translate_job(job, workdir=root, scratch=scratch)), encoding="utf-8"
     )
-    return sandbox.popen(
+    proc = sandbox.popen(
         [python, "-s", "-B", str(scratch / "worker.py"), str(job_path)],
         cwd=root,
         env=normalized_env(scratch),
         scratch=scratch,
         stdin_pipe=stdin_pipe,
     )
+    if scope is not None:
+        scope.register(proc)  # registering after a racing cancel() kills proc immediately
+    return proc
 
 
 def _kill(proc: subprocess.Popen[bytes]) -> None:
@@ -115,6 +124,9 @@ def _kill(proc: subprocess.Popen[bytes]) -> None:
     except (ProcessLookupError, PermissionError):
         proc.kill()
     proc.wait()
+    scope = current_scope()
+    if scope is not None:
+        scope.unregister(proc)
 
 
 def _read_lines(proc: subprocess.Popen[bytes], out: "queue.Queue[bytes | None]") -> None:

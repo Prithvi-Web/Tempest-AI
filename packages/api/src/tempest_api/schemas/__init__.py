@@ -12,10 +12,11 @@ from tempest_api.schemas.events import RunEventOut
 from tempest_api.schemas.health import HealthResponse
 from tempest_api.schemas.local import LocalProveRequest
 from tempest_api.schemas.pagination import Page, decode_cursor, encode_cursor
-from tempest_api.schemas.runs import RunCreate, RunCreated, RunDetail, RunSummary
+from tempest_api.schemas.runs import CancelAccepted, RunCreate, RunCreated, RunDetail, RunSummary
 from tempest_api.schemas.targets import TargetDetail, TargetSummary
 
 __all__ = [
+    "CancelAccepted",
     "DivergenceDetail",
     "DivergenceSummary",
     "ErrorBody",

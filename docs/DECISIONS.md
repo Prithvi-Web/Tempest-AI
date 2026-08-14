@@ -439,3 +439,29 @@ idempotently by sha256 — re-importing returns the run that already holds those
 carry yet — the HTTP/JSON-RPC surface is the contract for now; UI buttons ride the Phase 9
 desktop-E2E straggler. Binary export over the stdio bridge would need a base64 wrapper; not
 added until a consumer exists.
+
+## ADR-0019 — L11 mechanics: CancelScope + battery/thermal pause (Phase 11)
+
+**Context.** L11: every long operation is cancellable and the machine is never fought.
+
+**Decision.** (1) **Cancel**: one `CancelScope` per prove (`execute/cancel.py`). The single
+spawn choke point (`runner._spawn`) registers every child; `cancel()` — callable from any
+thread — SIGKILLs every registered process group instantly, and a cancelled scope refuses new
+spawns, so worker-respawn paths raise `ProveCancelled` instead of resurrecting children.
+Registering on an already-cancelled scope kills the late child, closing the race. The API is
+`POST /v1/runs/{id}/cancel` → 202; the prove thread unwinds into the honest terminal
+`RunStatus.CANCELLED` (no verdict, L2) with a `local.cancelled` ledger event; 409
+`RUN_NOT_ACTIVE` when nothing is running. The active-prove registry is keyed by
+`(database_url, run_id)` — run ids are only unique within one store. (2) **Pause**:
+`execute/powerstate.py` probes power state (macOS: pmset battery + thermal CPU limit; probe
+failure = don't pause; Linux/Windows probes ride the Phase 10 CI legs) with precedence
+`TEMPEST_FORCE_POWER_PAUSE` (tests) > `TEMPEST_NO_POWER_PAUSE` (user opt-out; set by repo
+gates so verification never hangs on an unplugged laptop) > real probes. `run_prove`
+checkpoints between targets: cancelled → unwind; paused → hold, report the reason once into
+the run ledger (the UI shows why the run is holding), cancel unblocks a pause immediately.
+
+**Consequence discovered by the parity gate.** Growing `RunStatus` widened its computed
+VARCHAR — alembic `0004` widens `runs.status` (batch mode). For the LOCAL store such
+width-only revisions are stamp-only forward steps: SQLite type affinity ignores declared
+widths, and the forward-equivalence test compares width-insensitively. The alembic-vs-models
+parity gate remains byte-strict — every future enum growth must ship its widening migration.

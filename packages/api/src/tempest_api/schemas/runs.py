@@ -22,6 +22,13 @@ class RunCreated(BaseModel):
     run_id: int
 
 
+class CancelAccepted(BaseModel):
+    """202 for cancelRun: children are already signalled; the run lands in CANCELLED."""
+
+    run_id: int
+    cancelling: bool
+
+
 class RunSummary(BaseModel):
     id: int
     repo: str

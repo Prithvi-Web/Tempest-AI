@@ -19,6 +19,7 @@ from tempest_api.errors import ApiError, error_responses
 from tempest_api.ingest import ingest_zip_bytes, parse_bundle_zip
 from tempest_api.ledger import append_run_event
 from tempest_api.schemas import (
+    CancelAccepted,
     ErrorCode,
     Page,
     RunCreate,
@@ -222,6 +223,31 @@ async def import_run_bundle(file: UploadFile, session: SessionDep) -> RunDetail:
     await ingest_zip_bytes(session, run, data)
     await session.commit()
     return serialize.run_detail(await _load_run_with_children(session, run.id))
+
+
+@router.post(
+    "/v1/runs/{run_id}/cancel",
+    status_code=202,
+    operation_id="cancelRun",
+    responses=error_responses(404, 409, 422),
+)
+async def cancel_run(run_id: int, session: SessionDep) -> CancelAccepted:
+    """Stop the active prove for this run (L11): worker process groups are SIGKILLed before
+    this returns and the prove thread unwinds into the CANCELLED state — no verdict claimed."""
+    from tempest_api import localprove
+
+    run = await session.get(Run, run_id)
+    if run is None:
+        raise ApiError(404, ErrorCode.NOT_FOUND, f"run {run_id} does not exist", {"run_id": run_id})
+    if not localprove.request_cancel(run_id):
+        raise ApiError(
+            409,
+            ErrorCode.RUN_NOT_ACTIVE,
+            f"run {run_id} has no prove running on this machine (status {run.status}) — "
+            "only an in-flight local prove can be cancelled",
+            {"run_id": run_id, "status": run.status},
+        )
+    return CancelAccepted(run_id=run_id, cancelling=True)
 
 
 @router.get(

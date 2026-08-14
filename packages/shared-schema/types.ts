@@ -168,6 +168,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/runs/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Run
+         * @description Stop the active prove for this run (L11): worker process groups are SIGKILLed before
+         *     this returns and the prove thread unwinds into the CANCELLED state — no verdict claimed.
+         */
+        post: operations["cancelRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs/{run_id}/events": {
         parameters: {
             query?: never;
@@ -241,6 +262,16 @@ export interface components {
             file: string;
         };
         /**
+         * CancelAccepted
+         * @description 202 for cancelRun: children are already signalled; the run lands in CANCELLED.
+         */
+        CancelAccepted: {
+            /** Cancelling */
+            cancelling: boolean;
+            /** Run Id */
+            run_id: number;
+        };
+        /**
          * DivergenceClass
          * @description Taxonomy of observable behavior differences (master spec stage 7).
          * @enum {string}
@@ -306,7 +337,7 @@ export interface components {
          *     Renderers switch on these; the strings are frozen.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" | "RUN_NOT_PENDING" | "BUNDLE_INVALID" | "BUNDLE_SCHEMA_UNSUPPORTED" | "BUNDLE_MISMATCH" | "REPO_NOT_FOUND" | "REF_NOT_FOUND" | "INTERNAL";
+        ErrorCode: "VALIDATION_ERROR" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" | "RUN_NOT_PENDING" | "BUNDLE_INVALID" | "BUNDLE_SCHEMA_UNSUPPORTED" | "BUNDLE_MISMATCH" | "REPO_NOT_FOUND" | "REF_NOT_FOUND" | "RUN_NOT_ACTIVE" | "INTERNAL";
         /** ErrorEnvelope */
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
@@ -425,11 +456,12 @@ export interface components {
         };
         /**
          * RunStatus
-         * @description Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);
+         * @description Run lifecycle. PENDING (created) → COMPLETE (bundle ingested), or CANCELLED (the user
+         *     stopped the prove — honest terminal state, no verdict ever claimed, L2/L11); further
          *     orchestration states are added — deliberately breaking the generated TS — when arq lands.
          * @enum {string}
          */
-        RunStatus: "PENDING" | "COMPLETE";
+        RunStatus: "PENDING" | "COMPLETE" | "CANCELLED";
         /** RunSummary */
         RunSummary: {
             /** Base Sha */
@@ -938,6 +970,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    cancelRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelAccepted"];
                 };
             };
             /** @description Not Found */

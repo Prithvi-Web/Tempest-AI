@@ -1,6 +1,7 @@
 """The `tempest prove` pipeline: stages 1→9 wired end to end for one base..head pair."""
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,12 +18,14 @@ from tempest.bundle.bundle import (
 from tempest.compare.compare import CompareConfig, Diverged, compare
 from tempest.config import is_ignored
 from tempest.envrepro.worktree import MaterializedEnv, materialize
+from tempest.execute.cancel import CancelScope, cancel_scope
 from tempest.execute.dual import (
     FoundDivergence,
     TargetOutcome,
     prove_impure_target,
     prove_target,
 )
+from tempest.execute.powerstate import wait_while_paused
 from tempest.execute.runner import PersistentWorker
 from tempest.execute.sandbox import ProcessSandbox, Sandbox, SandboxSelection, select_sandbox
 from tempest.generate.inputs import Budget
@@ -59,6 +62,10 @@ class ProveConfig:
     out: Path | None = None
     minimize_attempts: int = 60
     ignore_globs: tuple[str, ...] = ()
+    # L11: the scope a caller cancels from another thread (children die instantly, the prove
+    # unwinds with ProveCancelled), and where battery/thermal pause reports its reason.
+    cancel: CancelScope | None = None
+    on_pause: Callable[[str], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +109,20 @@ def _module_name(rel_path: str) -> str:
 
 
 def run_prove(cfg: ProveConfig) -> ProveResult:
+    if cfg.cancel is None:
+        return _run_prove(cfg)
+    with cancel_scope(cfg.cancel):  # every child runner._spawn breeds registers here
+        return _run_prove(cfg)
+
+
+def _checkpoint(cfg: ProveConfig) -> None:
+    """Between units of work (L11): unwind if cancelled, hold while on battery/thermal."""
+    if cfg.cancel is not None:
+        cfg.cancel.raise_if_cancelled()
+    wait_while_paused(cancel=cfg.cancel, notify=cfg.on_pause)
+
+
+def _run_prove(cfg: ProveConfig) -> ProveResult:
     repo = cfg.repo.resolve()
     cache = repo / ".tempest" / "cache"
     base_env = materialize(repo, cfg.base, cache)
@@ -133,6 +154,7 @@ def run_prove(cfg: ProveConfig) -> ProveResult:
         base_symbols = all_symbol_names((base_env.worktree / fd.path).read_text(encoding="utf-8"))
         module = _module_name(fd.path)
         for sym in enclosing_symbols(head_src, set(fd.changed_head_lines)):
+            _checkpoint(cfg)  # L11: cancellable + battery/thermal pause between targets
             if sym.symbol not in base_symbols:
                 continue  # head-only symbol: proven via its changed callers, not vs a void
             classified = classify_symbol(head_src, sym)

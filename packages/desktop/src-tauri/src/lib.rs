@@ -51,6 +51,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_divergence_repro,
             commands::start_local_prove,
             commands::search_divergences,
+            commands::cancel_run,
         ])
         .events(tauri_specta::collect_events![commands::SidecarStateEvent])
 }

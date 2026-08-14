@@ -1,6 +1,8 @@
 """The handwritten initial migration and the SQLAlchemy models must describe the same schema —
 otherwise dev (create_all on sqlite) and prod (alembic on Postgres) silently drift (ADR-0009)."""
 
+import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -108,6 +110,13 @@ def test_fresh_db_is_stamped_at_head_with_wal(
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
 
 
+def _widths_stripped(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """VARCHAR(8) ≡ VARCHAR(9) for the LOCAL store: SQLite type affinity ignores declared
+    widths, so width-only revisions (0004) are stamp-only forward steps. The alembic-vs-models
+    parity test above stays byte-strict — this relaxation applies to forward migration only."""
+    return json.loads(re.sub(r"VARCHAR\(\d+\)", "VARCHAR", json.dumps(snapshot)))
+
+
 def test_older_db_is_forward_migrated_to_head(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -120,7 +129,9 @@ def test_older_db_is_forward_migrated_to_head(
     reference = tmp_path / "reference.db"
     command.upgrade(_alembic_config(reference), "head")
     assert _stamp(old) == HEAD_REVISION
-    assert _schema_snapshot(old) == _schema_snapshot(reference)
+    assert _widths_stripped(_schema_snapshot(old)) == _widths_stripped(
+        _schema_snapshot(reference)
+    )
 
 
 def test_newer_db_is_refused_without_modification(

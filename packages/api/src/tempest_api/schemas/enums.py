@@ -6,11 +6,13 @@ from enum import StrEnum
 
 
 class RunStatus(StrEnum):
-    """Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);
+    """Run lifecycle. PENDING (created) → COMPLETE (bundle ingested), or CANCELLED (the user
+    stopped the prove — honest terminal state, no verdict ever claimed, L2/L11); further
     orchestration states are added — deliberately breaking the generated TS — when arq lands."""
 
     PENDING = "PENDING"
     COMPLETE = "COMPLETE"
+    CANCELLED = "CANCELLED"
 
 
 class ErrorCode(StrEnum):
@@ -26,4 +28,5 @@ class ErrorCode(StrEnum):
     BUNDLE_MISMATCH = "BUNDLE_MISMATCH"
     REPO_NOT_FOUND = "REPO_NOT_FOUND"
     REF_NOT_FOUND = "REF_NOT_FOUND"
+    RUN_NOT_ACTIVE = "RUN_NOT_ACTIVE"
     INTERNAL = "INTERNAL"

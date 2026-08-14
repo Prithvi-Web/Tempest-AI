@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import { useGetRun } from "../hooks";
+import { cancelRun, useGetRun } from "../hooks";
 
 import type { Route } from "../router";
 
@@ -60,6 +60,17 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
           <span className={`chip ${data.verdict}`}>{data.verdict}</span>
         ) : (
           <span className="chip neutral">{isPending ? "RUNNING…" : data.status}</span>
+        )}
+        {isPending && (
+          <button
+            onClick={() => {
+              void cancelRun(id).then(() =>
+                queryClient.invalidateQueries({ queryKey: ["getRun", id] }),
+              );
+            }}
+          >
+            CANCEL
+          </button>
         )}
       </div>
       <p className="dim">

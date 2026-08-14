@@ -14,6 +14,27 @@
       "title": "Body_importRunBundle",
       "type": "object"
     },
+    "CancelAccepted": {
+      "description": "202 for cancelRun: children are already signalled; the run lands in CANCELLED.",
+      "properties": {
+        "cancelling": {
+          "title": "Cancelling",
+          "type": "boolean"
+        },
+        "run_id": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Run Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "run_id",
+        "cancelling"
+      ],
+      "title": "CancelAccepted",
+      "type": "object"
+    },
     "DivergenceClass": {
       "description": "Taxonomy of observable behavior differences (master spec stage 7).",
       "enum": [
@@ -201,6 +222,7 @@
         "BUNDLE_MISMATCH",
         "REPO_NOT_FOUND",
         "REF_NOT_FOUND",
+        "RUN_NOT_ACTIVE",
         "INTERNAL"
       ],
       "title": "ErrorCode",
@@ -575,10 +597,11 @@
       "type": "object"
     },
     "RunStatus": {
-      "description": "Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);\norchestration states are added — deliberately breaking the generated TS — when arq lands.",
+      "description": "Run lifecycle. PENDING (created) → COMPLETE (bundle ingested), or CANCELLED (the user\nstopped the prove — honest terminal state, no verdict ever claimed, L2/L11); further\norchestration states are added — deliberately breaking the generated TS — when arq lands.",
       "enum": [
         "PENDING",
-        "COMPLETE"
+        "COMPLETE",
+        "CANCELLED"
       ],
       "title": "RunStatus",
       "type": "string"

@@ -9,8 +9,8 @@ use std::sync::Arc;
 use serde_json::{json, Map, Value};
 
 use crate::generated::domain::{
-    DivergenceDetail, HealthResponse, LocalProveRequest, PageRunSummary, RunCreated, RunDetail,
-    RunEventOut, SearchResults, TargetDetail, Verdict,
+    CancelAccepted, DivergenceDetail, HealthResponse, LocalProveRequest, PageRunSummary,
+    RunCreated, RunDetail, RunEventOut, SearchResults, TargetDetail, Verdict,
 };
 use crate::supervisor::{RpcError, Supervisor, DEFAULT_CALL_TIMEOUT};
 
@@ -137,6 +137,12 @@ pub fn start_local_prove(
     request: LocalProveRequest,
 ) -> CmdResult<RunCreated> {
     call_typed(&state, "startLocalProve", json!({"body": request}))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_run(state: tauri::State<'_, Arc<Supervisor>>, run_id: i32) -> CmdResult<CancelAccepted> {
+    call_typed(&state, "cancelRun", json!({"run_id": run_id}))
 }
 
 #[tauri::command]

@@ -89,6 +89,10 @@ export function startLocalProve(request: LocalProveRequest): Promise<RunCreated>
   return unwrap(commands.startLocalProve(request));
 }
 
+export function cancelRun(runId: number) {
+  return unwrap(commands.cancelRun(runId));
+}
+
 export function useSearchDivergences(q: string) {
   return useQuery({
     queryKey: ["searchDivergences", q],

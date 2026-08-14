@@ -6,6 +6,7 @@ file-backed database. Bundle builders mirror the engine's own test helpers
 exercised with the same shapes.
 """
 
+import os
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -14,6 +15,10 @@ from typing import Any
 
 import httpx
 import pytest
+
+# The battery/thermal pause (L11) must never stall the suite on an unplugged laptop; pause
+# tests force the condition explicitly via TEMPEST_FORCE_POWER_PAUSE, which outranks this.
+os.environ.setdefault("TEMPEST_NO_POWER_PAUSE", "1")
 from fastapi.testclient import TestClient
 
 from tempest.bundle.bundle import (

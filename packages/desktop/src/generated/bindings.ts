@@ -16,6 +16,7 @@ export const commands = {
 	getDivergenceRepro: (divergenceId: number) => typedError<ReproSource, SidecarFailure>(__TAURI_INVOKE("get_divergence_repro", { divergenceId })),
 	startLocalProve: (request: LocalProveRequest) => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_local_prove", { request })),
 	searchDivergences: (q: string, limit: number | null) => typedError<SearchResults, SidecarFailure>(__TAURI_INVOKE("search_divergences", { q, limit })),
+	cancelRun: (runId: number) => typedError<CancelAccepted, SidecarFailure>(__TAURI_INVOKE("cancel_run", { runId })),
 };
 
 /** Events */
@@ -40,6 +41,41 @@ export const events = {
  *  </details>
  */
 export type Base = string;
+
+/**
+ * 202 for cancelRun: children are already signalled; the run lands in CANCELLED.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "CancelAccepted",
+ *   "description": "202 for cancelRun: children are already signalled; the run lands in CANCELLED.",
+ *   "type": "object",
+ *   "required": [
+ *     "cancelling",
+ *     "run_id"
+ *   ],
+ *   "properties": {
+ *     "cancelling": {
+ *       "title": "Cancelling",
+ *       "type": "boolean"
+ *     },
+ *     "run_id": {
+ *       "title": "Run Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type CancelAccepted = {
+	cancelling: boolean,
+	run_id: number,
+};
 
 /**
  * Taxonomy of observable behavior differences (master spec stage 7).
@@ -738,7 +774,8 @@ export type RunEventOut = {
 };
 
 /**
- * Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);
+ * Run lifecycle. PENDING (created) → COMPLETE (bundle ingested), or CANCELLED (the user
+ * stopped the prove — honest terminal state, no verdict ever claimed, L2/L11); further
  * orchestration states are added — deliberately breaking the generated TS — when arq lands.
  * 
  *  <details><summary>JSON schema</summary>
@@ -746,17 +783,18 @@ export type RunEventOut = {
  *  ```json
  * {
  *   "title": "RunStatus",
- *   "description": "Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);\norchestration states are added — deliberately breaking the generated TS — when arq lands.",
+ *   "description": "Run lifecycle. PENDING (created) → COMPLETE (bundle ingested), or CANCELLED (the user\nstopped the prove — honest terminal state, no verdict ever claimed, L2/L11); further\norchestration states are added — deliberately breaking the generated TS — when arq lands.",
  *   "type": "string",
  *   "enum": [
  *     "PENDING",
- *     "COMPLETE"
+ *     "COMPLETE",
+ *     "CANCELLED"
  *   ]
  * }
  *  ```
  *  </details>
  */
-export type RunStatus = "PENDING" | "COMPLETE";
+export type RunStatus = "PENDING" | "COMPLETE" | "CANCELLED";
 
 /**
  * `RunSummary`

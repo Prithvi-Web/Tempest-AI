@@ -207,6 +207,44 @@ impl BodyImportRunBundle {
         Default::default()
     }
 }
+#[doc = "202 for cancelRun: children are already signalled; the run lands in CANCELLED."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"CancelAccepted\","]
+#[doc = "  \"description\": \"202 for cancelRun: children are already signalled; the run lands in CANCELLED.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"cancelling\","]
+#[doc = "    \"run_id\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"cancelling\": {"]
+#[doc = "      \"title\": \"Cancelling\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"run_id\": {"]
+#[doc = "      \"title\": \"Run Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct CancelAccepted {
+    pub cancelling: bool,
+    pub run_id: i32,
+}
+impl CancelAccepted {
+    pub fn builder() -> builder::CancelAccepted {
+        Default::default()
+    }
+}
 #[doc = "Taxonomy of observable behavior differences (master spec stage 7)."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -566,6 +604,7 @@ impl ErrorBody {
 #[doc = "    \"BUNDLE_MISMATCH\","]
 #[doc = "    \"REPO_NOT_FOUND\","]
 #[doc = "    \"REF_NOT_FOUND\","]
+#[doc = "    \"RUN_NOT_ACTIVE\","]
 #[doc = "    \"INTERNAL\""]
 #[doc = "  ]"]
 #[doc = "}"]
@@ -603,6 +642,8 @@ pub enum ErrorCode {
     RepoNotFound,
     #[serde(rename = "REF_NOT_FOUND")]
     RefNotFound,
+    #[serde(rename = "RUN_NOT_ACTIVE")]
+    RunNotActive,
     #[serde(rename = "INTERNAL")]
     Internal,
 }
@@ -618,6 +659,7 @@ impl ::std::fmt::Display for ErrorCode {
             Self::BundleMismatch => f.write_str("BUNDLE_MISMATCH"),
             Self::RepoNotFound => f.write_str("REPO_NOT_FOUND"),
             Self::RefNotFound => f.write_str("REF_NOT_FOUND"),
+            Self::RunNotActive => f.write_str("RUN_NOT_ACTIVE"),
             Self::Internal => f.write_str("INTERNAL"),
         }
     }
@@ -635,6 +677,7 @@ impl ::std::str::FromStr for ErrorCode {
             "BUNDLE_MISMATCH" => Ok(Self::BundleMismatch),
             "REPO_NOT_FOUND" => Ok(Self::RepoNotFound),
             "REF_NOT_FOUND" => Ok(Self::RefNotFound),
+            "RUN_NOT_ACTIVE" => Ok(Self::RunNotActive),
             "INTERNAL" => Ok(Self::Internal),
             _ => Err("invalid value".into()),
         }
@@ -1637,18 +1680,19 @@ impl RunEventOut {
         Default::default()
     }
 }
-#[doc = "Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);\norchestration states are added — deliberately breaking the generated TS — when arq lands."]
+#[doc = "Run lifecycle. PENDING (created) → COMPLETE (bundle ingested), or CANCELLED (the user\nstopped the prove — honest terminal state, no verdict ever claimed, L2/L11); further\norchestration states are added — deliberately breaking the generated TS — when arq lands."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
 #[doc = "  \"title\": \"RunStatus\","]
-#[doc = "  \"description\": \"Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);\\norchestration states are added — deliberately breaking the generated TS — when arq lands.\","]
+#[doc = "  \"description\": \"Run lifecycle. PENDING (created) → COMPLETE (bundle ingested), or CANCELLED (the user\\nstopped the prove — honest terminal state, no verdict ever claimed, L2/L11); further\\norchestration states are added — deliberately breaking the generated TS — when arq lands.\","]
 #[doc = "  \"type\": \"string\","]
 #[doc = "  \"enum\": ["]
 #[doc = "    \"PENDING\","]
-#[doc = "    \"COMPLETE\""]
+#[doc = "    \"COMPLETE\","]
+#[doc = "    \"CANCELLED\""]
 #[doc = "  ]"]
 #[doc = "}"]
 #[doc = r" ```"]
@@ -1671,12 +1715,15 @@ pub enum RunStatus {
     Pending,
     #[serde(rename = "COMPLETE")]
     Complete,
+    #[serde(rename = "CANCELLED")]
+    Cancelled,
 }
 impl ::std::fmt::Display for RunStatus {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
             Self::Pending => f.write_str("PENDING"),
             Self::Complete => f.write_str("COMPLETE"),
+            Self::Cancelled => f.write_str("CANCELLED"),
         }
     }
 }
@@ -1686,6 +1733,7 @@ impl ::std::str::FromStr for RunStatus {
         match value {
             "PENDING" => Ok(Self::Pending),
             "COMPLETE" => Ok(Self::Complete),
+            "CANCELLED" => Ok(Self::Cancelled),
             _ => Err("invalid value".into()),
         }
     }
@@ -2464,6 +2512,60 @@ pub mod builder {
         fn from(value: super::BodyImportRunBundle) -> Self {
             Self {
                 file: Ok(value.file),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct CancelAccepted {
+        cancelling: ::std::result::Result<bool, ::std::string::String>,
+        run_id: ::std::result::Result<i32, ::std::string::String>,
+    }
+    impl ::std::default::Default for CancelAccepted {
+        fn default() -> Self {
+            Self {
+                cancelling: Err("no value supplied for cancelling".to_string()),
+                run_id: Err("no value supplied for run_id".to_string()),
+            }
+        }
+    }
+    impl CancelAccepted {
+        pub fn cancelling<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.cancelling = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for cancelling: {e}"));
+            self
+        }
+        pub fn run_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.run_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for run_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<CancelAccepted> for super::CancelAccepted {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: CancelAccepted,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                cancelling: value.cancelling?,
+                run_id: value.run_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::CancelAccepted> for CancelAccepted {
+        fn from(value: super::CancelAccepted) -> Self {
+            Self {
+                cancelling: Ok(value.cancelling),
+                run_id: Ok(value.run_id),
             }
         }
     }

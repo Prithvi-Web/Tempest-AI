@@ -29,6 +29,25 @@
         "title": "Body_uploadRunBundle",
         "type": "object"
       },
+      "CancelAccepted": {
+        "description": "202 for cancelRun: children are already signalled; the run lands in CANCELLED.",
+        "properties": {
+          "cancelling": {
+            "title": "Cancelling",
+            "type": "boolean"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "cancelling"
+        ],
+        "title": "CancelAccepted",
+        "type": "object"
+      },
       "DivergenceClass": {
         "description": "Taxonomy of observable behavior differences (master spec stage 7).",
         "enum": [
@@ -206,6 +225,7 @@
           "BUNDLE_MISMATCH",
           "REPO_NOT_FOUND",
           "REF_NOT_FOUND",
+          "RUN_NOT_ACTIVE",
           "INTERNAL"
         ],
         "title": "ErrorCode",
@@ -565,10 +585,11 @@
         "type": "object"
       },
       "RunStatus": {
-        "description": "Run lifecycle. This phase reaches PENDING (created) and COMPLETE (bundle ingested);\norchestration states are added \u2014 deliberately breaking the generated TS \u2014 when arq lands.",
+        "description": "Run lifecycle. PENDING (created) \u2192 COMPLETE (bundle ingested), or CANCELLED (the user\nstopped the prove \u2014 honest terminal state, no verdict ever claimed, L2/L11); further\norchestration states are added \u2014 deliberately breaking the generated TS \u2014 when arq lands.",
         "enum": [
           "PENDING",
-          "COMPLETE"
+          "COMPLETE",
+          "CANCELLED"
         ],
         "title": "RunStatus",
         "type": "string"
@@ -1493,6 +1514,69 @@
           }
         },
         "summary": "Upload Run Bundle",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Stop the active prove for this run (L11): worker process groups are SIGKILLed before\nthis returns and the prove thread unwinds into the CANCELLED state \u2014 no verdict claimed.",
+        "operationId": "cancelRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelAccepted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Cancel Run",
         "tags": [
           "runs"
         ]
