@@ -6,7 +6,8 @@ blocking. Overturn any of these and the affected surface is small and isolated.
 **Q1. Which LLM provider/key powers Stage-3 adapter synthesis, given the CLI must also run fully
 offline?**
 → Default: deterministic type-driven synthesis always; Anthropic `claude-sonnet-5` used only when
-`ANTHROPIC_API_KEY` is present. (ADR-0006)
+the **end user** supplies their own `ANTHROPIC_API_KEY` (strict BYOK — the project owner never
+pays for anyone's tokens; no key ships with Tempest). (ADR-0006)
 
 **Q2. What happens on machines without Docker, given Law L6 forbids unsandboxed execution?**
 → Default: `UNPROVEN(SANDBOX_UNAVAILABLE)` for user repos; a process-isolation backend exists only

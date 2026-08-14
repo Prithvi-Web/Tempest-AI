@@ -104,6 +104,13 @@ the code. The LLM never writes verdicts (Law: verdicts come from the runner).
 **Consequences.** Offline runs lose only hard-to-construct targets (they surface as
 `UNPROVEN(HARNESS_SYNTHESIS_FAILED)` — honest), and gain them back when a key is present.
 
+**BYOK guarantee (owner requirement, 2026-08-13).** Tempest never spends the project owner's
+tokens. There is no bundled, default, or fallback API key anywhere in the codebase, images, or CI.
+The only LLM path activates when the *end user running Tempest* supplies their own
+`ANTHROPIC_API_KEY` (env var or their `tempest.toml`); absent that, every run is 100% offline and
+costs zero LLM dollars. Keys are read at runtime only — never logged, never written into bundles,
+never transmitted anywhere except Anthropic's API by the user's own machine.
+
 ## ADR-0007 — Auth in development: real wiring, dev-mode credentials
 
 **Date:** 2026-08-13 · **Status:** accepted

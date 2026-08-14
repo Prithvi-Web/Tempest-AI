@@ -22,6 +22,14 @@ The output is **evidence, not opinion**. A change Tempest could not run is `UNPR
 | `UNPROVEN` | Could not harness / reach determinism / reproduce the env — with a machine-readable `reason_code` |
 | `ERROR` | Tempest itself failed — internal trace included |
 
+## Cost model — bring your own key, or no key at all
+
+Tempest runs **fully offline by default** — the differential engine, input generation, and verdicts
+use zero LLM calls and cost zero dollars. One optional feature (LLM-assisted harness synthesis for
+hard-to-construct targets) activates **only** if you, the user running Tempest, set your own
+`ANTHROPIC_API_KEY`. Your usage bills your key. No key is bundled, and the project maintainer
+never pays for anyone's runs.
+
 ## Layout
 
 - `packages/engine` — the product: nine-stage differential engine + `tempest` CLI (Python 3.12)
