@@ -5,6 +5,7 @@ as generated TS union types (CLAUDE.md §9). Adding a variant here is *supposed*
 build until the frontend handles it.
 """
 
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 BUNDLE_SCHEMA_VERSION = 1
@@ -79,3 +80,54 @@ class Severity(StrEnum):
 class Lang(StrEnum):
     PYTHON = "PYTHON"
     TYPESCRIPT = "TYPESCRIPT"
+
+
+class InputOutcome(StrEnum):
+    """How a single invocation ended. Crash/hang are observations, not runner failures."""
+
+    COMPLETED = "COMPLETED"
+    CRASHED = "CRASHED"
+    HUNG = "HUNG"
+
+
+@dataclass(frozen=True)
+class RaisedInfo:
+    """A target-raised exception — a legitimate observation, never an adapter failure."""
+
+    type_name: str
+    module: str
+    message: str
+
+
+@dataclass(frozen=True)
+class Timing:
+    """Recorded for the UI. NEVER compared (Law: timing is not a divergence signal)."""
+
+    wall_ns: int
+    cpu_ns: int
+
+
+@dataclass(frozen=True)
+class EffectEntry:
+    """One interaction in the ordered effect ledger (stage 4 cassette)."""
+
+    surface: str
+    call: str
+    ordinal: int
+    args_fingerprint: str
+
+
+@dataclass(frozen=True)
+class Observation:
+    """Everything observable about one invocation of one revision (master spec stage 6)."""
+
+    outcome: InputOutcome
+    return_present: bool
+    return_canon: object | None
+    raised: RaisedInfo | None
+    effects: tuple[EffectEntry, ...] = ()
+    stdout: str = ""
+    stderr: str = ""
+    exit_status: int = 0
+    timing: Timing = field(default_factory=lambda: Timing(wall_ns=0, cpu_ns=0))
+    unrepresentable: str | None = None
