@@ -17,21 +17,38 @@ truth; API ingests the CLI's bundles; the web app renders them. Pydantic schemas
 
 ---
 
-## Phase 0 — Skeleton
+## Phase 0 — Skeleton ✅ 2026-08-13
 
-- [ ] Monorepo layout per master spec §6 (pnpm workspaces + uv workspace)
-- [ ] `packages/engine` — Python 3.12, `ruff` + `mypy --strict` + `pytest` configured
-- [ ] `packages/api` — FastAPI + Pydantic v2 skeleton with `/v1/health`, schemas package
-- [ ] `packages/ts-sidecar` — TS strict skeleton, vitest
-- [ ] `packages/web` — Next.js 15 App Router, TS strict, Tailwind, TanStack Query
-- [ ] `packages/shared-schema` — generated `openapi.json` + `types.ts` (committed build output)
-- [ ] `pnpm gen:api` pipeline: FastAPI → openapi.json → openapi-typescript → typed client → hooks
-- [ ] `docker/` — compose stack (Postgres 16, Redis, MinIO, API, web) + sandbox image + seccomp profile
-- [ ] `.github/workflows/ci.yml` — lint / typecheck / test / contract-check / SAFE-grep
-- [ ] `Makefile` with `verify` target (grows per phase)
-- [ ] `CLAUDE.md`, `docs/PLAN.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`
+- [x] Monorepo layout per master spec §6 (pnpm workspaces + uv workspace)
+- [x] `packages/engine` — Python 3.12, `ruff` + `mypy --strict` + `pytest` configured
+- [x] `packages/api` — FastAPI + Pydantic v2 skeleton with `/v1/health`, schemas package
+- [x] `packages/ts-sidecar` — TS strict skeleton, vitest (JSON-RPC framing + 5 tests)
+- [x] `packages/web` — Next.js 15 App Router, TS strict, Tailwind, TanStack Query
+- [x] `packages/shared-schema` — generated `openapi.json` + `types.ts` (committed build output)
+- [x] `pnpm gen:api` pipeline: FastAPI → openapi.json → openapi-typescript → typed client → hooks
+- [x] `docker/` — compose stack (Postgres 16, Redis, MinIO, API, web) + sandbox image + seccomp profile
+- [x] `.github/workflows/ci.yml` — lint / typecheck / test / contract-check / SAFE-grep
+- [x] `Makefile` with `verify` target (grows per phase)
+- [x] `CLAUDE.md`, `docs/PLAN.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`
 
-**Gate (run all, paste real output before checking any box):**
+**Gate passed 2026-08-13** — `make verify` output (abridged; full log in session):
+```
+All checks passed!                                   # ruff check
+21 files already formatted                           # ruff format --check
+Success: no issues found in 12 source files          # mypy --strict
+7 passed, 1 warning in 0.47s  (coverage 97.85%)      # pytest --cov-fail-under=85
+packages/shared-schema typecheck: Done               # pnpm -r typecheck ×3
+packages/ts-sidecar   test: 5 passed (5)             # vitest
+✓ Generating static pages (4/4)                      # next build
+gen:api: openapi.json, types.ts, api-client.ts, hooks.ts regenerated
+git diff --exit-code packages/shared-schema packages/web/src/generated   # zero drift
+── verify: all live steps green ──
+```
+Live smoke test: uvicorn + `next dev` booted; browser rendered the dashboard shell with
+`api ok · engine 0.1.0 · bundle schema v1` fetched through the *generated* client — zero console
+errors. (Caught two real gaps: missing CORS middleware, undeclared uvicorn dep — both fixed.)
+
+**Gate commands (for re-runs):**
 ```bash
 make verify   # phase-0 scope: ruff, mypy --strict, pytest, pnpm -r typecheck, pnpm -r test,
               # gen:api drift check, web build, SAFE grep

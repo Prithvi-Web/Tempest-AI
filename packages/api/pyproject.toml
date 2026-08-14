@@ -7,6 +7,7 @@ dependencies = [
     "fastapi>=0.116",
     "pydantic>=2.11",
     "tempest-engine",
+    "uvicorn>=0.35",
 ]
 
 [dependency-groups]
