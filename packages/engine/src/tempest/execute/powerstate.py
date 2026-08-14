@@ -12,8 +12,8 @@ a reason persists, reports the reason once, and a cancel unblocks it immediately
 """
 
 import os
+import platform
 import subprocess
-import sys
 import time
 from collections.abc import Callable
 
@@ -49,7 +49,9 @@ def power_pause_reason() -> str | None:
         return forced
     if os.environ.get("TEMPEST_NO_POWER_PAUSE"):
         return None
-    if sys.platform != "darwin":
+    # platform.system(), not sys.platform: mypy specializes sys.platform per checking host,
+    # making the darwin probe "unreachable" under --strict on Linux CI (trap 20).
+    if platform.system() != "Darwin":
         return None
     global _probe_cache
     now = time.monotonic()

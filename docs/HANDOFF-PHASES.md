@@ -201,6 +201,12 @@ blocked on owner resources either way; 18's design-partner gate needs the first 
     tell fake from real; ghp_/sk- plants pass because their checksums fail). Keep plants
     letter-segmented (`xoxb-PLANTED-FAKE-…`) — same redactor pattern, no scanner match. The
     one historical hit was cleared via GitHub's "used in tests" bypass (it was fictional).
+20. **mypy specializes `sys.platform` per checking host** — a `sys.platform != "darwin"` guard
+    makes darwin-only code "unreachable" under --strict on Linux CI (first CI run caught it in
+    powerstate.py). Use `platform.system()` for runtime platform guards, and `make verify`
+    now runs `mypy --strict --platform linux` so the Linux view is checked locally too.
+    (mypy --platform win32 has 13 pre-existing findings in process-control code — that is the
+    Phase 10 Windows leg's problem, stated here, not silently ignored.)
 
 ---
 
