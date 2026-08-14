@@ -79,6 +79,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Logs
+         * @description Recent engine/sidecar log records, newest last; `level` is a minimum severity.
+         */
+        get: operations["listLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs": {
         parameters: {
             query?: never;
@@ -372,6 +392,17 @@ export interface components {
             max_inputs: number;
             /** Repo Path */
             repo_path: string;
+        };
+        /** LogRecordOut */
+        LogRecordOut: {
+            /** Component */
+            component: string;
+            /** Level */
+            level: string;
+            /** Message */
+            message: string;
+            /** Ts */
+            ts: string;
         };
         /** Page[RunSummary] */
         Page_RunSummary_: {
@@ -716,6 +747,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listLogs: {
+        parameters: {
+            query?: {
+                limit?: number;
+                level?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LogRecordOut"][];
                 };
             };
             /** @description Unprocessable Entity */

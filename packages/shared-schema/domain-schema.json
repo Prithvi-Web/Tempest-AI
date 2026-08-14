@@ -309,6 +309,34 @@
       "title": "LocalProveRequest",
       "type": "object"
     },
+    "LogRecordOut": {
+      "properties": {
+        "component": {
+          "title": "Component",
+          "type": "string"
+        },
+        "level": {
+          "title": "Level",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "ts": {
+          "title": "Ts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ts",
+        "level",
+        "component",
+        "message"
+      ],
+      "title": "LogRecordOut",
+      "type": "object"
+    },
     "Page_RunSummary_": {
       "properties": {
         "items": {

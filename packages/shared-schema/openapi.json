@@ -309,6 +309,34 @@
         "title": "LocalProveRequest",
         "type": "object"
       },
+      "LogRecordOut": {
+        "properties": {
+          "component": {
+            "title": "Component",
+            "type": "string"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "level",
+          "component",
+          "message"
+        ],
+        "title": "LogRecordOut",
+        "type": "object"
+      },
       "Page_RunSummary_": {
         "properties": {
           "items": {
@@ -1102,6 +1130,72 @@
         "summary": "Start Local Prove",
         "tags": [
           "local"
+        ]
+      }
+    },
+    "/v1/logs": {
+      "get": {
+        "description": "Recent engine/sidecar log records, newest last; `level` is a minimum severity.",
+        "operationId": "listLogs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogRecordOut"
+                  },
+                  "title": "Response Listlogs",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "List Logs",
+        "tags": [
+          "logs"
         ]
       }
     },

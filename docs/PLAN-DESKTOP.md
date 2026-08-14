@@ -205,15 +205,30 @@ audit-chain tamper test passes. Paste output. *Owner dependency: tenant signups 
 
 ## Phase 17 — Reliability, Observability & Support Surface
 
-- [ ] Opt-in crash reporting, provably source-free (planted-secret fixture test)
-- [ ] Opt-in aggregate telemetry (proof rate, tier distribution, phase durations, UNPROVEN
-      reason distribution), org-disableable
-- [ ] Redacted diagnostic bundle export the user can inspect before sending
-- [ ] Structured logging + rotation + in-app log viewer; health self-check command
-- [ ] Support runbook, escalation path, known-issues list
+- [x] Crash reporting, provably source-free — 2026-08-14, ADR-0020. Scrubbed AT WRITE TIME
+      (`tempest.crashlog`, excepthook in CLI + sidecar; raw tb never touches disk). Gate:
+      `python -m tempest.dev.redaction_check --planted-secrets` → **14/14 contained, zero
+      leakage** (in `make verify` + CI). No transmission exists (would break L10 zero-egress);
+      sharing is manual via the diagnostic bundle until Phase 13's opt-in sync.
+- [x] Opt-in aggregate telemetry — 2026-08-14. Counters only by schema (runs, verdict/tier/
+      UNPROVEN-reason distributions, duration), `TEMPEST_TELEMETRY=1` opt-in, default OFF
+      writes nothing (tested); wired into the local-prove completion path. Org-disableable
+      policy push rides Phase 14 (env/config control until then — stated, not hidden).
+- [x] Redacted diagnostic bundle export — 2026-08-14. `tempest diagnose`: health report +
+      logs + crashes + telemetry, every byte re-redacted, manifest printed for review,
+      transmits nothing. Archive test: no planted secret and no username in ANY member
+      (caught + fixed a real leak: usernames in temp paths outside $HOME).
+- [x] Structured logging + rotation + in-app log viewer; health self-check — 2026-08-14.
+      `tempest.obslog` (JSON lines, shared rotating handler, never-raise emit; 19 tests) +
+      `tempest logs show` CLI + `GET /v1/logs` → desktop LogsView (typed bindings) +
+      `tempest doctor` (live: T2 seatbelt, all checks pass, honest exit code).
+- [x] Support runbook, escalation path, known-issues list — `docs/SUPPORT.md`;
+      `docs/PRIVACY.md` documents every outbound-candidate surface (the gate doc).
 
 *Gate:* redaction suite with planted secrets — zero leakage; `docs/PRIVACY.md` documents the
-diagnostic bundle line-by-line.
+diagnostic bundle line-by-line. — **GREEN 2026-08-14: `redaction_check: 14/14 planted secrets
+contained — zero leakage (L9 proven, not promised)`; live in `make verify` and the CI python
+job; PRIVACY.md + SUPPORT.md landed.**
 
 ## Phase 18 — GA Readiness
 

@@ -14,6 +14,7 @@ import asyncio
 import os
 import subprocess
 import threading
+import time
 import traceback
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -22,7 +23,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tempest.execute.cancel import CancelScope, ProveCancelled
 from tempest.model import Verdict
+from tempest.obslog import get_logger
 from tempest.prove import ProveConfig, run_prove
+from tempest.telemetry import record_run_aggregate
 from tempest_api.db.models import Run
 from tempest_api.db.session import create_engine_and_factory
 from tempest_api.errors import ApiError
@@ -176,7 +179,9 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
                     loop,
                 )
 
+            started = time.monotonic()
             result = await asyncio.to_thread(run_prove, replace(cfg, on_pause=on_pause))
+            duration_ms = int((time.monotonic() - started) * 1000)
             await _event(
                 factory,
                 run_id,
@@ -192,6 +197,17 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
                     return
                 bundle = await ingest_zip_bytes(session, run, result.zip_path.read_bytes())
                 await session.commit()
+            # Phase 17 telemetry: counters only, and only when the user opted in (no-op OFF).
+            record_run_aggregate(
+                verdict=bundle.manifest.verdict.value,
+                sandbox_tier=result.sandbox_tier,
+                unproven_reasons=tuple(
+                    t.reason_code.value
+                    for t in bundle.targets
+                    if t.verdict is Verdict.UNPROVEN and t.reason_code is not None
+                ),
+                duration_ms=duration_ms,
+            )
             divergence_total = sum(len(t.divergences) for t in bundle.targets)
             await _event(
                 factory,
@@ -216,6 +232,9 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
 async def _event(
     factory: async_sessionmaker[AsyncSession], run_id: int, *, stage: str, message: str
 ) -> None:
+    # Every run-ledger event also lands in the structured log (Phase 17) — the in-app viewer
+    # shows engine activity across runs; the per-run ledger stays the replayable record.
+    get_logger("prove").info(message, extra={"tempest_extra": {"run_id": run_id, "stage": stage}})
     async with factory() as session:
         await append_run_event(session, run_id, f"local.{stage}", stage=stage, message=message)
         await session.commit()
