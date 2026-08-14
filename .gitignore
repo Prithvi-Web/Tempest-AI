@@ -35,3 +35,4 @@ apps/desktop/src-tauri/binaries/
 # env
 .env
 .env.local
+apps/desktop/src-tauri/target/
