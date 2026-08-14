@@ -37,3 +37,4 @@ packages/desktop/src-tauri/binaries/
 .env.local
 packages/desktop/src-tauri/target/
 .gstack/
+bench/bench.json

@@ -54,6 +54,25 @@ jobs:
             echo "::error::pytest produced no log file"
           fi
 
+  bench:
+    # Phase 11 perf gate on the 4-core public runner profile. Absolute targets always bind;
+    # the 15% regression bar arms once bench/baseline-linux.json is committed (bench_guard
+    # prints PENDING(baseline) until then — loud, never silent).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-packages
+      - run: make bench
+      - run: uv run python -m tempest.dev.bench_guard --max-regression 15
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-json
+          path: bench/bench.json
+
   node:
     runs-on: ubuntu-latest
     steps:

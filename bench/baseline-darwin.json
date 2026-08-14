@@ -1,0 +1,16 @@
+{
+  "platform": "darwin",
+  "python": "3.12.13",
+  "cpu_count": 8,
+  "runs_seeded": 10000,
+  "metrics": {
+    "cold_launch_s": 0.2968,
+    "list10k_ms": 1.06,
+    "observation_5mb_ms": 23.88,
+    "idle_rss_mb": 112.4,
+    "idle_cpu_pct": 0.0
+  },
+  "pending": [
+    "desktop-e2e: webview first-paint + app-level cold launch"
+  ]
+}

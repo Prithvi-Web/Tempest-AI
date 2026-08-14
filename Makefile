@@ -7,11 +7,15 @@ export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 DESKTOP_MANIFEST := packages/desktop/src-tauri/Cargo.toml
 
 .PHONY: verify verify-python verify-node verify-desktop verify-contract verify-grep-safe \
-	gen-contracts ensure-sidecar sync
+	gen-contracts ensure-sidecar sync bench
 
 sync:
 	uv sync --all-packages
 	pnpm install --frozen-lockfile
+
+# Phase 11 perf bench. Gate: make bench && uv run python -m tempest.dev.bench_guard --max-regression 15
+bench:
+	uv run python -m tempest.dev.bench
 
 verify: verify-python verify-node verify-desktop verify-contract verify-grep-safe
 	@echo "── verify: all live steps green ──"
