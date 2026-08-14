@@ -495,3 +495,29 @@ never leaves the machine, provably" (L9) with a CI-tested zero-egress bar (L10).
 **Consequences.** Support asks for the diagnostic bundle, never raw logs. The scrubber grows
 by adding a planted secret FIRST (test-first, adversarial). Doctor (`tempest doctor`) is the
 support entry point with an honest exit code (no sandbox = FAIL).
+
+## ADR-0021 — Distribution is GitHub-only (owner decision 2026-08-14): Phase 12 descoped
+
+**Context.** Phase 12 planned Apple Developer ID + notarization, Windows EV signing, MDM —
+purchases and accounts only the owner can make. On 2026-08-14 the owner decided: **"make this
+an agent someone can download off GitHub. No Apple ID and stuff — only GitHub."**
+
+**Decision.** Tempest ships from the public GitHub repo, nothing else:
+1. **GitHub Releases** built by CI on tag: Python wheel + sdist, standalone CLI binaries
+   (PyInstaller) for macOS/Linux/Windows runners, and the unsigned macOS .app bundle, each
+   with SHA-256 checksums published in the release.
+2. **L13 ("signed or it doesn't ship") is satisfied with free, GitHub-native provenance
+   instead of paid certificates**: artifact checksums in the release notes + GitHub Actions
+   build provenance (the workflow is the auditable builder). Sigstore keyless signing can be
+   added later at zero cost. Apple notarization/Windows EV are NOT pursued.
+3. **Install paths documented in the README**: `uv tool install` / `pipx install` from the
+   repo (primary), or download a release binary. Unsigned macOS artifacts trip Gatekeeper —
+   the docs state the right-click-Open / `xattr -d com.apple.quarantine` step honestly
+   rather than pretending it away.
+4. MDM/enterprise fleet distribution is out of scope until a customer actually asks; the
+   old Phase 12 checklist is preserved in git history, not in the live plan.
+
+**Consequences.** The Phase 12 [ASK ME] purchases are cancelled. Phase 18's "install unaided
+from the signed artifact" gate becomes "install unaided from the GitHub release." Enterprise
+buyers who require notarized binaries are a future decision the owner can reverse with money;
+nothing in the codebase blocks it.

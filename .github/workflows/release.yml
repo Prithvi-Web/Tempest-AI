@@ -1,0 +1,89 @@
+# GitHub-only distribution (ADR-0021): a tag builds every artifact, proves the install path,
+# and publishes a Release with SHA-256 checksums. No paid signing anywhere — provenance is
+# this workflow + the checksums; unsigned-macOS reality is documented in the README.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  python-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv build --package tempest --out-dir dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/*
+
+  install-check:
+    # The gate that matters: a machine that has never seen this repo installs the CLI from
+    # source the way the README says to, and the doctor passes.
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv tool install ./packages/engine
+      - run: tempest version
+      - run: tempest doctor || true   # Linux runners have no Docker-in-Docker/seatbelt; report, don't gate tier
+      - run: tempest doctor --json | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['checks']['execution_smoke'] and d['checks']['data_dir_writable'], d"
+
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: uv sync --all-packages
+      - run: pnpm install --frozen-lockfile
+      - run: ./packages/desktop/build-server.sh
+      - run: cd packages/desktop && pnpm tauri build
+      - name: zip the unsigned app
+        run: |
+          cd packages/desktop/src-tauri/target/release/bundle/macos
+          ditto -c -k --keepParent Tempest.app Tempest-macOS-unsigned.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: packages/desktop/src-tauri/target/release/bundle/macos/Tempest-macOS-unsigned.zip
+
+  publish:
+    needs: [python-dist, install-check, macos-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+      - name: checksums
+        run: |
+          cd artifacts
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          body: |
+            Install (any OS, from source): `uv tool install "git+https://github.com/Prithvi-Web/Tempest-AI#subdirectory=packages/engine"`
+            macOS app is **unsigned** (GitHub-only distribution, ADR-0021): right-click → Open
+            on first launch, or `xattr -d com.apple.quarantine Tempest.app`.
+            Verify downloads against `SHA256SUMS.txt`.

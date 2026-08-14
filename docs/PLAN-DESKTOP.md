@@ -144,21 +144,19 @@ PENDING(CI) rather than skipping it silently.*
 *Gate:* `make bench && python -m tempest.dev.bench_guard --max-regression 15` (fails the build)
 — **live in CI as the `bench` job and green on this machine as of 2026-08-14.**
 
-## Phase 12 — Distribution: Signing, Notarization, MDM
+## Phase 12 — Distribution: GitHub-only (rescoped by owner decision, ADR-0021)
 
-- [ ] macOS Developer ID + hardened runtime + notarization + stapling, universal binary,
-      `.dmg`+`.pkg` — verified `spctl -a -vvv` and `codesign --verify --deep --strict`
-- [ ] Windows EV cert (or Azure Trusted Signing), WiX MSI silent-install, SmartScreen plan
-- [ ] Linux AppImage/`.deb`/`.rpm`, signed repos
-- [ ] MDM: Intune + Jamf docs, pre-seeded config profile, complete uninstall
-- [ ] Auto-update: signed manifests, staged rollout, mandatory-update flag, rollback,
-      enterprise version pinning respected
-- [ ] SBOM (CycloneDX) per release; reproducible builds where feasible
+> The signing/notarization/MDM checklist was cancelled 2026-08-14 — owner decision: ship from
+> the public GitHub repo only, no Apple ID or paid certificates (history holds the old list).
 
-*Gate:* clean-VM installs (macOS latest+latest-1, Win 11, Ubuntu LTS) with zero warnings;
-N-1→N auto-update succeeds and rolls back on forced failure; paste `spctl`/`signtool` output.
-*Owner dependency: Apple Developer ID and Windows EV certificates are purchases only the owner
-can make — flagged as [ASK ME] items when Phase 12 starts.*
+- [ ] GitHub Release workflow on tag: wheel + sdist, PyInstaller CLI binaries per OS runner,
+      unsigned macOS .app, SHA-256 checksums in the release notes
+- [ ] README install docs: `uv tool install` / `pipx` from the repo (primary) + release
+      binaries, with the honest unsigned-macOS Gatekeeper note (right-click Open / xattr)
+- [ ] SBOM (CycloneDX) attached per release; Sigstore keyless signing as a free follow-up
+
+*Gate:* a tagged release builds all artifacts green in Actions; a clean machine installs the
+CLI from GitHub unaided and `tempest doctor` passes. No owner purchases required.
 
 ## Phase 13 — Team Sync Server (optional, self-hosted first)
 

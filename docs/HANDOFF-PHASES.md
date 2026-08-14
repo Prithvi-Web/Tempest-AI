@@ -36,6 +36,7 @@ same flawless bar and you verify it with real gates, never their reports.
 | 10 Sandboxing w/o Docker | ✅ macOS T2 | `SeatbeltSandbox` (ADR-0015); escape suite **27/27**, egress **0**, tier→bundle→API→UI |
 | Perf | ✅ | `PersistentWorker` — pyfix **118→20 s (5.9×)** |
 | **11 Local-First Data & Perf** | ✅ 5/6 boxes 2026-08-14 (ADR-0016..0019) | Versioned WAL store w/ refuse-newer; content-addressed bundle store + budget GC; FTS + `.tempest` import/export; bench gate green (`bench_guard: PASS`, darwin baseline committed, CI `bench` job added); L11 cancel <2 s + battery/thermal pause. **Open: the 8-hour soak** (harness landed, 2-min validation PASS −4.87%; 8-h run started 13:33 → `bench/soak.json` ≈21:33) |
+| **17 Reliability & Observability** | ✅ 2026-08-14 (ADR-0020) | Redaction-first, local-only, opt-in: `tempest.redact` + gate `redaction_check --planted-secrets` **14/14 contained** (in verify + CI); crashes scrubbed at write time (excepthook CLI + sidecar); counters-only opt-in telemetry wired into local prove; `tempest diagnose` (inspectable zip, transmits nothing); `tempest.obslog` JSON-lines + rotation + `tempest logs show` + desktop LOGS view; `tempest doctor` (live: T2, all pass). `docs/PRIVACY.md` + `docs/SUPPORT.md`. No transmission path exists until Phase 13 (L10 zero-egress preserved) |
 
 **Architecture now:** Python engine (the nine stages + determinism moat — the validated core;
 kept in Python by ADR-0011, user-confirmed) · Rust host (`packages/desktop/src-tauri`: supervisor,
@@ -70,14 +71,14 @@ For each: the goal, the approach that fits this codebase, and the owner blocker 
   everything <2 s; battery/thermal pause. 8-hour soak, memory growth <10%.
 - *Gate:* a CI bench that fails on >15% regression. **No owner blocker.** Good next phase.
 
-### Phase 12 — Distribution: Signing, Notarization, MDM
-- macOS Developer ID + hardened runtime + notarization + stapling, universal binary; Windows EV
-  cert + WiX MSI; Linux AppImage/deb/rpm; Tauri signed-manifest auto-update w/ staged rollout +
-  rollback + enterprise version pin; SBOM per release.
-- **[ASK ME] owner blockers (purchases only the owner can make):** Apple Developer ID
-  certificate; Windows EV code-signing certificate (or Azure Trusted Signing). Flag these first.
-- *Gate:* clean-VM installs on macOS/Win/Ubuntu with zero warnings; N-1→N update + rollback;
-  paste `spctl`/`signtool` output.
+### Phase 12 — Distribution: GitHub-only (rescoped, ADR-0021)
+- Owner decision 2026-08-14: ship from the public repo — GitHub Releases (wheel/sdist +
+  PyInstaller CLI binaries + unsigned .app + SHA-256 checksums), README install docs
+  (`uv tool install` / release download, honest Gatekeeper note). **No Apple ID, no paid
+  certificates, no MDM.** L13 satisfied via checksums + Actions build provenance
+  (Sigstore keyless later, free).
+- *Gate:* a tagged release builds green in Actions; a clean machine installs from GitHub
+  unaided and `tempest doctor` passes.
 
 ### Phase 13 — Team Sync Server (optional, self-hosted first)
 - A customer-run container: Postgres + object storage; content-addressed, resumable, idempotent,
@@ -122,8 +123,9 @@ For each: the goal, the approach that fits this codebase, and the owner blocker 
   code; report proof rate + time-to-first-divergence for each. **This is the number that says
   whether there's a company.**
 
-**Recommended order from here:** 11 (no blocker, high user value) → 17 (no blocker, protects the
-brand) → 13 → then 12/14/15/16 as the owner clears their [ASK ME] purchases → 18 last.
+**Recommended order from here:** ~~11~~ ✅ → ~~17~~ ✅ → **13 next** (sync server — no owner
+blocker to start the container work) → then 12/14/15/16 as the owner clears their [ASK ME]
+purchases (certs, tenants, compliance budget, clean VMs) → 18 last.
 
 ---
 
@@ -232,7 +234,8 @@ uv run tempest prove --base <ref> --head <ref> --repo <path>
    record the first real-world proof-rate number in `docs/METRICS.md`.
 3. **External security review** of the T2 profile + escape corpus + sync boundary (ADR-0015,
    prompt §10) — engagement + budget. Before GA.
-4. **Phase 12:** Apple Developer ID + Windows EV code-signing certificates (purchases).
+4. ~~Phase 12: Apple Developer ID + Windows EV certificates~~ **CANCELLED by owner decision
+   2026-08-14 (ADR-0021): GitHub-only distribution — releases + checksums, no paid signing.**
 5. **Phase 14:** Okta + Entra developer tenants.
 6. **Phase 16:** compliance-platform subscription + pen-test budget.
 

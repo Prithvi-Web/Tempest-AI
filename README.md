@@ -4,6 +4,28 @@
 side by side, under identical deterministic conditions, and reports the concrete inputs where
 observable behavior diverges, each with a minimized reproduction.
 
+## Install (GitHub is the only distribution channel)
+
+The CLI, on any OS with [uv](https://docs.astral.sh/uv/) (or swap in `pipx`):
+
+```bash
+uv tool install "git+https://github.com/Prithvi-Web/Tempest-AI#subdirectory=packages/engine"
+```
+
+Then prove a change and check your machine:
+
+```bash
+tempest doctor
+tempest prove --base main --head my-branch --repo /path/to/repo
+```
+
+The macOS desktop app ships as an **unsigned** zip on the
+[Releases page](https://github.com/Prithvi-Web/Tempest-AI/releases) — this project deliberately
+has no Apple Developer account (ADR-0021), so on first launch: right-click → Open, or
+`xattr -d com.apple.quarantine Tempest.app`. Verify any download against the release's
+`SHA256SUMS.txt`. Everything runs fully local (no accounts, no cloud, zero egress — tested,
+not promised: see `docs/PRIVACY.md`).
+
 > "3 inputs produce different results. Here they are. Here is the smallest one."
 
 And when it cannot exercise a change:
@@ -34,7 +56,8 @@ never pays for anyone's runs.
 
 - `packages/engine` — the product: nine-stage differential engine + `tempest` CLI (Python 3.12)
 - `packages/ts-sidecar` — TypeScript analysis sidecar (JSON-RPC over stdio)
-- `packages/api` — FastAPI ingestion/orchestration; `packages/web` — Next.js dashboard
+- `packages/api` — FastAPI ingestion/orchestration (also the desktop's stdio sidecar)
+- `packages/desktop` — Tauri v2 desktop app (typed tri-boundary bindings, ADR-0014)
 - `packages/shared-schema` — generated OpenAPI + TS types (zero-drift contract)
 - `action/` — composite GitHub Action wrapping the CLI (PR check + evidence comment)
 - `corpus/` — real-world validation corpora and fixture repos
