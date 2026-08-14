@@ -210,6 +210,10 @@ export function errorCodeNote(code: ErrorCode): string {
       return "the bundle schema version is newer than this server understands";
     case "BUNDLE_MISMATCH":
       return "the bundle does not match the run it was uploaded to";
+    case "REPO_NOT_FOUND":
+      return "that path is not a git repository on this machine";
+    case "REF_NOT_FOUND":
+      return "that branch or commit does not exist in the repository";
     case "INTERNAL":
       return "the API failed internally";
     default:
@@ -240,6 +244,8 @@ const ERROR_CODE_SET: Record<ErrorCode, true> = {
   BUNDLE_INVALID: true,
   BUNDLE_SCHEMA_UNSUPPORTED: true,
   BUNDLE_MISMATCH: true,
+  REPO_NOT_FOUND: true,
+  REF_NOT_FOUND: true,
   INTERNAL: true,
 };
 

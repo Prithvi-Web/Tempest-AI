@@ -190,6 +190,8 @@
           "BUNDLE_INVALID",
           "BUNDLE_SCHEMA_UNSUPPORTED",
           "BUNDLE_MISMATCH",
+          "REPO_NOT_FOUND",
+          "REF_NOT_FOUND",
           "INTERNAL"
         ],
         "title": "ErrorCode",
@@ -238,6 +240,40 @@
         ],
         "title": "Lang",
         "type": "string"
+      },
+      "LocalProveRequest": {
+        "properties": {
+          "base": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Base",
+            "type": "string"
+          },
+          "head": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Head",
+            "type": "string"
+          },
+          "max_inputs": {
+            "default": 300,
+            "minimum": 1.0,
+            "title": "Max Inputs",
+            "type": "integer"
+          },
+          "repo_path": {
+            "minLength": 1,
+            "title": "Repo Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_path",
+          "base",
+          "head"
+        ],
+        "title": "LocalProveRequest",
+        "type": "object"
       },
       "Page_RunSummary_": {
         "properties": {
@@ -459,6 +495,35 @@
           "targets"
         ],
         "title": "RunDetail",
+        "type": "object"
+      },
+      "RunEventOut": {
+        "properties": {
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ts",
+          "stage",
+          "level",
+          "message"
+        ],
+        "title": "RunEventOut",
         "type": "object"
       },
       "RunStatus": {
@@ -862,6 +927,58 @@
         ]
       }
     },
+    "/v1/local/prove": {
+      "post": {
+        "description": "Validate repo + refs (400 REPO_NOT_FOUND / REF_NOT_FOUND), create the run, start the\nprove thread, and answer 202 \u2014 the UI polls `getRun` and `listRunEvents` from here.",
+        "operationId": "startLocalProve",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalProveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Start Local Prove",
+        "tags": [
+          "local"
+        ]
+      }
+    },
     "/v1/runs": {
       "get": {
         "description": "Newest-first run listing. Each run appears exactly once across a cursor walk.",
@@ -1167,6 +1284,63 @@
           }
         },
         "summary": "Upload Run Bundle",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/v1/runs/{run_id}/events": {
+      "get": {
+        "description": "The run's lifecycle ledger, oldest first, as plain JSON \u2014 the desktop polls this beside\nrun status. (Not SSE; a streaming endpoint arrives with the orchestration phase.)",
+        "operationId": "listRunEvents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunEventOut"
+                  },
+                  "title": "Response Listrunevents",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "List Run Events",
         "tags": [
           "runs"
         ]

@@ -4,15 +4,33 @@ Functions that walk relationships require them eagerly loaded (selectinload/join
 session never lazy-loads mid-serialization.
 """
 
-from tempest_api.db.models import Divergence, Run, Target
+import json
+
+from tempest_api.db.models import Divergence, Run, RunEvent, Target
 from tempest_api.schemas import (
     DivergenceDetail,
     DivergenceSummary,
     RunDetail,
+    RunEventOut,
     RunSummary,
     TargetDetail,
     TargetSummary,
 )
+
+
+def run_event(event: RunEvent) -> RunEventOut:
+    """`stage`/`level`/`message` come from the payload when present (every ledger-written row);
+    rows from before the ledger helper fall back to the event type and a stable payload dump."""
+    payload = event.payload
+    stage = payload.get("stage")
+    level = payload.get("level")
+    message = payload.get("message")
+    return RunEventOut(
+        ts=event.created_at,
+        stage=stage if isinstance(stage, str) else event.event_type,
+        level=level if isinstance(level, str) else "info",
+        message=message if isinstance(message, str) else json.dumps(payload, sort_keys=True),
+    )
 
 
 def divergence_summary(d: Divergence) -> DivergenceSummary:

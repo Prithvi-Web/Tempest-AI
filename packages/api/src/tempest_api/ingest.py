@@ -12,13 +12,13 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tempest.bundle.bundle import RunBundle, read_bundle
 from tempest.model import BUNDLE_SCHEMA_VERSION
-from tempest_api.db.models import Divergence, Run, RunEvent, Target
+from tempest_api.db.models import Divergence, Run, Target
 from tempest_api.errors import ApiError
+from tempest_api.ledger import append_run_event
 from tempest_api.schemas.enums import ErrorCode, RunStatus
 
 
@@ -199,18 +199,26 @@ async def ingest_bundle(session: AsyncSession, run: Run, bundle: RunBundle) -> N
                 )
             )
 
-    next_seq = await session.scalar(
-        select(func.coalesce(func.max(RunEvent.seq), 0) + 1).where(RunEvent.run_id == run.id)
+    await append_run_event(
+        session,
+        run.id,
+        "bundle.ingested",
+        stage="ingested",
+        message=(
+            f"bundle ingested: verdict {manifest.verdict.value}, "
+            f"{len(bundle.targets)} targets, {divergence_total} divergences"
+        ),
+        extra={
+            "verdict": manifest.verdict.value,
+            "targets": len(bundle.targets),
+            "divergences": divergence_total,
+        },
     )
-    session.add(
-        RunEvent(
-            run_id=run.id,
-            seq=next_seq if next_seq is not None else 1,
-            event_type="bundle.ingested",
-            payload={
-                "verdict": manifest.verdict.value,
-                "targets": len(bundle.targets),
-                "divergences": divergence_total,
-            },
-        )
-    )
+
+
+async def ingest_zip_bytes(session: AsyncSession, run: Run, data: bytes) -> RunBundle:
+    """THE ingestion code path — parse, integrity, run-match, fan-out — shared verbatim by the
+    upload endpoint and the local prove worker. Returns the parsed bundle for reporting."""
+    bundle = parse_bundle_zip(data)
+    await ingest_bundle(session, run, bundle)
+    return bundle

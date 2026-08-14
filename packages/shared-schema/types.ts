@@ -58,6 +58,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local/prove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Local Prove
+         * @description Validate repo + refs (400 REPO_NOT_FOUND / REF_NOT_FOUND), create the run, start the
+         *     prove thread, and answer 202 — the UI polls `getRun` and `listRunEvents` from here.
+         */
+        post: operations["startLocalProve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs": {
         parameters: {
             query?: never;
@@ -114,6 +135,27 @@ export interface paths {
          *     Rejected bundles write nothing; the fan-out is one transaction.
          */
         post: operations["uploadRunBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Run Events
+         * @description The run's lifecycle ledger, oldest first, as plain JSON — the desktop polls this beside
+         *     run status. (Not SSE; a streaming endpoint arrives with the orchestration phase.)
+         */
+        get: operations["listRunEvents"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -212,7 +254,7 @@ export interface components {
          *     Renderers switch on these; the strings are frozen.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" | "RUN_NOT_PENDING" | "BUNDLE_INVALID" | "BUNDLE_SCHEMA_UNSUPPORTED" | "BUNDLE_MISMATCH" | "INTERNAL";
+        ErrorCode: "VALIDATION_ERROR" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" | "RUN_NOT_PENDING" | "BUNDLE_INVALID" | "BUNDLE_SCHEMA_UNSUPPORTED" | "BUNDLE_MISMATCH" | "REPO_NOT_FOUND" | "REF_NOT_FOUND" | "INTERNAL";
         /** ErrorEnvelope */
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
@@ -234,6 +276,20 @@ export interface components {
          * @enum {string}
          */
         Lang: "PYTHON" | "TYPESCRIPT";
+        /** LocalProveRequest */
+        LocalProveRequest: {
+            /** Base */
+            base: string;
+            /** Head */
+            head: string;
+            /**
+             * Max Inputs
+             * @default 300
+             */
+            max_inputs: number;
+            /** Repo Path */
+            repo_path: string;
+        };
         /** Page[RunSummary] */
         Page_RunSummary_: {
             /** Items */
@@ -296,6 +352,20 @@ export interface components {
             /** Targets */
             targets: components["schemas"]["TargetSummary"][];
             verdict: components["schemas"]["Verdict"] | null;
+        };
+        /** RunEventOut */
+        RunEventOut: {
+            /** Level */
+            level: string;
+            /** Message */
+            message: string;
+            /** Stage */
+            stage: string;
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
         };
         /**
          * RunStatus
@@ -505,6 +575,48 @@ export interface operations {
             };
         };
     };
+    startLocalProve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalProveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunCreated"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     listRuns: {
         parameters: {
             query?: {
@@ -677,6 +789,46 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listRunEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunEventOut"][];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

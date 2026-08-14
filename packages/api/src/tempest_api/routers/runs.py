@@ -14,13 +14,15 @@ from tempest_api import serialize
 from tempest_api.db.models import Divergence, Repo, Run, RunEvent, Target
 from tempest_api.db.session import get_session
 from tempest_api.errors import ApiError, error_responses
-from tempest_api.ingest import ingest_bundle, parse_bundle_zip
+from tempest_api.ingest import ingest_zip_bytes
+from tempest_api.ledger import append_run_event
 from tempest_api.schemas import (
     ErrorCode,
     Page,
     RunCreate,
     RunCreated,
     RunDetail,
+    RunEventOut,
     RunStatus,
     RunSummary,
     decode_cursor,
@@ -65,7 +67,7 @@ async def create_run(
         existing = await session.scalar(select(Run).where(Run.idempotency_key == idempotency_key))
         if existing is not None:
             return _replay_or_conflict(existing, body, idempotency_key)
-    repo = await _get_or_create_repo(session, body.repo)
+    repo = await get_or_create_repo(session, body.repo)
     run = Run(
         repo_id=repo.id,
         base_sha=body.base_sha,
@@ -76,13 +78,16 @@ async def create_run(
     session.add(run)
     try:
         await session.flush()
-        session.add(
-            RunEvent(
-                run_id=run.id,
-                seq=1,
-                event_type="run.created",
-                payload={"repo": body.repo, "base_sha": body.base_sha, "head_sha": body.head_sha},
-            )
+        await append_run_event(
+            session,
+            run.id,
+            "run.created",
+            stage="created",
+            message=(
+                f"run created for {body.repo}: "
+                f"{body.base_sha[:12]}..{body.head_sha[:12]} awaiting its bundle"
+            ),
+            extra={"repo": body.repo, "base_sha": body.base_sha, "head_sha": body.head_sha},
         )
         await session.commit()
     except IntegrityError:
@@ -112,7 +117,7 @@ def _replay_or_conflict(existing: Run, body: RunCreate, idempotency_key: str) ->
     )
 
 
-async def _get_or_create_repo(session: AsyncSession, name: str) -> Repo:
+async def get_or_create_repo(session: AsyncSession, name: str) -> Repo:
     repo = await session.scalar(select(Repo).where(Repo.name == name))
     if repo is not None:
         return repo
@@ -163,6 +168,22 @@ async def get_run(run_id: int, session: SessionDep) -> RunDetail:
     return serialize.run_detail(run)
 
 
+@router.get(
+    "/v1/runs/{run_id}/events",
+    operation_id="listRunEvents",
+    responses=error_responses(404, 422),
+)
+async def list_run_events(run_id: int, session: SessionDep) -> list[RunEventOut]:
+    """The run's lifecycle ledger, oldest first, as plain JSON — the desktop polls this beside
+    run status. (Not SSE; a streaming endpoint arrives with the orchestration phase.)"""
+    if await session.get(Run, run_id) is None:
+        raise ApiError(404, ErrorCode.NOT_FOUND, f"run {run_id} does not exist", {"run_id": run_id})
+    events = await session.scalars(
+        select(RunEvent).where(RunEvent.run_id == run_id).order_by(RunEvent.seq)
+    )
+    return [serialize.run_event(e) for e in events]
+
+
 @router.post(
     "/v1/runs/{run_id}/bundle",
     operation_id="uploadRunBundle",
@@ -180,8 +201,7 @@ async def upload_run_bundle(run_id: int, file: UploadFile, session: SessionDep) 
             "with POST /v1/runs before uploading its bundle",
             {"run_id": run_id},
         )
-    bundle = parse_bundle_zip(await file.read())
-    await ingest_bundle(session, run, bundle)
+    await ingest_zip_bytes(session, run, await file.read())
     await session.commit()
     return serialize.run_detail(await _load_run_with_children(session, run_id))
 

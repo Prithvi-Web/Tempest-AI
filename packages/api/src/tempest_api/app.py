@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import tempest
 from tempest_api.db import Base, create_engine_and_factory
 from tempest_api.errors import install_error_handlers
-from tempest_api.routers import divergences, health, runs, targets
+from tempest_api.routers import divergences, health, local, runs, targets
 
 
 @asynccontextmanager
@@ -49,4 +49,5 @@ def create_app() -> FastAPI:
     app.include_router(runs.router)
     app.include_router(targets.router)
     app.include_router(divergences.router)
+    app.include_router(local.router)
     return app

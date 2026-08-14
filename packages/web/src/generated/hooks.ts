@@ -73,6 +73,19 @@ export function useGetRun(run_id: paths["/v1/runs/{run_id}"]["get"]["parameters"
   });
 }
 
+export function useListRunEvents(run_id: paths["/v1/runs/{run_id}/events"]["get"]["parameters"]["path"]["run_id"]) {
+  return useQuery({
+    queryKey: ["listRunEvents", run_id],
+    queryFn: async () => {
+      const { data, error } = await client.GET("/v1/runs/{run_id}/events", {
+        params: { path: { run_id } },
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
 export function useGetTarget(target_id: paths["/v1/targets/{target_id}"]["get"]["parameters"]["path"]["target_id"]) {
   return useQuery({
     queryKey: ["getTarget", target_id],

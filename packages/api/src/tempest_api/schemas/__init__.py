@@ -8,7 +8,9 @@ exported through OpenAPI wherever a schema references them. API-owned enums (`Ru
 from tempest_api.schemas.divergences import DivergenceDetail, DivergenceSummary
 from tempest_api.schemas.enums import ErrorCode, RunStatus
 from tempest_api.schemas.errors import ErrorBody, ErrorEnvelope
+from tempest_api.schemas.events import RunEventOut
 from tempest_api.schemas.health import HealthResponse
+from tempest_api.schemas.local import LocalProveRequest
 from tempest_api.schemas.pagination import Page, decode_cursor, encode_cursor
 from tempest_api.schemas.runs import RunCreate, RunCreated, RunDetail, RunSummary
 from tempest_api.schemas.targets import TargetDetail, TargetSummary
@@ -20,10 +22,12 @@ __all__ = [
     "ErrorCode",
     "ErrorEnvelope",
     "HealthResponse",
+    "LocalProveRequest",
     "Page",
     "RunCreate",
     "RunCreated",
     "RunDetail",
+    "RunEventOut",
     "RunStatus",
     "RunSummary",
     "TargetDetail",
