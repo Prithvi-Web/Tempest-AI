@@ -367,3 +367,33 @@ gate are the standing in-repo evidence, re-run in `make verify`.
 **Consequences.** On macOS the SANDBOX_UNAVAILABLE path is now only reached when both Docker and
 Seatbelt are forced off (`TEMPEST_NO_SEATBELT=1`, used by tests to exercise it). The HANDOFF trap
 "no Docker → SANDBOX_UNAVAILABLE" is superseded on macOS by "no Docker → T2 Seatbelt".
+
+## ADR-0016 — Versioned local SQLite store: WAL + stamp + forward-migrate + refuse-newer (Phase 11)
+
+**Context.** The desktop's SQLite file is the primary store (L8), but it was created by
+`create_all` with no version marker: an old binary opening a database written by a newer app
+would silently misread or corrupt it, and there was no upgrade path besides "delete the file".
+The frozen PyInstaller sidecar cannot ship the alembic script directory, so runtime migration
+cannot shell out to alembic.
+
+**Decision.** Opening the local store (`tempest_api/db/local_store.py`, wired into the app
+lifespan) is a versioned act:
+
+1. **Refuse-newer first, read-only.** Before any connection may touch the file, the
+   `alembic_version` stamp is read through a `mode=ro` sqlite URI. A stamp outside the known
+   chain raises `NewerDatabaseError` with an actionable message; the file — including its
+   journal-mode header — stays byte-identical (proven by hash in the test).
+2. **WAL journal mode** on every connection (`PRAGMA journal_mode=WAL` on connect): the desktop
+   reads the store while ingest writes it.
+3. **Fresh or legacy-unstamped databases** get `create_all` + a head stamp. Adoption of
+   unstamped pre-Phase-11 stores is exact because the migration/model parity test proves
+   `create_all` ≡ `upgrade head`.
+4. **Older stamps forward-migrate in place** via in-code SQL steps that mirror the alembic
+   scripts, inside one transaction (a failed migration leaves the old schema intact). The
+   in-code chain is pinned to `packages/api/alembic/` by a drift test, and the migrated schema
+   is asserted equal to `alembic upgrade head` — mirroring is tested, not promised.
+
+**Consequences.** Postgres deployments still run alembic (ADR-0009) — this mechanism is
+sqlite-only. Every future alembic revision must extend `REVISION_CHAIN` + `_FORWARD_STEPS`;
+forgetting either fails `test_revision_chain_matches_alembic_scripts` or the forward-migration
+equivalence test. Migrations heavier than SQLite `ALTER`s need a new strategy and a new ADR.

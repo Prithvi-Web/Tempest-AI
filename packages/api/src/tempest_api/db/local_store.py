@@ -1,0 +1,127 @@
+"""Local SQLite store lifecycle (Phase 11, ADR-0016).
+
+The desktop's SQLite file is the primary store (L8). Opening it is a versioned act: a fresh
+database is created and stamped at the migration head; a database written by an older app is
+forward-migrated in place; a database written by a NEWER app is refused before a single byte
+is written — an old binary must never guess at a schema it does not know.
+
+The frozen sidecar cannot ship the alembic script directory, so the revision chain lives here
+as code; `test_revision_chain_matches_alembic_scripts` pins it to `packages/api/alembic/` and
+the forward-migration test proves the mirrored steps land on a schema identical to
+`alembic upgrade head`.
+"""
+
+import sqlite3
+from pathlib import Path
+
+import sqlalchemy as sa
+from sqlalchemy import event, text
+from sqlalchemy.engine.interfaces import DBAPIConnection
+from sqlalchemy.engine.url import make_url
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.pool import ConnectionPoolEntry
+
+from tempest_api.db.base import Base
+
+REVISION_CHAIN: tuple[str, ...] = ("0001", "0002")
+HEAD_REVISION: str = REVISION_CHAIN[-1]
+
+# Forward steps, keyed by from-revision; each mirrors the alembic script that takes the schema
+# one revision further. SQLite ALTERs only — anything heavier gets a new strategy and an ADR.
+_FORWARD_STEPS: dict[str, tuple[str, ...]] = {
+    "0001": (
+        "ALTER TABLE runs ADD COLUMN sandbox_tier TEXT",
+        "ALTER TABLE runs ADD COLUMN sandbox_assurance TEXT",
+    ),
+}
+
+
+class NewerDatabaseError(RuntimeError):
+    """The database on disk was written by a newer Tempest than this one (refuse-newer)."""
+
+
+def sqlite_file_path(url: str) -> Path | None:
+    """The on-disk file behind a sqlite URL, or None for :memory:/non-sqlite URLs."""
+    parsed = make_url(url)
+    if parsed.get_backend_name() != "sqlite":
+        return None
+    if parsed.database in (None, "", ":memory:"):
+        return None
+    assert parsed.database is not None
+    return Path(parsed.database)
+
+
+def check_not_newer(url: str) -> None:
+    """Refuse a database stamped with a revision this app does not know — read-only, so the
+    refused file (and its journal mode) is left byte-identical for the newer app that owns it."""
+    path = sqlite_file_path(url)
+    if path is None or not path.exists():
+        return
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+    except sqlite3.OperationalError:
+        return  # unstamped legacy store — adopted and stamped by prepare_local_store
+    finally:
+        conn.close()
+    if row is not None and str(row[0]) not in REVISION_CHAIN:
+        raise NewerDatabaseError(
+            f"database {path} is stamped with schema revision {row[0]!r}, which this version of "
+            f"Tempest does not know (its newest is {HEAD_REVISION!r}). It was written by a newer "
+            "Tempest. Update this app to open it; nothing has been modified."
+        )
+
+
+def install_sqlite_pragmas(engine: AsyncEngine) -> None:
+    """WAL journal mode on every connection — the local store is a concurrently-read desktop
+    database, and WAL keeps readers unblocked during ingest writes."""
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _on_connect(dbapi_conn: DBAPIConnection, _record: ConnectionPoolEntry) -> None:
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()
+
+
+def _read_stamp(conn: sa.Connection) -> str | None:
+    if not sa.inspect(conn).has_table("alembic_version"):
+        return None
+    row = conn.execute(text("SELECT version_num FROM alembic_version")).fetchone()
+    return None if row is None else str(row[0])
+
+
+def _prepare(conn: sa.Connection) -> None:
+    stamp = _read_stamp(conn)
+    if stamp == HEAD_REVISION:
+        return
+    if stamp is None:
+        # Fresh file — or a pre-Phase-11 store created by create_all without a stamp; the
+        # migration/model parity test proves that schema equals head, so adoption is exact.
+        Base.metadata.create_all(conn)
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS alembic_version ("
+                "version_num VARCHAR(32) NOT NULL, "
+                "CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num))"
+            )
+        )
+        conn.execute(
+            text("INSERT INTO alembic_version (version_num) VALUES (:head)"),
+            {"head": HEAD_REVISION},
+        )
+        return
+    if stamp not in REVISION_CHAIN:  # defense in depth — check_not_newer runs first
+        raise NewerDatabaseError(
+            f"database is stamped {stamp!r}, unknown to this app (newest {HEAD_REVISION!r})"
+        )
+    for revision in REVISION_CHAIN[REVISION_CHAIN.index(stamp) : -1]:
+        for statement in _FORWARD_STEPS[revision]:
+            conn.execute(text(statement))
+    conn.execute(text("UPDATE alembic_version SET version_num = :head"), {"head": HEAD_REVISION})
+
+
+async def prepare_local_store(engine: AsyncEngine) -> None:
+    """Create, adopt, or forward-migrate the store — one transaction, so a failed migration
+    leaves the previous schema intact (never corrupts)."""
+    async with engine.begin() as conn:
+        await conn.run_sync(_prepare)

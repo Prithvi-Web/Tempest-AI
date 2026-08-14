@@ -6,22 +6,30 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import tempest
-from tempest_api.db import Base, create_engine_and_factory
+from tempest_api.db import create_engine_and_factory, database_url
+from tempest_api.db.local_store import (
+    check_not_newer,
+    install_sqlite_pragmas,
+    prepare_local_store,
+)
 from tempest_api.errors import install_error_handlers
 from tempest_api.routers import divergences, health, local, runs, targets
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    engine, factory = create_engine_and_factory()
-    if engine.dialect.name == "sqlite":
-        # Local dev/tests (aiosqlite): create the schema directly; the migration/model parity
-        # test keeps this equivalent to `alembic upgrade head`. Postgres runs Alembic (ADR-0009).
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-    app.state.db_engine = engine
-    app.state.db_sessionmaker = factory
+    url = database_url()
+    engine, factory = create_engine_and_factory(url)
     try:
+        if engine.dialect.name == "sqlite":
+            # The local store is versioned (ADR-0016): refuse-newer is checked read-only BEFORE
+            # any connection can touch the file, then WAL + create/adopt/forward-migrate + stamp.
+            # Postgres runs Alembic (ADR-0009).
+            check_not_newer(url)
+            install_sqlite_pragmas(engine)
+            await prepare_local_store(engine)
+        app.state.db_engine = engine
+        app.state.db_sessionmaker = factory
         yield
     finally:
         await engine.dispose()
