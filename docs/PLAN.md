@@ -230,11 +230,30 @@ workflow is that gate's standing rehearsal, and the full pipeline — prove → 
 verdict-case logic incl. the jq annotations — was executed locally against pyfix: 12/12 divergent,
 exit 1, comment rendered with minimized inputs + repros).
 
-## Phase 7 — Hardening
+## Phase 7 — Hardening (core ✅ 2026-08-13; container-leg review open)
 
-- [ ] Sandbox escape review
-- [ ] Budget/timeout tuning; perf targets measured (<60 s pure-PR on laptop)
-- [ ] Bundle schema migration test
-- [ ] Flake hunt: full corpus 20× — any nondeterminism in Tempest itself is a P0
+- [x] Sandbox escape review — `docs/SANDBOX_REVIEW.md` (container-leg verification requires a
+      Docker-equipped machine; tracked there, not hidden)
+- [x] Perf target measured, not assumed: 5 pure targets at the default 300-input budget →
+      **3.9 s wall** (bar: <60 s), both seeded bugs caught, 0 false alarms on the no-ops
+- [x] Bundle schema migration tests (newer-version refusal with upgrade guidance; integer
+      version pinned from day one)
+- [x] Flake hunt: full corpus ×20 — **30/30 stable, zero nondeterminism in Tempest itself**
+      (`docs/flake-hunt-20x.log`)
+- [x] Transport bug found by the hardening pass and fixed with regression tests: `frozenset`
+      inputs NameError'd in the extended-literal parser
 
-**Gate:** full `CLAUDE.md` §13 list green + 20× corpus stability log attached.
+**Gate status 2026-08-13** — `make verify` **exit 0**, real output:
+```
+All checks passed!                                  # ruff (112 files formatted)
+Success: no issues found in 65 source files         # mypy --strict engine+api
+373 passed · coverage 88.95% (bar 85%)              # pytest engine+api
+30/30 stable across 5 consecutive replays           # corpus_check (§13)
+typecheck: Done ×3 · sidecar 27 passed              # pnpm -r
+✓ Compiled successfully                             # next build
+gen:api … + git diff --exit-code                    # zero contract drift
+── verify: all live steps green ──
+```
+§13 steps NOT yet live (open items above, never skipped silently): `pnpm test:e2e`
+(Playwright suite not built yet) and the TS-corpus half of corpus_check (Phase 3 execution
+half). The v1 definition-of-done requires both.

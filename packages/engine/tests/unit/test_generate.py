@@ -4,13 +4,22 @@ Everything generated must be transportable (repr → ast.literal_eval round-trip
 under a fixed seed (Law L3 applies to Tempest itself)."""
 
 import ast
+import random
+import typing
 from pathlib import Path
+
+from hypothesis import strategies as st
 
 from tempest.execute.runner import ParamInfo, TargetIntrospection
 from tempest.generate.inputs import Budget, generate_inputs
 from tempest.generate.mining import mine_literals
-from tempest.generate.mutate import mutate_input
-from tempest.generate.strategies import parse_annotation, values_for
+from tempest.generate.mutate import _mutate_value, mutate_input
+from tempest.generate.strategies import (
+    _edge_cases_for,
+    _hypothesis_examples,
+    parse_annotation,
+    values_for,
+)
 
 
 def intro(*params: tuple[str, str | None, str | None]) -> TargetIntrospection:
@@ -43,6 +52,12 @@ class TestParseAnnotation:
     def test_unknown_names_are_none(self) -> None:
         assert parse_annotation("SomeCustomThing") is None
 
+    def test_unparseable_annotation_text_is_none(self) -> None:
+        assert parse_annotation("list[int") is None
+
+    def test_valid_shape_that_fails_to_evaluate_is_none(self) -> None:
+        assert parse_annotation("int[str]") is None  # AST-valid, but int is not subscriptable
+
 
 class TestValuesFor:
     def test_int_pool_hits_boundaries(self) -> None:
@@ -73,6 +88,38 @@ class TestValuesFor:
         for typ in (int, str, float, bool, list[int], dict[str, int], int | None):
             for v in values_for(typ, seed=3, mined=[]):
                 assert parse_input_literal(repr(v)) == v or (v != v)  # NaN compares unequal
+
+
+class TestValuesForEdges:
+    def test_non_literal_mined_values_are_filtered_out(self) -> None:
+        marker = object()  # repr does not round-trip as a literal
+        values = values_for(None, seed=2, mined=[marker, 11])
+        assert marker not in values
+        assert 11 in values
+
+    def test_mined_values_for_generic_annotations_pass_through(self) -> None:
+        values = values_for(list[int], seed=2, mined=[[7, 8, 9]])
+        assert [7, 8, 9] in values
+
+    def test_union_edge_cases_include_both_sides(self) -> None:
+        union_edges = _edge_cases_for(int | None)
+        assert None in union_edges
+        assert 0 in union_edges
+        assert _edge_cases_for(typing.Optional) == []  # bare Optional carries no args
+
+    def test_container_edge_cases_cover_each_origin(self) -> None:
+        assert _edge_cases_for(tuple[int, str]) == [(0, 1)]
+        assert _edge_cases_for(set[int]) == [set(), {0}]
+        assert _edge_cases_for(frozenset[int]) == [frozenset(), frozenset({0})]
+
+    def test_empty_set_survives_the_type_pool(self) -> None:
+        assert set() in values_for(set[int], seed=4, mined=[])
+
+    def test_failing_hypothesis_strategy_yields_no_examples(self) -> None:
+        def boom() -> object:
+            raise ValueError("no examples")
+
+        assert _hypothesis_examples(st.builds(boom), 5) == []
 
 
 class TestGenerateInputs:
@@ -114,6 +161,24 @@ class TestGenerateInputs:
         )
         assert a == b
 
+    def test_keyword_only_params_populate_kwargs(self) -> None:
+        introspection = TargetIntrospection(
+            params=(
+                ParamInfo(
+                    name="a", kind="POSITIONAL_OR_KEYWORD", annotation="int", default_literal=None
+                ),
+                ParamInfo(
+                    name="flag", kind="KEYWORD_ONLY", annotation="bool", default_literal=None
+                ),
+                ParamInfo(name="opt", kind="KEYWORD_ONLY", annotation="int", default_literal="7"),
+            )
+        )
+        candidates = generate_inputs(introspection, mined=[], budget=Budget(max_inputs=40))
+        assert candidates
+        kwarg_sets = [set(ast.literal_eval(c.kwargs_literal)) for c in candidates]
+        assert all("flag" in ks for ks in kwarg_sets)  # required keyword-only: always supplied
+        assert {"opt" in ks for ks in kwarg_sets} == {True, False}  # defaulted: sometimes omitted
+
 
 class TestMining:
     def test_literals_are_harvested_from_repo_sources(self, tmp_path: Path) -> None:
@@ -132,6 +197,20 @@ class TestMining:
         (tmp_path / "big.py").write_text(body + "\n")
         assert len(mine_literals(tmp_path)) <= 500
 
+    def test_syntax_error_files_are_skipped_not_fatal(self, tmp_path: Path) -> None:
+        (tmp_path / "broken.py").write_text("def broken(:\n")
+        (tmp_path / "ok.py").write_text("GOOD = 424242\n")
+        assert 424242 in mine_literals(tmp_path)
+
+    def test_uninformative_literals_are_excluded(self, tmp_path: Path) -> None:
+        src = "A = True\nB = None\nC = ...\nD = ''\nE = " + repr("x" * 250) + "\nF = 31337\n"
+        (tmp_path / "mod.py").write_text(src)
+        mined = mine_literals(tmp_path)
+        assert 31337 in mined
+        assert not any(v is True or v is None or v is Ellipsis for v in mined)
+        assert "" not in mined
+        assert not any(isinstance(v, str) and len(v) > 200 for v in mined)
+
 
 class TestMutation:
     def test_mutant_is_a_valid_literal_and_usually_different(self) -> None:
@@ -146,3 +225,55 @@ class TestMutation:
 
     def test_mutation_is_deterministic_per_seed(self) -> None:
         assert mutate_input("(3, 'abc')", "{}", seed=4) == mutate_input("(3, 'abc')", "{}", seed=4)
+
+
+class TestMutationBranches:
+    def test_unparseable_input_is_returned_unchanged(self) -> None:
+        assert mutate_input("(unclosed", "{}", seed=0) == ("(unclosed", "{}")
+
+    def test_kwargs_only_inputs_mutate_a_kwarg(self) -> None:
+        seen_change = False
+        for seed in range(8):
+            args_literal, kwargs_literal = mutate_input("()", "{'a': 3}", seed=seed)
+            assert args_literal == "()"
+            mutated = ast.literal_eval(kwargs_literal)
+            assert set(mutated) == {"a"}
+            if mutated != {"a": 3}:
+                seen_change = True
+        assert seen_change
+
+    def test_bytes_values_mutate_to_other_bytes(self) -> None:
+        outs = {ast.literal_eval(mutate_input("(b'ab',)", "{}", seed=s)[0])[0] for s in range(10)}
+        assert outs <= {b"", b"ab\x00", b"a"}
+        assert b"ab" not in outs
+
+    def test_empty_containers_get_seeded(self) -> None:
+        assert ast.literal_eval(mutate_input("([],)", "{}", seed=1)[0])[0] == [0]
+        assert ast.literal_eval(mutate_input("({},)", "{}", seed=1)[0])[0] == {"k": 0}
+
+    def test_nonempty_dicts_drop_or_mutate_an_entry(self) -> None:
+        seen_drop = seen_change = False
+        for seed in range(20):
+            out = ast.literal_eval(mutate_input("({'a': 1, 'b': 2},)", "{}", seed=seed)[0])[0]
+            if set(out) != {"a", "b"}:
+                seen_drop = True
+            elif out != {"a": 1, "b": 2}:
+                seen_change = True
+        assert seen_drop and seen_change
+
+    def test_sets_shrink_or_reseed(self) -> None:
+        for seed in range(8):
+            out = ast.literal_eval(mutate_input("({1, 2, 3},)", "{}", seed=seed)[0])[0]
+            assert isinstance(out, set)
+            assert out == {0} or out <= {1, 2, 3}
+
+    def test_tuples_mutate_via_their_list_form(self) -> None:
+        outs = {ast.literal_eval(mutate_input("((1, 2),)", "{}", seed=s)[0])[0] for s in range(8)}
+        assert all(isinstance(o, tuple) for o in outs)
+        assert any(o != (1, 2) for o in outs)
+
+    def test_unknown_values_pass_through(self) -> None:
+        assert mutate_input("(None,)", "{}", seed=3) == ("(None,)", "{}")
+
+    def test_depth_guard_returns_the_value_unchanged(self) -> None:
+        assert _mutate_value(41, random.Random(0), depth=5) == 41

@@ -30,7 +30,7 @@ def _set_child_limits() -> None:
     if sys.platform == "linux":
         # Address-space limits are only reliable on Linux; macOS dev runs rely on the
         # per-input timeout, production runs rely on the container's --memory limit.
-        resource.setrlimit(resource.RLIMIT_AS, (1 << 31, 1 << 31))
+        resource.setrlimit(resource.RLIMIT_AS, (1 << 31, 1 << 31))  # pragma: no cover — Linux-only
 
 
 @dataclass(frozen=True)

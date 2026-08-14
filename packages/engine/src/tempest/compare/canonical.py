@@ -57,7 +57,9 @@ def parse_input_literal(text: str) -> object:
     return eval(  # AST-validated to literals + nan/inf, empty builtins
         compile(tree, "<input-literal>", "eval"),
         {"__builtins__": {}},
-        {"nan": math.nan, "inf": math.inf},
+        # set/frozenset: the validator admits exactly these two constructors over literal
+        # args (repr() emits them); they must resolve here or valid inputs NameError.
+        {"nan": math.nan, "inf": math.inf, "set": set, "frozenset": frozenset},
     )
 
 

@@ -5,11 +5,19 @@ ProcessSandbox is the first-party-fixture backend (ADR-0003); DockerSandbox ship
 is exercised for command assembly + availability detection only on Docker-less machines.
 """
 
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+import coverage
 
 from tempest.execute.runner import introspect_target, run_batch
 from tempest.execute.sandbox import DockerSandbox, ProcessSandbox
 from tempest.model import InputOutcome
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def write_module(tmp_path: Path, name: str, src: str) -> Path:
@@ -136,10 +144,66 @@ class TestRunBatch:
             del os.environ["TEMPEST_LEAK_CANARY"]
 
 
+class TestProcessSandbox:
+    def test_first_party_backend_is_always_available(self) -> None:
+        assert ProcessSandbox().available() is True
+
+    def test_child_rlimits_are_applied_in_a_real_child(self) -> None:
+        # _set_child_limits normally runs as preexec_fn inside the forked worker; here a real
+        # child applies it and reports the resulting limits back over stdout.
+        code = (
+            "import resource\n"
+            "from tempest.execute.sandbox import _set_child_limits\n"
+            "_set_child_limits()\n"
+            "print(resource.getrlimit(resource.RLIMIT_CPU),\n"
+            "      resource.getrlimit(resource.RLIMIT_CORE))\n"
+        )
+        env = os.environ.copy()
+        if coverage.Coverage.current() is not None:
+            env["COVERAGE_PROCESS_START"] = str(REPO_ROOT / "pyproject.toml")
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=REPO_ROOT,
+            timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert "(120, 120) (0, 0)" in proc.stdout
+
+
 class TestDockerSandbox:
     def test_unavailable_docker_reports_honestly(self) -> None:
         sandbox = DockerSandbox(docker_binary="/nonexistent/docker")
         assert sandbox.available() is False
+
+    def test_available_reflects_the_probe_exit_status(self) -> None:
+        # availability is `<binary> info` exiting 0; pointing the binary at real true/false
+        # executables exercises the probe as a real subprocess without needing a Docker daemon.
+        true_bin = shutil.which("true")
+        false_bin = shutil.which("false")
+        assert true_bin is not None and false_bin is not None
+        assert DockerSandbox(docker_binary=true_bin).available() is True
+        assert DockerSandbox(docker_binary=false_bin).available() is False
+
+    def test_popen_launches_the_wrapped_argv(self, tmp_path: Path) -> None:
+        # substituting `echo` for docker makes the child print the exact argv popen assembled,
+        # proving the L6 flags survive from wrap_command into the spawned process.
+        echo = shutil.which("echo")
+        assert echo is not None
+        sandbox = DockerSandbox(docker_binary=echo)
+        with sandbox.popen(
+            ["python", "/scratch/worker.py"], cwd=tmp_path, env={}, scratch=tmp_path
+        ) as proc:
+            assert proc.stdout is not None
+            out = proc.stdout.read().decode()
+            proc.wait()
+        assert out.startswith("run --rm --network none --read-only")
+        assert "--cap-drop ALL" in out
+        assert f"{tmp_path}:/scratch" in out
+        assert out.rstrip().endswith("tempest-sandbox:latest python /scratch/worker.py")
 
     def test_command_assembly_enforces_l6(self) -> None:
         sandbox = DockerSandbox()
