@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main window: core defaults plus permission to run the bundled engine sidecar.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/tempest-server",
+          "sidecar": true,
+          "args": [
+            "--port",
+            { "validator": "^[0-9]{2,5}$" },
+            "--data-dir",
+            { "validator": ".+" }
+          ]
+        }
+      ]
+    }
+  ]
+}

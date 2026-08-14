@@ -1,0 +1,277 @@
+/* Instrument panel, not marketing site (master spec §10). Same tokens as the web dashboard. */
+:root {
+  --panel: #0a0e14;
+  --panel-raised: #10161f;
+  --panel-line: #1d2735;
+  --ink: #c9d4e3;
+  --ink-dim: #7a8aa0;
+  --divergent: #ff5c57;
+  --equivalent: #39c07f;
+  --unproven: #e6b450;
+  --error: #b48cff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--panel);
+  color: var(--ink);
+  font: 13px/1.5 "SF Mono", ui-monospace, "Cascadia Mono", Menlo, monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--unproven);
+  outline-offset: 1px;
+}
+
+a {
+  color: inherit;
+}
+
+.shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--panel-line);
+  margin-bottom: 20px;
+}
+
+.masthead .word {
+  font-weight: 700;
+  letter-spacing: 0.25em;
+}
+
+.masthead .tag {
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+.masthead .spacer {
+  flex: 1;
+}
+
+h1 {
+  font-size: 17px;
+  margin: 18px 0 10px;
+}
+
+h2 {
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+  margin: 22px 0 8px;
+  text-transform: uppercase;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  font-weight: 400;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--panel-line);
+}
+
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--panel-line);
+}
+
+tr.rowlink {
+  cursor: pointer;
+}
+
+tr.rowlink:hover {
+  background: var(--panel-raised);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip {
+  display: inline-block;
+  border: 1px solid;
+  padding: 1px 7px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.chip.DIVERGENT {
+  color: var(--divergent);
+  border-color: var(--divergent);
+}
+
+.chip.EQUIVALENT_UNDER_BUDGET {
+  color: var(--equivalent);
+  border-color: var(--equivalent);
+}
+
+.chip.UNPROVEN {
+  color: var(--unproven);
+  border-color: var(--unproven);
+}
+
+.chip.ERROR {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.chip.neutral {
+  color: var(--ink-dim);
+  border-color: var(--panel-line);
+}
+
+.panel {
+  border: 1px solid var(--panel-line);
+  background: var(--panel-raised);
+  padding: 14px 16px;
+  margin: 12px 0;
+}
+
+.panel.notproven {
+  border: 2px double var(--unproven);
+  background: color-mix(in srgb, var(--unproven) 6%, var(--panel-raised));
+}
+
+.panel.diverge {
+  border-color: var(--divergent);
+}
+
+.dim {
+  color: var(--ink-dim);
+}
+
+.red {
+  color: var(--divergent);
+}
+
+.green {
+  color: var(--equivalent);
+}
+
+.yellow {
+  color: var(--unproven);
+}
+
+.mono-block {
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  padding: 10px 12px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 6px 0;
+}
+
+pre.script {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.bar {
+  height: 6px;
+  background: var(--panel-line);
+  position: relative;
+  min-width: 90px;
+}
+
+.bar > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--unproven);
+}
+
+.bar > i.full {
+  background: var(--equivalent);
+}
+
+button,
+input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel-raised);
+  border: 1px solid var(--panel-line);
+  padding: 7px 12px;
+}
+
+button {
+  cursor: pointer;
+  letter-spacing: 0.08em;
+}
+
+button.primary {
+  border-color: var(--unproven);
+  color: var(--unproven);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+input {
+  width: 100%;
+}
+
+label {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  margin: 14px 0 4px;
+  text-transform: uppercase;
+}
+
+.crumbs {
+  font-size: 12px;
+  color: var(--ink-dim);
+  margin: 4px 0 14px;
+}
+
+.crumbs a {
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  text-decoration: underline;
+}
+
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.statusline {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}

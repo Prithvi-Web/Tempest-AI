@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@/lib/api-client": ["./src/api.ts"],
+      "@/*": ["../../packages/web/src/*"],
+      "@tempest/shared-schema/types": ["../../packages/shared-schema/types.ts"]
+    }
+  },
+  "include": ["src"]
+}

@@ -2,6 +2,7 @@ packages:
   - "packages/shared-schema"
   - "packages/ts-sidecar"
   - "packages/web"
+  - "apps/desktop"
 allowBuilds:
   esbuild: true
   sharp: true

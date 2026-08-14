@@ -37,7 +37,10 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=os.environ.get("TEMPEST_CORS_ORIGINS", "http://localhost:3000").split(","),
+        allow_origins=os.environ.get(
+            "TEMPEST_CORS_ORIGINS",
+            "http://localhost:3000,http://localhost:1420,tauri://localhost,http://tauri.localhost",
+        ).split(","),
         allow_methods=["*"],
         allow_headers=["*"],
     )
