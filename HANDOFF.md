@@ -13,9 +13,9 @@ ADR in `docs/DECISIONS.md`.
 | 0 Skeleton | ✅ | `make verify` green from clean clone; live browser smoke test |
 | 1 Pure-fn differential (Py) | ✅ | pyfix: **12/12 caught, 0 false positives**, minimized repros; 3.9 s for a 5-target PR (target <60 s) |
 | 2 Determinism layer | ✅ | corpus_check: **30/30 stable ×5** (bar ≥24); flake hunt **30/30 ×20** (`docs/flake-hunt-20x.log`) |
-| 3 TypeScript | 🔶 analysis sidecar in progress (agent) | Node worker + TS shims + corpora remain |
-| 4 API + persistence | 🔶 in progress (agent) | round-trip gate test being built |
-| 5 Web dashboard | 🔶 in progress (agent) | E2E deferred to integration pass |
+| 3 TypeScript | 🔶 analysis sidecar ✅ (27+6 tests); execution half open | Node worker + TS shims + corpora remain |
+| 4 API + persistence | ✅ core | 33 tests incl. Hypothesis round-trip gate; arq/SSE/MinIO/auth open |
+| 5 Web dashboard | ✅ views (live-verified in browser) | Playwright E2E + SSE timeline + repo-settings open |
 | 6 CI integration | ✅ code | live-PR gate needs GitHub publish (ADR-0005); selftest workflow rehearses it |
 | 7 Hardening | 🔶 | flake hunt ✅, schema-migration tests ✅, `SANDBOX_REVIEW.md` ✅ (container leg needs a Docker machine), perf ✅ 3.9 s |
 
