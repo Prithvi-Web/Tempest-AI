@@ -19,7 +19,7 @@ numbers live in `docs/METRICS.md`; every deviation is an ADR in `docs/DECISIONS.
 | 4 API + persistence | ✅ core | 33 tests incl. Hypothesis round-trip gate; arq/SSE/MinIO/auth open |
 | 5 Web dashboard | ✅ views (live-verified in browser) | Playwright E2E + SSE timeline + repo-settings open |
 | 6 CI integration | ✅ code | live-PR gate needs GitHub publish (ADR-0005); selftest workflow rehearses it |
-| — Desktop app | ✅ Tempest.app installed to /Applications; frozen engine sidecar (23 MB, 2 s to healthy), live-tested end to end incl. in-app proof runs + clean shutdown watchdog | rebuild: ./apps/desktop/build-server.sh then pnpm tauri build |
+| — Desktop app | ✅ Tempest.app installed to /Applications; frozen engine sidecar (23 MB, 2 s to healthy), live-tested end to end incl. in-app proof runs + clean shutdown watchdog | rebuild: ./packages/desktop/build-server.sh then pnpm tauri build |
 | 7 Hardening | 🔶 | flake hunt ✅, schema-migration tests ✅, `SANDBOX_REVIEW.md` ✅ (container leg needs a Docker machine), perf ✅ 3.9 s |
 | **8 Truth Audit** | ✅ 2026-08-13 | `docs/AUDIT-PHASE8.md` — clean-clone verify green, 30/30×20 fresh, byte-identical bundle diffs, 8/8 reason codes emittable, **3 honesty defects found & fixed test-first** (blessed-with-zero-comparable-inputs, EnvRepro traceback, silent .ts skip); proof rate: fixture 100%, real-world unmeasured (stated plainly). **Phases 9–18 wait for owner review** — see `docs/PLAN-DESKTOP.md`, ADR-0011..0013, `docs/METRICS.md` |
 

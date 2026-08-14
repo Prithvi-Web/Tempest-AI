@@ -23,9 +23,9 @@ dist/
 *.tempest.zip
 
 # Desktop sidecar build output (binaries never enter git)
-apps/desktop/build/
-apps/desktop/dist/
-apps/desktop/src-tauri/binaries/
+packages/desktop/build/
+packages/desktop/dist/
+packages/desktop/src-tauri/binaries/
 
 # OS / editor
 .DS_Store
@@ -35,4 +35,4 @@ apps/desktop/src-tauri/binaries/
 # env
 .env
 .env.local
-apps/desktop/src-tauri/target/
+packages/desktop/src-tauri/target/

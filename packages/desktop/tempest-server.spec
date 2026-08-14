@@ -1,8 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for the Tempest desktop sidecar — ONEFILE.
 
-Built by apps/desktop/build-server.sh; the single executable lands in apps/desktop/dist/ and
-is staged as apps/desktop/src-tauri/binaries/tempest-server-<triple> (both gitignored).
+Built by packages/desktop/build-server.sh; the single executable lands in packages/desktop/dist/ and
+is staged as packages/desktop/src-tauri/binaries/tempest-server-<triple> (both gitignored).
 
 ONEFILE, deliberately: the Tauri shell on main declares `externalBin: ["binaries/
 tempest-server"]` and spawns `.sidecar("tempest-server")` — Tauri resolves that to a single

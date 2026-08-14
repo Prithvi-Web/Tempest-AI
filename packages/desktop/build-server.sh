@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the tempest-server sidecar (PyInstaller ONEFILE — see tempest-server.spec for why)
 # and stage it where the Tauri shell's externalBin contract expects it:
-#   apps/desktop/src-tauri/binaries/tempest-server-<triple>   (a single executable file)
+#   packages/desktop/src-tauri/binaries/tempest-server-<triple>   (a single executable file)
 # Requires uv and a synced workspace; run from anywhere.
 set -euo pipefail
 
@@ -15,16 +15,16 @@ case "$(uname -m)" in
 esac
 NAME="tempest-server-$TRIPLE"
 
-rm -rf "apps/desktop/dist/$NAME"   # a stale ONEDIR directory here would shadow the new file
+rm -rf "packages/desktop/dist/$NAME"   # a stale ONEDIR directory here would shadow the new file
 uv run pyinstaller --noconfirm \
-  --distpath apps/desktop/dist \
-  --workpath apps/desktop/build \
-  apps/desktop/tempest-server.spec
+  --distpath packages/desktop/dist \
+  --workpath packages/desktop/build \
+  packages/desktop/tempest-server.spec
 
-DEST="apps/desktop/src-tauri/binaries"
+DEST="packages/desktop/src-tauri/binaries"
 mkdir -p "$DEST"
 rm -rf "${DEST:?}/$NAME"
-cp "apps/desktop/dist/$NAME" "$DEST/$NAME"
+cp "packages/desktop/dist/$NAME" "$DEST/$NAME"
 
 # Fast sanity only (arg parsing + one full self-extraction of the frozen bundle); the real
 # proof — health, ingest, and a frozen-worker local prove — is the API smoke test.
