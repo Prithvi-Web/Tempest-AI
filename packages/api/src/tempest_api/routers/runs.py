@@ -1,9 +1,10 @@
 """Run endpoints (master spec §8): create (idempotent), list (cursor pagination), detail,
 and bundle upload."""
 
+import hashlib
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, Query, UploadFile
+from fastapi import APIRouter, Depends, Header, Query, Response, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,10 +12,11 @@ from sqlalchemy.orm import selectinload
 
 from tempest.model import Verdict
 from tempest_api import serialize
+from tempest_api.bundlestore import bundle_store
 from tempest_api.db.models import Divergence, Repo, Run, RunEvent, Target
 from tempest_api.db.session import get_session
 from tempest_api.errors import ApiError, error_responses
-from tempest_api.ingest import ingest_zip_bytes
+from tempest_api.ingest import ingest_zip_bytes, parse_bundle_zip
 from tempest_api.ledger import append_run_event
 from tempest_api.schemas import (
     ErrorCode,
@@ -182,6 +184,84 @@ async def list_run_events(run_id: int, session: SessionDep) -> list[RunEventOut]
         select(RunEvent).where(RunEvent.run_id == run_id).order_by(RunEvent.seq)
     )
     return [serialize.run_event(e) for e in events]
+
+
+@router.post(
+    "/v1/runs/import",
+    operation_id="importRunBundle",
+    responses=error_responses(400, 422),
+)
+async def import_run_bundle(file: UploadFile, session: SessionDep) -> RunDetail:
+    """Import a portable `.tempest.zip` produced elsewhere: repo + run are created from the
+    manifest, then the bundle takes the exact upload ingestion path. Idempotent by content —
+    re-importing the same bytes returns the run that already holds them."""
+    data = await file.read()
+    digest = hashlib.sha256(data).hexdigest()
+    existing = await session.scalar(select(Run).where(Run.bundle_digest == digest))
+    if existing is not None:
+        return serialize.run_detail(await _load_run_with_children(session, existing.id))
+    bundle = parse_bundle_zip(data)  # 400 BUNDLE_INVALID on non-bundles, before any row
+    manifest = bundle.manifest
+    repo = await get_or_create_repo(session, manifest.repo)
+    run = Run(
+        repo_id=repo.id,
+        base_sha=manifest.base_sha,
+        head_sha=manifest.head_sha,
+        status=RunStatus.PENDING,
+    )
+    session.add(run)
+    await session.flush()
+    await append_run_event(
+        session,
+        run.id,
+        "run.imported",
+        stage="created",
+        message=f"run imported from {file.filename or 'a .tempest bundle'} ({manifest.repo})",
+        extra={"repo": manifest.repo, "digest": digest},
+    )
+    await ingest_zip_bytes(session, run, data)
+    await session.commit()
+    return serialize.run_detail(await _load_run_with_children(session, run.id))
+
+
+@router.get(
+    "/v1/runs/{run_id}/bundle",
+    operation_id="exportRunBundle",
+    response_class=Response,
+    responses={
+        200: {"content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}}},
+        **error_responses(404, 422),
+    },
+)
+async def export_run_bundle(run_id: int, session: SessionDep) -> Response:
+    """Hand back the run's `.tempest.zip` byte-identical to what was ingested (L7) — the
+    portable artifact another Tempest imports with POST /v1/runs/import."""
+    run = await session.get(Run, run_id)
+    if run is None:
+        raise ApiError(404, ErrorCode.NOT_FOUND, f"run {run_id} does not exist", {"run_id": run_id})
+    if run.bundle_digest is None:
+        raise ApiError(
+            404,
+            ErrorCode.NOT_FOUND,
+            f"run {run_id} has no stored bundle — it is still pending, or was ingested before "
+            "the bundle store existed (re-prove it to make it exportable)",
+            {"run_id": run_id},
+        )
+    try:
+        data = bundle_store().get(run.bundle_digest)
+    except KeyError:
+        raise ApiError(
+            404,
+            ErrorCode.NOT_FOUND,
+            f"run {run_id}'s bundle blob is missing from the store (digest "
+            f"{run.bundle_digest[:12]}…) — it may have been removed from disk externally",
+            {"run_id": run_id, "digest": run.bundle_digest},
+        ) from None
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="run-{run_id}.tempest.zip"'},
+    )
 
 
 @router.post(

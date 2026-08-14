@@ -418,3 +418,24 @@ ingest can orphan a blob; orphans are collected on the next enforce pass — nev
 (a run pointing at a deleted blob) except in the sub-millisecond window between row deletion
 flush and commit, accepted and documented here. Budget pruning deletes user history by design;
 the budget is opt-in and the newest run is contractually safe.
+
+## ADR-0018 — Divergence FTS + portable `.tempest` import/export (Phase 11)
+
+**Context.** Phase 11 requires text search over divergences and a portable bundle format.
+
+**Decision.** (1) Search: an external-content **SQLite FTS5** index (`divergences_fts` over
+detail + base/head summaries) maintained by AFTER INSERT/DELETE triggers — ingest indexes and
+budget-prune cascades de-index with no code path able to forget; created idempotently on every
+open, rebuilt when adopted stores have unindexed rows; it is an adjunct index, excluded from
+migration parity snapshots and NOT in the alembic chain because Postgres deployments search the
+same three columns with ILIKE instead (`searchDivergences` picks per dialect). User queries are
+re-tokenized into quoted terms so FTS5 operator syntax is inert. (2) Portability: the `.tempest`
+file IS the bundle zip. `exportRunBundle` returns the stored blob byte-identical to ingest (L7);
+`importRunBundle` creates repo+run from the manifest and reuses the exact upload ingestion path,
+idempotently by sha256 — re-importing returns the run that already holds those bytes.
+
+**Consequences.** Desktop UI ships divergence search (RunsView) through a generated
+`search_divergences` binding. Export/import UI needs a file-dialog plugin the shell doesn't
+carry yet — the HTTP/JSON-RPC surface is the contract for now; UI buttons ride the Phase 9
+desktop-E2E straggler. Binary export over the stdio bridge would need a base64 wrapper; not
+added until a consumer exists.

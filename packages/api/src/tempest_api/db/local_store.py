@@ -123,8 +123,34 @@ def _prepare(conn: sa.Connection) -> None:
     conn.execute(text("UPDATE alembic_version SET version_num = :head"), {"head": HEAD_REVISION})
 
 
+# FTS over divergences (Phase 11): an external-content FTS5 index kept in sync by triggers —
+# ingest inserts index, budget-pruning cascade deletes de-index, no code path can forget.
+# SQLite-only adjunct (Postgres searches with ILIKE); not part of the alembic chain, created
+# idempotently on every open and rebuilt when adopted stores have unindexed rows.
+_FTS_DDL = (
+    "CREATE VIRTUAL TABLE IF NOT EXISTS divergences_fts USING fts5("
+    "detail, base_summary, head_summary, content='divergences', content_rowid='id')",
+    "CREATE TRIGGER IF NOT EXISTS divergences_fts_ai AFTER INSERT ON divergences BEGIN "
+    "INSERT INTO divergences_fts(rowid, detail, base_summary, head_summary) "
+    "VALUES (new.id, new.detail, new.base_summary, new.head_summary); END",
+    "CREATE TRIGGER IF NOT EXISTS divergences_fts_ad AFTER DELETE ON divergences BEGIN "
+    "INSERT INTO divergences_fts(divergences_fts, rowid, detail, base_summary, head_summary) "
+    "VALUES ('delete', old.id, old.detail, old.base_summary, old.head_summary); END",
+)
+
+
+def _ensure_fts(conn: sa.Connection) -> None:
+    for statement in _FTS_DDL:
+        conn.execute(text(statement))
+    indexed = conn.execute(text("SELECT COUNT(*) FROM divergences_fts")).scalar()
+    stored = conn.execute(text("SELECT COUNT(*) FROM divergences")).scalar()
+    if indexed != stored:
+        conn.execute(text("INSERT INTO divergences_fts(divergences_fts) VALUES ('rebuild')"))
+
+
 async def prepare_local_store(engine: AsyncEngine) -> None:
     """Create, adopt, or forward-migrate the store — one transaction, so a failed migration
     leaves the previous schema intact (never corrupts)."""
     async with engine.begin() as conn:
         await conn.run_sync(_prepare)
+        await conn.run_sync(_ensure_fts)

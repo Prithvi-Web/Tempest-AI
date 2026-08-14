@@ -13,7 +13,7 @@ from tempest_api.db.local_store import (
     prepare_local_store,
 )
 from tempest_api.errors import install_error_handlers
-from tempest_api.routers import divergences, health, local, runs, targets
+from tempest_api.routers import divergences, health, local, runs, search, targets
 
 
 @asynccontextmanager
@@ -58,4 +58,5 @@ def create_app() -> FastAPI:
     app.include_router(targets.router)
     app.include_router(divergences.router)
     app.include_router(local.router)
+    app.include_router(search.router)
     return app

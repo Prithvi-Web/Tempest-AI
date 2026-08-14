@@ -88,3 +88,11 @@ export function useGetDivergenceRepro(divergenceId: number) {
 export function startLocalProve(request: LocalProveRequest): Promise<RunCreated> {
   return unwrap(commands.startLocalProve(request));
 }
+
+export function useSearchDivergences(q: string) {
+  return useQuery({
+    queryKey: ["searchDivergences", q],
+    queryFn: () => unwrap(commands.searchDivergences(q, null)),
+    enabled: q.trim().length > 0,
+  });
+}

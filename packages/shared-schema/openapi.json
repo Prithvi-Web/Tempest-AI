@@ -1,6 +1,20 @@
 {
   "components": {
     "schemas": {
+      "Body_importRunBundle": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_importRunBundle",
+        "type": "object"
+      },
       "Body_uploadRunBundle": {
         "properties": {
           "file": {
@@ -618,6 +632,73 @@
         "title": "RunSummary",
         "type": "object"
       },
+      "SearchHit": {
+        "properties": {
+          "divergence_class": {
+            "$ref": "#/components/schemas/DivergenceClass"
+          },
+          "divergence_id": {
+            "title": "Divergence Id",
+            "type": "integer"
+          },
+          "module": {
+            "title": "Module",
+            "type": "string"
+          },
+          "qualname": {
+            "title": "Qualname",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "snippet": {
+            "title": "Snippet",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "divergence_id",
+          "target_id",
+          "run_id",
+          "module",
+          "qualname",
+          "divergence_class",
+          "severity",
+          "snippet"
+        ],
+        "title": "SearchHit",
+        "type": "object"
+      },
+      "SearchResults": {
+        "properties": {
+          "hits": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "title": "Hits",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "hits"
+        ],
+        "title": "SearchResults",
+        "type": "object"
+      },
       "Severity": {
         "description": "Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE.",
         "enum": [
@@ -1178,6 +1259,58 @@
         ]
       }
     },
+    "/v1/runs/import": {
+      "post": {
+        "description": "Import a portable `.tempest.zip` produced elsewhere: repo + run are created from the\nmanifest, then the bundle takes the exact upload ingestion path. Idempotent by content \u2014\nre-importing the same bytes returns the run that already holds them.",
+        "operationId": "importRunBundle",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_importRunBundle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Import Run Bundle",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
     "/v1/runs/{run_id}": {
       "get": {
         "operationId": "getRun",
@@ -1231,6 +1364,58 @@
       }
     },
     "/v1/runs/{run_id}/bundle": {
+      "get": {
+        "description": "Hand back the run's `.tempest.zip` byte-identical to what was ingested (L7) \u2014 the\nportable artifact another Tempest imports with POST /v1/runs/import.",
+        "operationId": "exportRunBundle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Export Run Bundle",
+        "tags": [
+          "runs"
+        ]
+      },
       "post": {
         "description": "Ingest a CLI-produced `.tempest.zip` (multipart field `file`) into this pending run.\nRejected bundles write nothing; the fan-out is one transaction.",
         "operationId": "uploadRunBundle",
@@ -1367,6 +1552,61 @@
         "summary": "List Run Events",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/v1/search/divergences": {
+      "get": {
+        "description": "Index-backed text search across divergence details and base/head summaries.",
+        "operationId": "searchDivergences",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResults"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Search Divergences",
+        "tags": [
+          "search"
         ]
       }
     },

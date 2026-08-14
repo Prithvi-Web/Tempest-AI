@@ -10,7 +10,7 @@ use serde_json::{json, Map, Value};
 
 use crate::generated::domain::{
     DivergenceDetail, HealthResponse, LocalProveRequest, PageRunSummary, RunCreated, RunDetail,
-    RunEventOut, TargetDetail, Verdict,
+    RunEventOut, SearchResults, TargetDetail, Verdict,
 };
 use crate::supervisor::{RpcError, Supervisor, DEFAULT_CALL_TIMEOUT};
 
@@ -137,6 +137,21 @@ pub fn start_local_prove(
     request: LocalProveRequest,
 ) -> CmdResult<RunCreated> {
     call_typed(&state, "startLocalProve", json!({"body": request}))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn search_divergences(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    q: String,
+    limit: Option<u32>,
+) -> CmdResult<SearchResults> {
+    let mut params = Map::new();
+    params.insert("q".into(), Value::String(q));
+    if let Some(limit) = limit {
+        params.insert("limit".into(), json!(limit));
+    }
+    call_typed(&state, "searchDivergences", Value::Object(params))
 }
 
 #[cfg(test)]

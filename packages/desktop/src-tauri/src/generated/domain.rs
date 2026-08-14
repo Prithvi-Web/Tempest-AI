@@ -177,6 +177,36 @@ impl<'de> ::serde::Deserialize<'de> for BaseSha {
             })
     }
 }
+#[doc = "`BodyImportRunBundle`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"Body_importRunBundle\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"file\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"file\": {"]
+#[doc = "      \"title\": \"File\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"contentMediaType\": \"application/octet-stream\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct BodyImportRunBundle {
+    pub file: ::std::string::String,
+}
+impl BodyImportRunBundle {
+    pub fn builder() -> builder::BodyImportRunBundle {
+        Default::default()
+    }
+}
 #[doc = "Taxonomy of observable behavior differences (master spec stage 7)."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -1771,6 +1801,119 @@ impl RunSummary {
         Default::default()
     }
 }
+#[doc = "`SearchHit`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SearchHit\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"divergence_class\","]
+#[doc = "    \"divergence_id\","]
+#[doc = "    \"module\","]
+#[doc = "    \"qualname\","]
+#[doc = "    \"run_id\","]
+#[doc = "    \"severity\","]
+#[doc = "    \"snippet\","]
+#[doc = "    \"target_id\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"divergence_class\": {"]
+#[doc = "      \"$ref\": \"#/$defs/DivergenceClass\""]
+#[doc = "    },"]
+#[doc = "    \"divergence_id\": {"]
+#[doc = "      \"title\": \"Divergence Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"module\": {"]
+#[doc = "      \"title\": \"Module\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"qualname\": {"]
+#[doc = "      \"title\": \"Qualname\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"run_id\": {"]
+#[doc = "      \"title\": \"Run Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"severity\": {"]
+#[doc = "      \"$ref\": \"#/$defs/Severity\""]
+#[doc = "    },"]
+#[doc = "    \"snippet\": {"]
+#[doc = "      \"title\": \"Snippet\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"target_id\": {"]
+#[doc = "      \"title\": \"Target Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SearchHit {
+    pub divergence_class: DivergenceClass,
+    pub divergence_id: i32,
+    pub module: ::std::string::String,
+    pub qualname: ::std::string::String,
+    pub run_id: i32,
+    pub severity: Severity,
+    pub snippet: ::std::string::String,
+    pub target_id: i32,
+}
+impl SearchHit {
+    pub fn builder() -> builder::SearchHit {
+        Default::default()
+    }
+}
+#[doc = "`SearchResults`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SearchResults\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"hits\","]
+#[doc = "    \"query\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"hits\": {"]
+#[doc = "      \"title\": \"Hits\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/SearchHit\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"query\": {"]
+#[doc = "      \"title\": \"Query\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SearchResults {
+    pub hits: ::std::vec::Vec<SearchHit>,
+    pub query: ::std::string::String,
+}
+impl SearchResults {
+    pub fn builder() -> builder::SearchResults {
+        Default::default()
+    }
+}
 #[doc = "Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -2286,6 +2429,44 @@ impl ::std::convert::TryFrom<::std::string::String> for Verdict {
 }
 #[doc = r" Types for composing complex structures."]
 pub mod builder {
+    #[derive(Clone, Debug)]
+    pub struct BodyImportRunBundle {
+        file: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for BodyImportRunBundle {
+        fn default() -> Self {
+            Self {
+                file: Err("no value supplied for file".to_string()),
+            }
+        }
+    }
+    impl BodyImportRunBundle {
+        pub fn file<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.file = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for file: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<BodyImportRunBundle> for super::BodyImportRunBundle {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: BodyImportRunBundle,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self { file: value.file? })
+        }
+    }
+    impl ::std::convert::From<super::BodyImportRunBundle> for BodyImportRunBundle {
+        fn from(value: super::BodyImportRunBundle) -> Self {
+            Self {
+                file: Ok(value.file),
+            }
+        }
+    }
     #[derive(Clone, Debug)]
     pub struct DivergenceDetail {
         args_literal: ::std::result::Result<::std::string::String, ::std::string::String>,
@@ -3595,6 +3776,198 @@ pub mod builder {
                 status: Ok(value.status),
                 target_count: Ok(value.target_count),
                 verdict: Ok(value.verdict),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SearchHit {
+        divergence_class: ::std::result::Result<super::DivergenceClass, ::std::string::String>,
+        divergence_id: ::std::result::Result<i32, ::std::string::String>,
+        module: ::std::result::Result<::std::string::String, ::std::string::String>,
+        qualname: ::std::result::Result<::std::string::String, ::std::string::String>,
+        run_id: ::std::result::Result<i32, ::std::string::String>,
+        severity: ::std::result::Result<super::Severity, ::std::string::String>,
+        snippet: ::std::result::Result<::std::string::String, ::std::string::String>,
+        target_id: ::std::result::Result<i32, ::std::string::String>,
+    }
+    impl ::std::default::Default for SearchHit {
+        fn default() -> Self {
+            Self {
+                divergence_class: Err("no value supplied for divergence_class".to_string()),
+                divergence_id: Err("no value supplied for divergence_id".to_string()),
+                module: Err("no value supplied for module".to_string()),
+                qualname: Err("no value supplied for qualname".to_string()),
+                run_id: Err("no value supplied for run_id".to_string()),
+                severity: Err("no value supplied for severity".to_string()),
+                snippet: Err("no value supplied for snippet".to_string()),
+                target_id: Err("no value supplied for target_id".to_string()),
+            }
+        }
+    }
+    impl SearchHit {
+        pub fn divergence_class<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::DivergenceClass>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.divergence_class = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for divergence_class: {e}"));
+            self
+        }
+        pub fn divergence_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.divergence_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for divergence_id: {e}"));
+            self
+        }
+        pub fn module<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.module = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for module: {e}"));
+            self
+        }
+        pub fn qualname<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.qualname = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for qualname: {e}"));
+            self
+        }
+        pub fn run_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.run_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for run_id: {e}"));
+            self
+        }
+        pub fn severity<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Severity>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.severity = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for severity: {e}"));
+            self
+        }
+        pub fn snippet<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.snippet = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for snippet: {e}"));
+            self
+        }
+        pub fn target_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SearchHit> for super::SearchHit {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SearchHit,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                divergence_class: value.divergence_class?,
+                divergence_id: value.divergence_id?,
+                module: value.module?,
+                qualname: value.qualname?,
+                run_id: value.run_id?,
+                severity: value.severity?,
+                snippet: value.snippet?,
+                target_id: value.target_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SearchHit> for SearchHit {
+        fn from(value: super::SearchHit) -> Self {
+            Self {
+                divergence_class: Ok(value.divergence_class),
+                divergence_id: Ok(value.divergence_id),
+                module: Ok(value.module),
+                qualname: Ok(value.qualname),
+                run_id: Ok(value.run_id),
+                severity: Ok(value.severity),
+                snippet: Ok(value.snippet),
+                target_id: Ok(value.target_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SearchResults {
+        hits: ::std::result::Result<::std::vec::Vec<super::SearchHit>, ::std::string::String>,
+        query: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for SearchResults {
+        fn default() -> Self {
+            Self {
+                hits: Err("no value supplied for hits".to_string()),
+                query: Err("no value supplied for query".to_string()),
+            }
+        }
+    }
+    impl SearchResults {
+        pub fn hits<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::SearchHit>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.hits = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for hits: {e}"));
+            self
+        }
+        pub fn query<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.query = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for query: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SearchResults> for super::SearchResults {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SearchResults,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                hits: value.hits?,
+                query: value.query?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SearchResults> for SearchResults {
+        fn from(value: super::SearchResults) -> Self {
+            Self {
+                hits: Ok(value.hits),
+                query: Ok(value.query),
             }
         }
     }

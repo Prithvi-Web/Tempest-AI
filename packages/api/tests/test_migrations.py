@@ -31,7 +31,9 @@ def _schema_snapshot(db_path: Path) -> dict[str, Any]:
     inspector = sa.inspect(engine)
     snapshot: dict[str, Any] = {}
     for table in inspector.get_table_names():
-        if table == "alembic_version":
+        # alembic bookkeeping and the FTS index (an adjunct rebuilt from `divergences`, not
+        # schema-of-record — see local_store._ensure_fts) are not part of the parity contract.
+        if table == "alembic_version" or table.startswith("divergences_fts"):
             continue
         snapshot[table] = {
             "columns": {

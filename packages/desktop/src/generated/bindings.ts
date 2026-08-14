@@ -15,6 +15,7 @@ export const commands = {
 	getDivergence: (divergenceId: number) => typedError<DivergenceDetail, SidecarFailure>(__TAURI_INVOKE("get_divergence", { divergenceId })),
 	getDivergenceRepro: (divergenceId: number) => typedError<ReproSource, SidecarFailure>(__TAURI_INVOKE("get_divergence_repro", { divergenceId })),
 	startLocalProve: (request: LocalProveRequest) => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_local_prove", { request })),
+	searchDivergences: (q: string, limit: number | null) => typedError<SearchResults, SidecarFailure>(__TAURI_INVOKE("search_divergences", { q, limit })),
 };
 
 /** Events */
@@ -841,6 +842,113 @@ export type RunSummary = {
 	status: RunStatus,
 	target_count: number,
 	verdict: Verdict | null,
+};
+
+/**
+ * `SearchHit`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SearchHit",
+ *   "type": "object",
+ *   "required": [
+ *     "divergence_class",
+ *     "divergence_id",
+ *     "module",
+ *     "qualname",
+ *     "run_id",
+ *     "severity",
+ *     "snippet",
+ *     "target_id"
+ *   ],
+ *   "properties": {
+ *     "divergence_class": {
+ *       "$ref": "#/$defs/DivergenceClass"
+ *     },
+ *     "divergence_id": {
+ *       "title": "Divergence Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "module": {
+ *       "title": "Module",
+ *       "type": "string"
+ *     },
+ *     "qualname": {
+ *       "title": "Qualname",
+ *       "type": "string"
+ *     },
+ *     "run_id": {
+ *       "title": "Run Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "severity": {
+ *       "$ref": "#/$defs/Severity"
+ *     },
+ *     "snippet": {
+ *       "title": "Snippet",
+ *       "type": "string"
+ *     },
+ *     "target_id": {
+ *       "title": "Target Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SearchHit = {
+	divergence_class: DivergenceClass,
+	divergence_id: number,
+	module: string,
+	qualname: string,
+	run_id: number,
+	severity: Severity,
+	snippet: string,
+	target_id: number,
+};
+
+/**
+ * `SearchResults`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SearchResults",
+ *   "type": "object",
+ *   "required": [
+ *     "hits",
+ *     "query"
+ *   ],
+ *   "properties": {
+ *     "hits": {
+ *       "title": "Hits",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/SearchHit"
+ *       }
+ *     },
+ *     "query": {
+ *       "title": "Query",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SearchResults = {
+	hits: SearchHit[],
+	query: string,
 };
 
 /**

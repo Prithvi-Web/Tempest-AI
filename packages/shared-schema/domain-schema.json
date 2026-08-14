@@ -1,5 +1,19 @@
 {
   "$defs": {
+    "Body_importRunBundle": {
+      "properties": {
+        "file": {
+          "contentMediaType": "application/octet-stream",
+          "title": "File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "title": "Body_importRunBundle",
+      "type": "object"
+    },
     "DivergenceClass": {
       "description": "Taxonomy of observable behavior differences (master spec stage 7).",
       "enum": [
@@ -632,6 +646,79 @@
         "divergence_count"
       ],
       "title": "RunSummary",
+      "type": "object"
+    },
+    "SearchHit": {
+      "properties": {
+        "divergence_class": {
+          "$ref": "#/$defs/DivergenceClass"
+        },
+        "divergence_id": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Divergence Id",
+          "type": "integer"
+        },
+        "module": {
+          "title": "Module",
+          "type": "string"
+        },
+        "qualname": {
+          "title": "Qualname",
+          "type": "string"
+        },
+        "run_id": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Run Id",
+          "type": "integer"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "snippet": {
+          "title": "Snippet",
+          "type": "string"
+        },
+        "target_id": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Target Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "divergence_id",
+        "target_id",
+        "run_id",
+        "module",
+        "qualname",
+        "divergence_class",
+        "severity",
+        "snippet"
+      ],
+      "title": "SearchHit",
+      "type": "object"
+    },
+    "SearchResults": {
+      "properties": {
+        "hits": {
+          "items": {
+            "$ref": "#/$defs/SearchHit"
+          },
+          "title": "Hits",
+          "type": "array"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "hits"
+      ],
+      "title": "SearchResults",
       "type": "object"
     },
     "Severity": {
