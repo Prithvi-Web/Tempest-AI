@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --all-packages
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run mypy --strict packages/engine/src packages/api/src
+      - run: uv run pytest packages/engine packages/api -q --cov --cov-fail-under=85
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+      - run: pnpm --filter @tempest/web exec next build
+
+  contract-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: uv sync --all-packages
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gen:api
+      - run: git diff --exit-code packages/shared-schema packages/web/src/generated
+
+  forbidden-verdict-grep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the string SAFE must not appear in the product surface (Law L2)
+        run: |
+          ! grep -rn --include='*.py' --include='*.ts' --include='*.tsx' -w 'SAFE' packages/
+
+  compose-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f docker/compose.yaml config -q

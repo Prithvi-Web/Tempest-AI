@@ -1,0 +1,7 @@
+packages:
+  - "packages/shared-schema"
+  - "packages/ts-sidecar"
+  - "packages/web"
+allowBuilds:
+  esbuild: true
+  sharp: true

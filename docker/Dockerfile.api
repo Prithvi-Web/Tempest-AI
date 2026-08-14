@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+COPY pyproject.toml uv.lock .python-version ./
+COPY packages/engine/pyproject.toml packages/engine/pyproject.toml
+COPY packages/api/pyproject.toml packages/api/pyproject.toml
+COPY packages/engine/src packages/engine/src
+COPY packages/api/src packages/api/src
+RUN uv sync --all-packages --frozen --no-dev
+
+RUN useradd --create-home --uid 10001 tempest
+USER tempest
+EXPOSE 8000
+CMD ["uv", "run", "--no-sync", "uvicorn", "--factory", "tempest_api.app:create_app", "--host", "0.0.0.0", "--port", "8000"]

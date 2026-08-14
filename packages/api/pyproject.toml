@@ -1,0 +1,25 @@
+[project]
+name = "tempest-api"
+version = "0.1.0"
+description = "Tempest AI — bundle ingestion and dashboard API"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.116",
+    "pydantic>=2.11",
+    "tempest-engine",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+]
+
+[tool.uv.sources]
+tempest-engine = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "tempest_api"

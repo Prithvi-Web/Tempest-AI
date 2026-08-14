@@ -1,0 +1,38 @@
+[tool.uv.workspace]
+members = ["packages/engine", "packages/api"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28",
+    "mypy>=1.17",
+    "pytest>=8.4",
+    "pytest-cov>=6.2",
+    "ruff>=0.12",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["packages/engine/src", "packages/api/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+mypy_path = ["packages/engine/src", "packages/api/src"]
+explicit_package_bases = true
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --import-mode=importlib"
+testpaths = ["packages/engine/tests", "packages/api/tests"]
+
+[tool.coverage.run]
+source_pkgs = ["tempest", "tempest_api"]
+branch = true
+parallel = true
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

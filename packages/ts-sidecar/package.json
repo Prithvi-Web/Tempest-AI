@@ -1,0 +1,19 @@
+{
+  "name": "@tempest/ts-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript analysis sidecar — JSON-RPC 2.0 over stdio to the Python core.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

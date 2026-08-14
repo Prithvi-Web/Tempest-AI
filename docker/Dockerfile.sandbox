@@ -1,0 +1,10 @@
+# Execution sandbox for user code (Law L6). Run with:
+#   --network none --read-only --tmpfs /scratch --memory <limit> --pids-limit <limit>
+#   --security-opt seccomp=docker/seccomp-tempest.json --cap-drop ALL
+# The DockerSandbox backend (packages/engine/src/tempest/sandbox/) supplies those flags;
+# they are not optional and there is no unsandboxed mode for user repos (ADR-0003).
+FROM python:3.12-slim
+
+RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin runner
+USER runner
+WORKDIR /scratch

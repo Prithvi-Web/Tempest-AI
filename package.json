@@ -1,0 +1,14 @@
+{
+  "name": "tempest-monorepo",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "gen:api": "node packages/shared-schema/scripts/gen-api.mjs",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @tempest/web test:e2e"
+  }
+}

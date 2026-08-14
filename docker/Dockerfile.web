@@ -1,0 +1,18 @@
+FROM node:22-alpine AS build
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/shared-schema packages/shared-schema
+COPY packages/web packages/web
+COPY packages/ts-sidecar/package.json packages/ts-sidecar/package.json
+RUN pnpm install --frozen-lockfile --filter @tempest/web... --filter @tempest/shared-schema
+# The image consumes the committed generated client — no Python needed here.
+RUN pnpm --filter @tempest/web exec next build
+
+FROM node:22-alpine
+RUN corepack enable && adduser -D -u 10001 tempest
+WORKDIR /app
+COPY --from=build /app /app
+USER tempest
+EXPOSE 3000
+CMD ["pnpm", "--filter", "@tempest/web", "exec", "next", "start", "-H", "0.0.0.0", "-p", "3000"]
