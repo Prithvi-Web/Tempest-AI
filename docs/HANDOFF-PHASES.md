@@ -37,6 +37,8 @@ same flawless bar and you verify it with real gates, never their reports.
 | Perf | ✅ | `PersistentWorker` — pyfix **118→20 s (5.9×)** |
 | **11 Local-First Data & Perf** | ✅ 5/6 boxes 2026-08-14 (ADR-0016..0019) | Versioned WAL store w/ refuse-newer; content-addressed bundle store + budget GC; FTS + `.tempest` import/export; bench gate green (`bench_guard: PASS`, darwin baseline committed, CI `bench` job added); L11 cancel <2 s + battery/thermal pause. **Open: the 8-hour soak** (harness landed, 2-min validation PASS −4.87%; 8-h run started 13:33 → `bench/soak.json` ≈21:33) |
 | **17 Reliability & Observability** | ✅ 2026-08-14 (ADR-0020) | Redaction-first, local-only, opt-in: `tempest.redact` + gate `redaction_check --planted-secrets` **14/14 contained** (in verify + CI); crashes scrubbed at write time (excepthook CLI + sidecar); counters-only opt-in telemetry wired into local prove; `tempest diagnose` (inspectable zip, transmits nothing); `tempest.obslog` JSON-lines + rotation + `tempest logs show` + desktop LOGS view; `tempest doctor` (live: T2, all pass). `docs/PRIVACY.md` + `docs/SUPPORT.md`. No transmission path exists until Phase 13 (L10 zero-egress preserved) |
+| **13 Team Sync (core)** | ✅ protocol 2026-08-14 (ADR-0022) | `checkBundlePresence` + `syncPush`: delta-only, idempotent, resumable — the store IS the queue; source stripped BEFORE hash/wire by default (`syncstrip`, opt-in `TEMPEST_SYNC_SHARE_SOURCE=1`); gates ran against a REAL killed-and-restarted second server: no dup/loss, push=pull byte-identical. **PENDING(docker):** compose end-to-end, Postgres sync gate, Helm, image signing (`docs/DEPLOY-SYNC.md`) |
+| **12 Distribution (GitHub-only)** | ✅ rescoped + built 2026-08-14 (ADR-0021) | Owner decision: no Apple ID/certs — `release.yml` on tag: wheel/sdist + unsigned .app + SHA256SUMS + install-check job (`uv tool install` + doctor on clean runners); README install docs. **Gate fires on first tag push** |
 
 **Architecture now:** Python engine (the nine stages + determinism moat — the validated core;
 kept in Python by ADR-0011, user-confirmed) · Rust host (`packages/desktop/src-tauri`: supervisor,
@@ -123,9 +125,11 @@ For each: the goal, the approach that fits this codebase, and the owner blocker 
   code; report proof rate + time-to-first-divergence for each. **This is the number that says
   whether there's a company.**
 
-**Recommended order from here:** ~~11~~ ✅ → ~~17~~ ✅ → **13 next** (sync server — no owner
-blocker to start the container work) → then 12/14/15/16 as the owner clears their [ASK ME]
-purchases (certs, tenants, compliance budget, clean VMs) → 18 last.
+**Recommended order from here:** ~~11~~ ✅ → ~~17~~ ✅ → ~~13 core~~ ✅ → ~~12 (GitHub-only)~~ ✅
+→ **open question for the owner:** with GitHub-only distribution as the product direction, do
+the enterprise phases (14 SSO/SCIM, 15 licensing, 16 SOC 2) still apply, or does the roadmap
+jump to 18-style GA polish (onboarding, docs, accessibility, live-PR proof rate)? 14–16 remain
+blocked on owner resources either way; 18's design-partner gate needs the first tagged release.
 
 ---
 

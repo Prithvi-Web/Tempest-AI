@@ -160,14 +160,24 @@ CLI from GitHub unaided and `tempest doctor` passes. No owner purchases required
 
 ## Phase 13 — Team Sync Server (optional, self-hosted first)
 
-- [ ] Customer-run container: Postgres + object storage; Helm chart + docker-compose; signed image
-- [ ] Sync: content-addressed, resumable, idempotent, delta-only; bundles immutable by design
-- [ ] Redaction at the boundary: source snippets stripped unless org policy enables sharing
-      (default OFF) — proven by test
-- [ ] Offline queue with durable retry; app never blocks on an unreachable server
+- [x] Sync: content-addressed, resumable, idempotent, delta-only — 2026-08-14, ADR-0022.
+      `checkBundlePresence` + `syncPush`; the store IS the durable queue (no queue state to
+      corrupt); wire-digest identity on both ends; server's import digest-idempotent.
+- [x] Redaction at the boundary, default OFF, proven by test — `syncstrip` strips repro-script
+      source BEFORE hashing/wire; planted-source tests: nothing crosses by default;
+      `TEMPEST_SYNC_SHARE_SOURCE=1` opt-in is byte-exact passthrough.
+- [x] Offline queue with durable retry; app never blocks — dead server = counted `remaining`,
+      no exception; proven against a REAL second server process killed and restarted:
+      resume delivers exactly the missing set, re-push and server bounces are no-ops
+      (`test_sync_push.py` 4/4 + `test_sync_strip.py` 3/3, 2026-08-14).
+- [ ] Customer-run container end-to-end: `docker/compose.yaml` (Postgres+MinIO+Redis+api)
+      exists and is config-validated in CI (`compose-validate`); **running the stack, the
+      Postgres-backed sync gate, Helm chart, and image signing are PENDING(docker)** — this
+      dev machine has no container runtime (`docs/DEPLOY-SYNC.md` states it loudly).
 
-*Gate:* kill network mid-sync → clean resume, no duplication, no loss; push=pull byte-identical
-property test; redaction test proves no source text crosses with default policy.
+*Gate:* kill network mid-sync → clean resume, no duplication, no loss ✓ (real server
+kill+restart, 2026-08-14); push=pull byte-identical ✓ (opt-in sharing path); redaction test
+proves no source crosses with default policy ✓. Container leg pends a Docker machine.
 
 ## Phase 14 — Enterprise Identity, Policy & Audit
 

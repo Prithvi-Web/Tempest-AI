@@ -521,3 +521,25 @@ an agent someone can download off GitHub. No Apple ID and stuff — only GitHub.
 from the signed artifact" gate becomes "install unaided from the GitHub release." Enterprise
 buyers who require notarized binaries are a future decision the owner can reverse with money;
 nothing in the codebase blocks it.
+
+## ADR-0022 — Sync protocol: the store is the queue; strip before hash (Phase 13)
+
+**Context.** Phase 13 requires content-addressed, resumable, idempotent, delta-only sync with
+redaction at the boundary and an offline queue with durable retry.
+
+**Decision.** (1) **No separate queue exists**: the content-addressed bundle store is the
+durable queue. A failed push mutates nothing; the next push re-derives the delta from a
+presence check (`checkBundlePresence`) and resumes exactly the missing set. No queue state
+means no queue corruption. (2) **The policy boundary runs before hashing**: bundles are
+source-stripped (`syncstrip`, default ON stripping; `TEMPEST_SYNC_SHARE_SOURCE=1` opts out)
+and the WIRE bytes' sha256 is the identity on both ends — presence, dedup, and the server's
+digest-idempotent import all operate on what actually crossed. (3) The team server is the
+same `tempest_api` app (one codebase, ADR-0009 Postgres in containers), deployed via the
+existing `docker/compose.yaml`. (4) A rejected bundle is counted and skipped, an unreachable
+server ends the attempt with `remaining` counted — the app is never blocked (L8), nothing
+raises. Gates run against a REAL second server process, killed and restarted mid-flow.
+
+**Consequences.** Sequential pushes (bounded by per-request timeout) — parallelism is a perf
+follow-up, not a correctness need. Stripped and unstripped variants of the same run have
+different digests by design (they are different artifacts). Container-runner legs (compose
+end-to-end, Helm, image signing) are PENDING(docker) — stated in docs/DEPLOY-SYNC.md.
