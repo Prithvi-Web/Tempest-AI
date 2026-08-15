@@ -76,7 +76,9 @@ def _kill_group(proc: subprocess.Popen[bytes]) -> None:
         return
     try:
         os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+    except (ProcessLookupError, PermissionError):  # pragma: darwin-only — see below
+        # A dead-but-unreaped group raises EPERM only on macOS; Linux keeps a zombie leader's
+        # pgid signalable, so this fallback is unreachable there by kernel design.
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
 

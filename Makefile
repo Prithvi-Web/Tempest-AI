@@ -13,6 +13,16 @@ sync:
 	uv sync --all-packages
 	pnpm install --frozen-lockfile
 
+# The LINUX coverage denominator, simulated locally (traps 15/21): the exact suite Linux CI
+# runs (macOS-only tests deselected) must also reach 100%. Run before pushing coverage-heavy
+# changes; CI's python job is this run on real Linux.
+verify-linux-denominator:
+	TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run pytest packages/engine packages/api -q --cov \
+		--deselect packages/engine/tests/integration/test_escape_suite.py \
+		--deselect "packages/engine/tests/unit/test_report_and_cli.py::TestCliProve::test_user_repo_runs_under_t2_seatbelt_on_macos" \
+		--deselect "packages/engine/tests/unit/test_fix_exec_kill_discipline.py::TestRunnerKill::test_kill_of_an_exited_unreaped_child_falls_back_to_direct_kill" \
+		--deselect "packages/engine/tests/unit/test_fix_exec_kill_discipline.py::TestCancelKillGroup::test_kill_group_on_an_exited_unreaped_child_falls_back_to_direct_kill"
+
 # Phase 11 perf bench. Gate: make bench && uv run python -m tempest.dev.bench_guard --max-regression 15
 bench:
 	uv run python -m tempest.dev.bench

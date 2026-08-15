@@ -70,7 +70,7 @@ class ProcessSandbox:
     def available(self) -> bool:
         return True
 
-    def translate_job(
+    def translate_job(  # pragma: darwin-only — invoked only under a live Seatbelt run
         self, job: dict[str, object], *, workdir: Path, scratch: Path
     ) -> dict[str, object]:
         return job
@@ -96,13 +96,15 @@ class ProcessSandbox:
         )
 
 
-def _sb_quote(path: Path) -> str:
+def _sb_quote(path: Path) -> str:  # pragma: darwin-only — Seatbelt executes only on macOS
     """A path as an SBPL string literal. Backslash and double-quote are the only metacharacters
     inside an SBPL "..." literal; escape them so a crafted worktree path cannot break out."""
     return str(path).replace("\\", "\\\\").replace('"', '\\"')
 
 
-def seatbelt_profile(*, repo: Path, scratch: Path, read_roots: tuple[Path, ...]) -> str:
+def seatbelt_profile(  # pragma: darwin-only — Seatbelt executes only on macOS
+    *, repo: Path, scratch: Path, read_roots: tuple[Path, ...]
+) -> str:
     """Deny-default Seatbelt (SBPL) profile — the macOS T2 containment (ADR-0015).
 
     Reads are broadly allowed (a no-network sandbox cannot exfiltrate what it reads) EXCEPT the
@@ -161,7 +163,7 @@ class SeatbeltSandbox:
     def translate_job(
         self, job: dict[str, object], *, workdir: Path, scratch: Path
     ) -> dict[str, object]:
-        return job
+        return job  # pragma: darwin-only — invoked only under a live Seatbelt run
 
     def _read_roots(self, interpreter: Path) -> tuple[Path, ...]:
         """Every path the sandboxed worker must be able to READ to even start: the interpreter
@@ -179,11 +181,11 @@ class SeatbeltSandbox:
             real.parent.parent,  # <prefix> of a <prefix>/bin/python layout
         }
         uv = Path.home() / ".local" / "share" / "uv"
-        if uv.exists():
+        if uv.exists():  # pragma: darwin-only — a real uv store is probed by live T2 runs
             roots.add(uv)
         return tuple(sorted(roots))
 
-    def popen(
+    def popen(  # pragma: darwin-only — Seatbelt executes only on macOS (escape suite asserts it)
         self,
         cmd: list[str],
         *,

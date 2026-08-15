@@ -128,7 +128,9 @@ def _kill(proc: subprocess.Popen[bytes]) -> None:
     if proc.returncode is None:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+        except (ProcessLookupError, PermissionError):  # pragma: darwin-only — see below
+            # A dead-but-unreaped group raises EPERM only on macOS; Linux keeps a zombie
+            # leader's pgid signalable, so this fallback is unreachable there by kernel design.
             proc.kill()
     kill_container(proc)  # T1: killing the docker CLI alone leaves the container running
     proc.wait()

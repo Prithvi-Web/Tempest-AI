@@ -8,6 +8,7 @@ issued" is unobservable from process state once a pid could have been recycled �
 records the negative space, it never fakes an execution result.
 """
 
+import platform
 import signal
 import subprocess
 import time
@@ -28,6 +29,12 @@ def _reaped() -> subprocess.Popen[bytes]:
     proc = subprocess.Popen(["sleep", "0"], start_new_session=True)
     proc.wait()  # fully reaped: from here the pid/pgid may be recycled by the OS
     return proc
+
+
+# On Linux the kernel keeps a dead-but-unreaped leader's pgid signalable (killpg succeeds
+# on a zombie group), so the exited-unreaped fallback scenario cannot be staged there — it is
+# macOS-reachable only (EPERM). The fallback arms carry matching darwin-only pragmas.
+_ZOMBIE_GROUPS_UNSTAGEABLE = platform.system() != "Darwin"
 
 
 def _zombie() -> subprocess.Popen[bytes]:
@@ -90,6 +97,7 @@ class TestRunnerKill:
         runner._kill(proc)  # double-kill call sites must be harmless, not a recycled-pgid kill
         assert spy.calls == []
 
+    @pytest.mark.skipif(_ZOMBIE_GROUPS_UNSTAGEABLE, reason="zombie pgids stay signalable on Linux")
     def test_kill_of_an_exited_unreaped_child_falls_back_to_direct_kill(self) -> None:
         proc = _zombie()
         assert proc.returncode is None  # unreaped: the guard rightly allows a kill attempt
@@ -115,6 +123,7 @@ class TestCancelKillGroup:
         cancel_module._kill_group(proc)
         assert spy.calls == []
 
+    @pytest.mark.skipif(_ZOMBIE_GROUPS_UNSTAGEABLE, reason="zombie pgids stay signalable on Linux")
     def test_kill_group_on_an_exited_unreaped_child_falls_back_to_direct_kill(self) -> None:
         proc = _zombie()
         cancel_module._kill_group(proc)  # real killpg failure → suppressed direct kill

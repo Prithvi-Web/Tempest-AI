@@ -208,6 +208,13 @@ blocked on owner resources either way; 18's design-partner gate needs the first 
     now runs `mypy --strict --platform linux` so the Linux view is checked locally too.
     (mypy --platform win32 has 13 pre-existing findings in process-control code — that is the
     Phase 10 Windows leg's problem, stated here, not silently ignored.)
+21. **The Linux COVERAGE denominator differs too** (first 100%-gate CI run): macOS-only tests
+    (Seatbelt escape/report, zombie-pgid kill fallbacks — Linux kernels keep a dead unreaped
+    leader's pgid signalable, so that scenario is unstageable there) leave their exclusive
+    lines unexecuted on Linux. Darwin-only regions carry `# pragma: darwin-only` so both
+    platforms measure the SAME set, and `make verify-linux-denominator` reproduces CI's exact
+    suite locally — run it before pushing coverage-heavy changes. Formatter warning: pragmas
+    on a `def` line get moved when ruff rewraps the signature — put them on a stable body line.
 
 ---
 
