@@ -543,3 +543,33 @@ raises. Gates run against a REAL second server process, killed and restarted mid
 follow-up, not a correctness need. Stripped and unstripped variants of the same run have
 different digests by design (they are different artifacts). Container-runner legs (compose
 end-to-end, Helm, image signing) are PENDING(docker) — stated in docs/DEPLOY-SYNC.md.
+
+## ADR-0023 — The 100% bar and the adversarial-review wave (owner decision 2026-08-14)
+
+**Context.** After the first Linux CI runs, the owner set the bar: 100% test coverage and zero
+known defects — "that is what flawless means."
+
+**Decision.** (1) **Coverage gate = 100%** (`fail_under = 100`, governing Makefile and CI).
+Reached honestly: real behavior tests first; subprocess coverage collection (children start
+coverage via `scripts/covstart/sitecustomize.py`; SIGTERM flushes); a sys.monitoring arc
+supplement for the one module that owns `sys.settrace`; and explicit justified exclusions
+only for genuinely unreachable-in-context code (platform arms, defensive guards, one
+documented tracer-attribution artifact with its pinning tests named inline). (2) **Two
+independent adversarial reviews** (correctness/concurrency; privacy/process-safety) over the
+day's code produced 4 critical + 12 major + 11 minor CONFIRMED findings — every one fixed
+test-first with the reviewer's failing sequence reproduced as the RED test. Highlights:
+zip containers made a pure function of content (delta-sync correctness); GC moved after
+commit with an in-flight grace (evidence can no longer be deleted by a concurrent ingest);
+FK pragmas on every engine; adoption repairs legacy schemas instead of bricking them;
+presence answers from DB truth and import heals lost blobs; Docker T1 runs interactive with
+named containers and `docker kill`; harness-synthesized crashes are UNPROVEN, never
+comparable evidence (verdict integrity); worker fd-1 isolated from the protocol; killpg
+guarded against pgid recycling; CLI Ctrl-C cancels all children; the sync boundary strips
+mined source literals and summaries, not just repro scripts; the redactor covers AWS
+temporary/STS, Stripe, alg=none JWTs, multi-line PEMs, git-remote identities, and proves the
+PRODUCTION context (gate: 23/23 planted secrets contained).
+
+**Consequences.** "Zero bugs" is stated as zero KNOWN defects: every confirmed finding fixed
+and pinned; the gates (100% coverage, redaction 23/23, escape 27/27, egress 0, determinism
+corpus, parity byte-identical, bench, mypy on both platform views) stand guard in verify+CI.
+The scrubber and the finding process grow test-first, adversarially, forever.

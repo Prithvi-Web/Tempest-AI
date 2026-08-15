@@ -15,10 +15,6 @@ from typing import Any
 
 import httpx
 import pytest
-
-# The battery/thermal pause (L11) must never stall the suite on an unplugged laptop; pause
-# tests force the condition explicitly via TEMPEST_FORCE_POWER_PAUSE, which outranks this.
-os.environ.setdefault("TEMPEST_NO_POWER_PAUSE", "1")
 from fastapi.testclient import TestClient
 
 from tempest.bundle.bundle import (
@@ -39,6 +35,21 @@ from tempest.model import (
     Verdict,
 )
 from tempest_api.app import create_app
+
+# The battery/thermal pause (L11) must never stall the suite on an unplugged laptop; pause
+# tests force the condition explicitly via TEMPEST_FORCE_POWER_PAUSE, which outranks this.
+# Env here is consumed at runtime (fixtures and subprocess spawns), never at import time.
+os.environ.setdefault("TEMPEST_NO_POWER_PAUSE", "1")
+
+# Subprocess coverage (100% gate): children like the spawned sidecar server collect too,
+# via scripts/covstart/sitecustomize.py on PYTHONPATH + COVERAGE_PROCESS_START.
+_REPO = Path(__file__).resolve().parents[3]
+os.environ.setdefault("COVERAGE_PROCESS_START", str(_REPO / "pyproject.toml"))
+_COVSTART = str(_REPO / "scripts" / "covstart")
+if _COVSTART not in os.environ.get("PYTHONPATH", ""):
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        p for p in (_COVSTART, os.environ.get("PYTHONPATH", "")) if p
+    )
 
 
 def make_divergence(index: int = 0) -> DivergenceRecord:

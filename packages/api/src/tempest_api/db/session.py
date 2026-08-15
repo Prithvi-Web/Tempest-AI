@@ -26,6 +26,13 @@ def create_engine_and_factory(
     url: str | None = None,
 ) -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
     engine = create_async_engine(url if url is not None else database_url())
+    if engine.dialect.name == "sqlite":
+        # Review C2: the prove-thread engine skipped the pragmas, leaving foreign_keys OFF —
+        # budget pruning then orphaned targets/divergences/events silently. EVERY sqlite
+        # engine gets WAL + FK enforcement here, not just the server's (ADR-0016).
+        from tempest_api.db.local_store import install_sqlite_pragmas
+
+        install_sqlite_pragmas(engine)
     return engine, async_sessionmaker(engine, expire_on_commit=False)
 
 

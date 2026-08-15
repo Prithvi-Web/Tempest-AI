@@ -18,6 +18,9 @@ import httpx
 import pytest
 
 PLANTED_SOURCE = "return secret_business_logic(x) * PLANTED_CONSTANT_777"
+# Shaped like a string constant mined from user source (generate/mining.py) — it rides in
+# targets.json literals and summaries, not in the repro scripts (finding 4).
+PLANTED_MINED = "PLANTED_MINED_STRING_CONSTANT_4242"
 
 
 class RemoteServer:
@@ -60,9 +63,15 @@ class RemoteServer:
         raise AssertionError("remote server never became healthy")
 
     def stop(self) -> None:
+        # SIGTERM first so the child's coverage data flushes (100% gate measures the spawned
+        # server); the kill fallback keeps a hung server from hanging the suite.
         if self.proc is not None:
-            self.proc.kill()
-            self.proc.wait(timeout=10)
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=10)
             self.proc = None
 
     def runs(self) -> list[dict[str, object]]:
@@ -91,7 +100,21 @@ def _ingest_n(api, n: int, *, planted: bool = False) -> None:
         if planted:
             body = f"#!/usr/bin/env python3\n{PLANTED_SOURCE}\n"
             scripts = dict.fromkeys(bundle.repro_scripts, body)
-            bundle = dataclasses.replace(bundle, repro_scripts=scripts)
+            targets = tuple(
+                dataclasses.replace(
+                    t,
+                    divergences=tuple(
+                        dataclasses.replace(
+                            d,
+                            args_literal=f"('{PLANTED_MINED}',)",
+                            base_summary=f"returned '{PLANTED_MINED}'",
+                        )
+                        for d in t.divergences
+                    ),
+                )
+                for t in bundle.targets
+            )
+            bundle = dataclasses.replace(bundle, targets=targets, repro_scripts=scripts)
         api.ingest(bundle)
 
 
@@ -153,6 +176,7 @@ def test_default_policy_strips_source_before_the_wire(
         for name in archive.namelist():
             text = archive.read(name).decode("utf-8", errors="replace")
             assert PLANTED_SOURCE not in text, f"source crossed the boundary in {name}"
+            assert PLANTED_MINED not in text, f"a mined literal crossed the boundary in {name}"
 
 
 def test_opt_in_sharing_is_push_pull_byte_identical(

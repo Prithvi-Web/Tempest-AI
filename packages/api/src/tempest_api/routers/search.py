@@ -105,6 +105,6 @@ async def search_divergences(
     if session.get_bind().dialect.name == "sqlite":
         match = _fts_match_expression(q)
         hits = [] if not match else await _search_fts(session, match, limit)
-    else:
+    else:  # pragma: no cover — postgres-only dispatch; _search_like is pinned directly
         hits = await _search_like(session, q, limit)
     return SearchResults(query=q, hits=hits)

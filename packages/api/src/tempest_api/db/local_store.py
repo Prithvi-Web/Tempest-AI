@@ -82,6 +82,10 @@ def install_sqlite_pragmas(engine: AsyncEngine) -> None:
     database, and WAL keeps readers unblocked during ingest writes. Foreign keys are enforced
     so ON DELETE CASCADE behaves exactly as it does on Postgres (budget pruning relies on it)."""
 
+    if getattr(engine.sync_engine, "_tempest_pragmas_installed", False):
+        return  # idempotent: the factory auto-installs; explicit callers must not double-hook
+    engine.sync_engine._tempest_pragmas_installed = True  # type: ignore[attr-defined]
+
     @event.listens_for(engine.sync_engine, "connect")
     def _on_connect(dbapi_conn: DBAPIConnection, _record: ConnectionPoolEntry) -> None:
         cursor = dbapi_conn.cursor()
@@ -102,8 +106,18 @@ def _prepare(conn: sa.Connection) -> None:
     if stamp == HEAD_REVISION:
         return
     if stamp is None:
-        # Fresh file — or a pre-Phase-11 store created by create_all without a stamp; the
-        # migration/model parity test proves that schema equals head, so adoption is exact.
+        # Fresh file — or an unstamped legacy store from ANY pre-Phase-11 era. Adoption must
+        # not assume the schema equals head (review M3: an old-era store stamped head is
+        # bricked forever — create_all never adds columns). Run every forward step
+        # idempotently first: adding a column that exists fails cleanly and is skipped.
+        if sa.inspect(conn).has_table("runs"):
+            for statements in _FORWARD_STEPS.values():
+                for statement in statements:
+                    try:
+                        conn.execute(text(statement))
+                    except sa.exc.OperationalError as exc:  # duplicate column — already there
+                        if "duplicate column" not in str(exc).lower():
+                            raise
         Base.metadata.create_all(conn)
         conn.execute(
             text(
@@ -146,7 +160,9 @@ _FTS_DDL = (
 def _ensure_fts(conn: sa.Connection) -> None:
     for statement in _FTS_DDL:
         conn.execute(text(statement))
-    indexed = conn.execute(text("SELECT COUNT(*) FROM divergences_fts")).scalar()
+    # COUNT(*) on an external-content FTS5 table reads the CONTENT table, so it can never see
+    # missing index entries; the _docsize shadow table has one row per actually-indexed document.
+    indexed = conn.execute(text("SELECT COUNT(*) FROM divergences_fts_docsize")).scalar()
     stored = conn.execute(text("SELECT COUNT(*) FROM divergences")).scalar()
     if indexed != stored:
         conn.execute(text("INSERT INTO divergences_fts(divergences_fts) VALUES ('rebuild')"))

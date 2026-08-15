@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 
+__all__ = ["record_run_aggregate", "telemetry_enabled", "telemetry_path"]
+
 
 def _data_dir() -> Path:
     return Path(os.environ.get("TEMPEST_DATA_DIR", str(Path.home() / ".tempest")))
@@ -36,26 +38,41 @@ def record_run_aggregate(
     must never break a prove."""
     if not telemetry_enabled():
         return
+    fresh: dict[str, object] = {
+        "runs": 0,
+        "verdicts": {},
+        "tiers": {},
+        "unproven_reasons": {},
+        "duration_ms_total": 0,
+    }
     try:
         path = telemetry_path()
-        if path.exists():
-            payload = json.loads(path.read_text())
-        else:
-            payload = {
-                "runs": 0,
-                "verdicts": {},
-                "tiers": {},
-                "unproven_reasons": {},
-                "duration_ms_total": 0,
-            }
-        payload["runs"] += 1
-        payload["verdicts"][verdict] = payload["verdicts"].get(verdict, 0) + 1
-        payload["tiers"][sandbox_tier] = payload["tiers"].get(sandbox_tier, 0) + 1
-        for reason in unproven_reasons:
-            payload["unproven_reasons"][reason] = payload["unproven_reasons"].get(reason, 0) + 1
-        payload["duration_ms_total"] += duration_ms
+        try:
+            # Review M2: a torn/hand-edited file raised JSONDecodeError past the OSError
+            # guard and flipped finished proves to ERROR. Unreadable state = start fresh.
+            payload = json.loads(path.read_text()) if path.exists() else fresh
+            if not isinstance(payload, dict):
+                payload = fresh
+        except (OSError, ValueError):
+            payload = fresh
+
+        def _count(value: object) -> int:
+            return value if isinstance(value, int) else 0
+
+        payload["runs"] = _count(payload.get("runs")) + 1
+        for field, key in (("verdicts", verdict), ("tiers", sandbox_tier)):
+            bucket = payload.setdefault(field, {})
+            if isinstance(bucket, dict):
+                bucket[key] = _count(bucket.get(key)) + 1
+        reasons = payload.setdefault("unproven_reasons", {})
+        if isinstance(reasons, dict):
+            for reason in unproven_reasons:
+                reasons[reason] = _count(reasons.get(reason)) + 1
+        payload["duration_ms_total"] = _count(payload.get("duration_ms_total")) + duration_ms
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
+        # Review m4: a per-process unique tmp name — two writers sharing one fixed .tmp
+        # could publish each other's torn state.
+        tmp = path.with_suffix(f".tmp-{os.getpid()}")
         tmp.write_text(json.dumps(payload, indent=2) + "\n")
         tmp.replace(path)
     except OSError:

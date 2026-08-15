@@ -57,7 +57,7 @@ def _uv_managed_candidates(base: Path | None = None) -> list[str]:
     for install in root.glob("cpython-3.1[2-9]*"):
         match = re.match(r"cpython-(\d+)\.(\d+)(?:\.(\d+))?", install.name)
         if match is None:
-            continue
+            continue  # pragma: no cover — the 3.1[2-9] glob guarantees the regex prefix
         version = tuple(int(part) for part in match.groups() if part is not None)
         found.extend((version, str(binary)) for binary in sorted(install.glob("bin/python3*")))
     found.sort(key=lambda item: item[0], reverse=True)

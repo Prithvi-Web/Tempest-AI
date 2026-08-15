@@ -16,11 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tempest.bundle.bundle import RunBundle, read_bundle
 from tempest.model import BUNDLE_SCHEMA_VERSION
-from tempest_api.bundlestore import bundle_store, enforce_budget
+from tempest_api.bundlestore import bundle_store, prune_over_budget
 from tempest_api.db.models import Divergence, Run, Target
 from tempest_api.errors import ApiError
 from tempest_api.ledger import append_run_event
 from tempest_api.schemas.enums import ErrorCode, RunStatus
+
+# Review m7: bounded extraction — a hostile sync peer must not exhaust a team server.
+# Real bundles are a few MB; the caps are two orders of magnitude above any legitimate one.
+_MAX_DECLARED_BYTES = 200 * 1024 * 1024
+_MAX_MEMBERS = 10_000
 
 
 def parse_bundle_zip(data: bytes) -> RunBundle:
@@ -33,6 +38,16 @@ def parse_bundle_zip(data: bytes) -> RunBundle:
             ErrorCode.BUNDLE_INVALID,
             f"upload is not a readable zip archive: {exc}",
         ) from exc
+    members = archive.infolist()
+    declared = sum(member.file_size for member in members)
+    if len(members) > _MAX_MEMBERS or declared > _MAX_DECLARED_BYTES:
+        raise ApiError(
+            400,
+            ErrorCode.BUNDLE_INVALID,
+            f"bundle declares {len(members)} members / {declared} bytes decompressed — "
+            "beyond any legitimate bundle; refusing before extraction",
+            {"members": len(members), "declared_bytes": declared},
+        )
     with tempfile.TemporaryDirectory(prefix="tempest-bundle-") as tmp:
         dest = Path(tmp)
         _safe_extract(archive, dest)
@@ -221,12 +236,14 @@ async def ingest_bundle(session: AsyncSession, run: Run, bundle: RunBundle) -> N
 
 async def ingest_zip_bytes(session: AsyncSession, run: Run, data: bytes) -> RunBundle:
     """THE ingestion code path — parse, integrity, run-match, fan-out, then blob storage +
-    budget (ADR-0017) — shared verbatim by the upload endpoint and the local prove worker.
-    Returns the parsed bundle for reporting."""
+    budget pruning (ADR-0017) — shared verbatim by the upload endpoint and the local prove
+    worker. Pruning deletes ROWS in this transaction only; the pruned digests are stashed in
+    `session.info["pruned_digests"]` for the caller to garbage-collect AFTER commit against
+    committed truth (review C1). Returns the parsed bundle for reporting."""
     bundle = parse_bundle_zip(data)
     await ingest_bundle(session, run, bundle)
     store = bundle_store()
     run.bundle_digest = store.put(data)
     await session.flush()
-    await enforce_budget(session, store)
+    session.info["pruned_digests"] = await prune_over_budget(session, store, protect_run_id=run.id)
     return bundle

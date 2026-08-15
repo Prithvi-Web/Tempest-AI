@@ -12,10 +12,13 @@ Tier ladder (selected at runtime by `select_sandbox`, tier recorded in every bun
 Never silently unsandboxed: with no tier available the run is UNPROVEN(SANDBOX_UNAVAILABLE).
 """
 
+import contextlib
 import resource
 import shutil
 import subprocess
 import sys
+import uuid
+import weakref
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Protocol
@@ -215,6 +218,30 @@ _CONTAINER_REPO = PurePosixPath("/repo")
 _CONTAINER_SCRATCH = PurePosixPath("/scratch")
 _CONTAINER_PYTHON = "python3"
 
+# Docker-backed client process → (docker binary, unique container name). Weak keys: an
+# unkillled Popen that gets garbage-collected must not pin registry entries forever.
+_CONTAINERS: weakref.WeakKeyDictionary[subprocess.Popen[bytes], tuple[str, str]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def kill_container(proc: subprocess.Popen[bytes]) -> None:
+    """Best-effort `docker kill` of the container behind a Docker-backed client process.
+
+    SIGKILLing the docker CLI's process group stops only the CLIENT: the container keeps
+    running in the daemon and `--rm` never fires. Every kill path (`runner._kill`,
+    `CancelScope` cancellation) therefore also asks the daemon to kill the uniquely named
+    container. A no-op for processes no Docker backend registered; failures (binary gone,
+    daemon down, container already dead) are suppressed — kill paths must never raise. The
+    registry entry is consumed on first use, so a double kill never signals the daemon twice.
+    """
+    entry = _CONTAINERS.pop(proc, None)
+    if entry is None:
+        return
+    binary, name = entry
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run([binary, "kill", name], capture_output=True, timeout=10, check=False)
+
 
 @dataclass(frozen=True)
 class DockerSandbox:
@@ -270,11 +297,20 @@ class DockerSandbox:
                 translated[key] = self._map_path(value, workdir=workdir, scratch=scratch)
         return translated
 
-    def wrap_command(self, cmd: list[str], *, workdir: Path, scratch: Path) -> list[str]:
+    def wrap_command(self, cmd: list[str], *, workdir: Path, scratch: Path, name: str) -> list[str]:
         return [
             self.docker_binary,
             "run",
             "--rm",
+            # -i keeps the container's stdin attached to the client's stdin. Without it the
+            # worker's stdin is EOF: PersistentWorker serve batches die instantly on BOTH
+            # revisions and the identical synthetic crashes would have compared Equal — a
+            # blessing with zero user code executed (review finding 1).
+            "-i",
+            # Unique name so kill paths can `docker kill` the container itself — SIGKILLing
+            # the CLI client alone leaves the container running (review finding 5).
+            "--name",
+            name,
             "--network",
             "none",
             "--read-only",
@@ -312,8 +348,9 @@ class DockerSandbox:
         stdin_pipe: bool = False,
     ) -> subprocess.Popen[bytes]:
         container_cmd = self.translate_command(cmd, workdir=cwd, scratch=scratch)
-        wrapped = self.wrap_command(container_cmd, workdir=cwd, scratch=scratch)
-        return subprocess.Popen(
+        name = f"tempest-{uuid.uuid4().hex[:12]}"
+        wrapped = self.wrap_command(container_cmd, workdir=cwd, scratch=scratch, name=name)
+        proc = subprocess.Popen(
             wrapped,
             env={"PATH": "/usr/bin:/bin:/usr/local/bin"},
             stdout=subprocess.PIPE,
@@ -321,6 +358,8 @@ class DockerSandbox:
             stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
         )
+        _CONTAINERS[proc] = (self.docker_binary, name)
+        return proc
 
 
 @dataclass(frozen=True)
@@ -353,7 +392,10 @@ def select_sandbox(
         return SandboxSelection(docker, tier="T1", kind="docker", assurance="full")
     if allow_seatbelt:
         seatbelt = SeatbeltSandbox()
-        if seatbelt.available():
+        # pragma-justification: available() is constant per OS (macOS always ships
+        # sandbox-exec; the sys.platform gate is always False elsewhere), so each CI leg can
+        # only ever observe one arm — excluding the rung keeps the measured set identical.
+        if seatbelt.available():  # pragma: no cover — one-arm-per-OS branch (T2 is macOS-only)
             return SandboxSelection(seatbelt, tier="T2", kind="seatbelt", assurance="full")
     return SandboxSelection(
         None,

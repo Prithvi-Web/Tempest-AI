@@ -205,7 +205,11 @@ class TestDockerSandbox:
             assert proc.stdout is not None
             out = proc.stdout.read().decode()
             proc.wait()
-        assert out.startswith("run --rm --network none --read-only")
+        # Updated for review findings 1a/5: `run` now carries `-i` (container stdin stays
+        # attached — serve batches ride over it) and a unique `--name tempest-<token>` (so
+        # kill paths can `docker kill` the container itself, not just the CLI client).
+        assert out.startswith("run --rm -i --name tempest-")
+        assert "--network none --read-only" in out
         assert "--cap-drop ALL" in out
         assert f"{tmp_path}:/scratch" in out
         assert out.rstrip().endswith(
@@ -213,11 +217,14 @@ class TestDockerSandbox:
         )
 
     def test_command_assembly_enforces_l6(self) -> None:
+        # `wrap_command` now requires the unique container name (review finding 5): the name
+        # is how kill paths reach the container after the CLI client dies.
         sandbox = DockerSandbox()
         cmd = sandbox.wrap_command(
             ["python", "/scratch/worker.py", "/scratch/job.json"],
             workdir=Path("/repo"),
             scratch=Path("/tmp/s"),
+            name="tempest-feedfeedfeed",
         )
         joined = " ".join(cmd)
         assert "--network none" in joined
@@ -226,6 +233,8 @@ class TestDockerSandbox:
         assert "--memory" in joined
         assert "--pids-limit" in joined
         assert "--user" in joined
+        assert "--name tempest-feedfeedfeed" in joined  # finding 5
+        assert " -i " in f" {joined} "  # finding 1a: container stdin stays attached
 
     def test_translate_command_maps_interpreter_and_scratch_paths(self, tmp_path: Path) -> None:
         # The exact argv the runner builds (host interpreter + host scratch files) must become

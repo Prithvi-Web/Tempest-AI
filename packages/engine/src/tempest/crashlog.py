@@ -15,7 +15,7 @@ from pathlib import Path
 from types import TracebackType
 
 import tempest
-from tempest.redact import RedactionContext, scrub_traceback, secret_env_values
+from tempest.redact import production_context, scrub_traceback
 
 
 def crash_dir() -> Path:
@@ -26,7 +26,9 @@ def capture_crash(exc: BaseException) -> Path | None:
     """Write one scrubbed crash record; returns its path, or None if even that failed —
     a broken disk must never turn one crash into two."""
     try:
-        context = RedactionContext(env_secret_values=secret_env_values(), home_dir=str(Path.home()))
+        # The gate (tempest.dev.redaction_check) proves leakage against this same builder —
+        # repo names arrive via TEMPEST_REDACT_REPO_NAMES, never a hand-wired context.
+        context = production_context()
         raw_tb = "".join(traceback.format_exception(exc))
         record = {
             "tempest_version": tempest.__version__,
@@ -42,9 +44,18 @@ def capture_crash(exc: BaseException) -> Path | None:
         return None
 
 
+_installed = False
+
+
 def install_crash_capture() -> None:
     """Route unhandled exceptions through capture_crash, then the previous hook — installed by
-    the CLI and the sidecar entrypoints so every surface crash leaves a scrubbed record."""
+    the CLI and the sidecar entrypoints so every surface crash leaves a scrubbed record.
+    Idempotent: repeated calls (the CLI callback runs per command) must not stack hooks, or
+    one crash writes a record per accumulated layer."""
+    global _installed
+    if _installed:
+        return
+    _installed = True
     previous = sys.excepthook
 
     def _hook(exc_type: type[BaseException], exc: BaseException, tb: TracebackType | None) -> None:

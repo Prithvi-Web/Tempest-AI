@@ -7,11 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import tempest
 from tempest_api.db import create_engine_and_factory, database_url
-from tempest_api.db.local_store import (
-    check_not_newer,
-    install_sqlite_pragmas,
-    prepare_local_store,
-)
+from tempest_api.db.local_store import check_not_newer, prepare_local_store
 from tempest_api.errors import install_error_handlers
 from tempest_api.routers import divergences, health, local, logs, runs, search, sync, targets
 
@@ -23,10 +19,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         if engine.dialect.name == "sqlite":
             # The local store is versioned (ADR-0016): refuse-newer is checked read-only BEFORE
-            # any connection can touch the file, then WAL + create/adopt/forward-migrate + stamp.
-            # Postgres runs Alembic (ADR-0009).
+            # any connection can touch the file, then create/adopt/forward-migrate + stamp.
+            # WAL + FK pragmas are installed by create_engine_and_factory on every sqlite
+            # engine (review C2). Postgres runs Alembic (ADR-0009).
             check_not_newer(url)
-            install_sqlite_pragmas(engine)
             await prepare_local_store(engine)
         app.state.db_engine = engine
         app.state.db_sessionmaker = factory

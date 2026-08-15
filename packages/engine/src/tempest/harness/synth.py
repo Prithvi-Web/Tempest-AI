@@ -71,7 +71,10 @@ def synthesize(
         introspection, mined=[], budget=Budget(max_inputs=_MAX_ATTEMPTS, seed=seed)
     )
     if not probes:
-        probes_literals = [("()", "{}")]
+        # generate_inputs always emits at least one candidate for any introspectable signature
+        # (its first round is always novel), so this fallback is unreachable today; it stays as
+        # a guard so a future, choosier generator can never leave a target probe-less.
+        probes_literals = [("()", "{}")]  # pragma: no cover — defensive; generator emits ≥1
     else:
         probes_literals = [(p.args_literal, p.kwargs_literal) for p in probes]
 

@@ -59,6 +59,53 @@ class TestTelemetryAggregates:
         assert "/" not in json.dumps(json.loads(raw)["verdicts"]), "enum names only, never paths"
 
 
+class TestTelemetryCorruptShapes:
+    """Every degraded-state arm (review M2): valid-but-wrong JSON shapes never raise and
+    never poison the counters."""
+
+    def test_non_dict_json_is_replaced_by_fresh_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TEMPEST_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("TEMPEST_TELEMETRY", "1")
+        telemetry_path().parent.mkdir(parents=True, exist_ok=True)
+        telemetry_path().write_text("[1, 2, 3]")  # valid JSON, not a dict
+        record_run_aggregate(
+            verdict="DIVERGENT", sandbox_tier="T2", unproven_reasons=(), duration_ms=1
+        )
+        assert json.loads(telemetry_path().read_text())["runs"] == 1
+
+    def test_non_dict_buckets_are_left_alone_not_crashed_on(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TEMPEST_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("TEMPEST_TELEMETRY", "1")
+        telemetry_path().parent.mkdir(parents=True, exist_ok=True)
+        telemetry_path().write_text(
+            json.dumps({"runs": "corrupt", "verdicts": "corrupt", "unproven_reasons": 7})
+        )
+        record_run_aggregate(
+            verdict="UNPROVEN",
+            sandbox_tier="T2",
+            unproven_reasons=("TARGET_UNREACHABLE",),
+            duration_ms=5,
+        )
+        payload = json.loads(telemetry_path().read_text())
+        assert payload["runs"] == 1, "a corrupt counter restarts at truth"
+        assert payload["duration_ms_total"] == 5
+
+    def test_write_failure_is_swallowed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        blocker = tmp_path / "blocker"
+        blocker.write_text("a file where the data dir should be")
+        monkeypatch.setenv("TEMPEST_DATA_DIR", str(blocker))
+        monkeypatch.setenv("TEMPEST_TELEMETRY", "1")
+        record_run_aggregate(
+            verdict="DIVERGENT", sandbox_tier="T2", unproven_reasons=(), duration_ms=1
+        )  # mkdir under a file raises OSError — swallowed, never a second failure
+
+
 class TestCrashCapture:
     def test_crash_record_is_scrubbed_at_write_time(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -102,10 +149,22 @@ class TestCrashCapture:
         import sys
 
         monkeypatch.setenv("TEMPEST_DATA_DIR", str(tmp_path))
+        # Idempotence contract: force a fresh install regardless of what earlier tests (CLI
+        # invocations install per-process) already did, and verify ONE hook writes ONE record.
+        import tempest.crashlog as crashlog_module
+
+        monkeypatch.setattr(crashlog_module, "_installed", False)
+        # Chain isolation: earlier suite tests may have layered their own capture hooks;
+        # start from a known inert hook so exactly ONE layer writes exactly ONE record.
+        inert = lambda *_args: None  # noqa: E731 — a named def would outlive the test frame
+        monkeypatch.setattr(sys, "excepthook", inert)
         original = sys.excepthook
         try:
             install_crash_capture()
             assert sys.excepthook is not original
+            hook_after_first = sys.excepthook
+            install_crash_capture()
+            assert sys.excepthook is hook_after_first, "repeated installs must not stack hooks"
             try:
                 raise ValueError("unhandled by anyone")
             except ValueError as exc:

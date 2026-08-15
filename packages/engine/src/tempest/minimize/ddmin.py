@@ -88,7 +88,9 @@ def _shrink_value(value: object, depth: int = 0) -> Iterator[tuple[object, str]]
             if half not in (0, value):
                 yield half, f"{value}→{half}"
             step = value - 1 if value > 0 else value + 1
-            if step != value:
+            # A ±1 step never equals a plain int (bools were handled above, and transport
+            # literals cannot smuggle exotic int subclasses in); the guard stays defensive.
+            if step != value:  # pragma: no branch — int ±1 always differs
                 yield step, f"{value}→{step}"
         return
     if isinstance(value, float):

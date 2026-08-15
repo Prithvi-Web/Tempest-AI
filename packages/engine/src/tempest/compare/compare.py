@@ -39,6 +39,19 @@ class UnprovableKind(StrEnum):
     UNINTERCEPTABLE = "UNINTERCEPTABLE"
     REPLAY_UNSTABLE = "REPLAY_UNSTABLE"
     UNSERIALIZABLE = "UNSERIALIZABLE"
+    WORKER_UNAVAILABLE = "WORKER_UNAVAILABLE"
+
+
+@dataclass(frozen=True)
+class SyntheticObservation(Observation):
+    """A harness-synthesized stand-in for an input the worker INFRASTRUCTURE failed to run:
+    dead-on-arrival worker, pre-boot hang, respawn budget exhausted. The explicit marker is
+    the whole point — a real user-code crash (the target killing its own process) arrives as
+    a plain Observation and stays comparable evidence, while a synthetic one can never be
+    compared: identical infrastructure crashes on base and head must not produce
+    EQUIVALENT_UNDER_BUDGET over zero executed user code (Law L2/L4)."""
+
+    synthetic_reason: str = "worker infrastructure failure"
 
 
 @dataclass(frozen=True)
@@ -53,6 +66,20 @@ type CompareResult = Equal | Diverged | Unprovable
 
 
 def compare(base: Observation, head: Observation, cfg: CompareConfig) -> CompareResult:
+    # Infrastructure trumps everything: a synthetic observation is not evidence of target
+    # behavior, so no field of it may participate in a comparison (review finding 1).
+    if isinstance(base, SyntheticObservation):
+        return Unprovable(
+            reason=f"base observation was synthesized by the harness "
+            f"({base.synthetic_reason}) — worker infrastructure failed; no user code ran",
+            kind=UnprovableKind.WORKER_UNAVAILABLE,
+        )
+    if isinstance(head, SyntheticObservation):
+        return Unprovable(
+            reason=f"head observation was synthesized by the harness "
+            f"({head.synthetic_reason}) — worker infrastructure failed; no user code ran",
+            kind=UnprovableKind.WORKER_UNAVAILABLE,
+        )
     if base.uninterceptable is not None:
         return Unprovable(
             reason=f"base reached an un-interceptable surface: {base.uninterceptable}",

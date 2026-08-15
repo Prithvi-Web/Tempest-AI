@@ -81,6 +81,9 @@ class _UnprovableTally:
                 "exercised, so nothing is being blessed",
             )
         for kind, code in (
+            # Infrastructure failure dominates: when the workers themselves never ran, no
+            # other per-input reason is meaningful (review finding 1).
+            (UnprovableKind.WORKER_UNAVAILABLE, ReasonCode.HARNESS_SYNTHESIS_FAILED),
             (UnprovableKind.UNSERIALIZABLE, ReasonCode.VALUE_UNSERIALIZABLE),
             (UnprovableKind.UNINTERCEPTABLE, ReasonCode.UNINTERCEPTABLE_EFFECT),
         ):
@@ -379,7 +382,13 @@ def prove_impure_target(
     base_rep = run_batch(base_root, module, qualname, literals, sandbox, determinism=replay_job)
     for i, (rec, rep) in enumerate(zip(base_rec, base_rep, strict=True)):
         verify = compare(rec, rep, cfg)
-        if isinstance(verify, Unprovable) and verify.kind is UnprovableKind.UNSERIALIZABLE:
+        if isinstance(verify, Unprovable) and verify.kind in (
+            UnprovableKind.UNSERIALIZABLE,
+            # A synthesized (dead-worker) observation is infrastructure, not replay
+            # instability — the per-input tally below owns it and the target degrades to
+            # UNPROVEN(HARNESS_SYNTHESIS_FAILED), never NONDETERMINISTIC_BASE (finding 1).
+            UnprovableKind.WORKER_UNAVAILABLE,
+        ):
             # The value cannot be compared at all — that is not replay instability; the
             # per-input tally below owns it (VALUE_UNSERIALIZABLE if nothing else compares).
             continue

@@ -19,10 +19,11 @@ from typing import cast
 import tempest.compare.canonical as _canonical_module
 import tempest.determinism._shims as _shims_module
 import tempest.execute._worker as _worker_module
+from tempest.compare.compare import SyntheticObservation
 from tempest.envrepro.worktree import normalized_env
 from tempest.execute.cancel import current_scope
 from tempest.execute.interpreter import find_worker_python
-from tempest.execute.sandbox import Sandbox
+from tempest.execute.sandbox import Sandbox, kill_container
 from tempest.model import EffectEntry, InputOutcome, Observation, RaisedInfo, Timing
 
 # One-time cost of bringing a worker up (process spawn + interpreter boot + target import).
@@ -119,10 +120,17 @@ def _spawn(
 
 
 def _kill(proc: subprocess.Popen[bytes]) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        proc.kill()
+    # killpg-after-reap guard: `returncode` is set only by the `wait()`/`poll()` that reaps OUR
+    # child, and the kernel cannot recycle a pid/pgid before its owner reaps it — so
+    # `returncode is None` proves the pgid is still ours to signal. Once it is set, the pgid
+    # may already belong to a stranger and must never be signalled again (double-kill call
+    # sites and wait-then-kill paths become signal-free no-ops instead of TOCTOU kills).
+    if proc.returncode is None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+    kill_container(proc)  # T1: killing the docker CLI alone leaves the container running
     proc.wait()
     scope = current_scope()
     if scope is not None:
@@ -134,6 +142,40 @@ def _read_lines(proc: subprocess.Popen[bytes], out: "queue.Queue[bytes | None]")
     for raw in proc.stdout:
         out.put(raw)
     out.put(None)
+
+
+def _parse_line(raw: bytes) -> dict[str, object] | None:
+    """One protocol line → its payload dict, or None for anything that is not a JSON object.
+    The runner must never crash on a garbled stream (review finding 4): a None here means
+    the line carries no trustworthy index, so the caller decides how much of the stream to
+    distrust — never `json.loads` raising through the whole prove."""
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return cast("dict[str, object]", payload)
+
+
+def _await_boot(
+    lines: "queue.Queue[bytes | None]", proc: subprocess.Popen[bytes], budget: float
+) -> str | None:
+    """None once the worker announces itself; otherwise why it never did.
+
+    A worker that dies, hangs, or garbles BEFORE its boot line has executed no user code —
+    the failure is pure infrastructure (container cannot start, interpreter cannot launch)
+    and must never be attributed to an input or compared as evidence (review finding 1)."""
+    try:
+        raw = lines.get(timeout=budget)
+    except queue.Empty:
+        return "worker did not boot within the startup budget"
+    if raw is None:
+        return f"worker died before booting (exit {proc.wait()})"
+    payload = _parse_line(raw)
+    if payload is None or not payload.get("boot"):
+        return "worker protocol slip before boot"
+    return None
 
 
 def introspect_target(
@@ -160,10 +202,15 @@ def introspect_target(
         try:
             stdout, _ = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            _kill(proc)
             return None
+        finally:
+            # Finding 3: EVERY unwind path (timeout, KeyboardInterrupt, ProveCancelled)
+            # reaps the session-leader worker — an orphan would outlive the whole CLI.
+            _kill(proc)
     for raw in stdout.splitlines():
-        payload = json.loads(raw)
+        payload = _parse_line(raw)  # finding 4: skip garbled lines instead of raising
+        if payload is None:
+            continue
         if payload.get("ok"):
             return TargetIntrospection(
                 params=tuple(
@@ -173,7 +220,7 @@ def introspect_target(
                         annotation=p["annotation"],
                         default_literal=p["default_literal"],
                     )
-                    for p in payload["params"]
+                    for p in cast("list[dict[str, str]]", payload["params"])
                 )
             )
     return None
@@ -216,35 +263,59 @@ def run_batch(
             reader = threading.Thread(target=_read_lines, args=(proc, lines), daemon=True)
             reader.start()
 
-            cursor = 0  # position in `pending` we expect a result for next
-            while cursor < len(pending):
-                expected = pending[cursor]
-                # Only the first result carries the worker's one-time startup cost.
-                budget = per_input_timeout + (_STARTUP_GRACE_S if cursor == 0 else 0.0)
-                try:
-                    raw = lines.get(timeout=budget)
-                except queue.Empty:
-                    _kill(proc)
-                    results[expected] = _hung_observation(per_input_timeout)
-                    cursor += 1
-                    break
-                if raw is None:  # worker died (crash or clean exit) before finishing the batch
-                    exit_status = proc.wait()
-                    results[expected] = _crashed_observation(exit_status)
-                    cursor += 1
-                    break
-                payload = json.loads(raw)
-                if "fatal" in payload:
-                    results[expected] = _fatal_observation(payload)
-                    cursor += 1
+            # Finding 3: the worker is a session leader — an exception unwinding out of this
+            # block (KeyboardInterrupt at the queue read, ProveCancelled from a checkpoint)
+            # used to leak it alive past the whole CLI. The finally reaps it on EVERY path;
+            # _kill is signal-free once the process is already reaped, so the normal paths
+            # pay nothing extra.
+            try:
+                boot_failure = _await_boot(lines, proc, _STARTUP_GRACE_S)
+                if boot_failure is not None:
+                    # No user code ran: every pending input gets a MARKED synthetic
+                    # observation (compare maps it to Unprovable), never a comparable
+                    # crash (finding 1).
+                    for i in pending:
+                        results[i] = _synthetic_observation(boot_failure)
+                    pending = []
                     continue
-                results[payload["index"]] = _completed_observation(payload)
-                cursor += 1
-            else:
+
+                cursor = 0  # position in `pending` we expect a result for next
+                while cursor < len(pending):
+                    expected = pending[cursor]
+                    # Only the first result carries the worker's one-time startup cost.
+                    budget = per_input_timeout + (_STARTUP_GRACE_S if cursor == 0 else 0.0)
+                    try:
+                        raw = lines.get(timeout=budget)
+                    except queue.Empty:
+                        results[expected] = _hung_observation(per_input_timeout)
+                        cursor += 1
+                        break
+                    if raw is None:  # worker died (crash or clean exit) mid-batch
+                        exit_status = proc.wait()
+                        results[expected] = _crashed_observation(exit_status)
+                        cursor += 1
+                        break
+                    payload = _parse_line(raw)
+                    if payload is None:
+                        # Finding 4: a garbled line poisons only THIS input, but the stream
+                        # can no longer be trusted for index alignment — kill the worker and
+                        # let the remainder re-run on a fresh process.
+                        results[expected] = _fatal_observation(
+                            {"error": "garbled worker protocol line"}
+                        )
+                        cursor += 1
+                        break
+                    if "fatal" in payload:
+                        results[expected] = _fatal_observation(payload)
+                        cursor += 1
+                        continue
+                    results[cast(int, payload["index"])] = _completed_observation(payload)
+                    cursor += 1
+                else:
+                    pending = []
+                    continue
+            finally:
                 _kill(proc)
-                pending = []
-                continue
-            _kill(proc)
             pending = [i for i in pending if i not in results]
 
     return [results[i] for i in range(len(inputs))]
@@ -286,9 +357,12 @@ class PersistentWorker:
         self._lines: queue.Queue[bytes | None] | None = None
         self.spawns = 0  # observability: tests assert spawn economics
 
-    def _ensure(self) -> None:
+    def _ensure(self) -> bool:
+        """True when a live, BOOTED worker is available. False when a fresh spawn died,
+        hung, or garbled before its boot line — pure infrastructure, never attributable to
+        an input (review finding 1); the caller's respawn budget decides how often to retry."""
         if self._proc is not None and self._proc.poll() is None:
-            return
+            return True
         job: dict[str, object] = {
             "mode": "serve",
             "module": self._module,
@@ -305,6 +379,32 @@ class PersistentWorker:
         self._lines = queue.Queue()
         reader = threading.Thread(target=_read_lines, args=(self._proc, self._lines), daemon=True)
         reader.start()
+        if _await_boot(self._lines, self._proc, _STARTUP_GRACE_S) is not None:
+            self._retire()
+            return False
+        return True
+
+    def _await_ack(self, per_input_timeout: float, spawned_now: bool) -> bool:
+        """The worker echoes `batch_ack` after reading a batch request and BEFORE any user
+        code. No ack → the request never reached a living worker (the docker-eats-stdin
+        class of dead-on-arrival failure): retire without attributing anything to an input
+        and let the respawn budget decide (review finding 1)."""
+        proc, lines = self._proc, self._lines
+        assert proc is not None and lines is not None
+        budget = per_input_timeout + (_STARTUP_GRACE_S if spawned_now else 0.0)
+        try:
+            raw = lines.get(timeout=budget)
+        except queue.Empty:
+            self._retire()
+            return False
+        if raw is None:
+            self._retire()
+            return False
+        payload = _parse_line(raw)
+        if payload is None or not payload.get("batch_ack"):
+            self._retire()
+            return False
+        return True
 
     def _retire(self) -> None:
         if self._proc is not None:
@@ -315,13 +415,34 @@ class PersistentWorker:
     def run(
         self, inputs: list[tuple[str, str]], *, per_input_timeout: float = 10.0
     ) -> list[Observation]:
+        try:
+            return self._run_batches(inputs, per_input_timeout)
+        except BaseException:
+            # Finding 3 (L11): an unwinding run() — KeyboardInterrupt at a queue read,
+            # ProveCancelled from a respawn checkpoint, anything — must not leak a live
+            # session-leader worker. Retire (idempotent) and re-raise.
+            self._retire()
+            raise
+
+    def _run_batches(
+        self, inputs: list[tuple[str, str]], per_input_timeout: float
+    ) -> list[Observation]:
         results: dict[int, Observation] = {}
         pending = list(range(len(inputs)))
         respawns = 0
 
         while pending:
             spawned_now = self._proc is None or self._proc.poll() is not None
-            self._ensure()
+            if not self._ensure():
+                # The spawn never booted: infrastructure, not evidence (finding 1).
+                respawns += 1
+                if respawns > self._MAX_RESPAWNS_PER_RUN:
+                    for i in pending:
+                        results[i] = _synthetic_observation(
+                            "worker died or hung before booting; respawn budget exhausted"
+                        )
+                    break
+                continue
             proc, lines = self._proc, self._lines
             assert proc is not None and proc.stdin is not None and lines is not None
             request = {
@@ -337,7 +458,21 @@ class PersistentWorker:
                 respawns += 1
                 if respawns > self._MAX_RESPAWNS_PER_RUN:
                     for i in pending:
-                        results[i] = _crashed_observation(-1)
+                        results[i] = _synthetic_observation(
+                            "worker stdin unwritable; respawn budget exhausted"
+                        )
+                    break
+                continue
+            if not self._await_ack(per_input_timeout, spawned_now):
+                # The request never reached a living worker: no user code started, nothing
+                # is attributable — retry within the budget (finding 1).
+                respawns += 1
+                if respawns > self._MAX_RESPAWNS_PER_RUN:
+                    for i in pending:
+                        results[i] = _synthetic_observation(
+                            "worker never acknowledged a batch (dead-on-arrival stdin); "
+                            "respawn budget exhausted"
+                        )
                     break
                 continue
 
@@ -366,7 +501,17 @@ class PersistentWorker:
                     cursor += 1
                     broke = True
                     break
-                payload = json.loads(raw)
+                payload = _parse_line(raw)
+                if payload is None:
+                    # Finding 4: the garbled line poisons only THIS input, but index
+                    # alignment is gone — retire and resume the remainder on a fresh worker.
+                    results[expected] = _fatal_observation(
+                        {"error": "garbled worker protocol line"}
+                    )
+                    self._retire()
+                    cursor += 1
+                    broke = True
+                    break
                 if payload.get("batch_end"):
                     # The worker ended the batch early (import-level fatal emits one line for
                     # the whole batch): every unanswered input inherits a fatal observation.
@@ -379,7 +524,7 @@ class PersistentWorker:
                     results[expected] = _fatal_observation(payload)
                     cursor += 1
                     continue
-                results[payload["index"]] = _completed_observation(payload)
+                results[cast(int, payload["index"])] = _completed_observation(payload)
                 cursor += 1
             if not broke and not ended_early and cursor >= len(pending):
                 self._drain_sentinel(per_input_timeout)
@@ -388,7 +533,10 @@ class PersistentWorker:
                 if respawns > self._MAX_RESPAWNS_PER_RUN:
                     for i in pending:
                         if i not in results:
-                            results[i] = _crashed_observation(-1)
+                            # These inputs never ran at all — synthetic, not evidence.
+                            results[i] = _synthetic_observation(
+                                "respawn budget exhausted before this input could run"
+                            )
                     break
             pending = [i for i in pending if i not in results]
 
@@ -404,7 +552,11 @@ class PersistentWorker:
         except queue.Empty:
             self._retire()
             return
-        if raw is None or not json.loads(raw).get("batch_end"):
+        if raw is None:
+            self._retire()  # the stream died under us — never reuse it
+            return
+        payload = _parse_line(raw)  # finding 4: a garbled sentinel must not raise
+        if payload is None or not payload.get("batch_end"):
             self._retire()  # protocol slip — never reuse a stream we cannot trust
 
     def close(self) -> None:
@@ -467,6 +619,22 @@ def _completed_observation(p: dict[str, object]) -> Observation:
         cassette_miss=miss if isinstance(miss, str) else None,
         uninterceptable=unint if isinstance(unint, str) else None,
         cassette=p.get("cassette"),
+    )
+
+
+def _synthetic_observation(reason: str) -> SyntheticObservation:
+    """Marked stand-in for an input the worker INFRASTRUCTURE failed to run (dead-on-arrival
+    worker, pre-boot hang, respawn exhaustion). compare() refuses it as evidence — identical
+    infrastructure failures on base and head surface as UNPROVEN, never as equivalence
+    (review finding 1). Real user-code crashes keep using `_crashed_observation`."""
+    return SyntheticObservation(
+        outcome=InputOutcome.CRASHED,
+        return_present=False,
+        return_canon=None,
+        raised=None,
+        exit_status=-1,
+        timing=Timing(wall_ns=0, cpu_ns=0),
+        synthetic_reason=reason,
     )
 
 

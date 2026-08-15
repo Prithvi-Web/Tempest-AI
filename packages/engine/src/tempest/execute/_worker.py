@@ -17,6 +17,7 @@ import importlib
 import inspect
 import io
 import json
+import os
 import sys
 import time
 import traceback
@@ -27,6 +28,46 @@ from typing import Any, Protocol, cast
 # The worker's own instrumentation must survive shim installation.
 _PERF_NS = time.perf_counter_ns
 _CPU_NS = time.process_time_ns
+
+# Fd-level protocol isolation (review finding 4), installed by `_isolate_protocol_fd` when the
+# worker runs as a real subprocess. None → in-process harnesses: _emit falls back to
+# sys.stdout and no fd capture exists.
+_PROTOCOL_OUT: "io.TextIOWrapper | None" = None
+_FD1_READER: "io.BufferedReader | None" = None
+
+
+def _isolate_protocol_fd(scratch: str) -> None:
+    """Lock user code out of the protocol stream (review finding 4).
+
+    `redirect_stdout` is Python-level only: `os.write(1, ...)`, a spawned subprocess
+    inheriting stdout, or an import-time print all reach REAL fd 1 and would interleave with
+    the JSONL protocol — forging results or garbling lines. So: keep a private dup of the
+    original stdout for protocol lines, and repoint fd 1 itself at a capture file in the
+    scratch mount. Everything user code writes to the real fd becomes per-input observed
+    stdout (evidence), never protocol."""
+    global _PROTOCOL_OUT, _FD1_READER
+    protocol_fd = os.dup(1)
+    capture_path = os.path.join(scratch, f"fd1-{os.getpid()}.capture")
+    capture_fd = os.open(capture_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    os.dup2(capture_fd, 1)
+    os.close(capture_fd)
+    _PROTOCOL_OUT = os.fdopen(protocol_fd, "w", encoding="utf-8")
+    # Deliberately no context manager: the reader lives for the whole worker process
+    # (drained per input); a `with` would close it before the first batch even runs.
+    _FD1_READER = open(capture_path, "rb")  # noqa: SIM115
+
+
+def _drain_fd1_capture() -> str:
+    """New bytes user code wrote to REAL fd 1 since the last drain — folded into the current
+    input's observed stdout. Bytes written between inputs (import-time prints, stray threads)
+    ride with the NEXT input on both revisions, so the attribution is deterministic."""
+    if _FD1_READER is None:
+        return ""
+    sys.stdout.flush()  # buffered Python-level writes outside the redirect ride the real fd
+    data = _FD1_READER.read()
+    if not data:
+        return ""
+    return data.decode("utf-8", errors="replace")
 
 
 class _CanonicalModule(Protocol):
@@ -41,8 +82,9 @@ class _CanonicalModule(Protocol):
 
 
 def _emit(payload: dict[str, object]) -> None:
-    sys.stdout.write(json.dumps(payload) + "\n")
-    sys.stdout.flush()
+    out = _PROTOCOL_OUT if _PROTOCOL_OUT is not None else sys.stdout
+    out.write(json.dumps(payload) + "\n")
+    out.flush()
 
 
 def _resolve(module_name: str, qualname: str) -> Any:  # arbitrary user callable
@@ -314,7 +356,9 @@ def do_invoke(job: dict[str, Any], canonical: _CanonicalModule) -> None:
             "return_present": return_present,
             "return_canon": return_canon,
             "raised": raised,
-            "stdout": out_buf.getvalue(),
+            # Python-level capture first, then whatever the input wrote to REAL fd 1
+            # (os.write / inherited-subprocess stdout) — honest output, never protocol.
+            "stdout": out_buf.getvalue() + _drain_fd1_capture(),
             "stderr": err_buf.getvalue(),
             "wall_ns": wall,
             "cpu_ns": cpu,
@@ -347,6 +391,10 @@ def do_serve(job: dict[str, Any], canonical: _CanonicalModule) -> None:
         request: dict[str, Any] = json.loads(text)
         if request.get("shutdown"):
             return
+        # Ack BEFORE any user code: the runner uses this to tell "worker died while running
+        # an input" (real evidence) apart from "the request never reached a living worker"
+        # (infrastructure — e.g. a container whose stdin was EOF; review finding 1).
+        _emit({"batch_ack": True})
         batch = dict(job)
         batch["inputs"] = request["inputs"]
         batch["determinism"] = None
@@ -360,7 +408,11 @@ def main() -> None:
     for entry in reversed(job["sys_path"]):
         sys.path.insert(0, entry)
     sys.path.insert(0, job["scratch"])
+    _isolate_protocol_fd(job["scratch"])  # finding 4: user code never touches the protocol fd
     canonical = cast(_CanonicalModule, importlib.import_module("canonical"))
+    # First protocol line, before ANY target code can run: the runner treats a worker that
+    # dies without it as infrastructure failure, never as target evidence (finding 1).
+    _emit({"boot": True})
     if job["mode"] == "introspect":
         do_introspect(job["module"], job["qualname"])
     elif job["mode"] == "serve":

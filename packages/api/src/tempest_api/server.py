@@ -26,7 +26,7 @@ def _watch_parent(initial_ppid: int) -> None:
         if os.getppid() != initial_ppid:
             os.kill(os.getpid(), signal.SIGTERM)
             time.sleep(5.0)
-            os._exit(0)
+            os._exit(0)  # pragma: no cover — os._exit skips atexit, so no tracer can flush it
 
 
 def main() -> None:

@@ -48,6 +48,11 @@ testpaths = ["packages/engine/tests", "packages/api/tests"]
 source_pkgs = ["tempest", "tempest_api"]
 branch = true
 parallel = true
+# Children (the spawned sidecar server, stdio loop) start coverage via
+# scripts/covstart/sitecustomize.py when the conftests export COVERAGE_PROCESS_START —
+# subprocess code is measured, never excused (100% gate).
+concurrency = ["thread"]
+sigterm = true
 omit = [
     # Phase 2 in progress (behavior pinned by execution tests — HANDOFF trap #8)
     "*/tempest/determinism/*",
@@ -58,4 +63,14 @@ omit = [
 ]
 
 [tool.coverage.report]
-exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+# The 100% bar (owner decision 2026-08-14). Exclusions are EXPLICIT and justified in-line:
+# `pragma: no cover — <reason>` for genuinely unreachable-in-context lines, and the platform
+# pragmas keep the measured set identical on macOS and Linux (traps 15/20).
+fail_under = 100
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "pragma: darwin-only",
+    "pragma: linux-only",
+    "pragma: subprocess-only",
+]

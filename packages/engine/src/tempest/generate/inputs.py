@@ -55,7 +55,10 @@ def generate_inputs(
             if param.default_literal is None or rng.random() < 0.5:
                 annotation = parse_annotation(param.annotation) if param.annotation else None
                 pool = values_for(annotation, seed=budget.seed * 7000 + j, mined=mined)
-                if pool:
+                # Defensive: parse_annotation only yields types with curated edge pools
+                # (unknowns → None → the generic pool), so values_for is never empty today;
+                # the guard protects future annotation sources.
+                if pool:  # pragma: no branch — see above; empty is unreachable today
                     kwargs[param.name] = pool[round_i % len(pool)]
         key = (repr(args), repr(kwargs))
         if key not in seen:

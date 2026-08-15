@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from tempest.model import Verdict
 from tempest_api import serialize
-from tempest_api.bundlestore import bundle_store
+from tempest_api.bundlestore import bundle_store, collect_garbage
 from tempest_api.db.models import Divergence, Repo, Run, RunEvent, Target
 from tempest_api.db.session import get_session
 from tempest_api.errors import ApiError, error_responses
@@ -200,6 +200,9 @@ async def import_run_bundle(file: UploadFile, session: SessionDep) -> RunDetail:
     digest = hashlib.sha256(data).hexdigest()
     existing = await session.scalar(select(Run).where(Run.bundle_digest == digest))
     if existing is not None:
+        # Review M5: we hold the exact bytes — restore a missing blob so sync converges
+        # instead of re-pushing forever against a row whose blob was lost.
+        bundle_store().put(data)
         return serialize.run_detail(await _load_run_with_children(session, existing.id))
     bundle = parse_bundle_zip(data)  # 400 BUNDLE_INVALID on non-bundles, before any row
     manifest = bundle.manifest
@@ -222,6 +225,9 @@ async def import_run_bundle(file: UploadFile, session: SessionDep) -> RunDetail:
     )
     await ingest_zip_bytes(session, run, data)
     await session.commit()
+    await collect_garbage(
+        session, bundle_store(), candidates=session.info.pop("pruned_digests", [])
+    )
     return serialize.run_detail(await _load_run_with_children(session, run.id))
 
 
@@ -307,8 +313,25 @@ async def upload_run_bundle(run_id: int, file: UploadFile, session: SessionDep) 
             "with POST /v1/runs before uploading its bundle",
             {"run_id": run_id},
         )
-    await ingest_zip_bytes(session, run, await file.read())
-    await session.commit()
+    try:
+        # Review m3: the loser of a double-submit race dies on uq_targets_run_position — at
+        # the ingest flush or at commit depending on timing. Either way it means "already
+        # ingested", not a server error.
+        await ingest_zip_bytes(session, run, await file.read())
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        raise ApiError(
+            409,
+            ErrorCode.RUN_NOT_PENDING,
+            f"run {run_id} already has an ingested bundle (concurrent upload) — "
+            "create a new run for a new bundle",
+            {"run_id": run_id},
+        ) from None
+    # Review C1: blob GC only after commit, against committed truth.
+    await collect_garbage(
+        session, bundle_store(), candidates=session.info.pop("pruned_digests", [])
+    )
     return serialize.run_detail(await _load_run_with_children(session, run_id))
 
 

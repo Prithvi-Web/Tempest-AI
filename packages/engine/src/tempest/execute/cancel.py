@@ -16,6 +16,8 @@ import threading
 from collections.abc import Iterator
 from contextvars import ContextVar
 
+from tempest.execute.sandbox import kill_container
+
 
 class ProveCancelled(RuntimeError):
     """The user cancelled this prove; unwind without producing a bundle."""
@@ -47,16 +49,31 @@ class CancelScope:
 
     def cancel(self) -> int:
         """Set the flag and SIGKILL every live registered process group. Idempotent; safe from
-        any thread; returns how many processes were signalled."""
+        any thread; returns how many processes were signalled. The snapshot is taken under the
+        lock but the kills run outside it, so a slow kill can never serialize registrations —
+        and a register() racing this flag kills its own late child immediately."""
         self._cancelled.set()
         with self._lock:
             live = [p for p in self._procs.values() if p.poll() is None]
-            for proc in live:
-                _kill_group(proc)
+        for proc in live:
+            _kill_group(proc)
         return len(live)
 
 
 def _kill_group(proc: subprocess.Popen[bytes]) -> None:
+    # T1 first: even a client that already exited may have left its container running — the
+    # docker kill below is registry-driven and consumes the entry, so it never fires twice.
+    kill_container(proc)
+    # killpg-after-reap guard (TOCTOU): `returncode` is set only by the reaping wait()/poll()
+    # on OUR child, and the kernel keeps the pid/pgid reserved (zombie) until that reap — so
+    # `returncode is None`, checked immediately before killpg, proves the pgid is still ours.
+    # The other thread (the prove thread's `proc.wait()`) can still reap between this check
+    # and the syscall; the unavoidable residue is the instruction window inside Popen.wait()
+    # between the OS-level waitpid and the returncode assignment. That window cannot be closed
+    # from outside Popen; the guard shrinks the race from "any time after reap" to that
+    # assignment gap, and every wait-then-kill call site is now signal-free by construction.
+    if proc.returncode is not None:
+        return
     try:
         os.killpg(proc.pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):

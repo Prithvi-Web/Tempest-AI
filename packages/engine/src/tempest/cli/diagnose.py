@@ -14,27 +14,52 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from tempest.cli.doctor import collect_payload
+from tempest.cli.doctor import outbound_payload
 from tempest.crashlog import crash_dir
 from tempest.obslog import read_records
-from tempest.redact import RedactionContext, redact_text, secret_env_values
+from tempest.redact import RedactionContext, production_context, redact_text
 from tempest.telemetry import telemetry_path
 
 _LOG_RECORDS = 500
 
 
+def _redact_value(value: object, context: RedactionContext) -> object:
+    """Redact BEFORE serialization: scrubbing already-serialized JSON against raw values
+    misses every secret that escaping rewrote (quotes, backslashes, newlines — finding 5)."""
+    if isinstance(value, str):
+        return redact_text(value, context)
+    if isinstance(value, list):
+        return [_redact_value(item, context) for item in value]
+    if isinstance(value, dict):
+        return {
+            redact_text(str(key), context): _redact_value(item, context)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _redact_json_text(text: str, context: RedactionContext) -> str:
+    """Parse-then-redact for on-disk JSON members; an unparseable file falls back to
+    raw-text redaction — still scrubbed, never skipped."""
+    try:
+        parsed: object = json.loads(text)
+    except ValueError:
+        return redact_text(text, context)
+    return json.dumps(_redact_value(parsed, context), indent=2) + "\n"
+
+
 def _members(context: RedactionContext) -> dict[str, str]:
     members: dict[str, str] = {
-        "report.json": redact_text(json.dumps(collect_payload(), indent=2), context)
+        "report.json": json.dumps(_redact_value(outbound_payload(), context), indent=2)
     }
     records = read_records(limit=_LOG_RECORDS)
     if records:
-        lines = "\n".join(json.dumps(record) for record in records)
-        members["logs.jsonl"] = redact_text(lines, context) + "\n"
+        redacted = (json.dumps(_redact_value(record, context)) for record in records)
+        members["logs.jsonl"] = "\n".join(redacted) + "\n"
     for crash in sorted(crash_dir().glob("crash-*.json")):
-        members[f"crashes/{crash.name}"] = redact_text(crash.read_text(), context)
+        members[f"crashes/{crash.name}"] = _redact_json_text(crash.read_text(), context)
     if telemetry_path().exists():
-        members["telemetry.json"] = redact_text(telemetry_path().read_text(), context)
+        members["telemetry.json"] = _redact_json_text(telemetry_path().read_text(), context)
     return members
 
 
@@ -56,7 +81,9 @@ def register(app: typer.Typer) -> None:
     ) -> None:
         """Export a redacted diagnostic bundle (local zip; inspect it before sharing)."""
         console = Console()
-        context = RedactionContext(env_secret_values=secret_env_values(), home_dir=str(Path.home()))
+        # The same builder the gate proves and the crash writer uses — repo names included
+        # via the env-provided source (finding 3), never a hand-wired context.
+        context = production_context()
         members = _members(context)
         manifest = _manifest(members)
         default_name = f"tempest-diagnostic-{time.strftime('%Y%m%dT%H%M%S')}.zip"

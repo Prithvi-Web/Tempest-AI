@@ -96,6 +96,16 @@ def collect_payload() -> dict[str, Any]:
     }
 
 
+def outbound_payload() -> dict[str, Any]:
+    """The health report as embedded in the OUTBOUND diagnostic bundle: identical to
+    `collect_payload` except `data_dir` is reduced to `[PATH]/<basename>` — a data dir
+    outside $HOME (where the home rule cannot reach) must never cross verbatim. The local
+    terminal report keeps the full path; only what leaves the machine is reduced."""
+    payload = collect_payload()
+    payload["data_dir"] = f"[PATH]/{Path(str(payload['data_dir'])).name}"
+    return payload
+
+
 def run_doctor(json_output: bool) -> int:
     console = Console()
     payload = collect_payload()

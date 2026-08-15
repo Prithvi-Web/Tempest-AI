@@ -68,7 +68,12 @@ def run_worker(tmp_path: Path, job: dict[str, object]) -> list[dict[str, Any]]:
         check=False,
     )
     assert proc.returncode == 0, proc.stderr
-    return [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+    payloads = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+    # Review finding 1: the FIRST protocol line is always the boot announcement — the runner
+    # uses it to tell "worker never ran" (infrastructure) apart from real target crashes.
+    # Every test below keeps asserting on the result payloads that follow it.
+    assert payloads and payloads[0] == {"boot": True}
+    return payloads[1:]
 
 
 def invoke_job(

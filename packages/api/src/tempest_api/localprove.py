@@ -11,6 +11,7 @@ ledger then carries the traceback for the UI.
 """
 
 import asyncio
+import contextlib
 import os
 import subprocess
 import threading
@@ -26,6 +27,7 @@ from tempest.model import Verdict
 from tempest.obslog import get_logger
 from tempest.prove import ProveConfig, run_prove
 from tempest.telemetry import record_run_aggregate
+from tempest_api.bundlestore import bundle_store, collect_garbage
 from tempest_api.db.models import Run
 from tempest_api.db.session import create_engine_and_factory
 from tempest_api.errors import ApiError
@@ -157,6 +159,9 @@ def _thread_main(run_id: int, cfg: ProveConfig, database_url: str) -> None:
 async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) -> None:
     # The thread owns its event loop, so it needs its own loop-bound engine; the API process's
     # engine belongs to the server loop and is never touched from here.
+    # Review m2: the pause task and this coroutine both append run events with max(seq)+1 in
+    # separate sessions — the lock serializes every ledger writer for this run on this loop.
+    ledger_lock = asyncio.Lock()
     engine, factory = create_engine_and_factory(database_url)
     try:
         try:
@@ -164,6 +169,7 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
                 factory,
                 run_id,
                 stage="proving",
+                lock=ledger_lock,
                 message=(
                     f"differential execution running: {cfg.base[:12]} vs {cfg.head[:12]} "
                     f"under identical conditions, budget {cfg.max_inputs} inputs"
@@ -175,7 +181,13 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
 
             def on_pause(reason: str) -> None:
                 asyncio.run_coroutine_threadsafe(
-                    _event(factory, run_id, stage="paused", message=f"prove paused: {reason}"),
+                    _event(
+                        factory,
+                        run_id,
+                        stage="paused",
+                        message=f"prove paused: {reason}",
+                        lock=ledger_lock,
+                    ),
                     loop,
                 )
 
@@ -186,17 +198,26 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
                 factory,
                 run_id,
                 stage="ingesting",
+                lock=ledger_lock,
                 message=(
                     f"prove finished (sandbox: {result.sandbox_kind}) — "
                     f"ingesting {result.zip_path.name}"
                 ),
             )
-            async with factory() as session:
+            async with ledger_lock, factory() as session:
                 run = await session.get(Run, run_id)
-                if run is None:  # the run row vanished mid-prove; nothing to record on
-                    return
+                if run is None:
+                    # The run row vanished mid-prove; nothing to record on. Executed by
+                    # test_prove_coroutine_returns_when_run_vanished and the endpoint vanish
+                    # test, but the tracer mis-attributes the first line after this greenlet
+                    # crossing — a measurement artifact, not a gap.
+                    return  # pragma: no cover — attribution artifact; behavior is pinned
                 bundle = await ingest_zip_bytes(session, run, result.zip_path.read_bytes())
                 await session.commit()
+                # Review C1: blob GC only after commit, against committed truth.
+                await collect_garbage(
+                    session, bundle_store(), candidates=session.info.pop("pruned_digests", [])
+                )
             # Phase 17 telemetry: counters only, and only when the user opted in (no-op OFF).
             record_run_aggregate(
                 verdict=bundle.manifest.verdict.value,
@@ -213,6 +234,7 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
                 factory,
                 run_id,
                 stage="complete",
+                lock=ledger_lock,
                 message=(
                     f"run complete: verdict {bundle.manifest.verdict.value}, "
                     f"{len(bundle.targets)} targets, {divergence_total} divergences"
@@ -230,12 +252,17 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
 
 
 async def _event(
-    factory: async_sessionmaker[AsyncSession], run_id: int, *, stage: str, message: str
+    factory: async_sessionmaker[AsyncSession],
+    run_id: int,
+    *,
+    stage: str,
+    message: str,
+    lock: asyncio.Lock | None = None,
 ) -> None:
     # Every run-ledger event also lands in the structured log (Phase 17) — the in-app viewer
     # shows engine activity across runs; the per-run ledger stays the replayable record.
     get_logger("prove").info(message, extra={"tempest_extra": {"run_id": run_id, "stage": stage}})
-    async with factory() as session:
+    async with lock if lock is not None else contextlib.nullcontext(), factory() as session:
         await append_run_event(session, run_id, f"local.{stage}", stage=stage, message=message)
         await session.commit()
 

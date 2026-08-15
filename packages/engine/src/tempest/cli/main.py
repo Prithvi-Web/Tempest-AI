@@ -1,6 +1,10 @@
 """`tempest` CLI entry point."""
 
+import signal
+import threading
+from collections.abc import Callable
 from pathlib import Path
+from types import FrameType
 
 import typer
 from rich.console import Console
@@ -55,6 +59,7 @@ def prove(
     from tempest.cli.report import render_report
     from tempest.config import TempestConfig, TempestConfigError
     from tempest.envrepro.worktree import EnvReproError
+    from tempest.execute.cancel import CancelScope, ProveCancelled
     from tempest.model import ReasonCode, Verdict
     from tempest.prove import ProveConfig, run_prove
     from tempest.targets.diff import DiffError
@@ -65,6 +70,21 @@ def prove(
     except TempestConfigError as exc:
         console.print(f"[bold red]{exc}[/bold red]")
         raise typer.Exit(2) from None
+    # L11 (review finding 3): one CancelScope per prove, wired to Ctrl-C. Every sandbox
+    # worker registers with the scope, so a SIGINT SIGKILLs all child process groups in
+    # under two seconds instead of orphaning session-leader workers past the CLI's death.
+    # Signal handlers exist only on the main thread; an embedded (threaded) prove simply
+    # runs without the Ctrl-C hook.
+    scope = CancelScope()
+    previous_handler: Callable[[int, FrameType | None], object] | int | None = None
+    handler_installed = False
+    if threading.current_thread() is threading.main_thread():
+
+        def _on_sigint(signum: int, frame: FrameType | None) -> None:
+            scope.cancel()  # children die now; the prove thread unwinds via ProveCancelled
+
+        previous_handler = signal.signal(signal.SIGINT, _on_sigint)
+        handler_installed = True
     try:
         result = run_prove(
             ProveConfig(
@@ -76,8 +96,15 @@ def prove(
                 float_rel_tol=file_cfg.effective_float_rel_tol(float_tolerance),
                 out=out,
                 ignore_globs=file_cfg.ignore_globs,
+                cancel=scope,
             )
         )
+    except ProveCancelled:
+        console.print(
+            "[bold yellow]cancelled — all sandbox workers were killed; nothing ran to "
+            "completion and nothing is blessed[/bold yellow]"
+        )
+        raise typer.Exit(130) from None
     except (EnvReproError, DiffError) as exc:
         # Law L2: environment reproduction failing is UNPROVEN territory, stated plainly —
         # never a raw traceback, never a blessing.
@@ -88,6 +115,9 @@ def prove(
             "this repository and that it is a valid git checkout."
         )
         raise typer.Exit(2) from None
+    finally:
+        if handler_installed:
+            signal.signal(signal.SIGINT, previous_handler)
     if result.sandbox_kind == "process-first-party":
         console.print(
             "[bold yellow]⚠ first-party fixture mode: ProcessSandbox in use "
