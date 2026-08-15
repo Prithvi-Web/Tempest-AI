@@ -92,8 +92,9 @@ export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
         </button>
       </p>
       <p className="dim">
-        Note: proving arbitrary repositories requires Docker Desktop (Law L6 — no unsandboxed
-        execution). Without it, targets are honestly reported UNPROVEN (sandbox unavailable).
+        Note: repositories always run inside a sandbox, never unsandboxed (Law L6): Docker when
+        available (T1), otherwise the OS-native macOS sandbox (T2). With no tier available,
+        targets are honestly reported UNPROVEN (sandbox unavailable).
       </p>
     </main>
   );

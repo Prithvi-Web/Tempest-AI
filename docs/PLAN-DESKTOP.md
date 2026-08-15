@@ -48,8 +48,17 @@ tests. Phase 9 evolves this shell to the §3 architecture; it does not start fro
       ajv legs, all against the one schema)
 - [x] Rust suite: 10 tests (framing codec, enum-discipline exhaustive matches, supervisor
       crash-restart/timeout-correlation/no-orphan-shutdown against a real protocol peer)
-- [ ] Playwright/WebDriver E2E against the real app (`pnpm --filter @tempest/desktop test:e2e`
-      is wired but the suite is not written yet)
+- [x] Playwright E2E: the real webview UI against the REAL engine (2026-08-15). 11 tests over
+      6 specs: smoke/health, live prove of the pyfix fixture through the form → `DIVERGENT`
+      with evidence (23.2 s), REPO_NOT_FOUND surfacing, cancel → `CANCELLED`, target →
+      divergence → repro drill-down + real clipboard, FTS search hit + no-match, LOGS +
+      level filter, engine-death honesty + auto-recovery, sidecar-event refetch. A
+      console-clean gate fails any test on ANY console error/unhandled rejection (it caught
+      a real missing-listener crash during bring-up). Architecture: `e2e/bridge.mjs` speaks
+      the supervisor's exact stdio frames to a real `tempest-server --stdio`; `e2e/shim.js`
+      implements `__TAURI_INTERNALS__` in-page. Wired into `make verify-desktop`. Output:
+      `11 passed (34.6s)` · repeat run `11 passed (33.6s)`. Remaining: the BUILT-app
+      (tauri-driver/WebDriver) leg and a CI leg — tracked in HANDOFF-PHASES §3.
 - [ ] Clean-VM validation: needs VMs this machine does not have — CI/manual follow-up; the
       local equivalents (frozen-sidecar parity, orphan gate, no-toolchain .app) are green
 

@@ -54,8 +54,11 @@ desktop app share the identical engine and produce byte-identical bundles (parit
 
 ## 3. Open stragglers in completed phases (do these opportunistically)
 
-- **Phase 9:** desktop Playwright/WebDriver E2E suite (`pnpm --filter @tempest/desktop test:e2e`
-  is wired, the suite is unwritten); clean-VM launch test (needs a VM this Mac lacks).
+- **Phase 9:** ~~desktop E2E suite~~ **DONE 15 Aug** — 11 Playwright tests, real UI × real
+  engine via `e2e/bridge.mjs` (stdio frames) + `e2e/shim.js` (`__TAURI_INTERNALS__`),
+  console-clean gate, in `make verify-desktop` (see `docs/PLAN-DESKTOP.md` Phase 9 box).
+  Still open: BUILT-app (tauri-driver) leg, CI leg (runners lack the cached browsers),
+  clean-VM launch test (needs a VM this Mac lacks).
 - **Phase 10:** Linux (bubblewrap+seccomp+userns+cgroups) and Windows (AppContainer+Job Object)
   T2 backends; the true T3 (separate-user); netns deny-all packet-capture egress leg; T1-vs-T2
   Docker perf delta. **All are other-OS/CI legs** — this host is macOS-only. Each is marked

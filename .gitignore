@@ -18,6 +18,10 @@ dist/
 *.tsbuildinfo
 .turbo/
 
+# Playwright (desktop E2E)
+test-results/
+playwright-report/
+
 # Tempest run artifacts
 .tempest/
 *.tempest.zip

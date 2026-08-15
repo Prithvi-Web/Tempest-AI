@@ -62,7 +62,11 @@ The owner's words: "first I want to integrate the frontend and backend flawlessl
 NOT yet guaranteed is *behavior*: nothing today exercises the real UI against the real
 sidecar. That is the gap between "types agree" and "zero issues." Close it in this order:
 
-### 1.1 The desktop E2E suite (the Phase 9 straggler — now the single most important task)
+### 1.1 The desktop E2E suite — **CORE LANDED 2026-08-15** (see PLAN-DESKTOP Phase 9 box:
+11 tests / 6 specs, real engine, console-clean gate, `11 passed (34.6s)`, in
+`make verify-desktop`). Still open from the inventory below: exhaustive-enum component
+renders (vitest), `reportUiError` crash honesty, the BUILT-app driver leg, desktop-src
+coverage gate. Original brief kept for those:
 - `pnpm --filter @tempest/desktop test:e2e` is wired but EMPTY. Stand up WebDriver E2E via
   `tauri-driver` (macOS: use the WKWebView driver; CI leg later) or, pragmatically first, a
   **webview-level Playwright suite against `pnpm dev` + a real sidecar process** — the sidecar

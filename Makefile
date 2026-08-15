@@ -53,6 +53,9 @@ verify-desktop: ensure-sidecar
 	@! grep -rn --include='*.ts' --include='*.tsx' 'from "@tauri-apps/api/core"' \
 		packages/desktop/src | grep -v "src/generated/" \
 		|| (echo "handwritten invoke() is banned — use the generated bindings (§9b)"; exit 1)
+	# E2E: the real webview UI against the real engine (vite + stdio sidecar via e2e/bridge.mjs),
+	# console-clean gate enforced. Local leg — CI runners have no cached browsers (yet).
+	pnpm --filter @tempest/desktop test:e2e
 
 verify-python:
 	uv run ruff check

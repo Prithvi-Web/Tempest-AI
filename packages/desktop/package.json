@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p e2e",
+    "test:e2e": "playwright test",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -16,7 +17,9 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "~1.61.0",
     "@tauri-apps/cli": "^2.7.1",
+    "@types/node": "^22.10.0",
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^4.7.0",
