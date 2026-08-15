@@ -22,7 +22,8 @@ Read order before touching anything: `CLAUDE.md` → `HANDOFF.md` → `docs/HAND
    check annotations (readable without auth — trap 12), reproduce locally with the
    simulation target, fix, and add the lesson as trap 22. Never bypass, never lower the gate.
 
-2. **The 8-hour soak verdict** (the LAST open Phase 11 box). Started 13:33, ends ≈21:35 in
+2. ~~The 8-hour soak verdict~~ **DONE — PASS recorded (937/937, −3.7%); Phase 11 closed.**
+   (original instructions kept below for the record) **The 8-hour soak verdict** (the LAST open Phase 11 box). Started 13:33, ends ≈21:35 in
    `bench/soak.json` (a Monitor watcher + the log at `bench/soak-8h.log`; at 6¾ h it was
    782/782 proves, 0 failures, RSS ~110 MB flat — expect PASS, growth well under the 10% bar).
    - **On PASS:** paste the JSON (minus `samples`) into `docs/PLAN-DESKTOP.md` Phase 11's soak

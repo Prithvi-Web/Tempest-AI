@@ -136,10 +136,11 @@ PENDING(CI) rather than skipping it silently.*
       refuses spawns; pause engages/resumes/cancel-unblocks) + `test_cancel_run.py` 3/3
       (running prove → CANCELLED with children dead and thread unwound in <2 s — measured
       0.85 s for the whole test; RUN_NOT_ACTIVE on idle runs). Desktop CANCEL button wired.
-- [ ] 8-hour soak: memory growth <10% — harness landed (`tempest.dev.soak`); 2-minute
-      validation run PASS (growth −4.87%, 4 real proves, 0 failures); **the 8-hour run started
-      2026-08-14 13:33 local, result lands in `bench/soak.json` ≈21:33** — box flips only with
-      that output pasted.
+- [x] 8-hour soak: memory growth <10% — **PASS 2026-08-14 21:35**, real output:
+      `{"minutes": 480.0, "iterations": 937, "proves": 937, "prove_failures": 0,
+      "baseline_rss_mb": 117.8, "final_rss_mb": 113.4, "growth_pct": -3.7,
+      "max_growth_pct": 10.0, "pass": true}` — 937 real proves over 8 hours, zero failures,
+      memory NEGATIVE growth (−3.7% vs the 10% bar). Phase 11 fully complete.
 
 *Gate:* `make bench && python -m tempest.dev.bench_guard --max-regression 15` (fails the build)
 — **live in CI as the `bench` job and green on this machine as of 2026-08-14.**
