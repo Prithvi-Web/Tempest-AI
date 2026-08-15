@@ -17,13 +17,19 @@
  */
 
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, existsSync } from "node:fs";
+import { mkdtempSync, existsSync, appendFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const PORT = Number(process.env.E2E_BRIDGE_PORT ?? 39755);
+// Optional per-call trace (E2E_BRIDGE_LOG=/path): one line per invoke with latency and
+// outcome — the first thing to reach for when a spec sees the UI stall.
+const TRACE = process.env.E2E_BRIDGE_LOG ?? null;
+function trace(line) {
+  if (TRACE) appendFileSync(TRACE, `${new Date().toISOString()} ${line}\n`);
+}
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const CALL_TIMEOUT_MS = 30_000;
 
@@ -206,13 +212,17 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         const [operation, params] = mapping(body.args ?? {});
+        const t0 = Date.now();
+        trace(`> ${operation} ${JSON.stringify(params).slice(0, 120)}`);
         const data = await call(operation, params);
+        trace(`< ${operation} ok ${Date.now() - t0}ms ${JSON.stringify(data).slice(0, 80)}`);
         json(res, 200, { data });
       } catch (err) {
         const failure =
           err && typeof err === "object" && "code" in err
             ? { code: err.code, message: String(err.message ?? "engine error") }
             : { code: -32603, message: `bridge failure on ${cmd}: ${String(err)}` };
+        trace(`< ${cmd} ERR ${failure.code} ${failure.message.slice(0, 100)}`);
         // 200, not 5xx: an engine-level error is a RESULT the shim rethrows, exactly like a
         // real Tauri invoke rejection. A non-2xx would make Chromium log a resource error
         // and trip the console-clean gate on flows that are behaving correctly.

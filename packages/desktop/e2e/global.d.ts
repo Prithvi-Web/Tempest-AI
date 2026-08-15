@@ -5,4 +5,6 @@ interface Window {
     emit(name: string, payload: unknown): number;
   };
   __E2E_BRIDGE_URL__?: string;
+  /** Installed by src/devValidate.ts in dev builds (Boundary B deep validation). */
+  __TEMPEST_DEV_VALIDATE__?: (command: string, data: unknown) => void;
 }

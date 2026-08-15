@@ -103,7 +103,11 @@ second centrally — or better, have `localprove` write progress and the host fo
 run_events rows. One socket of truth, no per-view timers. Keep the polling fallback. This is
 UX-critical for the "alive" feel of a world-class tool.
 
-### 1.3 Dev-mode deep validation at Boundary B
+### 1.3 Dev-mode deep validation at Boundary B — **DONE 2026-08-15** (`src/devValidate.ts`:
+ajv over `domain-schema.json` in every dev-build `unwrap()`, prod bundles clean of it;
+proven catching by E2E spec 07 and by finding a REAL defect on day one — API datetimes
+violated their own `format: date-time` (naive-UTC, no offset), fixed via `schemas/rfc3339.py`
+`UtcMoment` with the published schema pinned byte-identical). Original brief:
 serde already rejects contract violations (code -2). Add the dev-only deep check the v1 spec
 had for the web app: in dev builds, validate every command result against the generated JSON
 schema (`packages/shared-schema/domain-schema.json` is already in the repo) and fail loudly.

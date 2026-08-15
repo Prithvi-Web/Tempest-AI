@@ -23,16 +23,22 @@ export class SidecarError extends Error {
   }
 }
 
-async function unwrap<T>(pending: Promise<BindingResult<T>>): Promise<T> {
+async function unwrap<T>(command: string, pending: Promise<BindingResult<T>>): Promise<T> {
   const result = await pending;
   if (result.status === "error") throw new SidecarError(result.error);
+  if (import.meta.env.DEV) {
+    // Deep validation at Boundary B (§9b): dev builds check every result against the
+    // generated domain schema — statically dead (and tree-shaken) in production.
+    const { assertValidCommandResult } = await import("./devValidate");
+    assertValidCommandResult(command, result.data);
+  }
   return result.data;
 }
 
 export function useGetHealth() {
   return useQuery({
     queryKey: ["getHealth"],
-    queryFn: () => unwrap(commands.getHealth()),
+    queryFn: () => unwrap("getHealth", commands.getHealth()),
     // The sidecar may still be starting (or restarting after a crash) — keep probing.
     refetchInterval: (query) => (query.state.status === "error" ? 2000 : false),
   });
@@ -45,6 +51,7 @@ export function useListRuns(
     queryKey: ["listRuns", filters],
     queryFn: () =>
       unwrap(
+        "listRuns",
         commands.listRuns(filters.verdict ?? null, filters.cursor ?? null, filters.limit ?? null),
       ),
   });
@@ -53,50 +60,50 @@ export function useListRuns(
 export function useGetRun(runId: number) {
   return useQuery({
     queryKey: ["getRun", runId],
-    queryFn: () => unwrap(commands.getRun(runId)),
+    queryFn: () => unwrap("getRun", commands.getRun(runId)),
   });
 }
 
 export function useListRunEvents(runId: number) {
   return useQuery({
     queryKey: ["listRunEvents", runId],
-    queryFn: () => unwrap(commands.listRunEvents(runId)),
+    queryFn: () => unwrap("listRunEvents", commands.listRunEvents(runId)),
   });
 }
 
 export function useGetTarget(targetId: number) {
   return useQuery({
     queryKey: ["getTarget", targetId],
-    queryFn: () => unwrap(commands.getTarget(targetId)),
+    queryFn: () => unwrap("getTarget", commands.getTarget(targetId)),
   });
 }
 
 export function useGetDivergence(divergenceId: number) {
   return useQuery({
     queryKey: ["getDivergence", divergenceId],
-    queryFn: () => unwrap(commands.getDivergence(divergenceId)),
+    queryFn: () => unwrap("getDivergence", commands.getDivergence(divergenceId)),
   });
 }
 
 export function useGetDivergenceRepro(divergenceId: number) {
   return useQuery({
     queryKey: ["getDivergenceRepro", divergenceId],
-    queryFn: async () => (await unwrap(commands.getDivergenceRepro(divergenceId))).text,
+    queryFn: async () => (await unwrap("getDivergenceRepro", commands.getDivergenceRepro(divergenceId))).text,
   });
 }
 
 export function startLocalProve(request: LocalProveRequest): Promise<RunCreated> {
-  return unwrap(commands.startLocalProve(request));
+  return unwrap("startLocalProve", commands.startLocalProve(request));
 }
 
 export function cancelRun(runId: number) {
-  return unwrap(commands.cancelRun(runId));
+  return unwrap("cancelRun", commands.cancelRun(runId));
 }
 
 export function useSearchDivergences(q: string) {
   return useQuery({
     queryKey: ["searchDivergences", q],
-    queryFn: () => unwrap(commands.searchDivergences(q, null)),
+    queryFn: () => unwrap("searchDivergences", commands.searchDivergences(q, null)),
     enabled: q.trim().length > 0,
   });
 }
@@ -104,7 +111,7 @@ export function useSearchDivergences(q: string) {
 export function useListLogRecords(limit?: number, level?: string | null) {
   return useQuery({
     queryKey: ["listLogRecords", limit ?? null, level ?? null],
-    queryFn: () => unwrap(commands.listLogRecords(limit ?? null, level ?? null)),
+    queryFn: () => unwrap("listLogRecords", commands.listLogRecords(limit ?? null, level ?? null)),
     // Logs are a live surface: keep polling so the view follows the engine.
     refetchInterval: 3000,
   });

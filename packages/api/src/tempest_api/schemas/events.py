@@ -5,13 +5,13 @@ Rows are written through `tempest_api.ledger.append_run_event`, so every event c
 engine enums stay defined once in `tempest.model` (CLAUDE.md §9).
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel
+
+from tempest_api.schemas.rfc3339 import UtcMoment
 
 
 class RunEventOut(BaseModel):
-    ts: datetime
+    ts: UtcMoment
     stage: str
     level: str
     message: str

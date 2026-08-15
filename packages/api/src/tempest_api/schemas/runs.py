@@ -1,12 +1,11 @@
 """Run shapes (master spec §8). Manifest fields (docs/BUNDLE_SCHEMA.md) are null until a bundle
 is ingested and are stored/served verbatim — the API never re-derives a verdict (Law L2)."""
 
-from datetime import datetime
-
 from pydantic import BaseModel, Field
 
 from tempest.model import Verdict
 from tempest_api.schemas.enums import RunStatus
+from tempest_api.schemas.rfc3339 import UtcMoment
 from tempest_api.schemas.targets import TargetSummary
 
 _SHA_PATTERN = r"^[0-9a-f]{40}$"
@@ -36,7 +35,7 @@ class RunSummary(BaseModel):
     head_sha: str
     status: RunStatus
     verdict: Verdict | None
-    created_at: datetime
+    created_at: UtcMoment
     target_count: int
     divergence_count: int
 
