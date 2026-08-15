@@ -174,10 +174,14 @@ blocked on owner resources either way; 18's design-partner gate needs the first 
     per-input timeout — `_STARTUP_GRACE_S` in `execute/runner.py` covers the first result after
     a spawn, or a healthy fast input is mismarked `HUNG` and Tempest invents a HANG divergence.
     Any new timing assertion needs the same headroom.
-12. **GitHub Actions raw logs need repo-admin auth** — an outside agent cannot read them, and the
-    web view truncates large steps. The `python` job therefore tees pytest output and appends the
-    tail to `$GITHUB_STEP_SUMMARY` on failure, which IS readable from the public checks API
-    (`GET /repos/{owner}/{repo}/commits/{sha}/check-runs` → `output.summary`). Keep that step.
+12. **GitHub Actions raw logs AND job summaries need a signed-in session** — an outside agent
+    cannot read either (verified 15 Aug: `output.summary` comes back empty from the public API).
+    The ONLY publicly readable failure channel is check-run ANNOTATIONS
+    (`GET /repos/{owner}/{repo}/actions/runs/{id}/jobs` → step conclusions, and
+    `GET .../check-runs/{id}/annotations` → the `::error::` lines). The `python` job's
+    "surface pytest failure" step emits failing tests, the coverage total, AND every non-100%
+    coverage-table row (with missing line numbers — `show_missing` is on) as `::error::`.
+    Keep that step; it is how a red build is diagnosed from outside.
 13. **Pushing needs the owner.** The CLI has no stored GitHub credential (the repo is published
     and pushed through GitHub Desktop). Commit locally, then ask the owner to click *Push origin*.
     Remote: `https://github.com/Prithvi-Web/Tempest-AI.git`.
@@ -219,6 +223,16 @@ blocked on owner resources either way; 18's design-partner gate needs the first 
     platforms measure the SAME set, and `make verify-linux-denominator` reproduces CI's exact
     suite locally — run it before pushing coverage-heavy changes. Formatter warning: pragmas
     on a `def` line get moved when ruff rewraps the signature — put them on a stable body line.
+22. **ubuntu runners ship a LIVE Docker daemon** (this Mac has none): every real-ladder call
+    (`doctor`'s healthy-machine test) selects **T1 there, T2 here** — so a rung below T1 that
+    only real ladders reach is covered on macOS and silently unexecuted on Linux (the 15 Aug
+    99.95% CI failure: `select_sandbox`'s seatbelt rung + `SeatbeltSandbox.available()`).
+    `make verify-linux-denominator` CANNOT see this class — it deselects tests but still runs
+    on macOS, so runtime-arc divergence inside shared tests is invisible to it. Any ladder
+    rung or platform-probing path needs an explicit test staging the probe result identically
+    on every OS (nonexistent absolute binary path, fake executable on PATH) with
+    platform-aware assertions, never skipifs — see
+    `test_seatbelt_rung_is_probed_when_docker_is_absent`.
 
 ---
 

@@ -116,6 +116,31 @@ class TestDockerSelection:
         assert selection.sandbox is None
         assert selection.reason is not None and "Law L6" in selection.reason
 
+    def test_seatbelt_rung_is_probed_when_docker_is_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The T2 rung must execute on EVERY platform when Docker is missing (trap 22): CI's
+        ubuntu runners ship a live Docker daemon, so the real-ladder doctor test lands on T1
+        there and — without this test — the rung ran only on macOS, leaving the Linux
+        coverage denominator at 99.95% while every test passed."""
+        empty = tmp_path / "emptybin"
+        empty.mkdir()
+        monkeypatch.setenv("PATH", str(empty))
+        # probed for real on both platforms: /usr/bin/sandbox-exec on macOS, the sys.platform
+        # short-circuit elsewhere — no skipif, the assertion is platform-aware instead
+        assert SeatbeltSandbox().available() is (sys.platform == "darwin")
+        selection = select_sandbox(docker_binary=str(tmp_path / "definitely-missing-docker"))
+        if sys.platform == "darwin":
+            assert selection.tier == "T2"
+            assert selection.kind == "seatbelt"
+            assert selection.assurance == "full"
+            assert isinstance(selection.sandbox, SeatbeltSandbox)
+            assert selection.reason is None
+        else:
+            assert selection.tier == "none"
+            assert selection.sandbox is None
+            assert selection.reason is not None and "Law L6" in selection.reason
+
     def test_translate_job_without_sys_path_maps_only_path_fields(self, tmp_path: Path) -> None:
         workdir = tmp_path / "repo"
         scratch = tmp_path / "scratch"

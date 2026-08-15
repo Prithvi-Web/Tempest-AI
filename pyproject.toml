@@ -67,6 +67,9 @@ omit = [
 # `pragma: no cover — <reason>` for genuinely unreachable-in-context lines, and the platform
 # pragmas keep the measured set identical on macOS and Linux (traps 15/20).
 fail_under = 100
+# Name the missing lines in every report: a red coverage gate on CI must be diagnosable from
+# the public checks API alone (the ci.yml failure step surfaces these rows as annotations).
+show_missing = true
 exclude_also = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",

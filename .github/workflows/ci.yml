@@ -51,6 +51,11 @@ jobs:
             done
             grep -E '^[0-9]+ (passed|failed)|Required test coverage' /tmp/pytest.log |
               tail -n 3 | while IFS= read -r line; do echo "::error::$line"; done
+            # A coverage-gate miss must name its lines publicly: with show_missing on, every
+            # non-100% row of the table (path, counts, missing line numbers) becomes an
+            # annotation — the only CI output readable without repo-admin auth (trap 12).
+            grep -E '^[^ ]+\.py ' /tmp/pytest.log | awk '$NF != "100%"' | head -n 20 |
+              while IFS= read -r line; do echo "::error::coverage gap: $line"; done
           else
             echo "::error::pytest produced no log file"
           fi
