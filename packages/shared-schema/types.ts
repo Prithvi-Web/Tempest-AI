@@ -15,8 +15,10 @@ export interface paths {
         put?: never;
         /**
          * Check Bundle Presence
-         * @description Which of these content digests this server's store already holds — the delta-only
-         *     primitive: a pushing peer sends only what is missing.
+         * @description Which of these content digests this server can actually SERVE — the delta-only
+         *     primitive. Present means a committed run row AND the blob on disk (review M4: a crash
+         *     between blob write and commit must not make peers skip the bundle forever; a lost blob
+         *     must invite a re-push so the import path can heal it).
          */
         post: operations["checkBundlePresence"];
         delete?: never;

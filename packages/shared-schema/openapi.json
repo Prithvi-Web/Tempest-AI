@@ -1054,7 +1054,7 @@
   "paths": {
     "/v1/bundles/presence": {
       "post": {
-        "description": "Which of these content digests this server's store already holds \u2014 the delta-only\nprimitive: a pushing peer sends only what is missing.",
+        "description": "Which of these content digests this server can actually SERVE \u2014 the delta-only\nprimitive. Present means a committed run row AND the blob on disk (review M4: a crash\nbetween blob write and commit must not make peers skip the bundle forever; a lost blob\nmust invite a re-push so the import path can heal it).",
         "operationId": "checkBundlePresence",
         "requestBody": {
           "content": {
