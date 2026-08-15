@@ -16,6 +16,10 @@ exit 0 with the Phase 11 work in · 8-hour soak in flight (see §2).**
 1. `CLAUDE.md` — the contract (Laws L1–L14, §9b tri-boundary, §13 verify bar).
 2. `HANDOFF.md` — status-at-a-glance table + the standalone traps.
 3. This file — remaining phases + resume procedure.
+3b. **`docs/HANDOFF-WORLD-CLASS.md` — the forward plan (owner, 14 Aug eve): flawless
+    frontend↔backend first (E2E suite = the gap), Apple-grade UI + AI-key Settings via
+    keychain, LLM harness synthesis (BYOK), real-world proof rate. Read it before choosing
+    what to build next.**
 4. `docs/PLAN-DESKTOP.md` — per-phase checklist with the exact gate command for each box.
 5. `docs/DECISIONS.md` — ADR-0001..0015; every deviation from spec is here.
 6. `docs/AUDIT-PHASE8.md`, `docs/METRICS.md` — the truth audit + the three numbers.
