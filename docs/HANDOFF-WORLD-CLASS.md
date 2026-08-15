@@ -2,8 +2,8 @@
 
 **Audience:** the next Claude session (and every one after). The owner is a non-coder: plain
 English, copy-paste commands, verify by running the real app, check in after each phase.
-Subagents are allowed ("use as many as needed") but their code meets the same bar and YOU
-verify it with real gates — never their reports. **The bar, set by the owner on 14 Aug 2026:
+Subagents are FORBIDDEN (owner, 15 Aug 2026: "just build with one but go all out") —
+single-agent, maximum depth; stop after every phase for review and reinstall the app. **The bar, set by the owner on 14 Aug 2026:
 100% coverage, zero known defects, no red CI, ever. "Flawless" is the product identity.**
 
 Read order before touching anything: `CLAUDE.md` → `HANDOFF.md` → `docs/HANDOFF-PHASES.md`

@@ -25,8 +25,9 @@ exit 0 with the Phase 11 work in · 8-hour soak in flight (see §2).**
 6. `docs/AUDIT-PHASE8.md`, `docs/METRICS.md` — the truth audit + the three numbers.
 
 **User is a non-coder** — plain English, copy-paste commands, verify by running the real app.
-**Subagents ALLOWED as of 14 Aug 2026** ("use as many as needed") — but their code meets the
-same flawless bar and you verify it with real gates, never their reports.
+**Subagents FORBIDDEN as of 15 Aug 2026** (owner re-reversal: "don't use sub agents anymore.
+Just build with one but go all out") — single-agent, maximum-depth work; STOP after every
+phase for owner review, and rebuild+reinstall the app to /Applications each phase.
 **Check in after each phase/feature**, flawless bar.
 
 ---
