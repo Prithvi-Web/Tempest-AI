@@ -472,7 +472,7 @@ export interface components {
          * @description Machine-readable blocking reasons attached to every UNPROVEN verdict (Law L2).
          * @enum {string}
          */
-        ReasonCode: "TARGET_UNREACHABLE" | "ENV_REPRODUCTION_FAILED" | "HARNESS_SYNTHESIS_FAILED" | "UNINTERCEPTABLE_EFFECT" | "NONDETERMINISTIC_BASE" | "SANDBOX_UNAVAILABLE" | "VALUE_UNSERIALIZABLE" | "RECORD_REPLAY_UNAVAILABLE";
+        ReasonCode: "TARGET_UNREACHABLE" | "ENV_REPRODUCTION_FAILED" | "HARNESS_SYNTHESIS_FAILED" | "SYNTHESIS_DECLINED" | "UNINTERCEPTABLE_EFFECT" | "NONDETERMINISTIC_BASE" | "SANDBOX_UNAVAILABLE" | "VALUE_UNSERIALIZABLE" | "RECORD_REPLAY_UNAVAILABLE";
         /** RunCreate */
         RunCreate: {
             /** Base Sha */
@@ -626,7 +626,7 @@ export interface components {
          * @description Stage-1 classification of a changed symbol.
          * @enum {string}
          */
-        TargetClassification: "PURE_CANDIDATE" | "IMPURE_RECORDABLE" | "UNREACHABLE";
+        TargetClassification: "PURE_CANDIDATE" | "IMPURE_RECORDABLE" | "UNREACHABLE" | "SYNTHESIZED";
         /** TargetDetail */
         TargetDetail: {
             /** Changed Line Coverage */

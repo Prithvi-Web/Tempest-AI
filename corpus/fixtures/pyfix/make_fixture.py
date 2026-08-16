@@ -53,6 +53,68 @@ BEHAVIOR_HEAD: dict[str, str] = {
     "b12.py": "def magnitude(x: float) -> float:\n    return abs(x) if x else -0.0\n",
 }
 
+# ---- instance-method targets (LLM constructor synthesis, HANDOFF-WORLD-CLASS 2.1) ----------
+# Kept OUT of BEHAVIOR_*: without an AI key these are honestly UNPROVEN(TARGET_UNREACHABLE),
+# so the keyless 12/12 gate must not require them. With synthesis, c01/c02 must land
+# DIVERGENT and c03 must stay clean — that is the proof-rate measurement.
+INSTANCE_BASE: dict[str, str] = {
+    "c01.py": (
+        "class Discounter:\n"
+        "    def __init__(self, rate: float) -> None:\n"
+        "        self.rate = rate\n"
+        "\n"
+        "    def apply(self, price: float) -> float:\n"
+        "        return round(price * (1 - self.rate), 2)\n"
+    ),
+    "c02.py": (
+        "class Wallet:\n"
+        "    def __init__(self, balance: int) -> None:\n"
+        "        self.balance = balance\n"
+        "\n"
+        "    def withdraw(self, amount: int) -> int:\n"
+        "        if amount > self.balance:\n"
+        "            raise ValueError('insufficient funds')\n"
+        "        return self.balance - amount\n"
+    ),
+    "c03.py": (
+        "class Tally:\n"
+        "    def __init__(self, start: int) -> None:\n"
+        "        self.start = start\n"
+        "\n"
+        "    def bump(self, xs: list[int]) -> int:\n"
+        "        total = self.start\n"
+        "        for x in xs:\n"
+        "            total += x\n"
+        "        return total\n"
+    ),
+}
+INSTANCE_HEAD: dict[str, str] = {
+    "c01.py": (
+        "class Discounter:\n"
+        "    def __init__(self, rate: float) -> None:\n"
+        "        self.rate = rate\n"
+        "\n"
+        "    def apply(self, price: float) -> float:\n"
+        "        return price * (1 - self.rate)\n"
+    ),
+    "c02.py": (
+        "class Wallet:\n"
+        "    def __init__(self, balance: int) -> None:\n"
+        "        self.balance = balance\n"
+        "\n"
+        "    def withdraw(self, amount: int) -> int:\n"
+        "        return max(0, self.balance - amount)\n"
+    ),
+    "c03.py": (
+        "class Tally:\n"
+        "    def __init__(self, start: int) -> None:\n"
+        "        self.start = start\n"
+        "\n"
+        "    def bump(self, xs: list[int]) -> int:\n"
+        "        return self.start + sum(xs)\n"
+    ),
+}
+
 # ---- 12 true no-op refactors ----------------------------------------------------------------
 NOOP_BASE: dict[str, str] = {
     "n01.py": (
@@ -154,6 +216,7 @@ NOOP_HEAD: dict[str, str] = {
 
 BEHAVIOR_MODULES = sorted(m.removesuffix(".py") for m in BEHAVIOR_BASE)
 NOOP_MODULES = sorted(m.removesuffix(".py") for m in NOOP_BASE)
+INSTANCE_MODULES = sorted(m.removesuffix(".py") for m in INSTANCE_BASE)
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -176,12 +239,12 @@ def build(target: Path) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     _git(target, "init", "-b", "main")
     (target / ".tempest-first-party").write_text(MARKER + "\n", encoding="utf-8")
-    for name, src in {**BEHAVIOR_BASE, **NOOP_BASE}.items():
+    for name, src in {**BEHAVIOR_BASE, **NOOP_BASE, **INSTANCE_BASE}.items():
         (target / name).write_text(src, encoding="utf-8")
     _git(target, "add", "-A")
     _git(target, "commit", "-m", "base", "--no-gpg-sign")
     _git(target, "branch", "base")
-    for name, src in {**BEHAVIOR_HEAD, **NOOP_HEAD}.items():
+    for name, src in {**BEHAVIOR_HEAD, **NOOP_HEAD, **INSTANCE_HEAD}.items():
         (target / name).write_text(src, encoding="utf-8")
     _git(target, "add", "-A")
     _git(target, "commit", "-m", "head: 12 behavior changes + 12 no-op refactors", "--no-gpg-sign")

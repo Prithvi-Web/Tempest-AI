@@ -238,6 +238,7 @@ def run_batch(
     per_input_timeout: float = 10.0,
     python: str | None = None,
     determinism: DeterminismJob | None = None,
+    trace_module: str | None = None,
 ) -> list[Observation]:
     """Execute every (args_literal, kwargs_literal) input, restarting workers across crashes."""
     worker_python = python if python is not None else find_worker_python()
@@ -252,7 +253,10 @@ def run_batch(
                 "mode": "invoke",
                 "module": module,
                 "qualname": qualname,
-                "target_file": _target_file(root, module),
+                # Synthesized adapters (harness/llm.py) invoke a generated module while the
+                # changed lines live in the REAL module — trace the latter so changed-line
+                # coverage stays honest through an adapter.
+                "target_file": _target_file(root, trace_module or module),
                 "sys_path": _sys_path_for(root),
                 "scratch": str(scratch),
                 "determinism": determinism.to_job() if determinism else None,
@@ -346,10 +350,12 @@ class PersistentWorker:
         sandbox: Sandbox,
         *,
         python: str | None = None,
+        trace_module: str | None = None,
     ) -> None:
         self._root = root
         self._module = module
         self._qualname = qualname
+        self._trace_module = trace_module
         self._sandbox = sandbox
         self._python = python if python is not None else find_worker_python()
         self._tmp = tempfile.TemporaryDirectory(prefix="tempest-scratch-")
@@ -369,7 +375,7 @@ class PersistentWorker:
             "mode": "serve",
             "module": self._module,
             "qualname": self._qualname,
-            "target_file": _target_file(self._root, self._module),
+            "target_file": _target_file(self._root, self._trace_module or self._module),
             "sys_path": _sys_path_for(self._root),
             "scratch": str(self._scratch),
             "inputs": [],

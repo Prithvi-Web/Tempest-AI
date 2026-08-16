@@ -125,7 +125,12 @@ Cheap, catches generator regressions the instant they happen.
 The engine's identity is *proof, not opinion*. World-class means: it proves MORE (proof
 rate), explains better, and demands nothing from the user. In priority order:
 
-### 2.1 LLM harness synthesis — the proof-rate lever (BYOK, ADR-0006)
+### 2.1 LLM harness synthesis — the proof-rate lever (BYOK, ADR-0006) — **DONE 2026-08-16**
+Shipped as specified below (ADR-0024): `harness/llm.py` synthesis stage, execution-validated
+on BASE via the same probe as deterministic adapters, `.tempest/adapters/` offline cache,
+`SYNTHESIS_DECLINED` + `SYNTHESIZED` across all three boundaries, pyfix c01–c03
+instance-method fixtures, and the synthesis gate (0/3 keyless honest → 3/3 exercised with a
+key against a local Messages-API peer; real-model rate awaits an owner key — see 2.2).
 The single biggest honest weakness: instance methods are `UNPROVEN(TARGET_UNREACHABLE)` (no
 constructor synthesis). This is where the user's AI API key finally plugs in:
 - **Engine:** a synthesis stage that, when a target is unreachable AND a key is configured,

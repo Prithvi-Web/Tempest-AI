@@ -12,13 +12,15 @@
 | Corpus | Measured | Command |
 |---|---|---|
 | pyfix fixture (12 seeded behavior changes + 12 no-op refactors; pure + impure-recordable) | **24/24 targets proven = 100%** | `TEMPEST_DEV=1 tempest prove --base base --head head --repo <pyfix> --max-inputs 40 --seed 0` |
+| pyfix instance-method fixtures (c01–c03; AI constructor synthesis, ADR-0024) | **0/3 keyless (honest UNPROVEN + remediation) → 3/3 exercised with a key** — seeded changes DIVERGENT, no-op clean, offline cache rerun identical. Machinery-measured against a local Messages-API peer; the real-model number awaits an owner key (2.2) | `pytest packages/engine/tests/integration/test_llm_synthesis_pyfix.py` |
 | 30-function impure corpus (HTTP / fs / time-random) — record/replay stability, the proof-rate precondition for impure code | **30/30 stable ×20 consecutive replays** | `python -m tempest.dev.corpus_check --min-pass 24 --repeats 20` |
 
 **Honest caveats, stated plainly:**
 - 100% is measured on Tempest's own validation fixture — typed, importable, top-level functions.
-  It is the engine's capability ceiling, not a real-world claim. The micro-repo CLI test shows the
-  honest boundary: an instance method is `UNPROVEN(TARGET_UNREACHABLE)` today (no constructor
-  synthesis yet).
+  It is the engine's capability ceiling, not a real-world claim. Instance methods now reach
+  verdicts through AI constructor synthesis (ADR-0024) **only when the user configures an
+  Anthropic key**; keyless, they remain `UNPROVEN(TARGET_UNREACHABLE)` with remediation text
+  naming the fix.
 - On this machine, **user repos have a proof rate of 0% by design**: no Docker → every target is
   `UNPROVEN(SANDBOX_UNAVAILABLE)` (L6, ADR-0003). This is exactly the wall Phase 10's tiered
   sandboxing exists to remove; until T2 lands, the real-world proof rate on Docker-less machines

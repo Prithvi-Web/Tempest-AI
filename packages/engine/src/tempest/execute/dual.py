@@ -173,6 +173,7 @@ def prove_target(
     mined: list[object] | None = None,
     cfg: CompareConfig | None = None,
     worker_pair: "tuple[PersistentWorker, PersistentWorker] | None" = None,
+    trace_module: str | None = None,
 ) -> TargetOutcome:
     cfg = cfg or CompareConfig()
     adapter = synthesize(head_root, module, qualname, sandbox=sandbox, seed=budget.seed)
@@ -185,8 +186,12 @@ def prove_target(
         base_obs = worker_pair[0].run(literals)
         head_obs = worker_pair[1].run(literals)
     else:
-        base_obs = run_batch(base_root, module, qualname, literals, sandbox)
-        head_obs = run_batch(head_root, module, qualname, literals, sandbox)
+        base_obs = run_batch(
+            base_root, module, qualname, literals, sandbox, trace_module=trace_module
+        )
+        head_obs = run_batch(
+            head_root, module, qualname, literals, sandbox, trace_module=trace_module
+        )
 
     # One coverage-guided top-up round: mutate the inputs that reached changed lines.
     if changed_lines and len(literals) < budget.max_inputs:
@@ -205,8 +210,12 @@ def prove_target(
                 base_obs += worker_pair[0].run(mutants)
                 head_obs += worker_pair[1].run(mutants)
             else:
-                base_obs += run_batch(base_root, module, qualname, mutants, sandbox)
-                head_obs += run_batch(head_root, module, qualname, mutants, sandbox)
+                base_obs += run_batch(
+                    base_root, module, qualname, mutants, sandbox, trace_module=trace_module
+                )
+                head_obs += run_batch(
+                    head_root, module, qualname, mutants, sandbox, trace_module=trace_module
+                )
             literals += mutants
             candidates += [
                 CandidateInput(args_literal=a, kwargs_literal=k, provenance="MUTATED")
@@ -241,8 +250,22 @@ def prove_target(
             kwargs_l: str = kwargs_l,
             history: dict[str, list[Observation]] = history,
         ) -> tuple[Diverged | None, bool, bool]:
-            (b,) = run_batch(base_root, module, qualname, [(args_l, kwargs_l)], sandbox)
-            (h,) = run_batch(head_root, module, qualname, [(args_l, kwargs_l)], sandbox)
+            (b,) = run_batch(
+                base_root,
+                module,
+                qualname,
+                [(args_l, kwargs_l)],
+                sandbox,
+                trace_module=trace_module,
+            )
+            (h,) = run_batch(
+                head_root,
+                module,
+                qualname,
+                [(args_l, kwargs_l)],
+                sandbox,
+                trace_module=trace_module,
+            )
             base_ok = all(isinstance(compare(b, prev, cfg), Equal) for prev in history["base"])
             head_ok = all(isinstance(compare(h, prev, cfg), Equal) for prev in history["head"])
             history["base"].append(b)

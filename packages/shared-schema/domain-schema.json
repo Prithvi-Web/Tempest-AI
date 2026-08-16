@@ -412,6 +412,7 @@
         "TARGET_UNREACHABLE",
         "ENV_REPRODUCTION_FAILED",
         "HARNESS_SYNTHESIS_FAILED",
+        "SYNTHESIS_DECLINED",
         "UNINTERCEPTABLE_EFFECT",
         "NONDETERMINISTIC_BASE",
         "SANDBOX_UNAVAILABLE",
@@ -894,7 +895,8 @@
       "enum": [
         "PURE_CANDIDATE",
         "IMPURE_RECORDABLE",
-        "UNREACHABLE"
+        "UNREACHABLE",
+        "SYNTHESIZED"
       ],
       "title": "TargetClassification",
       "type": "string"

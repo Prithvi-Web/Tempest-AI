@@ -103,6 +103,9 @@ def _micro_repo(tmp_path: Path, *, marker: bool) -> Path:
         "import time\n\n\ndef stamp() -> float:\n    return time.time()\n"
     )
     (repo / "obj.py").write_text("class Box:\n    def get(self) -> int:\n        return 1\n")
+    (repo / "lazy.py").write_text(
+        "def naturals(n: int):\n    for i in range(n):\n        yield i\n"
+    )
     git("add", "-A")
     git("commit", "-m", "base", "--no-gpg-sign")
     git("branch", "base")
@@ -111,6 +114,9 @@ def _micro_repo(tmp_path: Path, *, marker: bool) -> Path:
         "import time\n\n\ndef stamp() -> float:\n    return time.time() + 1\n"
     )
     (repo / "obj.py").write_text("class Box:\n    def get(self) -> int:\n        return 2\n")
+    (repo / "lazy.py").write_text(
+        "def naturals(n: int):\n    for i in range(n):\n        yield i + 1\n"
+    )
     git("add", "-A")
     git("commit", "-m", "head", "--no-gpg-sign")
     git("branch", "head")
@@ -132,6 +138,10 @@ class TestCliProve:
         # shows up as a genuine divergence rather than an unproven stub.
         assert "clock.stamp" in result.output
         assert "TARGET_UNREACHABLE" in result.output  # instance method, honestly unproven
+        # The generator is the OTHER unreachable shape: no synthesis attempt (it is not an
+        # instance method), no remediation hint about API keys — just the honest reason.
+        assert "lazy.naturals" in result.output
+        assert "generator" in result.output
         assert "NOT PROVEN" in result.output
 
     def test_prove_without_sandbox_is_unproven_never_unsandboxed(self, tmp_path: Path) -> None:

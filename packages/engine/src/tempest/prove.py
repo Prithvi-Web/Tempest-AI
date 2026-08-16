@@ -30,6 +30,13 @@ from tempest.execute.runner import PersistentWorker
 from tempest.execute.sandbox import ProcessSandbox, Sandbox, SandboxSelection, select_sandbox
 from tempest.generate.inputs import Budget
 from tempest.generate.mining import mine_literals
+from tempest.harness.llm import (
+    InstanceAdapter,
+    SynthesisDeclined,
+    remediation_hint,
+    synthesis_enabled,
+    synthesize_instance_adapter,
+)
 from tempest.minimize.ddmin import minimize_input
 from tempest.minimize.repro import render_repro_script
 from tempest.model import (
@@ -42,6 +49,7 @@ from tempest.model import (
 )
 from tempest.targets.diff import FileDiff, changed_files
 from tempest.targets.symbols import (
+    ClassifiedSymbol,
     SymbolSpan,
     all_symbol_names,
     classify_symbol,
@@ -172,13 +180,19 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
                 continue
             if classified.classification is TargetClassification.UNREACHABLE:
                 records.append(
-                    _unproven_record(
-                        fd.path,
+                    _unreachable_or_synthesized_record(
+                        fd,
                         module,
                         sym,
-                        classified.classification,
-                        classified.reason_code or ReasonCode.TARGET_UNREACHABLE,
-                        classified.reason_detail or "target unreachable",
+                        classified,
+                        head_src,
+                        base_env,
+                        head_env,
+                        sandbox,
+                        mined,
+                        compare_cfg,
+                        cfg,
+                        repro_scripts,
                     )
                 )
                 continue
@@ -286,6 +300,136 @@ def _ts_unexercised_record(fd: FileDiff) -> TargetRecord:
     )
 
 
+def _is_instance_method(sym: SymbolSpan) -> bool:
+    return sym.owner_class is not None and not sym.is_static and not sym.is_classmethod
+
+
+def _unreachable_or_synthesized_record(
+    fd: FileDiff,
+    module: str,
+    sym: SymbolSpan,
+    classified: ClassifiedSymbol,
+    head_src: str,
+    base_env: MaterializedEnv,
+    head_env: MaterializedEnv,
+    sandbox: Sandbox,
+    mined: list[object],
+    compare_cfg: CompareConfig,
+    cfg: ProveConfig,
+    repro_scripts: dict[str, str],
+) -> TargetRecord:
+    """The honest ladder for an unreachable target: attempt AI constructor synthesis for
+    instance methods (key configured → adapter → normal differential), state a declined
+    adapter plainly, and otherwise keep TARGET_UNREACHABLE — with the remediation hint
+    when a key would change the answer (HANDOFF-WORLD-CLASS 2.1)."""
+    detail = classified.reason_detail or "target unreachable"
+    if _is_instance_method(sym):
+        outcome = synthesize_instance_adapter(
+            cache_dir=cfg.repo / ".tempest" / "adapters",
+            base_root=base_env.worktree,
+            head_root=head_env.worktree,
+            module=module,
+            owner_class=sym.owner_class or "",
+            method=sym.symbol.rsplit(".", 1)[-1],
+            head_source=head_src,
+            sandbox=sandbox,
+            seed=cfg.seed,
+        )
+        if isinstance(outcome, InstanceAdapter):
+            return _synthesized_record(
+                fd,
+                module,
+                sym,
+                outcome,
+                base_env,
+                head_env,
+                sandbox,
+                mined,
+                compare_cfg,
+                cfg,
+                repro_scripts,
+            )
+        if isinstance(outcome, SynthesisDeclined):
+            return _unproven_record(
+                fd.path,
+                module,
+                sym,
+                classified.classification,
+                ReasonCode.SYNTHESIS_DECLINED,
+                outcome.detail,
+            )
+        if not synthesis_enabled():
+            detail += remediation_hint()
+    return _unproven_record(
+        fd.path,
+        module,
+        sym,
+        classified.classification,
+        classified.reason_code or ReasonCode.TARGET_UNREACHABLE,
+        detail,
+    )
+
+
+def _synthesized_record(
+    fd: FileDiff,
+    module: str,
+    sym: SymbolSpan,
+    adapter: InstanceAdapter,
+    base_env: MaterializedEnv,
+    head_env: MaterializedEnv,
+    sandbox: Sandbox,
+    mined: list[object],
+    compare_cfg: CompareConfig,
+    cfg: ProveConfig,
+    repro_scripts: dict[str, str],
+) -> TargetRecord:
+    """The normal differential, executed through the validated adapter. Coverage stays
+    honest: the worker traces the REAL module\'s file (trace_module), so changed-line
+    coverage and the coverage-guided top-up see the method the diff actually touched."""
+    changed_in_span = frozenset(
+        line for line in fd.changed_head_lines if sym.span[0] <= line <= sym.span[1]
+    )
+    budget = Budget(max_inputs=cfg.max_inputs, seed=cfg.seed)
+    with (
+        PersistentWorker(
+            base_env.worktree, adapter.module, adapter.qualname, sandbox, trace_module=module
+        ) as base_worker,
+        PersistentWorker(
+            head_env.worktree, adapter.module, adapter.qualname, sandbox, trace_module=module
+        ) as head_worker,
+    ):
+        outcome = prove_target(
+            base_env.worktree,
+            head_env.worktree,
+            adapter.module,
+            adapter.qualname,
+            changed_lines=changed_in_span,
+            sandbox=sandbox,
+            budget=budget,
+            mined=mined,
+            cfg=compare_cfg,
+            worker_pair=(base_worker, head_worker),
+            trace_module=module,
+        )
+    adapter_source = (head_env.worktree / f"{adapter.module}.py").read_text(encoding="utf-8")
+    return _finished_record(
+        fd.path,
+        module,
+        sym,
+        outcome,
+        base_env,
+        head_env,
+        sandbox,
+        compare_cfg,
+        cfg,
+        repro_scripts,
+        classification=TargetClassification.SYNTHESIZED,
+        exec_module=adapter.module,
+        exec_qualname=adapter.qualname,
+        adapter_source=adapter_source,
+    )
+
+
 def _unproven_record(
     file_path: str,
     module: str,
@@ -324,11 +468,20 @@ def _finished_record(
     repro_scripts: dict[str, str],
     *,
     classification: TargetClassification = TargetClassification.PURE_CANDIDATE,
+    exec_module: str | None = None,
+    exec_qualname: str | None = None,
+    adapter_source: str | None = None,
 ) -> TargetRecord:
+    # Synthesized targets execute through the adapter while keeping the REAL method as
+    # their displayed identity — minimization and repros must use the executable pair.
+    run_module = exec_module or module
+    run_qualname = exec_qualname or sym.symbol
     divergence_records: list[DivergenceRecord] = []
     seen_minimized: set[tuple[DivergenceClass, str, str]] = set()
     for i, d in enumerate(outcome.divergences):
-        minimized = _minimize(d, base_env, head_env, module, sym.symbol, sandbox, compare_cfg, cfg)
+        minimized = _minimize(
+            d, base_env, head_env, run_module, run_qualname, sandbox, compare_cfg, cfg
+        )
         dedupe_key = (
             d.divergence_class,
             minimized.minimized_args or d.args_literal,
@@ -341,8 +494,9 @@ def _finished_record(
         filename = f"{safe}_{i}.py"
         repro_scripts[filename] = render_repro_script(
             symbol=f"{module}.{sym.symbol}",
-            module=module,
-            qualname=sym.symbol,
+            module=run_module,
+            qualname=run_qualname,
+            adapter_source=adapter_source,
             args_literal=minimized.minimized_args or d.args_literal,
             kwargs_literal=minimized.minimized_kwargs or d.kwargs_literal,
             divergence_class=d.divergence_class,

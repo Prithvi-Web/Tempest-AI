@@ -1233,6 +1233,7 @@ impl PageRunSummary {
 #[doc = "    \"TARGET_UNREACHABLE\","]
 #[doc = "    \"ENV_REPRODUCTION_FAILED\","]
 #[doc = "    \"HARNESS_SYNTHESIS_FAILED\","]
+#[doc = "    \"SYNTHESIS_DECLINED\","]
 #[doc = "    \"UNINTERCEPTABLE_EFFECT\","]
 #[doc = "    \"NONDETERMINISTIC_BASE\","]
 #[doc = "    \"SANDBOX_UNAVAILABLE\","]
@@ -1262,6 +1263,8 @@ pub enum ReasonCode {
     EnvReproductionFailed,
     #[serde(rename = "HARNESS_SYNTHESIS_FAILED")]
     HarnessSynthesisFailed,
+    #[serde(rename = "SYNTHESIS_DECLINED")]
+    SynthesisDeclined,
     #[serde(rename = "UNINTERCEPTABLE_EFFECT")]
     UninterceptableEffect,
     #[serde(rename = "NONDETERMINISTIC_BASE")]
@@ -1279,6 +1282,7 @@ impl ::std::fmt::Display for ReasonCode {
             Self::TargetUnreachable => f.write_str("TARGET_UNREACHABLE"),
             Self::EnvReproductionFailed => f.write_str("ENV_REPRODUCTION_FAILED"),
             Self::HarnessSynthesisFailed => f.write_str("HARNESS_SYNTHESIS_FAILED"),
+            Self::SynthesisDeclined => f.write_str("SYNTHESIS_DECLINED"),
             Self::UninterceptableEffect => f.write_str("UNINTERCEPTABLE_EFFECT"),
             Self::NondeterministicBase => f.write_str("NONDETERMINISTIC_BASE"),
             Self::SandboxUnavailable => f.write_str("SANDBOX_UNAVAILABLE"),
@@ -1294,6 +1298,7 @@ impl ::std::str::FromStr for ReasonCode {
             "TARGET_UNREACHABLE" => Ok(Self::TargetUnreachable),
             "ENV_REPRODUCTION_FAILED" => Ok(Self::EnvReproductionFailed),
             "HARNESS_SYNTHESIS_FAILED" => Ok(Self::HarnessSynthesisFailed),
+            "SYNTHESIS_DECLINED" => Ok(Self::SynthesisDeclined),
             "UNINTERCEPTABLE_EFFECT" => Ok(Self::UninterceptableEffect),
             "NONDETERMINISTIC_BASE" => Ok(Self::NondeterministicBase),
             "SANDBOX_UNAVAILABLE" => Ok(Self::SandboxUnavailable),
@@ -2353,7 +2358,8 @@ impl SyncReport {
 #[doc = "  \"enum\": ["]
 #[doc = "    \"PURE_CANDIDATE\","]
 #[doc = "    \"IMPURE_RECORDABLE\","]
-#[doc = "    \"UNREACHABLE\""]
+#[doc = "    \"UNREACHABLE\","]
+#[doc = "    \"SYNTHESIZED\""]
 #[doc = "  ]"]
 #[doc = "}"]
 #[doc = r" ```"]
@@ -2378,6 +2384,8 @@ pub enum TargetClassification {
     ImpureRecordable,
     #[serde(rename = "UNREACHABLE")]
     Unreachable,
+    #[serde(rename = "SYNTHESIZED")]
+    Synthesized,
 }
 impl ::std::fmt::Display for TargetClassification {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -2385,6 +2393,7 @@ impl ::std::fmt::Display for TargetClassification {
             Self::PureCandidate => f.write_str("PURE_CANDIDATE"),
             Self::ImpureRecordable => f.write_str("IMPURE_RECORDABLE"),
             Self::Unreachable => f.write_str("UNREACHABLE"),
+            Self::Synthesized => f.write_str("SYNTHESIZED"),
         }
     }
 }
@@ -2395,6 +2404,7 @@ impl ::std::str::FromStr for TargetClassification {
             "PURE_CANDIDATE" => Ok(Self::PureCandidate),
             "IMPURE_RECORDABLE" => Ok(Self::ImpureRecordable),
             "UNREACHABLE" => Ok(Self::Unreachable),
+            "SYNTHESIZED" => Ok(Self::Synthesized),
             _ => Err("invalid value".into()),
         }
     }

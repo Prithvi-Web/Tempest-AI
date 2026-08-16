@@ -573,3 +573,42 @@ PRODUCTION context (gate: 23/23 planted secrets contained).
 and pinned; the gates (100% coverage, redaction 23/23, escape 27/27, egress 0, determinism
 corpus, parity byte-identical, bench, mypy on both platform views) stand guard in verify+CI.
 The scrubber and the finding process grow test-first, adversarially, forever.
+
+## ADR-0024 — LLM constructor synthesis: the model writes adapters, never verdicts (2026-08-16)
+
+**Context.** Instance methods were the biggest honest hole in proof rate: with no way to
+construct a receiver, every changed method on a class landed `UNPROVEN(TARGET_UNREACHABLE)`
+(HANDOFF-WORLD-CLASS 2.1). The owner's BYOK key (ADR-0006, keychain-only) existed with no
+consumer. The master spec's non-goal #1 stands: no LLM-authored verdicts, ever.
+
+**Decision.** A synthesis stage (`tempest/harness/llm.py`) that activates only when a target
+is an instance method, classification is UNREACHABLE, and `ANTHROPIC_API_KEY` is set (kill
+switch: `TEMPEST_NO_SYNTHESIS=1`). The model (default `claude-sonnet-5`, override
+`TEMPEST_SYNTHESIS_MODEL`) is asked for exactly one artifact: a standalone module defining
+`adapter(...)` that constructs the class with fixed literals and delegates to the method.
+Honesty invariants, each pinned by test:
+- **Acceptance is execution, not review.** The adapter passes `harness.synth.synthesize` on
+  BASE — the same sandboxed probe every deterministic adapter passes — or the target is
+  `UNPROVEN(SYNTHESIS_DECLINED)` with the failure detail. Never a lesser claim, never a
+  silent downgrade. Verdicts remain the differential runner's alone.
+- **Offline afterwards (L8).** Validated adapters are cached in the user's repo at
+  `.tempest/adapters/`, keyed by sha256(target identity + head source). Cache hits skip the
+  network, never the re-validation. The synthesis-gate test reruns the corpus with a dead
+  base URL and reproduces identical verdicts.
+- **One egress surface (L10).** The keyless egress gate stays at zero; the only sanctioned
+  call is the Messages API request, carrying the changed class's source — never the diff,
+  never repo contents beyond the target module. Tests exercise the real SDK→HTTP path
+  against a local Messages-API peer (`helpers_fake_anthropic.py`), nothing monkeypatched (L4).
+- **Provenance is visible.** Synthesized proofs carry `classification=SYNTHESIZED` across
+  all three boundaries, and the minimized repro embeds `ADAPTER_SOURCE` verbatim — the
+  constructor call the model chose is part of the evidence (L7), and the repro stays
+  self-contained.
+- **Coverage stays honest.** Execution tracing attributes to the *target* module
+  (`trace_module`), not the adapter shim, so changed-line coverage numbers keep meaning.
+
+**Consequences.** pyfix gains instance-method fixtures (c01 Discounter, c02 Wallet, c03
+Tally no-op); the synthesis gate proves 0/3 keyless (with remediation text naming the fix)
+→ 3/3 exercised with a key: seeded changes DIVERGENT, the no-op EQUIVALENT_UNDER_BUDGET,
+zero false alarms through adapters. The real-model proof-rate number still awaits an owner
+key and the 2.2 live-PR measurement. `anthropic` joins engine dependencies; the keyless
+paths import it lazily so keyless installs never touch it at runtime.

@@ -51,8 +51,12 @@ export function SettingsView() {
         <p className="group-note">
           Bring your own key: it is stored in the macOS Keychain — never in files, the
           database, logs, or run bundles — and is handed only to the engine process when it
-          starts. It will power AI harness synthesis for hard-to-reach targets; until that
-          feature ships, Tempest makes no network calls with it.
+          starts. It powers AI harness synthesis: when an instance method cannot be reached
+          directly, Tempest asks the model to write a small adapter, validates it by real
+          execution, and caches it in your repo so later runs replay offline. That synthesis
+          request is the only network call the key is ever used for — your diff itself is
+          never uploaded, only the changed class&apos;s source. Without a key, those targets
+          are reported UNPROVEN.
         </p>
 
         {status.isPending && <p className="dim">checking the keychain…</p>}

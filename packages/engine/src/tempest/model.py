@@ -41,6 +41,9 @@ class ReasonCode(StrEnum):
     TARGET_UNREACHABLE = "TARGET_UNREACHABLE"
     ENV_REPRODUCTION_FAILED = "ENV_REPRODUCTION_FAILED"
     HARNESS_SYNTHESIS_FAILED = "HARNESS_SYNTHESIS_FAILED"
+    # The AI-written adapter existed but failed execution validation on BASE — stated
+    # plainly, never silently degraded to a lesser claim (HANDOFF-WORLD-CLASS 2.1).
+    SYNTHESIS_DECLINED = "SYNTHESIS_DECLINED"
     UNINTERCEPTABLE_EFFECT = "UNINTERCEPTABLE_EFFECT"
     NONDETERMINISTIC_BASE = "NONDETERMINISTIC_BASE"
     SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
@@ -54,6 +57,9 @@ class TargetClassification(StrEnum):
     PURE_CANDIDATE = "PURE_CANDIDATE"
     IMPURE_RECORDABLE = "IMPURE_RECORDABLE"
     UNREACHABLE = "UNREACHABLE"
+    # Reached through an AI-written, execution-validated constructor adapter (harness/llm.py)
+    # — displayed distinctly so a synthesized proof is never mistaken for a direct one.
+    SYNTHESIZED = "SYNTHESIZED"
 
 
 class Stage(StrEnum):
