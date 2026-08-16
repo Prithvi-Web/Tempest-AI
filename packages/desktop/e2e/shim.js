@@ -20,6 +20,7 @@
   const listeners = new Map(); // event name -> Map(eventId -> callbackId)
   let nextCallbackId = 1;
   let nextEventId = 1;
+  let shimAiKey = null; // the in-memory keychain stand-in (see the ai_key_* handler below)
 
   window.__TAURI_INTERNALS__ = {
     transformCallback(callback) {
@@ -43,6 +44,30 @@
       if (cmd === "plugin:event|unlisten") {
         listeners.get(args.event)?.delete(args.eventId);
         return null;
+      }
+      // The AI-key commands live in the RUST host (keychain.rs), which this browser harness
+      // replaces — an in-memory stand-in mirrors its exact semantics (validation message
+      // included) so the Settings UI is testable end-to-end; the real keychain storage and
+      // spawn-env injection are proven by cargo tests.
+      if (cmd === "ai_key_status" || cmd === "set_ai_key" || cmd === "clear_ai_key") {
+        if (cmd === "set_ai_key") {
+          const trimmed = String(args.key ?? "").trim();
+          const rest = trimmed.startsWith("sk-ant-") ? trimmed.slice("sk-ant-".length) : null;
+          const shapely = rest !== null && rest.length >= 16 && /^[A-Za-z0-9_-]+$/.test(rest);
+          if (!shapely) {
+            throw {
+              code: -3,
+              message:
+                "that does not look like an Anthropic API key — keys start with sk-ant- " +
+                "(create one at console.anthropic.com)",
+            };
+          }
+          shimAiKey = trimmed;
+        }
+        if (cmd === "clear_ai_key") shimAiKey = null;
+        return shimAiKey === null
+          ? { configured: false, last4: null }
+          : { configured: true, last4: shimAiKey.slice(-4) };
       }
       const response = await fetch(`${bridgeUrl}/invoke`, {
         method: "POST",

@@ -21,7 +21,7 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
             navigate({ view: "runs" });
           }}
         >
-          runs
+          Runs
         </a>{" "}
         /{" "}
         <a
@@ -50,7 +50,7 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
         </div>
       )}
 
-      <h2>changed-line coverage</h2>
+      <h2>Changed-line coverage</h2>
       <div className="bar" style={{ maxWidth: 420 }}>
         <i className={pct >= 100 ? "full" : ""} style={{ width: `${pct}%` }} />
       </div>
@@ -59,7 +59,7 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
         {pct < 100 ? " — unexecuted lines are unproven territory, stated honestly" : ""}
       </p>
 
-      <h2>inputs</h2>
+      <h2>Inputs</h2>
       <p>
         {t.inputs_run} run · <span className="green">{t.equivalent_inputs} equivalent</span> ·{" "}
         <span className="red">{t.divergences.length} divergent</span> ·{" "}
@@ -68,7 +68,7 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
 
       {t.divergences.length > 0 && (
         <>
-          <h2>divergences</h2>
+          <h2>Divergences</h2>
           <table>
             <tbody>
               {t.divergences.map((d) => (
@@ -84,7 +84,7 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
                   <td>
                     <span className="chip DIVERGENT">{d.divergence_class}</span>
                   </td>
-                  <td className="mono-cell">{d.minimized_args}</td>
+                  <td className="mono">{d.minimized_args}</td>
                   <td className="dim">{d.severity}</td>
                 </tr>
               ))}

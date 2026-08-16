@@ -19,10 +19,10 @@ function SearchResults({ query, navigate }: { query: string; navigate: (r: Route
     <table>
       <thead>
         <tr>
-          <th>run</th>
-          <th>target</th>
-          <th>class</th>
-          <th>evidence</th>
+          <th>Run</th>
+          <th>Target</th>
+          <th>Class</th>
+          <th>Evidence</th>
         </tr>
       </thead>
       <tbody>
@@ -56,7 +56,7 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
   return (
     <main>
       <div className="statusline">
-        <h1 style={{ flex: 1 }}>RUNS</h1>
+        <h1 style={{ flex: 1 }}>Runs</h1>
         <input
           type="search"
           placeholder="search divergences…"
@@ -64,9 +64,8 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <button onClick={() => navigate({ view: "logs" })}>LOGS</button>
         <button className="primary" onClick={() => navigate({ view: "prove" })}>
-          NEW PROOF
+          New proof
         </button>
       </div>
       {query.trim().length > 0 && <SearchResults query={query.trim()} navigate={navigate} />}
@@ -77,7 +76,7 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
       {runs.data && runs.data.items.length === 0 && (
         <div className="panel">
           <p className="dim">
-            No runs yet. Click <span className="yellow">NEW PROOF</span> to execute a repository's
+            No runs yet. Click <span className="yellow">New proof</span> to execute a repository's
             base and head side by side and see where behavior diverges — with evidence.
           </p>
         </div>
@@ -86,13 +85,13 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
         <table>
           <thead>
             <tr>
-              <th>run</th>
-              <th>repo</th>
-              <th>base → head</th>
-              <th>status</th>
-              <th>verdict</th>
-              <th className="num">targets</th>
-              <th className="num">divergences</th>
+              <th>Run</th>
+              <th>Repository</th>
+              <th>Base → head</th>
+              <th>Status</th>
+              <th>Verdict</th>
+              <th className="num">Targets</th>
+              <th className="num">Divergences</th>
             </tr>
           </thead>
           <tbody>
@@ -106,7 +105,7 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
               >
                 <td>#{run.id}</td>
                 <td>{run.repo}</td>
-                <td className="dim">
+                <td className="dim mono">
                   {run.base_sha.slice(0, 8)} → {run.head_sha.slice(0, 8)}
                 </td>
                 <td className="dim">{run.status.toLowerCase()}</td>

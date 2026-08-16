@@ -39,20 +39,21 @@ export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
             navigate({ view: "runs" });
           }}
         >
-          runs
+          Runs
         </a>{" "}
-        / new proof
+        / New proof
       </nav>
-      <h1>NEW PROOF</h1>
+      <h1>New proof</h1>
       <p className="dim">
         Tempest executes both revisions side by side under identical conditions and reports
         concrete inputs where behavior diverges — with a minimized reproduction. A change it
         cannot exercise is UNPROVEN, never blessed.
       </p>
 
-      <label htmlFor="repo">repository folder (full path)</label>
+      <label htmlFor="repo">Repository folder (full path)</label>
       <input
         id="repo"
+        className="mono"
         value={repoPath}
         placeholder="/Users/you/projects/my-repo"
         onChange={(e) => setRepoPath(e.target.value)}
@@ -60,16 +61,16 @@ export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
 
       <div className="split">
         <div>
-          <label htmlFor="base">base (pre-change ref)</label>
+          <label htmlFor="base">Base (pre-change ref)</label>
           <input id="base" value={base} onChange={(e) => setBase(e.target.value)} />
         </div>
         <div>
-          <label htmlFor="head">head (post-change ref)</label>
+          <label htmlFor="head">Head (post-change ref)</label>
           <input id="head" value={head} onChange={(e) => setHead(e.target.value)} />
         </div>
       </div>
 
-      <label htmlFor="budget">input budget per target</label>
+      <label htmlFor="budget">Input budget per target</label>
       <input
         id="budget"
         type="number"
@@ -88,7 +89,7 @@ export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
 
       <p>
         <button className="primary" disabled={busy || repoPath.trim() === ""} onClick={start}>
-          {busy ? "STARTING…" : "PROVE IT"}
+          {busy ? "Starting…" : "Prove it"}
         </button>
       </p>
       <p className="dim">

@@ -49,10 +49,15 @@ impl std::fmt::Display for RpcError {
 
 impl std::error::Error for RpcError {}
 
+/// Extra environment computed fresh at EVERY spawn (initial, crash restart): a key saved in
+/// Settings reaches the next engine process without an app relaunch.
+pub type EnvProvider = Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct SpawnConfig {
     pub program: PathBuf,
     pub args: Vec<String>,
+    pub env_provider: Option<EnvProvider>,
 }
 
 struct Live {
@@ -285,6 +290,9 @@ fn spawn_child(config: &SpawnConfig) -> Result<Live, RpcError> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(provider) = &config.env_provider {
+        command.envs(provider());
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

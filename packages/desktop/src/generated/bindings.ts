@@ -18,6 +18,9 @@ export const commands = {
 	searchDivergences: (q: string, limit: number | null) => typedError<SearchResults, SidecarFailure>(__TAURI_INVOKE("search_divergences", { q, limit })),
 	cancelRun: (runId: number) => typedError<CancelAccepted, SidecarFailure>(__TAURI_INVOKE("cancel_run", { runId })),
 	listLogRecords: (limit: number | null, level: string | null) => typedError<LogRecordOut[], SidecarFailure>(__TAURI_INVOKE("list_log_records", { limit, level })),
+	aiKeyStatus: () => typedError<AiKeyStatus, SidecarFailure>(__TAURI_INVOKE("ai_key_status")),
+	setAiKey: (key: string) => typedError<AiKeyStatus, SidecarFailure>(__TAURI_INVOKE("set_ai_key", { key })),
+	clearAiKey: () => typedError<AiKeyStatus, SidecarFailure>(__TAURI_INVOKE("clear_ai_key")),
 };
 
 /** Events */
@@ -26,6 +29,15 @@ export const events = {
 };
 
 /* Types */
+/**
+ *  Everything the webview is allowed to know about the stored AI key (L9): whether one
+ *  exists and its last four characters for recognition — never the key itself.
+ */
+export type AiKeyStatus = {
+	configured: boolean,
+	last4: string | null,
+};
+
 /**
  * `Base`
  * 

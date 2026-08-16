@@ -15,7 +15,7 @@ test("the dev-mode schema net rejects off-contract payloads and passes real ones
 }) => {
   await page.goto("/");
   // getHealth has answered once the masthead is green — the dev validator is loaded.
-  await expect(page.locator(".masthead .green")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
   await expect
     .poll(async () => page.evaluate(() => typeof window.__TEMPEST_DEV_VALIDATE__))
     .toBe("function");

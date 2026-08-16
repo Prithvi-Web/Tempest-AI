@@ -30,6 +30,8 @@ _PLANTED: dict[str, str] = {
     "github-pat": "ghp_16C7e42F292c6912E7710c838347Ae178B4a",
     "fine-grained-pat": "github_pat_11ABCDEFG0123456789_planted",
     "api-secret-key": "sk-proj-Zx9y8W7v6U5t4S3r2Q1p0OnMlKjIhGfEdCbA",
+    # The BYOK key shape the Settings keychain feature handles (letter-segmented — trap 19).
+    "anthropic-api-key": "sk-ant-api03-PLANTED-FAKE-TEMPEST-KEYFIXTURE-AAAABBBBCCCC",
     "stripe-secret-key": "sk_live_PLANTEDPLANTEDPLANTED01",
     "stripe-restricted-key": "rk_live_PLANTEDPLANTEDPLANTED01",
     # Letter-segmented on purpose: a digit-realistic Slack shape trips GitHub push

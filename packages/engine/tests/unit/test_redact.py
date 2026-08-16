@@ -22,6 +22,10 @@ PLANTED_SECRETS = [
     "IQoJb3JpZ2luX2VjEPLANTEDSESSIONTOKENMATERIALPLANTEDSESSIONTOKEN//wEaCXVzLXdlc3QtMg==",
     "ghp_16C7e42F292c6912E7710c838347Ae178B4a",  # GitHub PAT
     "sk-proj-Zx9y8W7v6U5t4S3r2Q1p0OnMlKjIhGfEdCbA",  # API key
+    # Anthropic-shaped key (the BYOK Settings feature stores one in the OS keychain — the
+    # scrubber grows BEFORE that feature wires up, HANDOFF-WORLD-CLASS 2.1/3.2). Letter-
+    # segmented like the Slack plant so no real-token scanner matches it (trap 19).
+    "sk-ant-api03-PLANTED-FAKE-TEMPEST-KEYFIXTURE-AAAABBBBCCCC",  # Anthropic API key
     "sk_live_PLANTEDstripesecret4242",  # Stripe live secret key (underscore, not hyphen)
     "sk_test_PLANTEDstripesecret4242",  # Stripe test secret key
     "rk_live_PLANTEDstripesecret4242",  # Stripe restricted key

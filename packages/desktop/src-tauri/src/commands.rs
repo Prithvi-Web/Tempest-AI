@@ -177,6 +177,56 @@ pub fn list_log_records(
     call_typed(&state, "listLogs", Value::Object(params))
 }
 
+/// Everything the webview is allowed to know about the stored AI key (L9): whether one
+/// exists and its last four characters for recognition — never the key itself.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct AiKeyStatus {
+    pub configured: bool,
+    pub last4: Option<String>,
+}
+
+fn ai_key_status_now() -> CmdResult<AiKeyStatus> {
+    match crate::keychain::read(crate::keychain::SERVICE, crate::keychain::ACCOUNT) {
+        Ok(Some(key)) => Ok(AiKeyStatus {
+            configured: true,
+            last4: Some(crate::keychain::last4(&key)),
+        }),
+        Ok(None) => Ok(AiKeyStatus { configured: false, last4: None }),
+        Err(message) => Err(SidecarFailure { code: -3, message }),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn ai_key_status() -> CmdResult<AiKeyStatus> {
+    ai_key_status_now()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_ai_key(key: String) -> CmdResult<AiKeyStatus> {
+    let trimmed = key.trim();
+    if !crate::keychain::looks_like_anthropic_key(trimmed) {
+        return Err(SidecarFailure {
+            code: -3,
+            message: "that does not look like an Anthropic API key — keys start with \
+                      sk-ant- (create one at console.anthropic.com)"
+                .to_string(),
+        });
+    }
+    crate::keychain::store(crate::keychain::SERVICE, crate::keychain::ACCOUNT, trimmed)
+        .map_err(|message| SidecarFailure { code: -3, message })?;
+    ai_key_status_now()
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn clear_ai_key() -> CmdResult<AiKeyStatus> {
+    crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::ACCOUNT)
+        .map_err(|message| SidecarFailure { code: -3, message })?;
+    ai_key_status_now()
+}
+
 #[cfg(test)]
 mod enum_discipline {
     //! §9b enum discipline: exhaustive matches with no wildcard arm — adding a variant in

@@ -23,6 +23,15 @@ addFormats.default(ajv);
 ajv.addSchema(domainSchema, "domain");
 
 const def = (name: string): object => ({ $ref: `domain#/$defs/${name}` });
+
+const AI_KEY_STATUS: object = {
+  type: "object",
+  required: ["configured", "last4"],
+  properties: {
+    configured: { type: "boolean" },
+    last4: { type: ["string", "null"] },
+  },
+};
 const listOf = (name: string): object => ({ type: "array", items: def(name) });
 
 /** Command → result schema. `getDivergenceRepro` is the one transport-level type defined in
@@ -40,6 +49,11 @@ const RESULT_SCHEMAS: Record<string, object> = {
     properties: { content_type: { type: "string" }, text: { type: "string" } },
   },
   startLocalProve: def("RunCreated"),
+  // Host-level type (commands.rs AiKeyStatus, like ReproSource): {configured, last4} is ALL
+  // the webview may ever learn about the stored key (L9).
+  aiKeyStatus: AI_KEY_STATUS,
+  setAiKey: AI_KEY_STATUS,
+  clearAiKey: AI_KEY_STATUS,
   searchDivergences: def("SearchResults"),
   cancelRun: def("CancelAccepted"),
   listLogRecords: listOf("LogRecordOut"),

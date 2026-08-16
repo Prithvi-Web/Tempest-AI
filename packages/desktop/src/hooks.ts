@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   commands,
+  type AiKeyStatus,
   type LocalProveRequest,
   type RunCreated,
   type SidecarFailure,
@@ -106,6 +107,21 @@ export function useSearchDivergences(q: string) {
     queryFn: () => unwrap("searchDivergences", commands.searchDivergences(q, null)),
     enabled: q.trim().length > 0,
   });
+}
+
+export function useAiKeyStatus() {
+  return useQuery({
+    queryKey: ["aiKeyStatus"],
+    queryFn: () => unwrap("aiKeyStatus", commands.aiKeyStatus()),
+  });
+}
+
+export function setAiKey(key: string): Promise<AiKeyStatus> {
+  return unwrap("setAiKey", commands.setAiKey(key));
+}
+
+export function clearAiKey(): Promise<AiKeyStatus> {
+  return unwrap("clearAiKey", commands.clearAiKey());
 }
 
 export function useListLogRecords(limit?: number, level?: string | null) {

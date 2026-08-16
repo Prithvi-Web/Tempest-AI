@@ -43,7 +43,7 @@ test("a real pyfix prove reaches DIVERGENT with evidence", async ({ page, bridge
     .toBeGreaterThan(0);
 
   // The runs list reflects the finished run: verdict chip + a non-zero divergence count.
-  await page.getByRole("link", { name: "runs" }).click();
+  await page.locator(".crumbs").getByRole("link", { name: "Runs" }).click();
   const runRow = page.locator("tbody tr").first();
   await expect(runRow.locator(".chip.DIVERGENT")).toBeVisible();
   await expect(runRow.locator("td.num.red")).not.toHaveText("0");

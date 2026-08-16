@@ -27,21 +27,21 @@ export function LogsView({ navigate }: { navigate: (r: Route) => void }) {
             navigate({ view: "runs" });
           }}
         >
-          runs
+          Runs
         </a>{" "}
-        / logs
+        / Logs
       </nav>
       <div className="statusline">
-        <h1 style={{ flex: 1 }}>LOGS</h1>
+        <h1 style={{ flex: 1 }}>Logs</h1>
         <select
           aria-label="minimum level"
           value={level}
           onChange={(e) => setLevel(e.target.value)}
-          style={{ font: "inherit", color: "var(--ink)", background: "var(--panel-raised)", border: "1px solid var(--panel-line)", padding: "7px 12px" }}
+          style={{ width: "auto" }}
         >
           {LEVELS.map((lvl) => (
             <option key={lvl} value={lvl}>
-              {lvl === "" ? "ALL LEVELS" : lvl}
+              {lvl === "" ? "All levels" : lvl}
             </option>
           ))}
         </select>
@@ -64,10 +64,10 @@ export function LogsView({ navigate }: { navigate: (r: Route) => void }) {
         <table>
           <thead>
             <tr>
-              <th>ts</th>
-              <th>level</th>
-              <th>component</th>
-              <th>message</th>
+              <th>Time</th>
+              <th>Level</th>
+              <th>Component</th>
+              <th>Message</th>
             </tr>
           </thead>
           <tbody>

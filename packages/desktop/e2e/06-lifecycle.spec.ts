@@ -12,7 +12,7 @@ import { expect, test } from "./fixtures";
 test("a dead engine is stated honestly and recovery is automatic", async ({ page, bridge }) => {
   test.setTimeout(120_000);
   await page.goto("/");
-  await expect(page.locator(".masthead .green")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
 
   await bridge.engineDown();
   // A fresh load with a dead engine must say so — never render as healthy.
@@ -23,7 +23,7 @@ test("a dead engine is stated honestly and recovery is automatic", async ({ page
 
   // Recovery: the health probe keeps retrying and the masthead settles green again.
   await bridge.engineUp();
-  await expect(page.locator(".masthead .green")).toContainText(/engine .+ · schema v/, {
+  await expect(page.locator(".sidebar-foot .green")).toContainText(/engine .+ · schema v/, {
     timeout: 60_000,
   });
   await expect(page.getByText(/No runs yet|targets|run/).first()).toBeVisible();
@@ -31,7 +31,7 @@ test("a dead engine is stated honestly and recovery is automatic", async ({ page
 
 test("the sidecar healthy event refetches stale queries", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".masthead .green")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
 
   // The supervisor's "healthy" event → App invalidates every query → list_runs refetches.
   const refetch = page.waitForRequest(

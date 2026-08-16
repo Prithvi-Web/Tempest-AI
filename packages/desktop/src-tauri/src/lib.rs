@@ -6,6 +6,7 @@
 pub mod commands;
 pub mod framing;
 pub mod generated;
+pub mod keychain;
 pub mod supervisor;
 
 use std::path::PathBuf;
@@ -53,6 +54,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::search_divergences,
             commands::cancel_run,
             commands::list_log_records,
+            commands::ai_key_status,
+            commands::set_ai_key,
+            commands::clear_ai_key,
         ])
         .events(tauri_specta::collect_events![commands::SidecarStateEvent])
 }
@@ -73,6 +77,11 @@ pub fn run() {
                     "--data-dir".into(),
                     data_dir.to_string_lossy().into_owned(),
                 ],
+                // A keychain-stored AI key rides into every engine spawn as
+                // ANTHROPIC_API_KEY (keychain.rs — L9: env only, never files/DB/logs).
+                env_provider: Some(Arc::new(|| {
+                    keychain::engine_env(keychain::SERVICE, keychain::ACCOUNT)
+                })),
             });
             let handle = app.handle().clone();
             supervisor.set_listener(Arc::new(move |state: &str| {
@@ -88,11 +97,17 @@ pub fn run() {
                 }
             });
 
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Tempest")
                 .inner_size(1180.0, 800.0)
-                .min_inner_size(760.0, 520.0)
-                .build()?;
+                .min_inner_size(760.0, 520.0);
+            // Native macOS chrome: traffic lights inset over the sidebar, no title text —
+            // the webview's fixed drag-strip keeps the window draggable (§3.1).
+            #[cfg(target_os = "macos")]
+            let window = window
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true);
+            window.build()?;
             Ok(())
         })
         .build(tauri::generate_context!())

@@ -38,6 +38,11 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_millis(ms));
                 json!({"slept_ms": ms})
             }
+            "env" => {
+                // Proof surface for SpawnConfig::env_provider: what did THIS process inherit?
+                let name = params.get("name").and_then(Value::as_str).unwrap_or("");
+                json!({"value": std::env::var(name).ok()})
+            }
             "die" => std::process::exit(3), // crash without responding — restart-path fuel
             "rpc.shutdown" => {
                 respond(&mut writer, &id, json!({"ok": true}));

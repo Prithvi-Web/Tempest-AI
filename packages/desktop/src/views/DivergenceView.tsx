@@ -9,7 +9,7 @@ function CopyButton({ text }: { text: string }) {
         void navigator.clipboard.writeText(text);
       }}
     >
-      COPY
+      Copy
     </button>
   );
 }
@@ -32,7 +32,7 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
             navigate({ view: "runs" });
           }}
         >
-          runs
+          Runs
         </a>{" "}
         /{" "}
         <a
@@ -42,12 +42,12 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
             navigate({ view: "target", id: d.target_id });
           }}
         >
-          target #{d.target_id}
+          Target #{d.target_id}
         </a>{" "}
-        / divergence #{d.id}
+        / Divergence #{d.id}
       </nav>
       <div className="statusline">
-        <h1>divergence #{d.id}</h1>
+        <h1>Divergence #{d.id}</h1>
         <span className="chip DIVERGENT">{d.divergence_class}</span>
         <span className="chip neutral">{d.severity}</span>
       </div>
@@ -55,7 +55,7 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
 
       <div className="panel diverge">
         <h2 style={{ marginTop: 0 }}>
-          minimized input <span className="dim">— smallest input still producing this divergence</span>
+          Minimized input <span className="dim">— smallest input still producing this divergence</span>
         </h2>
         <div className="statusline">
           <code style={{ flex: 1 }} className="mono-block">
@@ -73,7 +73,7 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
         )}
       </div>
 
-      <h2>observed behavior, identical conditions</h2>
+      <h2>Observed behavior, identical conditions</h2>
       <div className="split">
         <div className="panel">
           <span className="dim">BASE</span>
@@ -86,7 +86,7 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
       </div>
 
       <div className="statusline">
-        <h2 style={{ flex: 1 }}>reproduction script · {d.repro_filename}</h2>
+        <h2 style={{ flex: 1 }}>Reproduction script · {d.repro_filename}</h2>
         {repro.data && <CopyButton text={repro.data} />}
       </div>
       {repro.isPending && <p className="dim">loading script…</p>}
@@ -95,7 +95,7 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
       {d.shrink_path.length > 0 && (
         <details>
           <summary className="dim">
-            how it shrank — {d.shrink_path.length} step(s) from {d.args_literal}
+            How it shrank — {d.shrink_path.length} step(s) from {d.args_literal}
           </summary>
           <ol className="dim">
             {d.shrink_path.map((step, i) => (

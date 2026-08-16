@@ -3,13 +3,59 @@ import { useEffect } from "react";
 
 import { events } from "./generated/bindings";
 import { useGetHealth } from "./hooks";
-import { useRoute } from "./router";
+import { useRoute, type Route } from "./router";
 import { DivergenceView } from "./views/DivergenceView";
 import { LogsView } from "./views/LogsView";
 import { ProveView } from "./views/ProveView";
 import { RunsView } from "./views/RunsView";
 import { RunView } from "./views/RunView";
+import { SettingsView } from "./views/SettingsView";
 import { TargetView } from "./views/TargetView";
+
+/** SF-Symbol-inspired strokes, inlined so the app stays fully offline (L8). */
+function Icon({ name }: { name: "runs" | "prove" | "logs" | "settings" }) {
+  const paths: Record<string, string> = {
+    runs: "M3 5h12M3 9h12M3 13h8",
+    prove: "M9 3v12M3 9h12",
+    logs: "M4 3h10v12H4zM6.5 6h5M6.5 9h5M6.5 12h3",
+    settings:
+      "M9 6.2A2.8 2.8 0 1 1 9 11.8 2.8 2.8 0 0 1 9 6.2zM9 2v2M9 14v2M2 9h2M14 9h2M4 4l1.4 1.4M12.6 12.6L14 14M14 4l-1.4 1.4M5.4 12.6L4 14",
+  };
+  return (
+    <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <path d={paths[name]} />
+    </svg>
+  );
+}
+
+function NavItem({
+  route,
+  current,
+  navigate,
+  icon,
+  label,
+}: {
+  route: Route;
+  current: boolean;
+  navigate: (r: Route) => void;
+  icon: "runs" | "prove" | "logs" | "settings";
+  label: string;
+}) {
+  return (
+    <a
+      href="?"
+      className={`nav-item${current ? " current" : ""}`}
+      aria-current={current ? "page" : undefined}
+      onClick={(e) => {
+        e.preventDefault();
+        navigate(route);
+      }}
+    >
+      <Icon name={icon} />
+      {label}
+    </a>
+  );
+}
 
 export function App() {
   const [route, navigate] = useRoute();
@@ -27,39 +73,51 @@ export function App() {
     };
   }, [queryClient]);
 
+  // Run-family views highlight Runs in the sidebar — they are drill-downs, not destinations.
+  const section =
+    route.view === "run" || route.view === "target" || route.view === "divergence"
+      ? "runs"
+      : route.view;
+
   return (
-    <div className="shell">
-      <header className="masthead">
-        <a
-          href="?"
-          className="word"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate({ view: "runs" });
-          }}
-        >
-          T E M P E S T
-        </a>
-        <span className="tag">behavioral proof agent · evidence, not opinion</span>
-        <span className="spacer" />
-        <span className="tag">
+    <div className="app">
+      <div className="drag-strip" data-tauri-drag-region />
+      <aside className="sidebar">
+        <div className="brand">
+          <strong>Tempest</strong>
+          <span>behavioral proof · evidence, not opinion</span>
+        </div>
+        <NavItem route={{ view: "runs" }} current={section === "runs"} navigate={navigate} icon="runs" label="Runs" />
+        <NavItem route={{ view: "prove" }} current={section === "prove"} navigate={navigate} icon="prove" label="New proof" />
+        <NavItem route={{ view: "logs" }} current={section === "logs"} navigate={navigate} icon="logs" label="Logs" />
+        <NavItem
+          route={{ view: "settings" }}
+          current={section === "settings"}
+          navigate={navigate}
+          icon="settings"
+          label="Settings"
+        />
+        <div className="sidebar-foot">
           {health.isPending ? (
-            "engine starting…"
+            <span className="pill dim">engine starting…</span>
           ) : health.isError ? (
-            <span className="yellow">engine unreachable — retrying</span>
+            <span className="pill yellow">engine unreachable — retrying</span>
           ) : (
-            <span className="green">
+            <span className="pill green">
               engine {health.data.engine_version} · schema v{health.data.schema_version}
             </span>
           )}
-        </span>
-      </header>
-      {route.view === "runs" && <RunsView navigate={navigate} />}
-      {route.view === "run" && <RunView id={route.id} navigate={navigate} />}
-      {route.view === "target" && <TargetView id={route.id} navigate={navigate} />}
-      {route.view === "divergence" && <DivergenceView id={route.id} navigate={navigate} />}
-      {route.view === "prove" && <ProveView navigate={navigate} />}
-      {route.view === "logs" && <LogsView navigate={navigate} />}
+        </div>
+      </aside>
+      <div className="content">
+        {route.view === "runs" && <RunsView navigate={navigate} />}
+        {route.view === "run" && <RunView id={route.id} navigate={navigate} />}
+        {route.view === "target" && <TargetView id={route.id} navigate={navigate} />}
+        {route.view === "divergence" && <DivergenceView id={route.id} navigate={navigate} />}
+        {route.view === "prove" && <ProveView navigate={navigate} />}
+        {route.view === "logs" && <LogsView navigate={navigate} />}
+        {route.view === "settings" && <SettingsView />}
+      </div>
     </div>
   );
 }

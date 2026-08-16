@@ -48,7 +48,7 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
             navigate({ view: "runs" });
           }}
         >
-          runs
+          Runs
         </a>{" "}
         / #{data.id}
       </nav>
@@ -69,11 +69,11 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
               );
             }}
           >
-            CANCEL
+            Cancel
           </button>
         )}
       </div>
-      <p className="dim">
+      <p className="dim mono">
         {data.base_sha.slice(0, 12)} → {data.head_sha.slice(0, 12)}
         {data.engine_version ? ` · engine ${data.engine_version}` : ""}
         {isPending ? " · executing base and head side by side…" : ""}
@@ -123,16 +123,16 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
 
       {data.targets.length > 0 && (
         <>
-          <h2>targets</h2>
+          <h2>Targets</h2>
           <table>
             <thead>
               <tr>
-                <th>target</th>
-                <th>file</th>
-                <th>classification</th>
-                <th>verdict</th>
-                <th>changed-line cov</th>
-                <th className="num">div</th>
+                <th>Target</th>
+                <th>File</th>
+                <th>Classification</th>
+                <th>Verdict</th>
+                <th>Changed-line coverage</th>
+                <th className="num">Div</th>
               </tr>
             </thead>
             <tbody>
