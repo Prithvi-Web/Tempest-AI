@@ -72,6 +72,34 @@ class TestModuleNameWithRoots:
         # "pack" must not swallow the "packages/" prefix.
         assert _module_name("packages/x.py", source_roots=("pack",)) == "packages.x"
 
+    def test_a_file_exactly_at_a_root_path_is_not_swallowed(self) -> None:
+        # `a/b.py` with root `a/b`: stripping would leave an empty module name.
+        assert _module_name("a/b.py", source_roots=("a/b",)) == "a.b"
+
+
+class TestWorktreeSelfDescription:
+    def test_a_broken_historical_config_never_crashes_job_building(self, tmp_path: Path) -> None:
+        """A revision whose tempest.toml is unparseable gets no extra roots — the honest
+        UNPROVEN surfaces at import time; job building must not raise."""
+        from tempest.execute.runner import _source_roots_of, _sys_path_for
+
+        (tmp_path / "tempest.toml").write_text("not [ valid toml", encoding="utf-8")
+        _source_roots_of.cache_clear()
+        assert _sys_path_for(tmp_path) == [str(tmp_path)]
+        _source_roots_of.cache_clear()
+
+    def test_a_configured_root_missing_in_this_revision_is_skipped(self, tmp_path: Path) -> None:
+        """The config names `libs/core/src` but this revision has no such directory (it
+        predates the layout): sys.path gets only what exists — never a phantom entry."""
+        from tempest.execute.runner import _source_roots_of, _sys_path_for
+
+        (tmp_path / "tempest.toml").write_text(
+            '[roots]\nsource = ["libs/core/src"]\n', encoding="utf-8"
+        )
+        _source_roots_of.cache_clear()
+        assert _sys_path_for(tmp_path) == [str(tmp_path)]
+        _source_roots_of.cache_clear()
+
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(
@@ -128,6 +156,26 @@ class TestMonorepoProve:
         repro = result.bundle.repro_scripts[t.divergences[0].repro_filename]
         assert "libs/core/src" in repro
         compile(repro, "repro.py", "exec")
+
+    def test_explicit_tuples_override_the_file_entirely(
+        self, monorepo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A caller passing BOTH tuples (the CLI precedence contract) skips the file load —
+        the run behaves exactly as configured, not as tempest.toml says."""
+        monkeypatch.setenv("TEMPEST_DEV", "1")
+        result = run_prove(
+            ProveConfig(
+                repo=monorepo,
+                base="base",
+                head="head",
+                max_inputs=6,
+                seed=0,
+                ignore_globs=("libs/*",),
+                source_roots=("libs/core/src",),
+            )
+        )
+        # The explicit ignore wins even though the file's [ignore] has no such glob.
+        assert result.bundle.targets == ()
 
     def test_ignore_globs_are_honored_without_the_cli(
         self, monorepo: Path, monkeypatch: pytest.MonkeyPatch
