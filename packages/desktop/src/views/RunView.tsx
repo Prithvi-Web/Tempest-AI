@@ -1,5 +1,4 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
 
 import { cancelRun, useGetRun } from "../hooks";
 
@@ -20,17 +19,8 @@ function tierLabel(tier: string): string {
 export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => void }) {
   const run = useGetRun(id);
   const queryClient = useQueryClient();
-  const stillRunning = run.data?.status === "PENDING";
-
-  // Poll while the proof executes. invalidateQueries (not a render-time refetch chain): an
-  // unchanged poll causes no re-render, so any render-driven scheduling would silently stop.
-  useEffect(() => {
-    if (!stillRunning) return;
-    const timer = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: ["getRun", id] });
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [stillRunning, id, queryClient]);
+  // Liveness while the proof executes comes from the host's pushed RunProgressEvent
+  // (App.tsx) with useGetRun's slow refetch as the fallback — this view owns no timer.
 
   if (run.isPending) return <p className="dim">loading run #{id}…</p>;
   if (run.isError) return <p className="yellow">could not load run #{id}</p>;

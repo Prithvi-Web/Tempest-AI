@@ -47,3 +47,27 @@ test("the sidecar healthy event refetches stale queries", async ({ page }) => {
   expect(delivered).toBeGreaterThan(0);
   await refetch;
 });
+
+test("a pushed run-progress event refetches exactly that run", async ({ page }) => {
+  // Run #1 exists (02-prove-flow created it) and is COMPLETE, so no fallback poll fires —
+  // the only get_run after the view settles must be the one our pushed event causes.
+  await page.goto("/?view=run&id=1");
+  await expect(page.getByRole("heading", { name: /run #1/i })).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.waitForTimeout(600); // let StrictMode's double-mount fetches finish
+
+  const pushRefetch = page.waitForRequest(
+    (request) =>
+      request.url().includes("/invoke") &&
+      (request.postDataJSON() as { cmd?: string; args?: { runId?: number } }).cmd ===
+        "get_run" &&
+      (request.postDataJSON() as { args?: { runId?: number } }).args?.runId === 1,
+    { timeout: 10_000 },
+  );
+  const delivered = await page.evaluate(() =>
+    window.__E2E__.emit("run-progress-event", { run_id: 1, status: "PENDING", verdict: null }),
+  );
+  expect(delivered).toBeGreaterThan(0);
+  await pushRefetch;
+});

@@ -2,6 +2,7 @@
 //! mocked — Law L4), with just enough verbs to exercise health, echo, latency, crash, and
 //! shutdown paths. Accepts and ignores the production sidecar's CLI arguments.
 
+use std::collections::HashMap;
 use std::io::{stdin, stdout, BufReader, Write};
 
 use serde_json::{json, Value};
@@ -10,6 +11,7 @@ use tempest_desktop_lib::framing::{read_frame, write_frame, FrameError};
 fn main() {
     let mut reader = BufReader::new(stdin().lock());
     let mut writer = stdout().lock();
+    let mut run_probes: HashMap<i64, u64> = HashMap::new();
     loop {
         let frame = match read_frame(&mut reader) {
             Ok(frame) => frame,
@@ -37,6 +39,19 @@ fn main() {
                 let ms = params.get("ms").and_then(Value::as_u64).unwrap_or(0);
                 std::thread::sleep(std::time::Duration::from_millis(ms));
                 json!({"slept_ms": ms})
+            }
+            "getRun" => {
+                // Run-watcher fuel: a run is PENDING for its first two probes, then lands
+                // COMPLETE/DIVERGENT — the real getRun answer shape, minus the detail the
+                // watcher's probe deserializer ignores anyway.
+                let run_id = params.get("run_id").and_then(Value::as_i64).unwrap_or(0);
+                let calls = run_probes.entry(run_id).or_insert(0);
+                *calls += 1;
+                if *calls <= 2 {
+                    json!({"id": run_id, "status": "PENDING", "verdict": null})
+                } else {
+                    json!({"id": run_id, "status": "COMPLETE", "verdict": "DIVERGENT"})
+                }
             }
             "env" => {
                 // Proof surface for SpawnConfig::env_provider: what did THIS process inherit?

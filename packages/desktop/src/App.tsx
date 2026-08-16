@@ -73,6 +73,20 @@ export function App() {
     };
   }, [queryClient]);
 
+  // Live run progress (§1.2): the host's central watcher pushes once per second for every
+  // running prove — views refetch on the push instead of owning fast timers (the slow
+  // fallback in useGetRun remains for hosts without a watcher, e.g. the browser E2E rig).
+  useEffect(() => {
+    const unlisten = events.runProgressEvent.listen((event) => {
+      void queryClient.invalidateQueries({ queryKey: ["getRun", event.payload.run_id] });
+      void queryClient.invalidateQueries({ queryKey: ["listRunEvents", event.payload.run_id] });
+      void queryClient.invalidateQueries({ queryKey: ["listRuns"] });
+    });
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [queryClient]);
+
   // Run-family views highlight Runs in the sidebar — they are drill-downs, not destinations.
   const section =
     route.view === "run" || route.view === "target" || route.view === "divergence"

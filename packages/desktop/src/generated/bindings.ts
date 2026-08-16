@@ -25,6 +25,7 @@ export const commands = {
 
 /** Events */
 export const events = {
+	runProgressEvent: makeEvent<RunProgressEvent>("run-progress-event"),
 	sidecarStateEvent: makeEvent<SidecarStateEvent>("sidecar-state-event"),
 };
 
@@ -828,6 +829,17 @@ export type RunEventOut = {
 	message: string,
 	stage: string,
 	ts: string,
+};
+
+/**
+ *  Pushed once per second for every live run by the central watcher (§1.2): views refetch
+ *  on this instead of owning timers. Status/verdict ride as the GENERATED domain enums —
+ *  the payload cannot drift from the Python truth (§9b).
+ */
+export type RunProgressEvent = {
+	run_id: number,
+	status: RunStatus,
+	verdict: Verdict | null,
 };
 
 /**

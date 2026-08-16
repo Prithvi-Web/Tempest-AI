@@ -29,6 +29,16 @@ pub struct SidecarStateEvent {
     pub state: String,
 }
 
+/// Pushed once per second for every live run by the central watcher (§1.2): views refetch
+/// on this instead of owning timers. Status/verdict ride as the GENERATED domain enums —
+/// the payload cannot drift from the Python truth (§9b).
+#[derive(Debug, Clone, serde::Serialize, specta::Type, tauri_specta::Event)]
+pub struct RunProgressEvent {
+    pub run_id: i32,
+    pub status: crate::generated::domain::RunStatus,
+    pub verdict: Option<crate::generated::domain::Verdict>,
+}
+
 impl From<RpcError> for SidecarFailure {
     fn from(err: RpcError) -> Self {
         match err {
@@ -134,9 +144,14 @@ pub fn get_divergence_repro(
 #[specta::specta]
 pub fn start_local_prove(
     state: tauri::State<'_, Arc<Supervisor>>,
+    watcher: tauri::State<'_, Arc<crate::watcher::RunWatcher>>,
     request: LocalProveRequest,
 ) -> CmdResult<RunCreated> {
-    call_typed(&state, "startLocalProve", json!({"body": request}))
+    let created: RunCreated = call_typed(&state, "startLocalProve", json!({"body": request}))?;
+    // The run is live from this moment — the watcher pushes RunProgressEvent until it ends
+    // (cancellation included: the same probe sees CANCELLED and emits the final event).
+    watcher.track(created.run_id);
+    Ok(created)
 }
 
 #[tauri::command]

@@ -8,6 +8,7 @@ pub mod framing;
 pub mod generated;
 pub mod keychain;
 pub mod supervisor;
+pub mod watcher;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -58,7 +59,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::set_ai_key,
             commands::clear_ai_key,
         ])
-        .events(tauri_specta::collect_events![commands::SidecarStateEvent])
+        .events(tauri_specta::collect_events![
+            commands::SidecarStateEvent,
+            commands::RunProgressEvent
+        ])
 }
 
 pub fn run() {
@@ -89,6 +93,22 @@ pub fn run() {
                 let _ = commands::SidecarStateEvent { state: state.to_string() }.emit(&handle);
             }));
             app.manage(Arc::clone(&supervisor));
+            // Central run watcher (§1.2): pushes typed RunProgressEvent for live runs so no
+            // view owns a fast timer. Its emit closure is the only bridge to the event bus.
+            let progress_handle = app.handle().clone();
+            let run_watcher = Arc::new(watcher::RunWatcher::start(
+                Arc::clone(&supervisor),
+                Arc::new(move |progress: watcher::RunProgress| {
+                    use tauri_specta::Event;
+                    let _ = commands::RunProgressEvent {
+                        run_id: progress.run_id,
+                        status: progress.status,
+                        verdict: progress.verdict,
+                    }
+                    .emit(&progress_handle);
+                }),
+            ));
+            app.manage(Arc::clone(&run_watcher));
             // Health-wait happens off the main thread — the window appears immediately and the
             // UI shows sidecar state from the events above until the first ping succeeds.
             std::thread::spawn(move || {
@@ -114,6 +134,7 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
+                app.state::<Arc<watcher::RunWatcher>>().shutdown();
                 // Blocking sweep: after this, no sidecar or runner process exists (L11).
                 app.state::<Arc<Supervisor>>().shutdown();
             }

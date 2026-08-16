@@ -62,6 +62,10 @@ export function useGetRun(runId: number) {
   return useQuery({
     queryKey: ["getRun", runId],
     queryFn: () => unwrap("getRun", commands.getRun(runId)),
+    // SLOW fallback only (§1.2): live freshness is pushed by the host's RunProgressEvent
+    // once per second; this keeps hosts without a watcher (the browser E2E rig) and any
+    // missed event converging. The function form reads query state, not render state.
+    refetchInterval: (query) => (query.state.data?.status === "PENDING" ? 5000 : false),
   });
 }
 

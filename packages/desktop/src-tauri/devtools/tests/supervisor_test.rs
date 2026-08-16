@@ -110,3 +110,54 @@ fn timeouts_do_not_poison_the_stream() {
 
     supervisor.shutdown();
 }
+
+#[test]
+fn run_watcher_pushes_progress_until_the_terminal_event_and_then_stops() {
+    use std::sync::{Arc, Mutex};
+    use tempest_desktop_lib::generated::domain::{RunStatus, Verdict};
+    use tempest_desktop_lib::watcher::{RunProgress, RunWatcher};
+
+    let supervisor = Supervisor::new(peer_config());
+    supervisor.start().expect("start + health");
+
+    let seen: Arc<Mutex<Vec<RunProgress>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&seen);
+    let watcher = RunWatcher::start(
+        Arc::clone(&supervisor),
+        Arc::new(move |progress| sink.lock().expect("sink lock").push(progress)),
+    );
+
+    watcher.track(7);
+    // frame_echo answers PENDING twice, then COMPLETE/DIVERGENT (1s probe cadence).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let events = seen.lock().expect("seen lock").clone();
+        if events.iter().any(|e| e.status == RunStatus::Complete) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "terminal event never arrived: {events:?}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    let events = seen.lock().expect("seen lock").clone();
+    assert!(
+        events.iter().filter(|e| e.status == RunStatus::Pending).count() >= 1,
+        "live PENDING progress must be pushed before the terminal event: {events:?}"
+    );
+    let last = events.last().expect("at least one event").clone();
+    assert_eq!(last.run_id, 7);
+    assert_eq!(last.status, RunStatus::Complete);
+    assert_eq!(last.verdict, Some(Verdict::Divergent));
+
+    // Terminal means untracked: no further probes, no further events.
+    let count_at_terminal = seen.lock().expect("seen lock").len();
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(
+        seen.lock().expect("seen lock").len(),
+        count_at_terminal,
+        "a finished run must leave the watcher's tracking set"
+    );
+
+    watcher.shutdown();
+    supervisor.shutdown();
+}
