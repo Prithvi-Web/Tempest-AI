@@ -34,7 +34,6 @@ from tempest.harness.llm import (
     InstanceAdapter,
     SynthesisDeclined,
     remediation_hint,
-    synthesis_enabled,
     synthesize_instance_adapter,
 )
 from tempest.minimize.ddmin import minimize_input
@@ -358,8 +357,9 @@ def _unreachable_or_synthesized_record(
                 ReasonCode.SYNTHESIS_DECLINED,
                 outcome.detail,
             )
-        if not synthesis_enabled():
-            detail += remediation_hint()
+        # outcome is None: synthesis was not attempted (no key, or the kill switch) —
+        # tell the user what would change the answer.
+        detail += remediation_hint()
     return _unproven_record(
         fd.path,
         module,

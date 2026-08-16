@@ -148,13 +148,15 @@ class TestModelBackedSynthesis:
     ) -> None:
         base, head, cache = roots
         fake = FakeAnthropic()
-        fake.reply_text = "Sorry, here is prose instead of code."
+        # Valid Python, wrong shape: compiles cleanly but defines no `adapter` — this must
+        # be caught by the adapter-name check, not the syntax check below.
+        fake.reply_text = "```python\nGREETING = 'hello from the model'\n```"
         with fake_anthropic_server(fake) as url:
             monkeypatch.setenv("ANTHROPIC_API_KEY", PLANTED_KEY)
             monkeypatch.setenv("TEMPEST_SYNTHESIS_BASE_URL", url)
             outcome = _synthesize(base, head, cache)
         assert isinstance(outcome, SynthesisDeclined)
-        assert "adapter" in outcome.detail
+        assert "defines no module-level `adapter`" in outcome.detail
 
     def test_unparseable_python_is_declined(
         self, roots: tuple[Path, Path, Path], monkeypatch: pytest.MonkeyPatch
