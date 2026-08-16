@@ -18,9 +18,21 @@ def render_repro_script(
     base_summary: str,
     head_summary: str,
     adapter_source: str | None = None,
+    source_roots: tuple[str, ...] = (),
 ) -> str:
     safe_base = repr(base_summary)
     safe_head = repr(head_summary)
+    # `[roots].source` rides inside the script (L7): run from the repo root, the configured
+    # import roots are prepended so monorepo/src-layout modules resolve standalone.
+    roots_prologue = (
+        f"""import sys
+
+sys.path[:0] = {list(source_roots)!r}
+
+"""
+        if source_roots
+        else ""
+    )
     if adapter_source is not None:
         # Synthesized-harness repro (harness/llm.py): the adapter rides INSIDE the script —
         # self-contained (L7), and the constructor call the AI chose is visible right here.
@@ -58,7 +70,7 @@ HEAD_SHA = "{head_sha[:12]}"
 BASE_OBSERVED = {safe_base}
 HEAD_OBSERVED = {safe_head}
 
-{resolve}
+{roots_prologue}{resolve}
 print(f"calling {symbol}(*{{ARGS!r}}, **{{KWARGS!r}})")
 try:
     result = fn(*ARGS, **KWARGS)

@@ -1,0 +1,51 @@
+# The live-PR gate (HANDOFF-WORLD-CLASS 2.2): Tempest proves ITS OWN pull requests. The
+# repo-root tempest.toml maps the monorepo layout ([roots] source), so engine/api changes
+# resolve to importable modules; the action runs the real differential under the T1 Docker
+# sandbox and posts the evidence as the single PR comment.
+#
+# Policy: this leg REPORTS, it does not block — a feature PR legitimately changes behavior,
+# and the evidence comment (DIVERGENT + minimized inputs) is the product speaking for
+# itself. The contract itself stays ENFORCED by tempest-selftest.yml on the seeded fixture.
+# Targets whose imports need uninstalled third-party deps surface as honest UNPROVEN —
+# that is the env-reproduction gap, measured, not hidden (docs/METRICS.md).
+name: tempest-live
+
+on:
+  pull_request:
+    paths:
+      - "packages/engine/src/**"
+      - "packages/api/src/**"
+      - "tempest.toml"
+      - ".github/workflows/tempest-live.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: tempest-live-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the base SHA must be reachable for the differential
+
+      - name: Tempest proves this PR (evidence comment; non-blocking by policy)
+        id: tempest
+        uses: ./action
+        continue-on-error: true # report-only: the comment is the deliverable
+        with:
+          base: ${{ github.event.pull_request.base.sha }}
+          max-inputs: "40"
+          artifact-name: tempest-live-bundle
+
+      - name: Surface the verdict in the job summary
+        env:
+          VERDICT: ${{ steps.tempest.outputs.verdict }}
+        run: |
+          echo "Tempest live verdict: ${VERDICT:-ERROR}"
+          echo "## Tempest live verdict: \`${VERDICT:-ERROR}\`" >> "$GITHUB_STEP_SUMMARY"

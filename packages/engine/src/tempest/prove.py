@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,7 +16,7 @@ from tempest.bundle.bundle import (
     write_bundle,
 )
 from tempest.compare.compare import CompareConfig, Diverged, compare
-from tempest.config import is_ignored
+from tempest.config import TempestConfig, is_ignored
 from tempest.envrepro.worktree import MaterializedEnv, materialize
 from tempest.execute.cancel import CancelScope, cancel_scope
 from tempest.execute.dual import (
@@ -68,7 +68,10 @@ class ProveConfig:
     float_rel_tol: float | None = None
     out: Path | None = None
     minimize_attempts: int = 60
-    ignore_globs: tuple[str, ...] = ()
+    # None = load from the repo's tempest.toml — so the CLI, the desktop app, and CI all
+    # honor the same repo config; a caller passing a tuple (the CLI) overrides the file.
+    ignore_globs: tuple[str, ...] | None = None
+    source_roots: tuple[str, ...] | None = None
     # L11: the scope a caller cancels from another thread (children die instantly, the prove
     # unwinds with ProveCancelled), and where battery/thermal pause reports its reason.
     cancel: CancelScope | None = None
@@ -108,8 +111,15 @@ def _select_sandbox(repo: Path) -> SandboxSelection:
     )
 
 
-def _module_name(rel_path: str) -> str:
+def _module_name(rel_path: str, source_roots: tuple[str, ...] = ()) -> str:
+    """Repo path → importable module. A configured `[roots].source` prefix is stripped
+    (longest match first, whole segments only); otherwise the conventional bare `src/`
+    layout is handled. This mirrors exactly what the worker puts on sys.path."""
     parts = Path(rel_path).with_suffix("").parts
+    for root in sorted(source_roots, key=len, reverse=True):
+        root_parts = Path(root).parts
+        if parts[: len(root_parts)] == root_parts and len(parts) > len(root_parts):
+            return ".".join(parts[len(root_parts) :])
     if parts and parts[0] == "src":
         parts = parts[1:]
     return ".".join(parts)
@@ -131,6 +141,21 @@ def _checkpoint(cfg: ProveConfig) -> None:
 
 def _run_prove(cfg: ProveConfig) -> ProveResult:
     repo = cfg.repo.resolve()
+    if cfg.ignore_globs is None or cfg.source_roots is None:
+        # The repo's tempest.toml is honored by EVERY entry point (CLI, desktop, CI) —
+        # a caller-passed tuple overrides the file, None means "the file decides".
+        file_cfg = TempestConfig.load(repo)
+        cfg = replace(
+            cfg,
+            ignore_globs=(
+                cfg.ignore_globs if cfg.ignore_globs is not None else file_cfg.ignore_globs
+            ),
+            source_roots=(
+                cfg.source_roots if cfg.source_roots is not None else file_cfg.source_roots
+            ),
+        )
+    ignore_globs = cfg.ignore_globs or ()
+    source_roots = cfg.source_roots or ()
     cache = repo / ".tempest" / "cache"
     base_env = materialize(repo, cfg.base, cache)
     head_env = materialize(repo, cfg.head, cache)
@@ -145,7 +170,7 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
     repro_scripts: dict[str, str] = {}
 
     for fd in diffs:
-        if is_ignored(fd.path, cfg.ignore_globs):
+        if is_ignored(fd.path, ignore_globs):
             continue  # [ignore].globs in tempest.toml — the user declared this path out of scope
         if fd.status != "modified":
             # Added symbols/files have no base counterpart to differ FROM — new code cannot
@@ -155,11 +180,11 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
         if fd.path.endswith((".ts", ".tsx")):
             # §14.1: TypeScript execution (record/replay + coverage) is not wired yet — the
             # change is surfaced as UNPROVEN, never silently out of scope.
-            records.append(_ts_unexercised_record(fd))
+            records.append(_ts_unexercised_record(fd, source_roots))
             continue
         head_src = (head_env.worktree / fd.path).read_text(encoding="utf-8")
         base_symbols = all_symbol_names((base_env.worktree / fd.path).read_text(encoding="utf-8"))
-        module = _module_name(fd.path)
+        module = _module_name(fd.path, source_roots)
         for sym in enclosing_symbols(head_src, set(fd.changed_head_lines)):
             _checkpoint(cfg)  # L11: cancellable + battery/thermal pause between targets
             if sym.symbol not in base_symbols:
@@ -277,10 +302,10 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
     )
 
 
-def _ts_unexercised_record(fd: FileDiff) -> TargetRecord:
+def _ts_unexercised_record(fd: FileDiff, source_roots: tuple[str, ...] = ()) -> TargetRecord:
     return TargetRecord(
         file_path=fd.path,
-        module=_module_name(fd.path),
+        module=_module_name(fd.path, source_roots),
         qualname="__file__",
         lang=Lang.TYPESCRIPT,
         classification=TargetClassification.UNREACHABLE,
@@ -497,6 +522,7 @@ def _finished_record(
             module=run_module,
             qualname=run_qualname,
             adapter_source=adapter_source,
+            source_roots=cfg.source_roots or (),
             args_literal=minimized.minimized_args or d.args_literal,
             kwargs_literal=minimized.minimized_kwargs or d.kwargs_literal,
             divergence_class=d.divergence_class,

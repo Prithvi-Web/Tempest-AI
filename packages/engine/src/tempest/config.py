@@ -18,6 +18,7 @@ _VALID_KEYS: dict[str, tuple[str, ...]] = {
     "budgets": ("max_inputs", "max_wall_seconds"),
     "compare": ("float_rel_tol",),
     "ignore": ("globs",),
+    "roots": ("source",),
 }
 
 
@@ -37,6 +38,7 @@ class TempestConfig:
     max_wall_seconds: float | None = None
     float_rel_tol: float | None = None
     ignore_globs: tuple[str, ...] = ()
+    source_roots: tuple[str, ...] = ()
 
     @classmethod
     def load(cls, repo: Path) -> "TempestConfig":
@@ -54,6 +56,7 @@ class TempestConfig:
         budgets = raw.get("budgets", {})
         compare = raw.get("compare", {})
         ignore = raw.get("ignore", {})
+        roots = raw.get("roots", {})
         return cls(
             max_inputs=_int_at_least(path, "[budgets].max_inputs", budgets.get("max_inputs"), 1),
             max_wall_seconds=_positive_number(
@@ -63,6 +66,7 @@ class TempestConfig:
                 path, "[compare].float_rel_tol", compare.get("float_rel_tol")
             ),
             ignore_globs=_glob_tuple(path, "[ignore].globs", ignore.get("globs")),
+            source_roots=_source_root_tuple(path, "[roots].source", roots.get("source")),
         )
 
     def effective_max_inputs(self, cli_value: int | None) -> int:
@@ -135,6 +139,39 @@ def _number(path: Path, name: str, value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise TempestConfigError(f"{path}: {name} must be a number, got {value!r}")
     return float(value)
+
+
+def _source_root_tuple(path: Path, name: str, value: object) -> tuple[str, ...]:
+    """`[roots].source` — repo-relative import roots for monorepos and src layouts.
+
+    Each entry is prepended to the worker's sys.path and stripped from module names, so
+    `packages/engine/src/tempest/model.py` proves as `tempest.model`.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise TempestConfigError(
+            f"{path}: {name} must be a list of repo-relative directory strings, "
+            f'e.g. source = ["packages/engine/src"] — got {value!r}'
+        )
+    roots: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item:
+            raise TempestConfigError(
+                f"{path}: {name} must be a list of non-empty strings, got {item!r}"
+            )
+        normalized = item.rstrip("/")
+        if not normalized or normalized.startswith("/") or normalized.startswith("~"):
+            raise TempestConfigError(
+                f"{path}: {name} entries must be repo-relative (no leading `/` or `~`), "
+                f"got {item!r}"
+            )
+        if ".." in Path(normalized).parts:
+            raise TempestConfigError(
+                f"{path}: {name} entries must stay inside the repo (no `..`), got {item!r}"
+            )
+        roots.append(normalized)
+    return tuple(roots)
 
 
 def _glob_tuple(path: Path, name: str, value: object) -> tuple[str, ...]:

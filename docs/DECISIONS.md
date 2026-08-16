@@ -612,3 +612,39 @@ Tally no-op); the synthesis gate proves 0/3 keyless (with remediation text namin
 zero false alarms through adapters. The real-model proof-rate number still awaits an owner
 key and the 2.2 live-PR measurement. `anthropic` joins engine dependencies; the keyless
 paths import it lazily so keyless installs never touch it at runtime.
+
+## ADR-0025 — [roots].source + one config law + the live gate reports (2026-08-16)
+
+**Context.** HANDOFF-WORLD-CLASS 2.2 requires the real-world proof rate. Two blockers
+surfaced immediately: (1) monorepo files (`packages/engine/src/tempest/x.py`) derive
+unimportable module names, so Tempest could not prove ITSELF; (2) `tempest.toml` was
+honored only by the CLI — the desktop app and any direct `run_prove` caller silently
+ignored a repo's declared budgets/ignores, a real defect under the zero-known-defects bar.
+
+**Decision.**
+1. **`[roots].source`** in tempest.toml: repo-relative import roots. Module derivation
+   strips the longest matching root (whole path segments only); the worker's sys.path and
+   coverage target-file resolution gain the same roots; standalone repros embed a
+   `sys.path[:0]` prologue so they still run from the repo root (L7). Validation rejects
+   absolute paths and `..` with the fix named.
+2. **Worktrees self-describe.** `_sys_path_for`/`_target_file` read the WORKTREE's own
+   tempest.toml (lru-cached, tolerant): every worker construction site — detection,
+   minimization, synthesis validation probes — resolves identically with zero parameter
+   threading, and each checked-out revision describes its own layout. A broken historical
+   config yields no extra roots (honest UNPROVEN on import), never a crash; the
+   working-tree copy is validated at run start.
+3. **One config law.** `ProveConfig.ignore_globs`/`source_roots` default to `None` =
+   "the repo's tempest.toml decides", resolved inside `run_prove`. The CLI's explicit
+   tuple still overrides. The desktop app, the API, parity, and CI now honor the same
+   file without per-caller wiring.
+4. **The live gate reports, the self-test enforces.** `tempest-live.yml` runs the action
+   on the repo's own PR diff and posts the evidence comment, but `continue-on-error` —
+   a feature PR legitimately changes behavior; blocking on DIVERGENT would train people
+   to ignore the gate. The seeded-fixture contract (DIVERGENT must fail, comment must
+   carry evidence, no forbidden word) stays enforced by tempest-selftest.yml.
+
+**Consequences.** Tempest proves Tempest: engine modules resolve as `tempest.*` on PRs.
+The first real-world proof-rate measurement (5 OSS repos, real release pairs, T2) is
+recorded in docs/METRICS.md with its UNPROVEN reason distribution — instance methods
+(what AI synthesis attacks, ADR-0024) and uninstalled-dependency imports (the stage-2
+env-reproduction gap, the next engine lever) dominate, as evidence, not opinion.

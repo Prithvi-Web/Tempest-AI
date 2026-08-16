@@ -15,6 +15,39 @@
 | pyfix instance-method fixtures (c01–c03; AI constructor synthesis, ADR-0024) | **0/3 keyless (honest UNPROVEN + remediation) → 3/3 exercised with a key** — seeded changes DIVERGENT, no-op clean, offline cache rerun identical. Machinery-measured against a local Messages-API peer; the real-model number awaits an owner key (2.2) | `pytest packages/engine/tests/integration/test_llm_synthesis_pyfix.py` |
 | 30-function impure corpus (HTTP / fs / time-random) — record/replay stability, the proof-rate precondition for impure code | **30/30 stable ×20 consecutive replays** | `python -m tempest.dev.corpus_check --min-pass 24 --repeats 20` |
 
+### The first real-world measurement (2026-08-16, HANDOFF-WORLD-CLASS 2.2, ADR-0025)
+
+Five real open-source repos, real consecutive release pairs, T2 Seatbelt, keyless,
+`max_inputs=30`, exact SHAs recorded. Command:
+`TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.real_world corpus/real-world.toml`
+
+| Repo | Base → Head | Tier | Targets | DIVERGENT | EQUIVALENT | UNPROVEN | ERROR | Proof rate |
+|---|---|---|---|---|---|---|---|---|
+| packaging | 26.2 `84a87ee42483` → 26.3 `929fd4b1410a` | T2 | 153 | 5 | 33 | 115 | 0 | 38/153 (25%) |
+| semver | 3.0.0 `3a7680dc4362` → 3.0.4 `6adf8765f6e2` | T2 | 10 | 0 | 4 | 6 | 0 | 4/10 (40%) |
+| humanize | 4.15.0 `2ddb5903cdc1` → 4.16.0 `3c577d765050` | T2 | 24 | 0 | 0 | 24 | 0 | 0/24 (0%) |
+| more-itertools | v11.0.2 `247e15b3a489` → v11.1.0 `64be96ceb2a6` | T2 | 4 | 0 | 0 | 4 | 0 | 0/4 (0%) |
+| python-slugify | v8.0.1 `58031becacdc` → v8.0.4 `f85f94885201` | T2 | 7 | 0 | 0 | 7 | 0 | 0/7 (0%) |
+| **overall** |  |  | **198** | **5** | **37** | **156** | **0** | **42/198 (21%)** |
+
+UNPROVEN reason distribution (the engine roadmap, as evidence):
+
+| reason_code | count | example target | example detail |
+|---|---|---|---|
+| TARGET_UNREACHABLE | 112 | `benchmarks.specifiers.TimeSpecSuite._make_cold` | `TimeSpecSuite._make_cold` is an instance method — invoking it requires constructing `TimeSpecSuite( |
+| HARNESS_SYNTHESIS_FAILED | 39 | `noxfile.tests` | could not introspect `noxfile.tests` — the module failed to import or the symbol does not exist in t |
+| VALUE_UNSERIALIZABLE | 4 | `packaging.tags.platform_tags` | 0 of 1 inputs produced a comparable observation (1 unserializable) — e.g. base observation unreprese |
+| NONDETERMINISTIC_BASE | 1 | `docs.conf.find_version` | base replay does not reproduce its own recording on input ('',) — determinism could not be reached ( |
+
+**Reading it honestly:** the 21% overall is the KEYLESS number on repos as-is (benchmarks,
+noxfiles and docs scripts included — nothing was excluded to flatter the rate). The
+distribution is the roadmap: the 112 instance-method targets are precisely what AI
+constructor synthesis (ADR-0024) attacks once a user configures a key; the 39 import
+failures are the stage-2 env-reproduction gap (the target package and its deps are not
+installed in the sandbox); the 4 unserializable and 1 nondeterministic are comparison-layer
+work. Per the master prompt: below ~60% real-world proof rate, ENGINE work outranks
+feature work — these two levers are the engine work.
+
 **Honest caveats, stated plainly:**
 - 100% is measured on Tempest's own validation fixture — typed, importable, top-level functions.
   It is the engine's capability ceiling, not a real-world claim. Instance methods now reach
@@ -27,9 +60,11 @@
   is zero and no one should pretend otherwise.
 - Changed TypeScript files are surfaced as `UNPROVEN(RECORD_REPLAY_UNAVAILABLE)` (never silently
   skipped, as of `2358b97`); the TS execution half (Phase 3) will move them into the numerator.
-- The 60% bar in the master prompt applies to real-world code. First real-world measurement
-  arrives with the Phase 6 live-PR gate (after GitHub publish) and the design-partner runs
-  (Phase 18); both must update this file.
+- The 60% bar in the master prompt applies to real-world code. The first real-world
+  measurement (above, 2026-08-16) reads **21% keyless** — below the bar, so engine work
+  (synthesis coverage of instance methods, stage-2 env reproduction) outranks feature work.
+  The live-PR gate (`tempest-live.yml`) and the design-partner runs (Phase 18) keep this
+  section current.
 
 ## 2. False divergence rate
 

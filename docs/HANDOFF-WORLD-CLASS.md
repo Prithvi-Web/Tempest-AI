@@ -151,8 +151,15 @@ constructor synthesis). This is where the user's AI API key finally plugs in:
 - *Gate:* pyfix gains instance-method fixtures; proof rate on them 0% → measured N% with a
   key; without a key the honest UNPROVEN remains; redaction gate passes with the key planted.
 
-### 2.2 Real-world proof rate — the number that decides everything (§8)
-Still UNMEASURED. Two steps, cheap and overdue:
+### 2.2 Real-world proof rate — the number that decides everything (§8) — **MEASURED 2026-08-16**
+**The number: 42/198 = 21% keyless** (5 OSS repos, real release pairs, T2, exact SHAs —
+docs/METRICS.md has the full table + reason distribution; ADR-0025). Shipped with it:
+`[roots].source` config (monorepos provable — Tempest now proves ITSELF), one config law
+(tempest.toml honored by CLI + desktop + CI identically), `tempest.dev.real_world` (the
+repeatable measurement), and `tempest-live.yml` (evidence comment on the repo's own PRs;
+reports, never blocks — the fixture self-test still enforces the contract). Distribution
+verdict: instance methods (112) + env reproduction (39) are the engine levers before any
+feature below. Original steps, for the record:
 1. The live-PR gate: open a PR against the repo itself with a seeded behavior change —
    `tempest-selftest.yml` runs the action and comments the evidence. Record the first
    real-world number in `docs/METRICS.md`.

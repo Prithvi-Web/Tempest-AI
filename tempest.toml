@@ -1,0 +1,19 @@
+# Tempest proving Tempest (HANDOFF-WORLD-CLASS 2.2 live-PR gate).
+#
+# [roots] makes the monorepo's engine/api modules importable — packages/engine/src/tempest/x.py
+# proves as tempest.x. Tests, fixtures, and scripts are declared out of scope: they are not
+# product behavior (they have their own gates), and their module paths are not importable
+# package names. TypeScript stays VISIBLE on purpose — those targets surface as honest
+# UNPROVEN(RECORD_REPLAY_UNAVAILABLE) until Phase 3 lands, never silently out of scope.
+
+[roots]
+source = ["packages/engine/src", "packages/api/src"]
+
+[ignore]
+globs = [
+    "packages/engine/tests/*",
+    "packages/api/tests/*",
+    "packages/desktop/e2e/*",
+    "corpus/*",
+    "scripts/*",
+]

@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import cast
 
@@ -20,6 +21,7 @@ import tempest.compare.canonical as _canonical_module
 import tempest.determinism._shims as _shims_module
 import tempest.execute._worker as _worker_module
 from tempest.compare.compare import SyntheticObservation
+from tempest.config import TempestConfig, TempestConfigError
 from tempest.envrepro.worktree import normalized_env
 from tempest.execute.cancel import current_scope
 from tempest.execute.interpreter import find_worker_python
@@ -71,16 +73,35 @@ def _prepare_scratch(scratch: Path) -> None:
     shutil.copyfile(_shims_module.__file__, scratch / "shims.py")
 
 
+@lru_cache(maxsize=256)
+def _source_roots_of(root: str) -> tuple[str, ...]:
+    """`[roots].source` from the WORKTREE's own tempest.toml — each checked-out revision
+    self-describes its import layout, so every worker (detection, minimization, synthesis
+    probes) resolves paths identically with no caller threading. A broken historical
+    config never crashes job building: the working-tree copy is validated at run start,
+    and a revision whose layout cannot be read simply gets no extra roots (an import
+    failure there surfaces as an honest UNPROVEN, never a crash)."""
+    try:
+        return TempestConfig.load(Path(root)).source_roots
+    except TempestConfigError:
+        return ()
+
+
 def _sys_path_for(root: Path) -> list[str]:
     entries = [str(root)]
     if (root / "src").is_dir():
         entries.append(str(root / "src"))
+    for source_root in _source_roots_of(str(root)):
+        candidate = root / source_root
+        if candidate.is_dir():
+            entries.append(str(candidate))
     return entries
 
 
 def _target_file(root: Path, module: str) -> str:
     rel = Path(*module.split("."))
-    for base in (root, root / "src"):
+    bases = [root, root / "src", *(root / r for r in _source_roots_of(str(root)))]
+    for base in bases:
         for candidate in (base / f"{rel}.py", base / rel / "__init__.py"):
             if candidate.exists():
                 return str(candidate)
