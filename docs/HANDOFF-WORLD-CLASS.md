@@ -179,6 +179,17 @@ first divergence <90 s, time-to-first-divergence instrumented — the activation
 
 ## Part 3 — The Apple-grade UI (and the AI-key Settings)
 
+**STATUS 2026-08-15 — 3.1 + 3.2 (AI-key group) LANDED** (commit `c5d4dea`): tokens + light/dark
++ sidebar shell + overlay titlebar + every view restyled (states preserved, enum text
+untouched); Settings with the keychain-backed Anthropic key (redactor grew FIRST — 24/24;
+`keychain.rs` w/ temp-keychain tests — the login keychain under an unsigned test binary
+summons an unanswerable auth dialog, recorded there; `SpawnConfig.env_provider` injects
+ANTHROPIC_API_KEY at every spawn, proven across a crash-restart). Gates: verify exit 0
+(E2E 13 passed incl settings spec), linux-denom 803/100.00%, screenshots docs/ui/ (14).
+Still open from 3.2: Sync/Storage/Privacy setting GROUPS (need the settings.json
+infrastructure), the "Test key" live ping (belongs to the 2.1 synthesis phase), motion
+polish beyond view transitions, and the §3.3 accessibility pass. Original brief:
+
 The owner wants "cleaner UI just like Apple." Direction, then mechanics:
 
 ### 3.1 Design language
