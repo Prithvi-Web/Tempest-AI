@@ -96,7 +96,12 @@ coverage gate. Original brief kept for those:
 - *Gate:* E2E suite green against the BUILT app on this Mac, wired into `verify-desktop`;
   the console-clean assertion holds; every binding + enum arm exercised. Paste output.
 
-### 1.2 Live progress: replace 1.5 s polling with pushed events
+### 1.2 Live progress: replace 1.5 s polling with pushed events — **DONE 2026-08-16**
+(commit `350eeda`): `watcher.rs` central 1s probe of live runs (parked when idle, L11) →
+typed `RunProgressEvent` with the GENERATED domain enums; `start_local_prove` registers,
+terminal probe emits the final event + untracks; RunView's timer deleted (slow 5s
+`refetchInterval` fallback stays, stated in-code). Cargo-proven against the frame peer
+(PENDING pushes → COMPLETE/DIVERGENT → silence) + an E2E push-refetch test. Original brief:
 The Rust host already emits `SidecarStateEvent` via tauri-specta. Extend the same pattern:
 a `RunProgressEvent` (typed, generated) emitted by the host as it polls the sidecar once per
 second centrally — or better, have `localprove` write progress and the host forward new
