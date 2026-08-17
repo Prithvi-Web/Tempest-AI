@@ -2359,7 +2359,8 @@ impl SyncReport {
 #[doc = "    \"PURE_CANDIDATE\","]
 #[doc = "    \"IMPURE_RECORDABLE\","]
 #[doc = "    \"UNREACHABLE\","]
-#[doc = "    \"SYNTHESIZED\""]
+#[doc = "    \"SYNTHESIZED\","]
+#[doc = "    \"TYPE_SYNTHESIZED\""]
 #[doc = "  ]"]
 #[doc = "}"]
 #[doc = r" ```"]
@@ -2386,6 +2387,8 @@ pub enum TargetClassification {
     Unreachable,
     #[serde(rename = "SYNTHESIZED")]
     Synthesized,
+    #[serde(rename = "TYPE_SYNTHESIZED")]
+    TypeSynthesized,
 }
 impl ::std::fmt::Display for TargetClassification {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -2394,6 +2397,7 @@ impl ::std::fmt::Display for TargetClassification {
             Self::ImpureRecordable => f.write_str("IMPURE_RECORDABLE"),
             Self::Unreachable => f.write_str("UNREACHABLE"),
             Self::Synthesized => f.write_str("SYNTHESIZED"),
+            Self::TypeSynthesized => f.write_str("TYPE_SYNTHESIZED"),
         }
     }
 }
@@ -2405,6 +2409,7 @@ impl ::std::str::FromStr for TargetClassification {
             "IMPURE_RECORDABLE" => Ok(Self::ImpureRecordable),
             "UNREACHABLE" => Ok(Self::Unreachable),
             "SYNTHESIZED" => Ok(Self::Synthesized),
+            "TYPE_SYNTHESIZED" => Ok(Self::TypeSynthesized),
             _ => Err("invalid value".into()),
         }
     }

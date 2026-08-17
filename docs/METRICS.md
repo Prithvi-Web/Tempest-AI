@@ -39,6 +39,17 @@ UNPROVEN reason distribution (the engine roadmap, as evidence):
 | VALUE_UNSERIALIZABLE | 4 | `packaging.tags.platform_tags` | 0 of 1 inputs produced a comparable observation (1 unserializable) — e.g. base observation unreprese |
 | NONDETERMINISTIC_BASE | 1 | `docs.conf.find_version` | base replay does not reproduce its own recording on input ('',) — determinism could not be reached ( |
 
+**Re-measured 2026-08-16 evening after the engine-depth wave (ADR-0026 — static/class
+methods pinned, typed-dataclass constructor synthesis, async execution): 42/198 = 21%,
+UNCHANGED — and identically so, byte-for-byte (incidental re-proof of determinism).** Why,
+verified against the bundles, not guessed: this corpus's 112 unreachable targets decompose
+as 99 instance methods of PLAIN classes (the key-gated synthesis rung), 12 generators
+(honestly out of scope), 1 closure — zero async / dataclass / static shapes among its
+changed symbols. The new levers raise the capability CEILING (pyfix c04–c07 all prove
+keyless: staticmethod, classmethod, typed dataclass via TYPE_SYNTHESIZED, async), but
+THIS corpus's number moves only with a configured key (99 targets) and stage-2 env
+reproduction (39 + humanize/slugify wholesale). Stated plainly instead of flattered.
+
 **Reading it honestly:** the 21% overall is the KEYLESS number on repos as-is (benchmarks,
 noxfiles and docs scripts included — nothing was excluded to flatter the rate). The
 distribution is the roadmap: the 112 instance-method targets are precisely what AI

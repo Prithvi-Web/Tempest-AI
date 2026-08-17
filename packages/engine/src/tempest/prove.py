@@ -36,6 +36,7 @@ from tempest.harness.llm import (
     remediation_hint,
     synthesize_instance_adapter,
 )
+from tempest.harness.typed import synthesize_dataclass_adapter
 from tempest.minimize.ddmin import minimize_input
 from tempest.minimize.repro import render_repro_script
 from tempest.model import (
@@ -348,6 +349,33 @@ def _unreachable_or_synthesized_record(
     when a key would change the answer (HANDOFF-WORLD-CLASS 2.1)."""
     detail = classified.reason_detail or "target unreachable"
     if _is_instance_method(sym):
+        # Rung 1 — deterministic, offline: a typed dataclass is mechanically constructible.
+        typed_adapter = synthesize_dataclass_adapter(
+            base_root=base_env.worktree,
+            head_root=head_env.worktree,
+            module=module,
+            owner_class=sym.owner_class or "",
+            method=sym.symbol.rsplit(".", 1)[-1],
+            head_source=head_src,
+            sandbox=sandbox,
+            seed=cfg.seed,
+        )
+        if typed_adapter is not None:
+            return _synthesized_record(
+                fd,
+                module,
+                sym,
+                typed_adapter,
+                base_env,
+                head_env,
+                sandbox,
+                mined,
+                compare_cfg,
+                cfg,
+                repro_scripts,
+                classification=TargetClassification.TYPE_SYNTHESIZED,
+            )
+        # Rung 2 — the model writes the adapter (BYOK; verdicts stay ours).
         outcome = synthesize_instance_adapter(
             cache_dir=cfg.repo / ".tempest" / "adapters",
             base_root=base_env.worktree,
@@ -407,6 +435,7 @@ def _synthesized_record(
     compare_cfg: CompareConfig,
     cfg: ProveConfig,
     repro_scripts: dict[str, str],
+    classification: TargetClassification = TargetClassification.SYNTHESIZED,
 ) -> TargetRecord:
     """The normal differential, executed through the validated adapter. Coverage stays
     honest: the worker traces the REAL module\'s file (trace_module), so changed-line
@@ -448,7 +477,7 @@ def _synthesized_record(
         compare_cfg,
         cfg,
         repro_scripts,
-        classification=TargetClassification.SYNTHESIZED,
+        classification=classification,
         exec_module=adapter.module,
         exec_qualname=adapter.qualname,
         adapter_source=adapter_source,

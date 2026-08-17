@@ -395,6 +395,28 @@ class TestOffModeBatchShapes:
         assert unrep["unrepresentable"] is not None
         assert good["return_canon"] == canonical_module.canonicalize(40)
 
+    def test_async_target_runs_to_completion_on_a_fresh_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """ADR-0026: a coroutine function is awaited via asyncio.run at the call site —
+        the observation looks exactly like a synchronous return, and an exception raised
+        inside the coroutine is a legitimate raised observation, not a worker failure."""
+        proj = _project(
+            tmp_path,
+            "wcov_async",
+            "async def f(x: int) -> int:\n"
+            "    if x == 7:\n"
+            "        raise ValueError('async nope')\n"
+            "    return x * 10\n",
+            monkeypatch,
+        )
+        job = _job(proj, "wcov_async", [("(3,)", "{}"), ("(7,)", "{}")])
+        run_in_thread(lambda: _worker.do_invoke(job, CANONICAL))
+        good, raised = _emitted(capsys)
+        assert good["return_canon"] == canonical_module.canonicalize(30)
+        assert good["raised"] is None
+        assert raised["raised"]["type"] == "ValueError"
+
 
 class TestServeLoop:
     def _serve_job(self, proj: Path, module: str) -> dict[str, Any]:

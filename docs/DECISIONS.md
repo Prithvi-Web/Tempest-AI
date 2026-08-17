@@ -648,3 +648,39 @@ The first real-world proof-rate measurement (5 OSS repos, real release pairs, T2
 recorded in docs/METRICS.md with its UNPROVEN reason distribution — instance methods
 (what AI synthesis attacks, ADR-0024) and uninstalled-dependency imports (the stage-2
 env-reproduction gap, the next engine lever) dominate, as evidence, not opinion.
+
+## ADR-0026 — Engine depth: the free proof rate (2026-08-16)
+
+**Context.** The first real-world measurement (ADR-0025: 21% keyless) named the levers.
+Three of them cost no key, no network, and no new trust surface: static/class methods
+(already executable, never exercised), typed dataclasses (mechanically constructible),
+and async functions (awaitable at the call site).
+
+**Decision.**
+1. **Static/classmethods** were provable all along — the classifier passes them through
+   and the worker's getattr chain resolves them. What was missing was PROOF: pyfix gains
+   c04 (staticmethod seeded change → DIVERGENT) and c05 (classmethod no-op → EQUIVALENT),
+   pinned keyless in the engine-depth gate.
+2. **Type-driven constructor synthesis** (`harness/typed.py` — the `TypeDrivenSynthesizer`
+   the architecture spec named): for an instance method on a typed dataclass, derive the
+   adapter from the AST ALONE (defaulted fields keep their defaults; defaultless
+   builtin-shaped fields get zero values; anything else gives up). Tried BEFORE the LLM
+   rung; user code is never imported in-process (L6); fully offline (L8). Provenance is
+   distinct: `classification=TYPE_SYNTHESIZED` across all three boundaries — a mechanical
+   adapter is never dressed up as an AI one (or vice versa).
+3. **Strict acceptance for mechanical guesses.** The synthesis probe now prefers a CLEAN
+   completion and records `probe_raised` when every completing probe raised. Mirrored-
+   parameter adapters (the LLM rung) may legitimately raise — the target's own behavior.
+   The typed rung REJECTS a raising probe: with a guessed constructor, the raise could be
+   the guess itself, and an unattributable raise must never anchor a comparison — it falls
+   through to the next rung instead.
+4. **Async targets**: the classifier's async→UNREACHABLE arm is gone; the worker awaits
+   coroutine functions via `asyncio.run` on a fresh loop per call — frames still trace
+   (coverage), effects still hit the determinism shims. Generators remain honestly
+   unreachable (lazy iteration has no single observable return).
+
+**Consequences.** pyfix c04–c07 prove keyless (the engine-depth gate); the real-world
+corpus was re-measured on identical SHAs and both tables live in docs/METRICS.md — the
+delta is the honest value of this phase. The remaining big lever is stage-2 env
+reproduction (install the target package and deps into the sandbox), which the same
+measurement shows blocking humanize/slugify wholesale.

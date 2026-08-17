@@ -114,12 +114,6 @@ def classify_symbol(src: str, sym: SymbolSpan) -> ClassifiedSymbol:
             f"`{sym.symbol}` is a closure — it only exists inside its enclosing function and "
             "cannot be imported or invoked in isolation.",
         )
-    if sym.is_async:
-        return _unreachable(
-            sym,
-            f"`{sym.symbol}` is an async function; v1 invokes synchronous callables only. "
-            "Wrap the logic in a sync function to make it provable.",
-        )
     if sym.is_generator:
         return _unreachable(
             sym,

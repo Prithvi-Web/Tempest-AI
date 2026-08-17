@@ -115,6 +115,65 @@ INSTANCE_HEAD: dict[str, str] = {
     ),
 }
 
+# ---- engine-depth targets (HANDOFF-WORLD-CLASS 2.5) — provable KEYLESS ---------------------
+# c04 staticmethod / c05 classmethod: reachable through the class object, no instance needed.
+# c06 typed dataclass: the deterministic TYPE-driven synthesizer constructs it (no LLM, no
+# key). c07 async: the worker awaits it via asyncio.run. Kept out of BEHAVIOR_* so the
+# original 12/12 gate stays byte-stable; the engine-depth gate asserts these separately.
+DEPTH_BASE: dict[str, str] = {
+    "c04.py": (
+        "class Pricing:\n"
+        "    @staticmethod\n"
+        "    def with_tax(price: float, rate: float) -> float:\n"
+        "        return round(price * (1 + rate), 2)\n"
+    ),
+    "c05.py": (
+        "class Labeler:\n"
+        "    @classmethod\n"
+        "    def label(cls, name: str) -> str:\n"
+        "        parts = [cls.__name__, name]\n"
+        "        return '-'.join(parts)\n"
+    ),
+    "c06.py": (
+        "from dataclasses import dataclass\n"
+        "\n"
+        "\n"
+        "@dataclass\n"
+        "class Basket:\n"
+        "    fee: int = 3\n"
+        "\n"
+        "    def total(self, xs: list[int]) -> int:\n"
+        "        return sum(xs) + self.fee\n"
+    ),
+    "c07.py": ("async def combine(a: int, b: int) -> int:\n    return a * 10 + b\n"),
+}
+DEPTH_HEAD: dict[str, str] = {
+    "c04.py": (
+        "class Pricing:\n"
+        "    @staticmethod\n"
+        "    def with_tax(price: float, rate: float) -> float:\n"
+        "        return price * (1 + rate)\n"
+    ),
+    "c05.py": (
+        "class Labeler:\n"
+        "    @classmethod\n"
+        "    def label(cls, name: str) -> str:\n"
+        "        return f'{cls.__name__}-{name}'\n"
+    ),
+    "c06.py": (
+        "from dataclasses import dataclass\n"
+        "\n"
+        "\n"
+        "@dataclass\n"
+        "class Basket:\n"
+        "    fee: int = 3\n"
+        "\n"
+        "    def total(self, xs: list[int]) -> int:\n"
+        "        return sum(xs) + self.fee + 1\n"
+    ),
+    "c07.py": ("async def combine(a: int, b: int) -> int:\n    return a * 10 - b\n"),
+}
+
 # ---- 12 true no-op refactors ----------------------------------------------------------------
 NOOP_BASE: dict[str, str] = {
     "n01.py": (
@@ -217,6 +276,7 @@ NOOP_HEAD: dict[str, str] = {
 BEHAVIOR_MODULES = sorted(m.removesuffix(".py") for m in BEHAVIOR_BASE)
 NOOP_MODULES = sorted(m.removesuffix(".py") for m in NOOP_BASE)
 INSTANCE_MODULES = sorted(m.removesuffix(".py") for m in INSTANCE_BASE)
+DEPTH_MODULES = sorted(m.removesuffix(".py") for m in DEPTH_BASE)
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -239,12 +299,12 @@ def build(target: Path) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     _git(target, "init", "-b", "main")
     (target / ".tempest-first-party").write_text(MARKER + "\n", encoding="utf-8")
-    for name, src in {**BEHAVIOR_BASE, **NOOP_BASE, **INSTANCE_BASE}.items():
+    for name, src in {**BEHAVIOR_BASE, **NOOP_BASE, **INSTANCE_BASE, **DEPTH_BASE}.items():
         (target / name).write_text(src, encoding="utf-8")
     _git(target, "add", "-A")
     _git(target, "commit", "-m", "base", "--no-gpg-sign")
     _git(target, "branch", "base")
-    for name, src in {**BEHAVIOR_HEAD, **NOOP_HEAD, **INSTANCE_HEAD}.items():
+    for name, src in {**BEHAVIOR_HEAD, **NOOP_HEAD, **INSTANCE_HEAD, **DEPTH_HEAD}.items():
         (target / name).write_text(src, encoding="utf-8")
     _git(target, "add", "-A")
     _git(target, "commit", "-m", "head: 12 behavior changes + 12 no-op refactors", "--no-gpg-sign")

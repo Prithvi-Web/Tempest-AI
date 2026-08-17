@@ -896,7 +896,8 @@
         "PURE_CANDIDATE",
         "IMPURE_RECORDABLE",
         "UNREACHABLE",
-        "SYNTHESIZED"
+        "SYNTHESIZED",
+        "TYPE_SYNTHESIZED"
       ],
       "title": "TargetClassification",
       "type": "string"

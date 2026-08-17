@@ -60,6 +60,9 @@ class TargetClassification(StrEnum):
     # Reached through an AI-written, execution-validated constructor adapter (harness/llm.py)
     # — displayed distinctly so a synthesized proof is never mistaken for a direct one.
     SYNTHESIZED = "SYNTHESIZED"
+    # Reached through a DETERMINISTIC type-derived constructor adapter (harness/typed.py):
+    # no model involved, fully offline — distinct from SYNTHESIZED so provenance is honest.
+    TYPE_SYNTHESIZED = "TYPE_SYNTHESIZED"
 
 
 class Stage(StrEnum):

@@ -1111,13 +1111,14 @@ export type SidecarStateEvent = {
  *     "PURE_CANDIDATE",
  *     "IMPURE_RECORDABLE",
  *     "UNREACHABLE",
- *     "SYNTHESIZED"
+ *     "SYNTHESIZED",
+ *     "TYPE_SYNTHESIZED"
  *   ]
  * }
  *  ```
  *  </details>
  */
-export type TargetClassification = "PURE_CANDIDATE" | "IMPURE_RECORDABLE" | "UNREACHABLE" | "SYNTHESIZED";
+export type TargetClassification = "PURE_CANDIDATE" | "IMPURE_RECORDABLE" | "UNREACHABLE" | "SYNTHESIZED" | "TYPE_SYNTHESIZED";
 
 /**
  * `TargetDetail`

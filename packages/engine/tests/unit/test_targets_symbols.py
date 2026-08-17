@@ -104,11 +104,13 @@ class TestClassification:
         assert cls is TargetClassification.UNREACHABLE
         assert reason is ReasonCode.TARGET_UNREACHABLE
 
-    def test_async_function_is_unreachable_in_v1(self) -> None:
-        src = "async def af(x):\n    return x\n"
+    def test_async_function_is_provable(self) -> None:
+        # ADR-0026: the worker awaits coroutine functions via asyncio.run — async targets
+        # classify like any other callable instead of the old honest UNREACHABLE.
+        src = "async def af(x: int) -> int:\n    return x\n"
         cls, reason = self._classify(src, "af")
-        assert cls is TargetClassification.UNREACHABLE
-        assert reason is ReasonCode.TARGET_UNREACHABLE
+        assert cls is TargetClassification.PURE_CANDIDATE
+        assert reason is None
 
     def test_calling_local_pure_helper_stays_pure(self) -> None:
         src = "def helper(x):\n    return x + 1\n\n\ndef f(x):\n    return helper(x) * 2\n"

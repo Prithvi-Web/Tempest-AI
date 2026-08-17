@@ -626,7 +626,7 @@ export interface components {
          * @description Stage-1 classification of a changed symbol.
          * @enum {string}
          */
-        TargetClassification: "PURE_CANDIDATE" | "IMPURE_RECORDABLE" | "UNREACHABLE" | "SYNTHESIZED";
+        TargetClassification: "PURE_CANDIDATE" | "IMPURE_RECORDABLE" | "UNREACHABLE" | "SYNTHESIZED" | "TYPE_SYNTHESIZED";
         /** TargetDetail */
         TargetDetail: {
             /** Changed Line Coverage */

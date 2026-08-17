@@ -180,11 +180,17 @@ Large; schedule after 2.1/2.2 prove their value.
   verdict untouched. This is the feature that makes evidence readable by the owner's own
   standard (plain English) and by any non-expert user.
 
-### 2.5 Engine depth (ongoing, test-first)
-Async targets; classmethod/staticmethod; simple dataclass constructor auto-synthesis WITHOUT
-an LLM (typed dataclasses are mechanically constructible — free proof-rate); parallel target
+### 2.5 Engine depth (ongoing, test-first) — **CAPABILITY WAVE 1 DONE 2026-08-16 (ADR-0026)**
+~~Async targets; classmethod/staticmethod; simple dataclass constructor auto-synthesis WITHOUT
+an LLM~~ — all three landed keyless (pyfix c04–c07; `harness/typed.py` TYPE_SYNTHESIZED;
+worker `asyncio.run`; strict no-raise probe for mechanical guesses). Re-measurement on the
+identical corpus SHAs: 21% unchanged — verified against the bundles, its unreachable mass
+is 99 PLAIN-class instance methods + 12 generators, so this corpus moves with a key and
+with stage-2 env reproduction (the next engine lever). Still open here: parallel target
 proving (workers are per-target; the loop is serial today); Linux T2 bubblewrap backend (CI
-runners can actually run its escape-suite leg — turning trap-list PENDINGs into greens).
+runners can actually run its escape-suite leg — turning trap-list PENDINGs into greens);
+**stage-2 env reproduction (install the target package + deps into the sandbox) — now the
+single biggest measured lever.**
 
 ### 2.6 Distribution polish (GitHub-only, ADR-0021)
 First release tag (`v0.2.0`) fires `release.yml` — watch its install-check job prove

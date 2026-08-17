@@ -323,7 +323,15 @@ def do_invoke(job: dict[str, Any], canonical: _CanonicalModule) -> None:
         sys.settrace(tracer.global_trace)
         try:
             with redirect_stdout(out_buf), redirect_stderr(err_buf):
-                result = fn(*args, **kwargs)
+                if inspect.iscoroutinefunction(fn):
+                    # ADR-0026: async targets run to completion on a fresh loop per call —
+                    # the coroutine's frames still trace (coverage) and its effects still
+                    # hit the determinism shims like any synchronous callable.
+                    import asyncio
+
+                    result = asyncio.run(fn(*args, **kwargs))
+                else:
+                    result = fn(*args, **kwargs)
         except BaseException as exc:
             if shims is not None and isinstance(exc, shims.CassetteMiss):
                 cassette_miss = str(exc)

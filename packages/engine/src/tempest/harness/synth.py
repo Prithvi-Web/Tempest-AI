@@ -31,6 +31,11 @@ class ValidatedAdapter:
     probe_args: str
     probe_kwargs: str
     validated_by_execution: bool
+    # True when every completing probe RAISED: the invocation machinery works, but nothing
+    # demonstrates a clean pass through the target. Legitimate for mirrored-parameter
+    # adapters (the target may raise by design); the type-driven rung treats it as
+    # "my constructor guess may be the thing raising" and gives up (ADR-0026).
+    probe_raised: bool = False
 
 
 @dataclass(frozen=True)
@@ -79,6 +84,7 @@ def synthesize(
         probes_literals = [(p.args_literal, p.kwargs_literal) for p in probes]
 
     failures: list[str] = []
+    raised_completion: ValidatedAdapter | None = None
     for args_literal, kwargs_literal in probes_literals[:_MAX_ATTEMPTS]:
         (obs,) = run_batch(
             root,
@@ -89,7 +95,7 @@ def synthesize(
             per_input_timeout=10.0,
         )
         if obs.outcome is InputOutcome.COMPLETED:
-            return ValidatedAdapter(
+            accepted = ValidatedAdapter(
                 module=module,
                 qualname=qualname,
                 cache_key=f"{module}.{qualname}@{_file_hash(root, module)}",
@@ -97,8 +103,16 @@ def synthesize(
                 probe_args=args_literal,
                 probe_kwargs=kwargs_literal,
                 validated_by_execution=True,
+                probe_raised=obs.raised is not None,
             )
+            if obs.raised is None:
+                return accepted  # a clean pass is the strongest acceptance — take it
+            if raised_completion is None:
+                raised_completion = accepted  # keep looking for a clean probe first
+            continue
         failures.append(f"probe {args_literal} → {obs.outcome} (exit {obs.exit_status})")
+    if raised_completion is not None:
+        return raised_completion
 
     return SynthesisFailure(
         module=module,
