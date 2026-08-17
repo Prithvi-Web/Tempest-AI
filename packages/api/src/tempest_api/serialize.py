@@ -56,6 +56,7 @@ def divergence_detail(d: Divergence) -> DivergenceDetail:
         base_summary=d.base_summary,
         head_summary=d.head_summary,
         repro_filename=d.repro_filename,
+        ai_narrative=d.ai_narrative,
     )
 
 

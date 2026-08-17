@@ -214,6 +214,7 @@ async def ingest_bundle(session: AsyncSession, run: Run, bundle: RunBundle) -> N
                     head_summary=d.head_summary,
                     repro_filename=d.repro_filename,
                     repro_script=bundle.repro_scripts[d.repro_filename],
+                    ai_narrative=d.ai_narrative,
                 )
             )
 

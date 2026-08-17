@@ -454,6 +454,17 @@ impl ::std::convert::TryFrom<::std::string::String> for DivergenceClass {
 #[doc = "    \"target_id\""]
 #[doc = "  ],"]
 #[doc = "  \"properties\": {"]
+#[doc = "    \"ai_narrative\": {"]
+#[doc = "      \"title\": \"Ai Narrative\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"args_literal\": {"]
 #[doc = "      \"title\": \"Args Literal\","]
 #[doc = "      \"type\": \"string\""]
@@ -523,6 +534,8 @@ impl ::std::convert::TryFrom<::std::string::String> for DivergenceClass {
 #[doc = r" </details>"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
 pub struct DivergenceDetail {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub ai_narrative: ::std::option::Option<::std::string::String>,
     pub args_literal: ::std::string::String,
     pub base_summary: ::std::string::String,
     pub detail: ::std::string::String,
@@ -2982,6 +2995,10 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct DivergenceDetail {
+        ai_narrative: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
         args_literal: ::std::result::Result<::std::string::String, ::std::string::String>,
         base_summary: ::std::result::Result<::std::string::String, ::std::string::String>,
         detail: ::std::result::Result<::std::string::String, ::std::string::String>,
@@ -3001,6 +3018,7 @@ pub mod builder {
     impl ::std::default::Default for DivergenceDetail {
         fn default() -> Self {
             Self {
+                ai_narrative: Ok(Default::default()),
                 args_literal: Err("no value supplied for args_literal".to_string()),
                 base_summary: Err("no value supplied for base_summary".to_string()),
                 detail: Err("no value supplied for detail".to_string()),
@@ -3019,6 +3037,16 @@ pub mod builder {
         }
     }
     impl DivergenceDetail {
+        pub fn ai_narrative<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.ai_narrative = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for ai_narrative: {e}"));
+            self
+        }
         pub fn args_literal<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::string::String>,
@@ -3166,6 +3194,7 @@ pub mod builder {
             value: DivergenceDetail,
         ) -> ::std::result::Result<Self, super::error::ConversionError> {
             Ok(Self {
+                ai_narrative: value.ai_narrative?,
                 args_literal: value.args_literal?,
                 base_summary: value.base_summary?,
                 detail: value.detail?,
@@ -3186,6 +3215,7 @@ pub mod builder {
     impl ::std::convert::From<super::DivergenceDetail> for DivergenceDetail {
         fn from(value: super::DivergenceDetail) -> Self {
             Self {
+                ai_narrative: Ok(value.ai_narrative),
                 args_literal: Ok(value.args_literal),
                 base_summary: Ok(value.base_summary),
                 detail: Ok(value.detail),

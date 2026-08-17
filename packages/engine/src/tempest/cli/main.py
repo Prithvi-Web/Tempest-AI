@@ -135,6 +135,38 @@ def prove(
     raise typer.Exit(1 if result.bundle.manifest.verdict is Verdict.DIVERGENT else 0)
 
 
+@app.command(name="watch")
+def watch(
+    repo: Path = typer.Option(Path.cwd(), help="Repository root to watch"),
+    interval: float = typer.Option(5.0, help="Seconds between HEAD polls"),
+    max_inputs: int | None = typer.Option(None, help="Per-target input budget per prove"),
+    seed: int = typer.Option(0, help="Deterministic generation seed"),
+    from_ref: str | None = typer.Option(
+        None, "--from", help="Baseline ref (default: the HEAD at watch start)"
+    ),
+    once: bool = typer.Option(False, help="Prove at most one new commit, then exit"),
+) -> None:
+    """Prove every new commit on the current branch as it appears (ADR-0029)."""
+    from tempest.cli.watch import WatchError, run_watch
+
+    console = Console()
+    try:
+        raise typer.Exit(
+            run_watch(
+                repo,
+                interval=interval,
+                max_inputs=max_inputs,
+                seed=seed,
+                from_ref=from_ref,
+                once=once,
+                console=console,
+            )
+        )
+    except WatchError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from None
+
+
 @app.command(name="ci-comment")
 def ci_comment(
     bundle: Path = typer.Option(

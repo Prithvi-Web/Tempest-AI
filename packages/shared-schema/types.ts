@@ -355,6 +355,8 @@ export interface components {
         DivergenceClass: "RETURN_VALUE" | "EXCEPTION_TYPE" | "EXCEPTION_MESSAGE" | "EFFECT_SEQUENCE" | "EFFECT_ARGUMENTS" | "CASSETTE_MISS" | "CRASH" | "HANG" | "OUTPUT_STREAM";
         /** DivergenceDetail */
         DivergenceDetail: {
+            /** Ai Narrative */
+            ai_narrative?: string | null;
             /** Args Literal */
             args_literal: string;
             /** Base Summary */

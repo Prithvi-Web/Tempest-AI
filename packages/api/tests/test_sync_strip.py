@@ -37,6 +37,7 @@ def _planted_bundle(api):
                 shrink_path=(f"args[0]: '{PLANTED_MINED}-longer'→'{PLANTED_MINED}'",),
                 base_summary=f"returned '{PLANTED_MINED}'",
                 head_summary=f"raised ValueError('{PLANTED_MINED}')",
+                ai_narrative=f"The function used to return '{PLANTED_MINED}' verbatim.",
             )
             for d in t.divergences
         )

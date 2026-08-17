@@ -23,7 +23,7 @@ from sqlalchemy.pool import ConnectionPoolEntry
 
 from tempest_api.db.base import Base
 
-REVISION_CHAIN: tuple[str, ...] = ("0001", "0002", "0003", "0004")
+REVISION_CHAIN: tuple[str, ...] = ("0001", "0002", "0003", "0004", "0005")
 HEAD_REVISION: str = REVISION_CHAIN[-1]
 
 # Forward steps, keyed by from-revision; each mirrors the alembic script that takes the schema
@@ -38,6 +38,7 @@ _FORWARD_STEPS: dict[str, tuple[str, ...]] = {
     ),
     "0002": ("ALTER TABLE runs ADD COLUMN bundle_digest TEXT",),
     "0003": (),
+    "0004": ("ALTER TABLE divergences ADD COLUMN ai_narrative TEXT",),
 }
 
 

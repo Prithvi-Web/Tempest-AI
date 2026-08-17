@@ -39,6 +39,10 @@ class DivergenceRecord:
     base_summary: str
     head_summary: str
     repro_filename: str | None
+    # Plain-English explanation generated FROM the evidence above by the user's own model
+    # (BYOK, ADR-0029). Always labeled "AI narrative" on every surface; None when keyless
+    # or when generation failed — the verdict and evidence never depend on it.
+    ai_narrative: str | None = None
 
 
 @dataclass(frozen=True)
@@ -216,4 +220,6 @@ def _divergence_from(raw: dict[str, Any]) -> DivergenceRecord:
         base_summary=str(raw["base_summary"]),
         head_summary=str(raw["head_summary"]),
         repro_filename=cast(str | None, raw["repro_filename"]),
+        # v3 additive field: absent in v2-and-older bundles, None means "no narrative".
+        ai_narrative=cast(str | None, raw.get("ai_narrative")),
     )

@@ -78,6 +78,9 @@ def _strip_divergence(d: DivergenceRecord, context: RedactionContext) -> Diverge
         shrink_path=tuple(_stripped_literal(step) for step in d.shrink_path),
         base_summary=_scrub_summary(d.base_summary, context),
         head_summary=_scrub_summary(d.head_summary, context),
+        # ADR-0029: the narrative PARAPHRASES observed values — under source-strip it is
+        # dropped whole (a paraphrase cannot be reliably scrubbed span-by-span; L9).
+        ai_narrative=None,
     )
 
 

@@ -107,6 +107,17 @@
       },
       "DivergenceDetail": {
         "properties": {
+          "ai_narrative": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Narrative"
+          },
           "args_literal": {
             "title": "Args Literal",
             "type": "string"

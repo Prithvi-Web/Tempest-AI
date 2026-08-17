@@ -12,7 +12,7 @@ export const commands = {
 	getRun: (runId: number) => typedError<RunDetail, SidecarFailure>(__TAURI_INVOKE("get_run", { runId })),
 	listRunEvents: (runId: number) => typedError<RunEventOut[], SidecarFailure>(__TAURI_INVOKE("list_run_events", { runId })),
 	getTarget: (targetId: number) => typedError<TargetDetail, SidecarFailure>(__TAURI_INVOKE("get_target", { targetId })),
-	getDivergence: (divergenceId: number) => typedError<DivergenceDetail, SidecarFailure>(__TAURI_INVOKE("get_divergence", { divergenceId })),
+	getDivergence: (divergenceId: number) => typedError<DivergenceDetail_Serialize, SidecarFailure>(__TAURI_INVOKE("get_divergence", { divergenceId })),
 	getDivergenceRepro: (divergenceId: number) => typedError<ReproSource, SidecarFailure>(__TAURI_INVOKE("get_divergence_repro", { divergenceId })),
 	startLocalProve: (request: LocalProveRequest) => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_local_prove", { request })),
 	searchDivergences: (q: string, limit: number | null) => typedError<SearchResults, SidecarFailure>(__TAURI_INVOKE("search_divergences", { q, limit })),
@@ -144,6 +144,17 @@ export type DivergenceClass = "RETURN_VALUE" | "EXCEPTION_TYPE" | "EXCEPTION_MES
  *     "target_id"
  *   ],
  *   "properties": {
+ *     "ai_narrative": {
+ *       "title": "Ai Narrative",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
  *     "args_literal": {
  *       "title": "Args Literal",
  *       "type": "string"
@@ -212,7 +223,238 @@ export type DivergenceClass = "RETURN_VALUE" | "EXCEPTION_TYPE" | "EXCEPTION_MES
  *  ```
  *  </details>
  */
-export type DivergenceDetail = {
+export type DivergenceDetail = DivergenceDetail_Serialize | DivergenceDetail_Deserialize;
+
+/**
+ * `DivergenceDetail`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "DivergenceDetail",
+ *   "type": "object",
+ *   "required": [
+ *     "args_literal",
+ *     "base_summary",
+ *     "detail",
+ *     "divergence_class",
+ *     "head_summary",
+ *     "id",
+ *     "kwargs_literal",
+ *     "minimized_args",
+ *     "minimized_kwargs",
+ *     "repro_filename",
+ *     "run_id",
+ *     "severity",
+ *     "shrink_path",
+ *     "target_id"
+ *   ],
+ *   "properties": {
+ *     "ai_narrative": {
+ *       "title": "Ai Narrative",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "args_literal": {
+ *       "title": "Args Literal",
+ *       "type": "string"
+ *     },
+ *     "base_summary": {
+ *       "title": "Base Summary",
+ *       "type": "string"
+ *     },
+ *     "detail": {
+ *       "title": "Detail",
+ *       "type": "string"
+ *     },
+ *     "divergence_class": {
+ *       "$ref": "#/$defs/DivergenceClass"
+ *     },
+ *     "head_summary": {
+ *       "title": "Head Summary",
+ *       "type": "string"
+ *     },
+ *     "id": {
+ *       "title": "Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "kwargs_literal": {
+ *       "title": "Kwargs Literal",
+ *       "type": "string"
+ *     },
+ *     "minimized_args": {
+ *       "title": "Minimized Args",
+ *       "type": "string"
+ *     },
+ *     "minimized_kwargs": {
+ *       "title": "Minimized Kwargs",
+ *       "type": "string"
+ *     },
+ *     "repro_filename": {
+ *       "title": "Repro Filename",
+ *       "type": "string"
+ *     },
+ *     "run_id": {
+ *       "title": "Run Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "severity": {
+ *       "$ref": "#/$defs/Severity"
+ *     },
+ *     "shrink_path": {
+ *       "title": "Shrink Path",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "target_id": {
+ *       "title": "Target Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type DivergenceDetail_Deserialize = {
+	ai_narrative?: string | null,
+	args_literal: string,
+	base_summary: string,
+	detail: string,
+	divergence_class: DivergenceClass,
+	head_summary: string,
+	id: number,
+	kwargs_literal: string,
+	minimized_args: string,
+	minimized_kwargs: string,
+	repro_filename: string,
+	run_id: number,
+	severity: Severity,
+	shrink_path: string[],
+	target_id: number,
+};
+
+/**
+ * `DivergenceDetail`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "DivergenceDetail",
+ *   "type": "object",
+ *   "required": [
+ *     "args_literal",
+ *     "base_summary",
+ *     "detail",
+ *     "divergence_class",
+ *     "head_summary",
+ *     "id",
+ *     "kwargs_literal",
+ *     "minimized_args",
+ *     "minimized_kwargs",
+ *     "repro_filename",
+ *     "run_id",
+ *     "severity",
+ *     "shrink_path",
+ *     "target_id"
+ *   ],
+ *   "properties": {
+ *     "ai_narrative": {
+ *       "title": "Ai Narrative",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "args_literal": {
+ *       "title": "Args Literal",
+ *       "type": "string"
+ *     },
+ *     "base_summary": {
+ *       "title": "Base Summary",
+ *       "type": "string"
+ *     },
+ *     "detail": {
+ *       "title": "Detail",
+ *       "type": "string"
+ *     },
+ *     "divergence_class": {
+ *       "$ref": "#/$defs/DivergenceClass"
+ *     },
+ *     "head_summary": {
+ *       "title": "Head Summary",
+ *       "type": "string"
+ *     },
+ *     "id": {
+ *       "title": "Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "kwargs_literal": {
+ *       "title": "Kwargs Literal",
+ *       "type": "string"
+ *     },
+ *     "minimized_args": {
+ *       "title": "Minimized Args",
+ *       "type": "string"
+ *     },
+ *     "minimized_kwargs": {
+ *       "title": "Minimized Kwargs",
+ *       "type": "string"
+ *     },
+ *     "repro_filename": {
+ *       "title": "Repro Filename",
+ *       "type": "string"
+ *     },
+ *     "run_id": {
+ *       "title": "Run Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "severity": {
+ *       "$ref": "#/$defs/Severity"
+ *     },
+ *     "shrink_path": {
+ *       "title": "Shrink Path",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "target_id": {
+ *       "title": "Target Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type DivergenceDetail_Serialize = {
+	ai_narrative?: string | null,
 	args_literal: string,
 	base_summary: string,
 	detail: string,

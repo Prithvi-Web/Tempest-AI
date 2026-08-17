@@ -771,3 +771,32 @@ churn EQUIVALENT with zero false divergences, unexported/impure honest UNPROVEN)
 **Consequences.** Tempest is bilingual on the wave-1 surface: exported module-level
 typed functions (sync or async) in `.ts`. Wave 2, stated: JS record/replay cassettes,
 methods/constructor synthesis, ddmin for JS inputs, node in the T1 image, `.tsx`.
+
+## ADR-0029 — The continuous agent: watch mode + AI narratives (2026-08-17)
+
+**Context.** HANDOFF-WORLD-CLASS 2.4, the last feature-sized roadmap item: prove commits
+as they happen, and make the evidence readable in plain English — the owner's own bar.
+
+**Decision.**
+1. **`tempest watch`** (`cli/watch.py`): poll HEAD; every NEW commit is proven
+   incrementally (prev → new) — per-commit verdicts, per-commit bundles. L11 end to end:
+   battery/thermal pause honored between polls, Ctrl-C exits cleanly through run_prove's
+   cancel discipline, one prove at a time. `--from`/`--once` make the loop deterministic
+   under test; the desktop live-feed leg belongs to the Part-3 UI pass, stated.
+2. **AI divergence narratives** (`report/narrative.py` + `DivergenceRecord.ai_narrative`,
+   bundle schema v3): after every verdict and repro is FINAL, each divergence may gain a
+   2-3 sentence plain-English explanation generated from the already-recorded evidence
+   (symbol, class, minimized input, both observations) by the user's own model (BYOK,
+   sharing ADR-0024's key + kill switch). Hard lines, each pinned: keyless → None with
+   zero egress; any API failure → None (readability never takes a run down); every
+   surface labels it "AI narrative"; the verdict NEVER depends on it.
+3. **Propagation with honesty intact**: nullable DB column (alembic 0005 + local-store
+   forward step), tri-boundary regen, CLI report + desktop panel render only when
+   present. Under sync source-strip the narrative is DROPPED WHOLE — a paraphrase of
+   observed values cannot be scrubbed span-by-span (L9); the planted-literal wire sweep
+   now covers it.
+
+**Consequences.** The keyed synthesis gate also proves narratives end-to-end against the
+local Messages peer (identical verdicts with and without them); keyless suites and
+byte-stability gates are untouched (None everywhere). Bundle readers tolerate pre-v3
+bundles; older engines refuse v3 per the schema discipline.

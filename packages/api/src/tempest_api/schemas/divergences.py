@@ -28,3 +28,6 @@ class DivergenceDetail(DivergenceSummary):
     base_summary: str
     head_summary: str
     repro_filename: str
+    # ADR-0029: generated FROM the evidence by the user's own model; always displayed
+    # under an explicit "AI narrative" label; None when keyless. Never verdict-bearing.
+    ai_narrative: str | None = None

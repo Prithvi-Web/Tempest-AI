@@ -143,6 +143,9 @@ class Divergence(Base):
     head_summary: Mapped[str] = mapped_column(Text)
     repro_filename: Mapped[str] = mapped_column(Text, nullable=False)
     repro_script: Mapped[str] = mapped_column(Text, nullable=False)
+    # ADR-0029: nullable BY DESIGN — a narrative is a readability layer over the evidence,
+    # never part of it; keyless runs store NULL and lose nothing verdict-bearing.
+    ai_narrative: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     target: Mapped[Target] = relationship(back_populates="divergences")
 

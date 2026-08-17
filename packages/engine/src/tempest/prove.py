@@ -53,6 +53,7 @@ from tempest.model import (
     TargetClassification,
     Verdict,
 )
+from tempest.report.narrative import narrate_divergence
 from tempest.targets.diff import FileDiff, changed_files
 from tempest.targets.symbols import (
     ClassifiedSymbol,
@@ -544,6 +545,14 @@ def _ts_proven_record(
                 base_summary=d.base_summary,
                 head_summary=d.head_summary,
                 repro_filename=filename,
+                ai_narrative=narrate_divergence(
+                    symbol=f"{module}.{symbol}",
+                    divergence_class=d.divergence_class.value,
+                    args_literal=d.args_json,
+                    kwargs_literal="{}",
+                    base_summary=d.base_summary,
+                    head_summary=d.head_summary,
+                ),
             )
         )
     return TargetRecord(
@@ -874,6 +883,15 @@ def _finished_record(
                 base_summary=d.base_summary,
                 head_summary=d.head_summary,
                 repro_filename=filename,
+                # Narration runs AFTER the verdict and evidence are final (ADR-0029).
+                ai_narrative=narrate_divergence(
+                    symbol=f"{module}.{sym.symbol}",
+                    divergence_class=d.divergence_class.value,
+                    args_literal=minimized.minimized_args or d.args_literal,
+                    kwargs_literal=minimized.minimized_kwargs or d.kwargs_literal,
+                    base_summary=d.base_summary,
+                    head_summary=d.head_summary,
+                ),
             )
         )
     return TargetRecord(

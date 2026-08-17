@@ -101,7 +101,8 @@ def render_report(bundle: RunBundle, console: Console) -> None:
                     f"kwargs {d.minimized_kwargs}\n"
                     f"  base: {d.base_summary}\n"
                     f"  head: {d.head_summary}\n"
-                    f"repro: repros/{d.repro_filename}",
+                    f"repro: repros/{d.repro_filename}"
+                    + (f"\n[dim]AI narrative:[/dim] {d.ai_narrative}" if d.ai_narrative else ""),
                     title=f"{t.module}.{t.qualname}",
                     border_style="red",
                 )

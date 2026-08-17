@@ -177,13 +177,12 @@ proof the shims work). Landing it exposed and fixed a real classifier hole (`fet
 never IO — masked by the old async arm). Wave 2, stated in the ADR: JS cassettes,
 methods, ddmin, node in the T1 image, `.tsx`.
 
-### 2.4 Continuous agent behavior
-- **Watch mode:** `tempest watch` — prove every new commit on the current branch
-  automatically; desktop shows a live feed. The GitHub Action (`action/`) already covers CI.
-- **Divergence narratives:** with a key configured, generate a plain-English explanation of
-  each divergence FROM the evidence (inputs, values, traces) — labeled "AI narrative",
-  verdict untouched. This is the feature that makes evidence readable by the owner's own
-  standard (plain English) and by any non-expert user.
+### 2.4 Continuous agent behavior — **DONE 2026-08-17 (ADR-0029)**
+~~Watch mode + divergence narratives~~ — both live: `tempest watch` proves every new
+commit incrementally (L11-clean, per-commit bundles; desktop live-feed leg → Part 3), and
+every divergence may carry a plain-English "AI narrative" generated FROM the evidence by
+the user's own key (bundle schema v3, tri-boundary, CLI + app surfaces, dropped whole
+under sync source-strip). Verdicts never depend on narration; keyless runs unchanged.
 
 ### 2.5 Engine depth (ongoing, test-first) — **CAPABILITY WAVE 1 DONE 2026-08-16 (ADR-0026)**
 ~~Async targets; classmethod/staticmethod; simple dataclass constructor auto-synthesis WITHOUT

@@ -22,6 +22,9 @@ _FIXTURE_SCRIPT = (
 PLANTED_KEY = "sk-ant-api03-PLANTED-FAKE-TEMPEST-KEYFIXTURE-AAAABBBBCCCC"
 
 ADAPTERS = {
+    # Narrative requests carry "Divergence class:" — routed BEFORE the class-name keys
+    # (which also appear in narrative prompts). ADR-0029 rides the same fake peer.
+    "Divergence class:": "The rounding was removed, so prices keep their full precision.",
     "Discounter": (
         "```python\nfrom c01 import Discounter\n\n\n"
         "def adapter(price: float) -> float:\n"
@@ -97,6 +100,15 @@ class TestSynthesisProofRate:
 
         for t in targets.values():
             assert t.classification is TargetClassification.SYNTHESIZED
+
+        # ADR-0029: with a key, every divergence carries the labeled narrative — and it
+        # is generated FROM evidence, after verdicts (the verdict set is identical to the
+        # keyless expectations above).
+        for module in ("c01", "c02"):
+            for d in targets[module].divergences:
+                assert d.ai_narrative == (
+                    "The rounding was removed, so prices keep their full precision."
+                )
 
         # Divergences carry evidence, and the repro rides the adapter inside it (L7).
         divergent = targets["c01"].divergences[0]

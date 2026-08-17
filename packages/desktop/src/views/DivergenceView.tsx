@@ -85,6 +85,13 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
         </div>
       </div>
 
+      {d.ai_narrative && (
+        <div className="panel">
+          <span className="dim">AI narrative — the model's reading of the evidence above</span>
+          <p style={{ marginBottom: 0 }}>{d.ai_narrative}</p>
+        </div>
+      )}
+
       <div className="statusline">
         <h2 style={{ flex: 1 }}>Reproduction script · {d.repro_filename}</h2>
         {repro.data && <CopyButton text={repro.data} />}
