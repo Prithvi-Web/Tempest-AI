@@ -198,9 +198,11 @@ class SeatbeltSandbox:
         if binary is None:  # available() is checked before selection; belt-and-braces
             raise RuntimeError("sandbox-exec vanished between selection and launch")
         interpreter = Path(cmd[0])
-        profile = seatbelt_profile(
-            repo=cwd, scratch=scratch, read_roots=self._read_roots(interpreter)
-        )
+        read_roots = self._read_roots(interpreter)
+        deps = cwd / ".tempest-deps"  # attach_deps' symlink resolves OUTSIDE the repo carve
+        if deps.is_dir():
+            read_roots = (*read_roots, deps.resolve())
+        profile = seatbelt_profile(repo=cwd, scratch=scratch, read_roots=read_roots)
         profile_path = scratch / "tempest.sb"
         profile_path.write_text(profile, encoding="utf-8")
         wrapped = [binary, "-f", str(profile_path), *cmd]
@@ -320,6 +322,11 @@ class DockerSandbox:
             "/tmp:size=64m",
             "--volume",
             f"{workdir}:/repo:ro",
+            *(
+                ["--volume", f"{(workdir / '.tempest-deps').resolve()}:/repo/.tempest-deps:ro"]
+                if (workdir / ".tempest-deps").is_dir()
+                else []
+            ),
             "--volume",
             f"{scratch}:/scratch",
             "--workdir",

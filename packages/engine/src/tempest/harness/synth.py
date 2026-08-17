@@ -10,6 +10,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from tempest.envrepro.deps import deps_note
 from tempest.execute.runner import (
     TargetIntrospection,
     introspect_target,
@@ -68,6 +69,7 @@ def synthesize(
             detail=(
                 f"could not introspect `{module}.{qualname}` — the module failed to import or "
                 "the symbol does not exist in this revision"
+                + (f" (dependencies: {note})" if (note := deps_note(root)) else "")
             ),
             attempts=1,
         )

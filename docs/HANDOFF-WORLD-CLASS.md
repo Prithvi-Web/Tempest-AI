@@ -189,8 +189,10 @@ is 99 PLAIN-class instance methods + 12 generators, so this corpus moves with a 
 with stage-2 env reproduction (the next engine lever). Still open here: parallel target
 proving (workers are per-target; the loop is serial today); Linux T2 bubblewrap backend (CI
 runners can actually run its escape-suite leg — turning trap-list PENDINGs into greens);
-**stage-2 env reproduction (install the target package + deps into the sandbox) — now the
-single biggest measured lever.**
+~~**stage-2 env reproduction — now the single biggest measured lever**~~ — **DONE
+2026-08-16 night (ADR-0027): 21% → 34%**; humanize 88%, slugify 71%; wheels-only,
+offline-first, worktrees self-describe; remaining corpus levers: the 112 key-gated
+instance methods, then comparison-layer work.**
 
 ### 2.6 Distribution polish (GitHub-only, ADR-0021)
 First release tag (`v0.2.0`) fires `release.yml` — watch its install-check job prove

@@ -684,3 +684,50 @@ corpus was re-measured on identical SHAs and both tables live in docs/METRICS.md
 delta is the honest value of this phase. The remaining big lever is stage-2 env
 reproduction (install the target package and deps into the sandbox), which the same
 measurement shows blocking humanize/slugify wholesale.
+
+## ADR-0027 — Stage-2 env reproduction: wheels only, offline first, self-described (2026-08-16)
+
+**Context.** The measured #1 lever (ADR-0025/0026): real repos fail wholesale on
+`importlib.metadata` lookups of the package under test (humanize's 24/24) and on
+uninstalled third-party imports (slugify, the 39 introspection failures). Naive fixes
+violate the laws: `pip install <repo>` executes build backends — arbitrary repo code
+OUTSIDE the sandbox (breaks L6's whole story); default network fetching breaks the
+keyless-offline promise (L8/L10).
+
+**Decision** (`envrepro/deps.py`):
+1. **Repo code never runs during materialization.** The target package's name, version,
+   and dependency list come from STATIC `pyproject.toml` parsing. A synthesized
+   `.dist-info` shim satisfies `importlib.metadata` while the code itself keeps importing
+   from the worktree — the package is never built. A dynamic version gets the
+   self-evidently synthetic `0.0.0+tempest-unresolved`.
+2. **Wheels only.** Third-party deps install via `uv pip install --target … --only-binary
+   :all:` into a fingerprint-keyed cache dir. A wheel unpack runs no hooks, no backends,
+   no scripts. Sdist-only deps fail honestly with the reason.
+3. **Offline first.** The default install runs `--offline` against uv's cache. Fetching is
+   an explicit opt-in (`--fetch-deps` / `TEMPEST_FETCH_DEPS=1`) — one fetch, then every
+   run is offline again (the ADR-0024 once-then-offline shape). Keyless egress stays zero
+   by default; the sandboxed runner NEVER fetches (the egress gate's surface is untouched).
+4. **Worktrees self-describe** (the ADR-0025 pattern): `attach_deps` leaves a
+   `.tempest-deps` symlink (workers and future repros find the site dir by convention)
+   and a `.tempest-deps-note` with the exact remediation when materialization is
+   incomplete; the introspection-failure UNPROVEN appends the note verbatim — the error
+   message is the product.
+
+**Amended same night — what the measurement falsified and taught:** the first re-measure
+moved NOTHING, because both hypotheses were wrong: humanize fails on a build-time-generated
+`_version.py` (hatch-vcs), not a metadata lookup — fixed with a worktree version-file shim
+whose version comes from `git describe` (the same source vcs build tools read); slugify has
+no pyproject at all — fixed with AST-only setup.py parsing including module-level constant
+folding (name may stay honestly unresolvable; deps still install). And the deps symlink
+resolves OUTSIDE the Seatbelt repo carve — T2 denied every wheel until the profile gained
+the resolved site dir as a read root (Docker T1 gets the equivalent read-only mount). The
+gate now includes a REAL T2 leg (a user repo through the honest tier ladder), because
+ProcessSandbox-only integration is structurally blind to profile bugs.
+
+**Consequences.** The env-reproduction gate proves both killers end-to-end, hermetically
+(a hand-built local wheel + UV_NO_INDEX/UV_FIND_LINKS — zero PyPI in the suite): the
+humanize pattern DIVERGENT keyless+offline; missing wheels UNPROVEN with the fix named;
+reachable wheels flip the same repo to DIVERGENT. The real-world corpus re-measurement
+with fetch enabled is recorded in docs/METRICS.md. Out of scope, stated: sdist-only
+dependencies, per-repo interpreter resolution, and dev-dependency scripts (noxfile/docs
+conf import failures remain honest UNPROVEN — they are not [project] dependencies).

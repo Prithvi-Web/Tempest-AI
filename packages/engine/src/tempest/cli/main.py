@@ -54,6 +54,12 @@ def prove(
         "[compare].float_rel_tol in tempest.toml)",
     ),
     out: Path | None = typer.Option(None, help="Bundle output directory"),
+    fetch_deps: bool = typer.Option(
+        False,
+        "--fetch-deps",
+        help="Allow downloading dependency WHEELS once (never builds, never runs repo "
+        "code); the cache makes every later run offline again",
+    ),
 ) -> None:
     """Execute base and head side by side and report where behavior diverges — with evidence."""
     from tempest.cli.report import render_report
@@ -96,6 +102,7 @@ def prove(
                 float_rel_tol=file_cfg.effective_float_rel_tol(float_tolerance),
                 out=out,
                 ignore_globs=file_cfg.ignore_globs,
+                fetch_deps=fetch_deps,
                 cancel=scope,
             )
         )

@@ -50,6 +50,40 @@ keyless: staticmethod, classmethod, typed dataclass via TYPE_SYNTHESIZED, async)
 THIS corpus's number moves only with a configured key (99 targets) and stage-2 env
 reproduction (39 + humanize/slugify wholesale). Stated plainly instead of flattered.
 
+**Re-measured 2026-08-16 night after stage-2 env reproduction (ADR-0027) — 21% → 34%,
+the first real movement of the corpus number:**
+
+| Repo | Base → Head | Tier | Targets | DIVERGENT | EQUIVALENT | UNPROVEN | ERROR | Proof rate |
+|---|---|---|---|---|---|---|---|---|
+| packaging | 26.2 `84a87ee42483` → 26.3 `929fd4b1410a` | T2 | 153 | 5 | 33 | 115 | 0 | 38/153 (25%) |
+| semver | 3.0.0 `3a7680dc4362` → 3.0.4 `6adf8765f6e2` | T2 | 10 | 0 | 4 | 6 | 0 | 4/10 (40%) |
+| humanize | 4.15.0 `2ddb5903cdc1` → 4.16.0 `3c577d765050` | T2 | 24 | 6 | 15 | 3 | 0 | 21/24 (88%) |
+| more-itertools | v11.0.2 `247e15b3a489` → v11.1.0 `64be96ceb2a6` | T2 | 4 | 0 | 0 | 4 | 0 | 0/4 (0%) |
+| python-slugify | v8.0.1 `58031becacdc` → v8.0.4 `f85f94885201` | T2 | 7 | 1 | 4 | 2 | 0 | 5/7 (71%) |
+| **overall** |  |  | **198** | **12** | **56** | **130** | **0** | **68/198 (34%)** |
+
+UNPROVEN reason distribution (the engine roadmap, as evidence):
+
+| reason_code | count | example target | example detail |
+|---|---|---|---|
+| TARGET_UNREACHABLE | 112 | `benchmarks.specifiers.TimeSpecSuite._make_cold` | `TimeSpecSuite._make_cold` is an instance method — invoking it requires constructing `TimeSpecSuite( |
+| HARNESS_SYNTHESIS_FAILED | 12 | `noxfile.tests` | could not introspect `noxfile.tests` — the module failed to import or the symbol does not exist in t |
+| VALUE_UNSERIALIZABLE | 4 | `packaging.tags.platform_tags` | 0 of 1 inputs produced a comparable observation (1 unserializable) — e.g. base observation unreprese |
+| NONDETERMINISTIC_BASE | 2 | `docs.conf.find_version` | base replay does not reproduce its own recording on input ('',) — determinism could not be reached ( |
+
+humanize 0/24 → **21/24 (88%)** (the generated `_version.py` shim; 6 real divergences in a
+real release pair) and python-slugify 0/7 → **5/7 (71%)** (setup.py AST metadata +
+text-unidecode as a wheel + the T2 read-carve for the deps dir; 1 real divergence). The
+residual 12 import failures are dev scripts (noxfile, docs conf) whose imports are not
+`[project]` dependencies — out of scope, stated. The dominant remaining lever is unchanged
+and key-gated: 112 plain-class instance methods (ADR-0024's rung, awaiting a configured
+key). Measurement discipline note: the FIRST re-measure of this phase moved nothing —
+because the fixes were hypotheses about humanize/slugify's failure modes that the bundles
+then falsified (their real modes: a build-time-generated `_version.py`, a setup.py-only
+repo, and a Seatbelt carve that denied the deps symlink target). Every fix landed only
+after reproducing the exact import failure by hand. Verdicts over vibes, applied to
+ourselves.
+
 **Reading it honestly:** the 21% overall is the KEYLESS number on repos as-is (benchmarks,
 noxfiles and docs scripts included — nothing was excluded to flatter the rate). The
 distribution is the roadmap: the 112 instance-method targets are precisely what AI

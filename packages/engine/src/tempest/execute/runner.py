@@ -95,6 +95,9 @@ def _sys_path_for(root: Path) -> list[str]:
         candidate = root / source_root
         if candidate.is_dir():
             entries.append(str(candidate))
+    deps = root / ".tempest-deps"  # attach_deps' symlink — stage-2 materialized wheels/shim
+    if deps.is_dir():
+        entries.append(str(deps))
     return entries
 
 

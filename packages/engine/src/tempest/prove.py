@@ -17,6 +17,7 @@ from tempest.bundle.bundle import (
 )
 from tempest.compare.compare import CompareConfig, Diverged, compare
 from tempest.config import TempestConfig, is_ignored
+from tempest.envrepro.deps import attach_deps, fetch_enabled
 from tempest.envrepro.worktree import MaterializedEnv, materialize
 from tempest.execute.cancel import CancelScope, cancel_scope
 from tempest.execute.dual import (
@@ -73,6 +74,9 @@ class ProveConfig:
     # honor the same repo config; a caller passing a tuple (the CLI) overrides the file.
     ignore_globs: tuple[str, ...] | None = None
     source_roots: tuple[str, ...] | None = None
+    # Stage-2 dependency fetching (ADR-0027): False = offline-only (the default; cached
+    # wheels still install). The TEMPEST_FETCH_DEPS env var also enables it.
+    fetch_deps: bool = False
     # L11: the scope a caller cancels from another thread (children die instantly, the prove
     # unwinds with ProveCancelled), and where battery/thermal pause reports its reason.
     cancel: CancelScope | None = None
@@ -160,6 +164,11 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
     cache = repo / ".tempest" / "cache"
     base_env = materialize(repo, cfg.base, cache)
     head_env = materialize(repo, cfg.head, cache)
+    # Stage 2 (ADR-0027): declared deps as wheels + metadata shim, offline-first; each
+    # worktree self-describes via its .tempest-deps symlink and remediation note.
+    fetch = cfg.fetch_deps or fetch_enabled()
+    for env in (base_env, head_env):
+        attach_deps(env.worktree, cache, fetch=fetch)
     diffs = changed_files(repo, cfg.base, cfg.head, patterns=("*.py", "*.ts", "*.tsx"))
     selection = _select_sandbox(repo)
     sandbox = selection.sandbox
