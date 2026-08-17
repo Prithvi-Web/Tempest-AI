@@ -29,6 +29,11 @@ from tempest.execute.dual import (
 from tempest.execute.powerstate import wait_while_paused
 from tempest.execute.runner import PersistentWorker
 from tempest.execute.sandbox import ProcessSandbox, Sandbox, SandboxSelection, select_sandbox
+from tempest.execute.ts_dual import (
+    TsExecUnavailableError,
+    prove_ts_target,
+    render_ts_repro_script,
+)
 from tempest.generate.inputs import Budget
 from tempest.generate.mining import mine_literals
 from tempest.harness.llm import (
@@ -55,6 +60,13 @@ from tempest.targets.symbols import (
     all_symbol_names,
     classify_symbol,
     enclosing_symbols,
+)
+from tempest.targets.ts_sidecar import (
+    TsChangedFile,
+    TsSidecarRpcError,
+    TsSidecarUnavailableError,
+    select_ts_targets,
+    ts_value_pools,
 )
 
 _FIRST_PARTY_MARKER = "tempest-first-party-fixture-v1"
@@ -178,6 +190,7 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
 
     records: list[TargetRecord] = []
     repro_scripts: dict[str, str] = {}
+    ts_diffs: list[FileDiff] = []
 
     for fd in diffs:
         if is_ignored(fd.path, ignore_globs):
@@ -188,9 +201,7 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
             # Deleted files likewise have no head side to execute.
             continue
         if fd.path.endswith((".ts", ".tsx")):
-            # §14.1: TypeScript execution (record/replay + coverage) is not wired yet — the
-            # change is surfaced as UNPROVEN, never silently out of scope.
-            records.append(_ts_unexercised_record(fd, source_roots))
+            ts_diffs.append(fd)  # handled as one sidecar batch after the Python loop
             continue
         head_src = (head_env.worktree / fd.path).read_text(encoding="utf-8")
         base_symbols = all_symbol_names((base_env.worktree / fd.path).read_text(encoding="utf-8"))
@@ -281,6 +292,21 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
                 )
             )
 
+    if ts_diffs:
+        _checkpoint(cfg)
+        records.extend(
+            _ts_records(
+                ts_diffs,
+                base_env,
+                head_env,
+                sandbox,
+                selection.kind,
+                source_roots,
+                cfg,
+                repro_scripts,
+            )
+        )
+
     targets = tuple(records)
     manifest = RunManifest(
         schema_version=BUNDLE_SCHEMA_VERSION,
@@ -312,6 +338,272 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
     )
 
 
+_TS_RUNNABLE_KINDS = ("function", "arrowConst", "functionExpressionConst")
+
+
+def _ts_records(
+    ts_diffs: "list[FileDiff]",
+    base_env: MaterializedEnv,
+    head_env: MaterializedEnv,
+    sandbox: Sandbox | None,
+    sandbox_kind: str,
+    source_roots: tuple[str, ...],
+    cfg: ProveConfig,
+    repro_scripts: dict[str, str],
+) -> list[TargetRecord]:
+    """Wave-1 TypeScript proving (ADR-0028): per-symbol selection via the analysis sidecar,
+    execution for exported module-level functions, and stated UNPROVEN for every shape the
+    wave does not cover — never a silent skip."""
+    records: list[TargetRecord] = []
+    runnable = [fd for fd in ts_diffs if fd.path.endswith(".ts") and not fd.path.endswith(".d.ts")]
+    for fd in ts_diffs:
+        if fd not in runnable:
+            records.append(_ts_unexercised_record(fd, source_roots))  # .tsx / .d.ts
+    if not runnable:
+        return records
+    try:
+        targets = select_ts_targets(
+            head_env.worktree,
+            [
+                TsChangedFile(path=fd.path, changed_lines=tuple(sorted(fd.changed_head_lines)))
+                for fd in runnable
+            ],
+        )
+    except (TsSidecarUnavailableError, TsSidecarRpcError) as err:
+        for fd in runnable:
+            records.append(
+                _ts_file_unproven(
+                    fd,
+                    source_roots,
+                    ReasonCode.HARNESS_SYNTHESIS_FAILED,
+                    f"the TypeScript analysis sidecar is unavailable: {err}",
+                )
+            )
+        return records
+
+    by_path: dict[str, FileDiff] = {fd.path: fd for fd in runnable}
+    for target in targets:
+        rel_path = str(target.get("filePath"))
+        symbol = str(target.get("symbol"))
+        target_fd = by_path.get(rel_path)
+        if target_fd is None:
+            continue  # a symbol outside the changed files cannot happen; defensive skip
+        fd = target_fd
+        module = _module_name(rel_path, source_roots)
+        classification_raw = str(target.get("classification"))
+        reason_detail = target.get("reasonDetail")
+        span_raw = target.get("span")
+        span = (
+            (int(span_raw[0]), int(span_raw[1]))
+            if isinstance(span_raw, list) and len(span_raw) == 2
+            else (1, 10**9)
+        )
+        if classification_raw == "UNREACHABLE":
+            records.append(
+                _ts_symbol_record(
+                    fd,
+                    module,
+                    symbol,
+                    TargetClassification.UNREACHABLE,
+                    ReasonCode.TARGET_UNREACHABLE,
+                    str(reason_detail or "unreachable"),
+                )
+            )
+            continue
+        if classification_raw == "IMPURE_RECORDABLE":
+            records.append(
+                _ts_symbol_record(
+                    fd,
+                    module,
+                    symbol,
+                    TargetClassification.IMPURE_RECORDABLE,
+                    ReasonCode.RECORD_REPLAY_UNAVAILABLE,
+                    f"`{symbol}` touches IO; JS record/replay (cassettes) is wave 2 — "
+                    "this change was NOT exercised and is not being blessed",
+                )
+            )
+            continue
+        if str(target.get("kind")) not in _TS_RUNNABLE_KINDS:
+            records.append(
+                _ts_symbol_record(
+                    fd,
+                    module,
+                    symbol,
+                    TargetClassification.UNREACHABLE,
+                    ReasonCode.TARGET_UNREACHABLE,
+                    f"`{symbol}` is a {target.get('kind')}; wave 1 invokes exported "
+                    "module-level functions only (methods need constructor synthesis)",
+                )
+            )
+            continue
+        if sandbox is None:
+            records.append(
+                _ts_symbol_record(
+                    fd,
+                    module,
+                    symbol,
+                    TargetClassification.PURE_CANDIDATE,
+                    ReasonCode.SANDBOX_UNAVAILABLE,
+                    "no sandbox tier is available on this machine (L6: never unsandboxed)",
+                )
+            )
+            continue
+        if sandbox_kind == "docker":
+            records.append(
+                _ts_symbol_record(
+                    fd,
+                    module,
+                    symbol,
+                    TargetClassification.PURE_CANDIDATE,
+                    ReasonCode.SANDBOX_UNAVAILABLE,
+                    "the T1 container image does not carry node yet (wave 2) — this "
+                    "change was NOT exercised and is not being blessed",
+                )
+            )
+            continue
+        records.append(
+            _ts_proven_record(
+                fd,
+                module,
+                symbol,
+                span,
+                base_env,
+                head_env,
+                sandbox,
+                cfg,
+                repro_scripts,
+            )
+        )
+    return records
+
+
+def _ts_proven_record(
+    fd: FileDiff,
+    module: str,
+    symbol: str,
+    span: tuple[int, int],
+    base_env: MaterializedEnv,
+    head_env: MaterializedEnv,
+    sandbox: Sandbox,
+    cfg: ProveConfig,
+    repro_scripts: dict[str, str],
+) -> TargetRecord:
+    try:
+        pools_result = ts_value_pools(head_env.worktree, fd.path, symbol)
+        raw_params = pools_result.get("parameters")
+        param_pools = (
+            [p for p in raw_params if isinstance(p, dict)] if isinstance(raw_params, list) else []
+        )
+        changed_in_span = frozenset(
+            line for line in fd.changed_head_lines if span[0] <= line <= span[1]
+        )
+        outcome = prove_ts_target(
+            base_env.worktree,
+            head_env.worktree,
+            rel_path=fd.path,
+            export_name=symbol,
+            param_pools=param_pools,
+            changed_lines=changed_in_span,
+            sandbox=sandbox,
+            budget=Budget(max_inputs=min(cfg.max_inputs, 40), seed=cfg.seed),
+        )
+    except (TsSidecarUnavailableError, TsSidecarRpcError, TsExecUnavailableError) as err:
+        return _ts_symbol_record(
+            fd,
+            module,
+            symbol,
+            TargetClassification.PURE_CANDIDATE,
+            ReasonCode.HARNESS_SYNTHESIS_FAILED,
+            f"TypeScript execution unavailable for `{symbol}`: {err}",
+        )
+    divergence_records: list[DivergenceRecord] = []
+    for i, d in enumerate(outcome.divergences):
+        safe = f"{module}.{symbol}".replace(".", "_").replace("/", "_")
+        filename = f"{safe}_{i}.mjs"
+        repro_scripts[filename] = render_ts_repro_script(
+            symbol=f"{module}.{symbol}",
+            rel_path=fd.path,
+            export_name=symbol,
+            args_json=d.args_json,
+            base_sha=base_env.revision,
+            head_sha=head_env.revision,
+            base_summary=d.base_summary,
+            head_summary=d.head_summary,
+        )
+        divergence_records.append(
+            DivergenceRecord(
+                divergence_class=d.divergence_class,
+                severity=d.severity,
+                detail=d.detail,
+                args_literal=d.args_json,
+                kwargs_literal="{}",
+                # Wave 1 defers ddmin for JS: the found input IS the reported input, stated.
+                minimized_args=d.args_json,
+                minimized_kwargs="{}",
+                shrink_path=(),
+                base_summary=d.base_summary,
+                head_summary=d.head_summary,
+                repro_filename=filename,
+            )
+        )
+    return TargetRecord(
+        file_path=fd.path,
+        module=module,
+        qualname=symbol,
+        lang=Lang.TYPESCRIPT,
+        classification=TargetClassification.PURE_CANDIDATE,
+        verdict=outcome.verdict,
+        reason_code=outcome.reason_code,
+        reason_detail=outcome.reason_detail,
+        inputs_run=outcome.inputs_run,
+        equivalent_inputs=outcome.equivalent_inputs,
+        unprovable_inputs=outcome.unprovable_inputs,
+        changed_line_coverage=outcome.changed_line_coverage,
+        divergences=tuple(divergence_records),
+    )
+
+
+def _ts_symbol_record(
+    fd: FileDiff,
+    module: str,
+    symbol: str,
+    classification: TargetClassification,
+    reason_code: ReasonCode,
+    reason_detail: str,
+) -> TargetRecord:
+    return TargetRecord(
+        file_path=fd.path,
+        module=module,
+        qualname=symbol,
+        lang=Lang.TYPESCRIPT,
+        classification=classification,
+        verdict=Verdict.UNPROVEN,
+        reason_code=reason_code,
+        reason_detail=reason_detail,
+        inputs_run=0,
+        equivalent_inputs=0,
+        unprovable_inputs=0,
+        changed_line_coverage=0.0,
+        divergences=(),
+    )
+
+
+def _ts_file_unproven(
+    fd: FileDiff,
+    source_roots: tuple[str, ...],
+    reason_code: ReasonCode,
+    reason_detail: str,
+) -> TargetRecord:
+    return _ts_symbol_record(
+        fd,
+        _module_name(fd.path, source_roots),
+        "__file__",
+        TargetClassification.UNREACHABLE,
+        reason_code,
+        reason_detail,
+    )
+
+
 def _ts_unexercised_record(fd: FileDiff, source_roots: tuple[str, ...] = ()) -> TargetRecord:
     return TargetRecord(
         file_path=fd.path,
@@ -322,8 +614,8 @@ def _ts_unexercised_record(fd: FileDiff, source_roots: tuple[str, ...] = ()) -> 
         verdict=Verdict.UNPROVEN,
         reason_code=ReasonCode.RECORD_REPLAY_UNAVAILABLE,
         reason_detail=(
-            f"`{fd.path}` changed but TypeScript execution (record/replay + coverage) is not "
-            "wired yet (Phase 3, in progress) — this change was NOT exercised and is not "
+            f"`{fd.path}` uses non-erasable syntax (JSX / declaration files) that node's "
+            "type stripping cannot run (wave 2) — this change was NOT exercised and is not "
             "being blessed"
         ),
         inputs_run=0,

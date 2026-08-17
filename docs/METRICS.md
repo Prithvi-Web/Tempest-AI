@@ -13,6 +13,7 @@
 |---|---|---|
 | pyfix fixture (12 seeded behavior changes + 12 no-op refactors; pure + impure-recordable) | **24/24 targets proven = 100%** | `TEMPEST_DEV=1 tempest prove --base base --head head --repo <pyfix> --max-inputs 40 --seed 0` |
 | pyfix instance-method fixtures (c01–c03; AI constructor synthesis, ADR-0024) | **0/3 keyless (honest UNPROVEN + remediation) → 3/3 exercised with a key** — seeded changes DIVERGENT, no-op clean, offline cache rerun identical. Machinery-measured against a local Messages-API peer; the real-model number awaits an owner key (2.2) | `pytest packages/engine/tests/integration/test_llm_synthesis_pyfix.py` |
+| tsfix fixture (TypeScript, wave 1 — 4 seeded changes incl. async, 1 no-op refactor, 1 shim-dependent no-op; ADR-0028) | **6/6 executable targets correct: 4 DIVERGENT + 2 EQUIVALENT, zero false divergences; unexported + fetch-touching honestly UNPROVEN** | `pytest packages/engine/tests/integration/test_prove_tsfix.py` |
 | 30-function impure corpus (HTTP / fs / time-random) — record/replay stability, the proof-rate precondition for impure code | **30/30 stable ×20 consecutive replays** | `python -m tempest.dev.corpus_check --min-pass 24 --repeats 20` |
 
 ### The first real-world measurement (2026-08-16, HANDOFF-WORLD-CLASS 2.2, ADR-0025)

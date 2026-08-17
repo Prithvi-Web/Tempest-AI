@@ -188,7 +188,10 @@ def test_stdio_sidecar_end_to_end(tmp_path: Path) -> None:
         assert isinstance(targets, list)
         by_path = {t["file_path"]: t for t in targets}
         assert by_path["core.py"]["reason_code"] == "SANDBOX_UNAVAILABLE"
-        assert by_path["app.ts"]["reason_code"] == "RECORD_REPLAY_UNAVAILABLE"  # never skipped
+        # ADR-0028: a pure TS target is EXECUTABLE now, so on the no-tier path its
+        # honest blocker is the missing sandbox — same answer as the Python target,
+        # and still never skipped.
+        assert by_path["app.ts"]["reason_code"] == "SANDBOX_UNAVAILABLE"
 
         events = rpc.result("listRunEvents", {"run_id": run_id})
         assert isinstance(events, list) and len(events) >= 2  # started + terminal

@@ -82,7 +82,15 @@ export interface CollectedSymbol {
 
 /** IO surfaces whose mere reference makes a symbol IMPURE_RECORDABLE (TS mirror of io_surface.py). */
 const IO_MODULES: ReadonlySet<string> = new Set(["fs", "http", "https", "net", "child_process"]);
-const IO_GLOBALS: ReadonlySet<string> = new Set(["setTimeout"]);
+// Ambient globals that ARE IO: network surfaces and timers. Exposed by ADR-0028's async
+// unlock — before it, async functions (where fetch lives) never reached this scan.
+const IO_GLOBALS: ReadonlySet<string> = new Set([
+  "setTimeout",
+  "setInterval",
+  "fetch",
+  "XMLHttpRequest",
+  "WebSocket",
+]);
 const CRYPTO_RANDOM = /^(random|getRandomValues)/;
 const CALLEE_SCAN_DEPTH = 2;
 
@@ -201,12 +209,6 @@ function classifySymbol(
     return unreachable(
       `\`${s.symbol}\` is a closure — it only exists inside its enclosing function and cannot ` +
         "be imported or invoked in isolation.",
-    );
-  }
-  if (s.isAsync) {
-    return unreachable(
-      `\`${s.symbol}\` is an async function; v1 invokes synchronous callables only. ` +
-        "Wrap the logic in a sync function to make it provable.",
     );
   }
   if (s.isGenerator) {
@@ -401,15 +403,11 @@ function referencesIoSurface(node: Node, context: ScanContext): boolean {
     const objectName = expression.getText();
     const root = context.aliases.get(objectName)?.root ?? objectName;
     const property = node.getName();
-    return (
-      (root === "process" && property === "env") ||
-      (objectName === "Date" && property === "now") ||
-      (objectName === "Math" && property === "random") ||
-      (root === "crypto" && CRYPTO_RANDOM.test(property))
-    );
-  }
-  if (Node.isNewExpression(node)) {
-    return node.getExpression().getText() === "Date";
+    // Date.now / Math.random / crypto randomness are NOT listed here: the execution
+    // worker's determinism shims (ts_shims.mjs) pin them to a seeded sequence, making
+    // them ambient-deterministic rather than IO (ADR-0028) — the tsfix stampTag fixture
+    // proves EQUIVALENT on a no-op precisely because of those shims.
+    return root === "process" && property === "env";
   }
   if (Node.isCallExpression(node)) {
     const callee = node.getExpression();

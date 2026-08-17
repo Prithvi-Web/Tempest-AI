@@ -64,9 +64,12 @@ class TestSelectTsTargets:
             by_symbol["hidden"]["reasonDetail"]
         )
 
-        assert by_symbol["roll"]["classification"] == "IMPURE_RECORDABLE"
+        # ADR-0028: Math.random is pinned by the execution shims — ambient-deterministic,
+        # no longer IO. The classification followed the capability.
+        assert by_symbol["roll"]["classification"] == "PURE_CANDIDATE"
 
-        assert by_symbol["later"]["classification"] == "UNREACHABLE"
+        # ADR-0028: async functions are runnable (the worker awaits) — provable now.
+        assert by_symbol["later"]["classification"] == "PURE_CANDIDATE"
         assert by_symbol["later"]["isAsync"] is True
 
 

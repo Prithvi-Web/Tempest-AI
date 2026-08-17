@@ -731,3 +731,43 @@ reachable wheels flip the same repo to DIVERGENT. The real-world corpus re-measu
 with fetch enabled is recorded in docs/METRICS.md. Out of scope, stated: sdist-only
 dependencies, per-repo interpreter resolution, and dev-dependency scripts (noxfile/docs
 conf import failures remain honest UNPROVEN — they are not [project] dependencies).
+
+## ADR-0028 — TypeScript execution wave 1: bilingual, same laws (2026-08-16)
+
+**Context.** The analysis sidecar (target selection, classification, typed value pools)
+existed since Phase 3's first half; every changed `.ts` file still surfaced as one blanket
+`UNPROVEN(RECORD_REPLAY_UNAVAILABLE)`. The last keyless proof-rate lever.
+
+**Decision.** The execution half, scoped to what can be flawless in one wave:
+1. **`ts_worker.mjs`** — one node process per batch imports the target via native type
+   stripping (erasable syntax keeps offsets AND line numbers, which is what makes V8
+   coverage honest), invokes the export per input (awaiting promises), and emits canonical
+   observations: NaN/±Infinity/−0/undefined/bigint/Date/Map/Set tagged, object keys
+   sorted, functions/symbols/class instances honestly `unrepresentable`, throws recorded
+   as observations, per-input console output captured. Per-input executed lines come from
+   in-process V8 precise-coverage deltas with count-0 sub-range subtraction.
+2. **`ts_shims.mjs`** (preloaded `--import`) — L3's JS half: seeded Math.random, pinned
+   monotonic Date/performance.now, seeded crypto.getRandomValues/randomUUID. The
+   classifier followed the capability: Date/Math.random/global-crypto references are now
+   ambient-deterministic PURE, async functions are runnable (the worker awaits), while
+   IMPORTED node:crypto randomness binds the unpatched module and stays impure.
+3. **`ts_dual.py`** — verdicts through the SAME comparator as Python (`compare.compare`):
+   base runs twice first (self-disagreement → NONDETERMINISTIC_BASE, never compared),
+   candidate divergences reconfirm on fresh process pairs or are discarded, inputs draw
+   deterministically from the sidecar's typed pools, coverage is the executed-∩-changed
+   union. Minimization is wave 2 — repros embed the found input verbatim, stated.
+4. **`prove.py`** — per-symbol TS records replace the blanket: sidecar UNREACHABLE reasons
+   pass through verbatim (not-exported, generators, methods), IMPURE targets say "JS
+   record/replay is wave 2", `.tsx`/`.d.ts` say why type stripping cannot run them, T1
+   Docker says its image lacks node — every gap stated, nothing silent.
+
+**What the gate caught while landing this (the honesty dividend):** removing the sidecar's
+async→UNREACHABLE arm exposed that `fetch` was never in its IO-globals list — async IO
+functions would have EXECUTED and been blessed off their error paths. `fetch`,
+`XMLHttpRequest`, `WebSocket`, `setInterval` are now IO; the tsfix gate pins the whole
+contract (seeded changes DIVERGENT with self-contained `.mjs` repros, no-op + shim-dependent
+churn EQUIVALENT with zero false divergences, unexported/impure honest UNPROVEN).
+
+**Consequences.** Tempest is bilingual on the wave-1 surface: exported module-level
+typed functions (sync or async) in `.ts`. Wave 2, stated: JS record/replay cassettes,
+methods/constructor synthesis, ddmin for JS inputs, node in the T1 image, `.tsx`.

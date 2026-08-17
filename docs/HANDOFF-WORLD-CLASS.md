@@ -167,10 +167,15 @@ feature below. Original steps, for the record:
    the honest proof-rate table (UNPROVEN reasons distribution IS the engine roadmap).
 If real proof rate is below ~60%, ENGINE work outranks every feature below (failure-mode #7).
 
-### 2.3 TypeScript execution (the Phase 3 half)
-Changed `.ts` files currently surface `UNPROVEN(RECORD_REPLAY_UNAVAILABLE)`. The analysis
-sidecar exists; the execution half (node worker + shims + corpora) makes Tempest bilingual.
-Large; schedule after 2.1/2.2 prove their value.
+### 2.3 TypeScript execution (the Phase 3 half) — **WAVE 1 DONE 2026-08-16 (ADR-0028)**
+~~Changed `.ts` files currently surface `UNPROVEN(RECORD_REPLAY_UNAVAILABLE)`~~ — Tempest
+is bilingual on the wave-1 surface: exported module-level typed functions (sync AND async)
+execute under node with seeded JS determinism shims, V8 per-input line coverage, verdicts
+via the same comparator, fresh-pair divergence confirmation, and self-contained `.mjs`
+repros; the tsfix gate holds it (zero false divergences; the shim-dependent no-op is the
+proof the shims work). Landing it exposed and fixed a real classifier hole (`fetch` was
+never IO — masked by the old async arm). Wave 2, stated in the ADR: JS cassettes,
+methods, ddmin, node in the T1 image, `.tsx`.
 
 ### 2.4 Continuous agent behavior
 - **Watch mode:** `tempest watch` — prove every new commit on the current branch

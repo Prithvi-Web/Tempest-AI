@@ -3,10 +3,12 @@ UNPROVEN records — never vanish from the run. A mixed .py/.ts PR whose TS half
 would be silent scope-narrowing, the worst failure mode of the product."""
 
 import os
+import shutil
 from pathlib import Path
 
-from tempest.model import Lang, ReasonCode, TargetClassification, Verdict
+from tempest.model import Lang, Verdict
 from tempest.prove import ProveConfig, run_prove
+from tempest.targets.ts_sidecar import default_sidecar_dir
 
 from .test_targets_diff import commit_head, make_repo
 
@@ -36,9 +38,17 @@ def test_changed_ts_file_is_surfaced_unproven_never_silently_skipped(tmp_path: P
     assert "app.ts" in by_path, "changed TS file must appear in the run, not vanish"
     ts = by_path["app.ts"]
     assert ts.lang is Lang.TYPESCRIPT
-    assert ts.classification is TargetClassification.UNREACHABLE
-    assert ts.verdict is Verdict.UNPROVEN
-    assert ts.reason_code is ReasonCode.RECORD_REPLAY_UNAVAILABLE
-    assert ts.reason_detail is not None and "not" in ts.reason_detail.lower()
-    # The Python half of the PR is still proven normally alongside the honest TS record.
+    ts_runnable = (
+        shutil.which("node") is not None
+        and (default_sidecar_dir() / "node_modules" / "ts-morph").exists()
+    )
+    if ts_runnable:
+        # ADR-0028 (wave 1): the seeded arrow-const change is now genuinely PROVEN —
+        # §14.1's bar rose from "surfaced honestly" to "executed".
+        assert ts.verdict is Verdict.DIVERGENT, (ts.reason_code, ts.reason_detail)
+    else:
+        # Without node/sidecar the record still surfaces, UNPROVEN with the fix named.
+        assert ts.verdict is Verdict.UNPROVEN
+        assert ts.reason_detail
+    # The Python half of the PR is still proven normally alongside the TS record.
     assert by_path["core.py"].verdict is Verdict.DIVERGENT

@@ -124,7 +124,7 @@ describe("changed-line → symbol resolution", () => {
 });
 
 describe("classification rules", () => {
-  it("marks async, generator, instance members, and non-exported symbols UNREACHABLE with details", () => {
+  it("marks generator, instance members, and non-exported symbols UNREACHABLE with details", () => {
     const source = [
       "export async function fetchIt(u: string): Promise<string> {", // 1
       "  return u;", // 2
@@ -161,8 +161,8 @@ describe("classification rules", () => {
     });
     const map = bySymbol(targets);
 
-    expect(map.get("fetchIt")).toMatchObject({ isAsync: true, classification: "UNREACHABLE" });
-    expect(map.get("fetchIt")?.reasonDetail).toContain("async");
+    // ADR-0028: the execution worker awaits promises — async is runnable now.
+    expect(map.get("fetchIt")).toMatchObject({ isAsync: true, classification: "PURE_CANDIDATE" });
 
     expect(map.get("gen")).toMatchObject({ isGenerator: true, classification: "UNREACHABLE" });
     expect(map.get("gen")?.reasonDetail).toContain("generator");
@@ -219,6 +219,10 @@ describe("classification rules", () => {
       "export function useNewDate(): number { return new Date().getTime(); }",
       "export function useMathRandom(): number { return Math.random(); }",
       "export function useTimer(cb: () => void): void { setTimeout(cb, 10); }",
+      "export async function useFetch(u: string): Promise<number> {",
+      "  const r = await fetch(u);",
+      "  return r.status;",
+      "}",
       "export function pureMath(a: number, b: number): number { return a * b; }",
       "export function pureHash(s: string): unknown { return createHash(s); }",
       "export function wrapsFs(p: string): string { return useFs(p); }",
@@ -239,17 +243,20 @@ describe("classification rules", () => {
       "useProc",
       "useRequireProc",
       "useCryptoImport",
-      "useCryptoGlobal",
       "useEnv",
-      "useDateNow",
-      "useNewDate",
-      "useMathRandom",
       "useTimer",
+      "useFetch",
     ];
     for (const symbol of impure) {
       expect(map.get(symbol)?.classification, symbol).toBe("IMPURE_RECORDABLE");
     }
     expect(map.get("pureMath")?.classification).toBe("PURE_CANDIDATE");
+    // ADR-0028: Date.now / new Date / Math.random / global crypto randomness are pinned by
+    // the execution worker's determinism shims — ambient-deterministic, not IO. The IMPORTED
+    // node:crypto surface (useCryptoImport) binds the unpatched module and stays impure.
+    for (const symbol of ["useDateNow", "useNewDate", "useMathRandom", "useCryptoGlobal"]) {
+      expect(map.get(symbol)?.classification, symbol).toBe("PURE_CANDIDATE");
+    }
     // crypto is only impure through its random* surface
     expect(map.get("pureHash")?.classification).toBe("PURE_CANDIDATE");
     // same-module callee scan, depth 2 (mirrors the Python classifier)
