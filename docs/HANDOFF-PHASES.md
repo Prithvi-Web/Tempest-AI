@@ -13,6 +13,9 @@ exit 0 with the Phase 11 work in · 8-hour soak in flight (see §2).**
 
 ## 1. Read order for a new session
 
+0. **`docs/HANDOFF-NEXT.md` — START THERE. The current live state, the CI-fix context,
+   the frontend↔backend integration law, the remaining-work order, and the per-phase
+   loop. It supersedes every older "live state" section including this file's header.**
 1. `CLAUDE.md` — the contract (Laws L1–L14, §9b tri-boundary, §13 verify bar).
 2. `HANDOFF.md` — status-at-a-glance table + the standalone traps.
 3. This file — remaining phases + resume procedure.

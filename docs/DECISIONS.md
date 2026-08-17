@@ -772,6 +772,16 @@ churn EQUIVALENT with zero false divergences, unexported/impure honest UNPROVEN)
 typed functions (sync or async) in `.ts`. Wave 2, stated: JS record/replay cassettes,
 methods/constructor synthesis, ddmin for JS inputs, node in the T1 image, `.tsx`.
 
+**Amended 2026-08-17 (the first Linux CI run, trap 35):** V8 workers CANNOT run under
+`RLIMIT_AS` — Wasm (the type stripper) and V8's pointer cage RESERVE multi-GiB virtual
+ranges at import while resident use stays tiny; the 2 GiB address-space cap killed every
+TS prove on Linux ("Cannot allocate Wasm memory"), and macOS never enforces AS, so no
+local run or simulated-Linux view could reveal it (the trap-22 class: kernel behavior,
+not test selection). Fix: `sandbox.popen(..., v8=True)` selects `_set_child_limits_v8`
+(CPU/core/nproc limits, no AS) and the worker carries `--max-old-space-size=256` —
+JS memory containment is the V8 heap cap + CPU rlimit + batch wall budget + group kill,
+never the address space. The cap's delivery to the worker is pinned end-to-end.
+
 ## ADR-0029 — The continuous agent: watch mode + AI narratives (2026-08-17)
 
 **Context.** HANDOFF-WORLD-CLASS 2.4, the last feature-sized roadmap item: prove commits

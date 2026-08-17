@@ -288,3 +288,17 @@ class TestSummaryArms:
             outcome=InputOutcome.COMPLETED, return_present=True, return_canon=5, raised=None
         )
         assert _summary(ret) == "returned 5"
+
+
+class TestV8Containment:
+    def test_the_worker_carries_the_heap_cap_not_an_as_limit(self, tmp_path: Path) -> None:
+        """The Linux-CI lesson (trap 35): V8 cannot run under RLIMIT_AS — Wasm reserves
+        multi-GiB VIRTUAL ranges at import. Containment is the V8 heap cap; this proves the
+        cap genuinely reaches the worker process on every platform."""
+        _write(
+            tmp_path,
+            "opts.ts",
+            "export function opts(): string {\n  return process.env.NODE_OPTIONS ?? '';\n}\n",
+        )
+        (payload,) = _run_batch(tmp_path, "opts.ts", "opts", [[]], ProcessSandbox(), 0)
+        assert "--max-old-space-size=256" in str(payload["return_canon"])

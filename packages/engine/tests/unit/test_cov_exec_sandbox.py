@@ -49,6 +49,29 @@ class TestChildLimits:
         )
         assert proc.returncode == 0, proc.stderr
 
+    def test_v8_limits_keep_cpu_but_never_cap_the_address_space(self) -> None:
+        """Trap 35: the V8 variant must keep the CPU/core ceilings while leaving RLIMIT_AS
+        untouched — Wasm reserves multi-GiB virtual ranges and dies under any AS cap."""
+        code = (
+            "import resource\n"
+            "before = resource.getrlimit(resource.RLIMIT_AS)\n"
+            "from tempest.execute.sandbox import _set_child_limits_v8\n"
+            "_set_child_limits_v8()\n"
+            "assert resource.getrlimit(resource.RLIMIT_CPU) == (120, 120)\n"
+            "assert resource.getrlimit(resource.RLIMIT_CORE)[0] == 0\n"
+            "assert resource.getrlimit(resource.RLIMIT_AS) == before\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=REPO_ROOT,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert proc.returncode == 0, proc.stderr
+
 
 class TestSeatbeltDiscovery:
     def test_missing_configured_binary_falls_back_to_path_lookup(

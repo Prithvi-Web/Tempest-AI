@@ -151,7 +151,11 @@ def _run_batch_in(
     env = {
         "PATH": "/usr/bin:/bin",
         "TEMPEST_JS_SEED": str(seed),
-        "NODE_OPTIONS": "--disable-warning=ExperimentalWarning",
+        # --max-old-space-size IS the JS memory containment (with the CPU rlimit, the batch
+        # wall budget, and the group kill): V8 cannot run under RLIMIT_AS — Wasm and the
+        # pointer cage reserve multi-GiB VIRTUAL ranges up front (Linux-only failure; macOS
+        # never enforces AS, so only real Linux CI could reveal it).
+        "NODE_OPTIONS": "--disable-warning=ExperimentalWarning --max-old-space-size=256",
     }
     cmd = [
         _node_binary(),
@@ -161,7 +165,7 @@ def _run_batch_in(
         str(scratch / "ts_worker.mjs"),
         str(job_path),
     ]
-    proc = sandbox.popen(cmd, cwd=root, env=env, scratch=scratch, stdin_pipe=False)
+    proc = sandbox.popen(cmd, cwd=root, env=env, scratch=scratch, stdin_pipe=False, v8=True)
     timeout = _BOOT_TIMEOUT_S + _PER_INPUT_TIMEOUT_S * max(1, len(inputs))
     try:
         stdout, _ = proc.communicate(timeout=timeout)

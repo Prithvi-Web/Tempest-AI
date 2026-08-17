@@ -45,6 +45,7 @@ class Sandbox(Protocol):
         env: dict[str, str],
         scratch: Path,
         stdin_pipe: bool = False,
+        v8: bool = False,  # V8 workers: no RLIMIT_AS (see _set_child_limits_v8)
     ) -> subprocess.Popen[bytes]: ...
 
 
@@ -58,9 +59,26 @@ def _set_child_limits() -> None:
         # the runner). On macOS a fork bomb is bounded instead by the per-input wall timeout plus
         # the SIGKILL of the runner's whole process group — proven by tempest.dev.escape_suite.
         resource.setrlimit(resource.RLIMIT_AS, (1 << 31, 1 << 31))
-        _soft, hard = resource.getrlimit(resource.RLIMIT_NPROC)
-        target = 256 if hard == resource.RLIM_INFINITY else min(256, hard)
-        resource.setrlimit(resource.RLIMIT_NPROC, (target, hard))
+        _nproc_cap()
+
+
+def _set_child_limits_v8() -> None:
+    # V8 workers (the TS runner) CANNOT run under RLIMIT_AS: Wasm and the pointer-compression
+    # cage RESERVE multi-GiB virtual ranges up front (resident use stays tiny) — on Linux the
+    # 2 GiB cap kills the worker at import ("Cannot allocate Wasm memory"), while macOS never
+    # enforces AS, which is why only real Linux CI could reveal it (the trap-22 class).
+    # Containment for JS is the V8 heap cap (--max-old-space-size in NODE_OPTIONS), the CPU
+    # rlimit, the batch wall budget, and the process-group kill — never the address space.
+    resource.setrlimit(resource.RLIMIT_CPU, (120, 120))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    if sys.platform == "linux":  # pragma: no cover — Linux-only
+        _nproc_cap()
+
+
+def _nproc_cap() -> None:  # pragma: no cover — Linux-only (see callers)
+    _soft, hard = resource.getrlimit(resource.RLIMIT_NPROC)
+    target = 256 if hard == resource.RLIM_INFINITY else min(256, hard)
+    resource.setrlimit(resource.RLIMIT_NPROC, (target, hard))
 
 
 @dataclass(frozen=True)
@@ -83,6 +101,7 @@ class ProcessSandbox:
         env: dict[str, str],
         scratch: Path,
         stdin_pipe: bool = False,
+        v8: bool = False,
     ) -> subprocess.Popen[bytes]:
         return subprocess.Popen(
             cmd,
@@ -92,7 +111,7 @@ class ProcessSandbox:
             stderr=subprocess.DEVNULL,
             stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
-            preexec_fn=_set_child_limits,
+            preexec_fn=_set_child_limits_v8 if v8 else _set_child_limits,
         )
 
 
@@ -193,6 +212,7 @@ class SeatbeltSandbox:
         env: dict[str, str],
         scratch: Path,
         stdin_pipe: bool = False,
+        v8: bool = False,
     ) -> subprocess.Popen[bytes]:
         binary = self._binary()
         if binary is None:  # available() is checked before selection; belt-and-braces
@@ -214,7 +234,7 @@ class SeatbeltSandbox:
             stderr=subprocess.DEVNULL,
             stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
-            preexec_fn=_set_child_limits,
+            preexec_fn=_set_child_limits_v8 if v8 else _set_child_limits,
         )
 
 
@@ -355,6 +375,7 @@ class DockerSandbox:
         env: dict[str, str],
         scratch: Path,
         stdin_pipe: bool = False,
+        v8: bool = False,  # containment is the container's --memory; nothing to vary here
     ) -> subprocess.Popen[bytes]:
         container_cmd = self.translate_command(cmd, workdir=cwd, scratch=scratch)
         name = f"tempest-{uuid.uuid4().hex[:12]}"
