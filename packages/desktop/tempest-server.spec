@@ -33,6 +33,11 @@ datas = [
     (str(ENGINE_SRC / "execute" / "_worker.py"), "tempest/execute"),
     (str(ENGINE_SRC / "compare" / "canonical.py"), "tempest/compare"),
     (str(ENGINE_SRC / "determinism" / "_shims.py"), "tempest/determinism"),
+    # ADR-0028: the JS execution pair are DATA (not Python modules) — without them the
+    # frozen app would fail every TS prove while parity (a pure-Python fixture) stays
+    # green. ts_dual resolves them via Path(__file__).with_name(...).
+    (str(ENGINE_SRC / "execute" / "ts_worker.mjs"), "tempest/execute"),
+    (str(ENGINE_SRC / "execute" / "ts_shims.mjs"), "tempest/execute"),
 ]
 
 hiddenimports = (
