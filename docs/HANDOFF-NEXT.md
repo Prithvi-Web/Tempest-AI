@@ -78,13 +78,14 @@ shape, this is the entire law:
 
 ## 4. Remaining work, in recommended order (each is one phase with its gate)
 
-1. **Part 3 UI remainder** (`HANDOFF-WORLD-CLASS.md` §3.2-3.3): Settings groups for
-   sync/storage/privacy (render real config, honest copy), a "Test key" button (one live
-   ping, clearly labeled, uses the sanctioned egress path), **the watch live feed in the
-   app** (surface `tempest watch` through the API/supervisor with RunProgress events —
-   the CLI loop in `cli/watch.py` is the reference), motion polish, and the accessibility
-   pass (VoiceOver, keyboard, 200% zoom). Gate: E2E specs for each new surface,
-   console-clean, screenshots over real data.
+1. ~~**Part 3 UI remainder** — Settings groups + Test key + the watch live feed~~
+   **DONE 2026-08-17 late (ADR-0030, commit `c189bcd`)**: `settings.json` with
+   environment > file > default and every forced field NAMED to the user; Sync/Storage/
+   Privacy groups over real config; "Test key" on the sanctioned egress surface; a Watch
+   destination whose commits become ORDINARY runs (feed = a query over the `watch.commit`
+   ledger mark). Screenshots refreshed in `docs/ui/` (now 16, incl. watch light/dark).
+   **Still open from Part 3: motion polish beyond view transitions, and the accessibility
+   pass (VoiceOver, keyboard, 200% zoom).**
 2. **1.1 hardening** (§1.1's open list): exhaustive-enum component renders (vitest, the
    `never`-guard pattern per enum), `reportUiError` (window error/unhandledrejection →
    obslog via a new command, redactor-scrubbed), the BUILT-app driver E2E leg,
