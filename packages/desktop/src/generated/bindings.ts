@@ -21,6 +21,28 @@ export const commands = {
 	aiKeyStatus: () => typedError<AiKeyStatus, SidecarFailure>(__TAURI_INVOKE("ai_key_status")),
 	setAiKey: (key: string) => typedError<AiKeyStatus, SidecarFailure>(__TAURI_INVOKE("set_ai_key", { key })),
 	clearAiKey: () => typedError<AiKeyStatus, SidecarFailure>(__TAURI_INVOKE("clear_ai_key")),
+	/**
+	 *  Settings (§3.2). The document, its environment overrides, and the storage facts the
+	 *  screen states — all decided by the engine, never re-derived here.
+	 */
+	getSettings: () => typedError<SettingsOut_Serialize, SidecarFailure>(__TAURI_INVOKE("get_settings")),
+	updateSettings: (settings: SettingsIn_Deserialize) => typedError<SettingsOut_Serialize, SidecarFailure>(__TAURI_INVOKE("update_settings", { settings })),
+	/**
+	 *  One live, user-initiated ping on the sanctioned synthesis egress path. The key itself
+	 *  never crosses this boundary — the engine already holds it in its spawn environment (L9).
+	 */
+	testAiKey: () => typedError<AiKeyTestResult_Serialize, SidecarFailure>(__TAURI_INVOKE("test_ai_key")),
+	syncPush: (serverUrl: string) => typedError<SyncReport, SidecarFailure>(__TAURI_INVOKE("sync_push", { serverUrl })),
+	exportDiagnostics: () => typedError<DiagnosticBundle, SidecarFailure>(__TAURI_INVOKE("export_diagnostics")),
+	/**
+	 *  Show the data folder in Finder, or reveal one diagnostic archive inside it. The path is
+	 *  built HERE from the app's own data dir — the webview can only name a leaf (see `safe_leaf`),
+	 *  so no webview string ever becomes a command argument that could point elsewhere.
+	 */
+	revealInDataDir: (diagnostic: string | null) => typedError<null, SidecarFailure>(__TAURI_INVOKE("reveal_in_data_dir", { diagnostic })),
+	getWatchStatus: () => typedError<WatchStatus, SidecarFailure>(__TAURI_INVOKE("get_watch_status")),
+	startWatch: (request: WatchStartRequest) => typedError<WatchStatus, SidecarFailure>(__TAURI_INVOKE("start_watch", { request })),
+	stopWatch: () => typedError<WatchStatus, SidecarFailure>(__TAURI_INVOKE("stop_watch")),
 };
 
 /** Events */
@@ -37,6 +59,137 @@ export const events = {
 export type AiKeyStatus = {
 	configured: boolean,
 	last4: string | null,
+};
+
+/**
+ * One live ping's honest outcome (never stored, never cached).
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "AiKeyTestResult",
+ *   "description": "One live ping's honest outcome (never stored, never cached).",
+ *   "type": "object",
+ *   "required": [
+ *     "detail",
+ *     "ok"
+ *   ],
+ *   "properties": {
+ *     "detail": {
+ *       "title": "Detail",
+ *       "type": "string"
+ *     },
+ *     "model": {
+ *       "title": "Model",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "ok": {
+ *       "title": "Ok",
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type AiKeyTestResult = AiKeyTestResult_Serialize | AiKeyTestResult_Deserialize;
+
+/**
+ * One live ping's honest outcome (never stored, never cached).
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "AiKeyTestResult",
+ *   "description": "One live ping's honest outcome (never stored, never cached).",
+ *   "type": "object",
+ *   "required": [
+ *     "detail",
+ *     "ok"
+ *   ],
+ *   "properties": {
+ *     "detail": {
+ *       "title": "Detail",
+ *       "type": "string"
+ *     },
+ *     "model": {
+ *       "title": "Model",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "ok": {
+ *       "title": "Ok",
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type AiKeyTestResult_Deserialize = {
+	detail: string,
+	model?: string | null,
+	ok: boolean,
+};
+
+/**
+ * One live ping's honest outcome (never stored, never cached).
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "AiKeyTestResult",
+ *   "description": "One live ping's honest outcome (never stored, never cached).",
+ *   "type": "object",
+ *   "required": [
+ *     "detail",
+ *     "ok"
+ *   ],
+ *   "properties": {
+ *     "detail": {
+ *       "title": "Detail",
+ *       "type": "string"
+ *     },
+ *     "model": {
+ *       "title": "Model",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "ok": {
+ *       "title": "Ok",
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type AiKeyTestResult_Serialize = {
+	detail: string,
+	model?: string | null,
+	ok: boolean,
 };
 
 /**
@@ -89,6 +242,48 @@ export type Base = string;
 export type CancelAccepted = {
 	cancelling: boolean,
 	run_id: number,
+};
+
+/**
+ * A written, redacted diagnostic archive. `filename` is a bare name inside the data
+ * dir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "DiagnosticBundle",
+ *   "description": "A written, redacted diagnostic archive. `filename` is a bare name inside the data\ndir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path.",
+ *   "type": "object",
+ *   "required": [
+ *     "bytes",
+ *     "filename",
+ *     "manifest"
+ *   ],
+ *   "properties": {
+ *     "bytes": {
+ *       "title": "Bytes",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "filename": {
+ *       "title": "Filename",
+ *       "type": "string"
+ *     },
+ *     "manifest": {
+ *       "title": "Manifest",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type DiagnosticBundle = {
+	bytes: number,
+	filename: string,
+	manifest: string,
 };
 
 /**
@@ -533,6 +728,40 @@ export type DivergenceSummary = {
 	minimized_kwargs: string,
 	severity: Severity,
 	target_id: number,
+};
+
+/**
+ * One setting the process environment is currently forcing. Named, never hidden: the
+ * screen disables that control and says which variable to unset.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "EnvOverride",
+ *   "description": "One setting the process environment is currently forcing. Named, never hidden: the\nscreen disables that control and says which variable to unset.",
+ *   "type": "object",
+ *   "required": [
+ *     "field",
+ *     "variable"
+ *   ],
+ *   "properties": {
+ *     "field": {
+ *       "title": "Field",
+ *       "type": "string"
+ *     },
+ *     "variable": {
+ *       "title": "Variable",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type EnvOverride = {
+	field: string,
+	variable: string,
 };
 
 /**
@@ -1302,6 +1531,468 @@ export type SearchResults = {
 };
 
 /**
+ * A full replacement of the stored document — the screen always sends every field, so
+ * "unset" is expressible and partial-update ambiguity cannot exist.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SettingsIn",
+ *   "description": "A full replacement of the stored document — the screen always sends every field, so\n\"unset\" is expressible and partial-update ambiguity cannot exist.",
+ *   "type": "object",
+ *   "properties": {
+ *     "bundle_budget_bytes": {
+ *       "title": "Bundle Budget Bytes",
+ *       "default": 0,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "sync_server_url": {
+ *       "title": "Sync Server Url",
+ *       "anyOf": [
+ *         {
+ *           "type": "string",
+ *           "maxLength": 2000
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "sync_share_source": {
+ *       "title": "Sync Share Source",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "telemetry_enabled": {
+ *       "title": "Telemetry Enabled",
+ *       "default": false,
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsIn = SettingsIn_Serialize | SettingsIn_Deserialize;
+
+/**
+ * `SettingsInSyncServerUrl`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "type": "string",
+ *   "maxLength": 2000
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsInSyncServerUrl = string;
+
+/**
+ * A full replacement of the stored document — the screen always sends every field, so
+ * "unset" is expressible and partial-update ambiguity cannot exist.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SettingsIn",
+ *   "description": "A full replacement of the stored document — the screen always sends every field, so\n\"unset\" is expressible and partial-update ambiguity cannot exist.",
+ *   "type": "object",
+ *   "properties": {
+ *     "bundle_budget_bytes": {
+ *       "title": "Bundle Budget Bytes",
+ *       "default": 0,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "sync_server_url": {
+ *       "title": "Sync Server Url",
+ *       "anyOf": [
+ *         {
+ *           "type": "string",
+ *           "maxLength": 2000
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "sync_share_source": {
+ *       "title": "Sync Share Source",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "telemetry_enabled": {
+ *       "title": "Telemetry Enabled",
+ *       "default": false,
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsIn_Deserialize = {
+	bundle_budget_bytes?: number,
+	sync_server_url?: SettingsInSyncServerUrl | null,
+	sync_share_source?: boolean,
+	telemetry_enabled?: boolean,
+};
+
+/**
+ * A full replacement of the stored document — the screen always sends every field, so
+ * "unset" is expressible and partial-update ambiguity cannot exist.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SettingsIn",
+ *   "description": "A full replacement of the stored document — the screen always sends every field, so\n\"unset\" is expressible and partial-update ambiguity cannot exist.",
+ *   "type": "object",
+ *   "properties": {
+ *     "bundle_budget_bytes": {
+ *       "title": "Bundle Budget Bytes",
+ *       "default": 0,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "sync_server_url": {
+ *       "title": "Sync Server Url",
+ *       "anyOf": [
+ *         {
+ *           "type": "string",
+ *           "maxLength": 2000
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "sync_share_source": {
+ *       "title": "Sync Share Source",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "telemetry_enabled": {
+ *       "title": "Telemetry Enabled",
+ *       "default": false,
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsIn_Serialize = {
+	bundle_budget_bytes: number,
+	sync_server_url?: SettingsInSyncServerUrl | null,
+	sync_share_source: boolean,
+	telemetry_enabled: boolean,
+};
+
+/**
+ * `SettingsOut`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SettingsOut",
+ *   "type": "object",
+ *   "required": [
+ *     "data_dir",
+ *     "env_overrides",
+ *     "store_bytes",
+ *     "version"
+ *   ],
+ *   "properties": {
+ *     "bundle_budget_bytes": {
+ *       "title": "Bundle Budget Bytes",
+ *       "default": 0,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "data_dir": {
+ *       "title": "Data Dir",
+ *       "type": "string"
+ *     },
+ *     "env_overrides": {
+ *       "title": "Env Overrides",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/EnvOverride"
+ *       }
+ *     },
+ *     "problem": {
+ *       "title": "Problem",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "store_bytes": {
+ *       "title": "Store Bytes",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "sync_server_url": {
+ *       "title": "Sync Server Url",
+ *       "anyOf": [
+ *         {
+ *           "type": "string",
+ *           "maxLength": 2000
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "sync_share_source": {
+ *       "title": "Sync Share Source",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "telemetry_enabled": {
+ *       "title": "Telemetry Enabled",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "version": {
+ *       "title": "Version",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsOut = SettingsOut_Serialize | SettingsOut_Deserialize;
+
+/**
+ * `SettingsOutSyncServerUrl`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "type": "string",
+ *   "maxLength": 2000
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsOutSyncServerUrl = string;
+
+/**
+ * `SettingsOut`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SettingsOut",
+ *   "type": "object",
+ *   "required": [
+ *     "data_dir",
+ *     "env_overrides",
+ *     "store_bytes",
+ *     "version"
+ *   ],
+ *   "properties": {
+ *     "bundle_budget_bytes": {
+ *       "title": "Bundle Budget Bytes",
+ *       "default": 0,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "data_dir": {
+ *       "title": "Data Dir",
+ *       "type": "string"
+ *     },
+ *     "env_overrides": {
+ *       "title": "Env Overrides",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/EnvOverride"
+ *       }
+ *     },
+ *     "problem": {
+ *       "title": "Problem",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "store_bytes": {
+ *       "title": "Store Bytes",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "sync_server_url": {
+ *       "title": "Sync Server Url",
+ *       "anyOf": [
+ *         {
+ *           "type": "string",
+ *           "maxLength": 2000
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "sync_share_source": {
+ *       "title": "Sync Share Source",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "telemetry_enabled": {
+ *       "title": "Telemetry Enabled",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "version": {
+ *       "title": "Version",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsOut_Deserialize = {
+	bundle_budget_bytes?: number,
+	data_dir: string,
+	env_overrides: EnvOverride[],
+	problem?: string | null,
+	store_bytes: number,
+	sync_server_url?: SettingsOutSyncServerUrl | null,
+	sync_share_source?: boolean,
+	telemetry_enabled?: boolean,
+	version: number,
+};
+
+/**
+ * `SettingsOut`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SettingsOut",
+ *   "type": "object",
+ *   "required": [
+ *     "data_dir",
+ *     "env_overrides",
+ *     "store_bytes",
+ *     "version"
+ *   ],
+ *   "properties": {
+ *     "bundle_budget_bytes": {
+ *       "title": "Bundle Budget Bytes",
+ *       "default": 0,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "data_dir": {
+ *       "title": "Data Dir",
+ *       "type": "string"
+ *     },
+ *     "env_overrides": {
+ *       "title": "Env Overrides",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/EnvOverride"
+ *       }
+ *     },
+ *     "problem": {
+ *       "title": "Problem",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "store_bytes": {
+ *       "title": "Store Bytes",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "sync_server_url": {
+ *       "title": "Sync Server Url",
+ *       "anyOf": [
+ *         {
+ *           "type": "string",
+ *           "maxLength": 2000
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "sync_share_source": {
+ *       "title": "Sync Share Source",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "telemetry_enabled": {
+ *       "title": "Telemetry Enabled",
+ *       "default": false,
+ *       "type": "boolean"
+ *     },
+ *     "version": {
+ *       "title": "Version",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SettingsOut_Serialize = {
+	bundle_budget_bytes: number,
+	data_dir: string,
+	env_overrides: EnvOverride[],
+	problem?: string | null,
+	store_bytes: number,
+	sync_server_url?: SettingsOutSyncServerUrl | null,
+	sync_share_source: boolean,
+	telemetry_enabled: boolean,
+	version: number,
+};
+
+/**
  * Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE.
  * 
  *  <details><summary>JSON schema</summary>
@@ -1337,6 +2028,75 @@ export type SidecarFailure = {
  */
 export type SidecarStateEvent = {
 	state: string,
+};
+
+/**
+ * `SyncReport`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SyncReport",
+ *   "type": "object",
+ *   "required": [
+ *     "candidates",
+ *     "errors",
+ *     "failed",
+ *     "pushed",
+ *     "remaining",
+ *     "skipped"
+ *   ],
+ *   "properties": {
+ *     "candidates": {
+ *       "title": "Candidates",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "errors": {
+ *       "title": "Errors",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "failed": {
+ *       "title": "Failed",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "pushed": {
+ *       "title": "Pushed",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "remaining": {
+ *       "title": "Remaining",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "skipped": {
+ *       "title": "Skipped",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SyncReport = {
+	candidates: number,
+	errors: string[],
+	failed: number,
+	pushed: number,
+	remaining: number,
+	skipped: number,
 };
 
 /**
@@ -1619,6 +2379,217 @@ export type TargetSummary = {
  *  </details>
  */
 export type Verdict = "DIVERGENT" | "EQUIVALENT_UNDER_BUDGET" | "UNPROVEN" | "ERROR";
+
+/**
+ * One proven commit in this session, read back from its run row.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "WatchRun",
+ *   "description": "One proven commit in this session, read back from its run row.",
+ *   "type": "object",
+ *   "required": [
+ *     "divergence_count",
+ *     "head_sha",
+ *     "run_id",
+ *     "status",
+ *     "verdict"
+ *   ],
+ *   "properties": {
+ *     "divergence_count": {
+ *       "title": "Divergence Count",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "head_sha": {
+ *       "title": "Head Sha",
+ *       "type": "string"
+ *     },
+ *     "run_id": {
+ *       "title": "Run Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "status": {
+ *       "$ref": "#/$defs/RunStatus"
+ *     },
+ *     "verdict": {
+ *       "anyOf": [
+ *         {
+ *           "$ref": "#/$defs/Verdict"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type WatchRun = {
+	divergence_count: number,
+	head_sha: string,
+	run_id: number,
+	status: RunStatus,
+	verdict: Verdict | null,
+};
+
+/**
+ * `WatchStartRequest`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "WatchStartRequest",
+ *   "type": "object",
+ *   "required": [
+ *     "repo_path"
+ *   ],
+ *   "properties": {
+ *     "interval_seconds": {
+ *       "title": "Interval Seconds",
+ *       "default": 15,
+ *       "type": "number",
+ *       "maximum": 3600.0,
+ *       "minimum": 1.0
+ *     },
+ *     "max_inputs": {
+ *       "title": "Max Inputs",
+ *       "default": 300,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "repo_path": {
+ *       "title": "Repo Path",
+ *       "type": "string",
+ *       "minLength": 1
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type WatchStartRequest = {
+	interval_seconds?: number | null,
+	max_inputs?: number,
+	repo_path: RepoPath,
+};
+
+/**
+ * `WatchStatus`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "WatchStatus",
+ *   "type": "object",
+ *   "required": [
+ *     "active_run_id",
+ *     "interval_seconds",
+ *     "last_sha",
+ *     "problem",
+ *     "repo_name",
+ *     "repo_path",
+ *     "runs",
+ *     "watching"
+ *   ],
+ *   "properties": {
+ *     "active_run_id": {
+ *       "title": "Active Run Id",
+ *       "anyOf": [
+ *         {
+ *           "type": "integer",
+ *           "maximum": 2147483647.0,
+ *           "minimum": -2147483648.0
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "interval_seconds": {
+ *       "title": "Interval Seconds",
+ *       "type": "number"
+ *     },
+ *     "last_sha": {
+ *       "title": "Last Sha",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "problem": {
+ *       "title": "Problem",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "repo_name": {
+ *       "title": "Repo Name",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "repo_path": {
+ *       "title": "Repo Path",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "runs": {
+ *       "title": "Runs",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/WatchRun"
+ *       }
+ *     },
+ *     "watching": {
+ *       "title": "Watching",
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type WatchStatus = {
+	active_run_id: number | null,
+	interval_seconds: number | null,
+	last_sha: string | null,
+	problem: string | null,
+	repo_name: string | null,
+	repo_path: string | null,
+	runs: WatchRun[],
+	watching: boolean,
+};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

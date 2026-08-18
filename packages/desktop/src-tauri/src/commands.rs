@@ -9,8 +9,10 @@ use std::sync::Arc;
 use serde_json::{json, Map, Value};
 
 use crate::generated::domain::{
-    CancelAccepted, DivergenceDetail, HealthResponse, LocalProveRequest, LogRecordOut,
-    PageRunSummary, RunCreated, RunDetail, RunEventOut, SearchResults, TargetDetail, Verdict,
+    AiKeyTestResult, CancelAccepted, DiagnosticBundle, DivergenceDetail, HealthResponse,
+    LocalProveRequest, LogRecordOut, PageRunSummary, RunCreated, RunDetail, RunEventOut,
+    SearchResults, SettingsIn, SettingsOut, SyncReport, TargetDetail, Verdict, WatchStartRequest,
+    WatchStatus,
 };
 use crate::supervisor::{RpcError, Supervisor, DEFAULT_CALL_TIMEOUT};
 
@@ -240,6 +242,184 @@ pub fn clear_ai_key() -> CmdResult<AiKeyStatus> {
     crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::ACCOUNT)
         .map_err(|message| SidecarFailure { code: -3, message })?;
     ai_key_status_now()
+}
+
+/// Settings (§3.2). The document, its environment overrides, and the storage facts the
+/// screen states — all decided by the engine, never re-derived here.
+#[tauri::command]
+#[specta::specta]
+pub fn get_settings(state: tauri::State<'_, Arc<Supervisor>>) -> CmdResult<SettingsOut> {
+    call_typed(&state, "getSettings", json!({}))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn update_settings(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    settings: SettingsIn,
+) -> CmdResult<SettingsOut> {
+    call_typed(&state, "updateSettings", json!({"body": settings}))
+}
+
+/// One live, user-initiated ping on the sanctioned synthesis egress path. The key itself
+/// never crosses this boundary — the engine already holds it in its spawn environment (L9).
+#[tauri::command]
+#[specta::specta]
+pub fn test_ai_key(state: tauri::State<'_, Arc<Supervisor>>) -> CmdResult<AiKeyTestResult> {
+    call_typed(&state, "testAiKey", json!({}))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn sync_push(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    server_url: String,
+) -> CmdResult<SyncReport> {
+    call_typed(&state, "syncPush", json!({"body": {"server_url": server_url}}))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn export_diagnostics(
+    state: tauri::State<'_, Arc<Supervisor>>,
+) -> CmdResult<DiagnosticBundle> {
+    call_typed(&state, "exportDiagnostics", json!({}))
+}
+
+/// Watch mode (ADR-0029 in the app). Whatever run the loop has in flight is handed to the
+/// central watcher, so a commit proven by watch pushes RunProgressEvent exactly like a run
+/// the user started by hand — one live-progress mechanism, not two.
+fn tracked(
+    watcher: &crate::watcher::RunWatcher,
+    status: WatchStatus,
+) -> CmdResult<WatchStatus> {
+    if let Some(run_id) = status.active_run_id {
+        watcher.track(run_id);
+    }
+    Ok(status)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_watch_status(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    watcher: tauri::State<'_, Arc<crate::watcher::RunWatcher>>,
+) -> CmdResult<WatchStatus> {
+    tracked(&watcher, call_typed(&state, "getWatchStatus", json!({}))?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn start_watch(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    watcher: tauri::State<'_, Arc<crate::watcher::RunWatcher>>,
+    request: WatchStartRequest,
+) -> CmdResult<WatchStatus> {
+    tracked(&watcher, call_typed(&state, "startWatch", json!({"body": request}))?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn stop_watch(state: tauri::State<'_, Arc<Supervisor>>) -> CmdResult<WatchStatus> {
+    call_typed(&state, "stopWatch", json!({}))
+}
+
+/// Reject anything that could escape the data dir. The webview may name a FILE inside
+/// `diagnostics/`, never a path: no separators, no `..`, no absolutes, no hidden entries.
+fn safe_leaf(name: &str) -> Result<&str, SidecarFailure> {
+    let bad = name.is_empty()
+        || name == ".."
+        || name.starts_with('.')
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains('\0');
+    if bad {
+        return Err(SidecarFailure {
+            code: -4,
+            message: format!("{name:?} is not a plain file name inside the data folder"),
+        });
+    }
+    Ok(name)
+}
+
+/// Show the data folder in Finder, or reveal one diagnostic archive inside it. The path is
+/// built HERE from the app's own data dir — the webview can only name a leaf (see `safe_leaf`),
+/// so no webview string ever becomes a command argument that could point elsewhere.
+#[tauri::command]
+#[specta::specta]
+pub fn reveal_in_data_dir(app: tauri::AppHandle, diagnostic: Option<String>) -> CmdResult<()> {
+    use tauri::Manager;
+    let data_dir = app.path().app_data_dir().map_err(|err| SidecarFailure {
+        code: -4,
+        message: format!("the data folder could not be resolved — {err}"),
+    })?;
+    let (target, reveal) = match diagnostic.as_deref() {
+        Some(name) => (data_dir.join("diagnostics").join(safe_leaf(name)?), true),
+        None => (data_dir, false),
+    };
+    open_in_file_manager(&target, reveal)
+}
+
+#[cfg(target_os = "macos")]
+fn open_in_file_manager(target: &std::path::Path, reveal: bool) -> CmdResult<()> {
+    let mut command = std::process::Command::new("/usr/bin/open");
+    if reveal {
+        command.arg("-R");
+    }
+    match command.arg(target).status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(SidecarFailure {
+            code: -4,
+            message: format!("Finder could not open {}: exit {status}", target.display()),
+        }),
+        Err(err) => Err(SidecarFailure {
+            code: -4,
+            message: format!("Finder could not open {}: {err}", target.display()),
+        }),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_in_file_manager(target: &std::path::Path, _reveal: bool) -> CmdResult<()> {
+    // Linux/Windows desktop packaging is not a shipped target yet (ADR-0021): say so
+    // plainly rather than guessing at a file manager that may not exist.
+    Err(SidecarFailure {
+        code: -4,
+        message: format!(
+            "revealing {} in a file manager is only implemented on macOS today",
+            target.display()
+        ),
+    })
+}
+
+#[cfg(test)]
+mod data_dir_paths {
+    //! `safe_leaf` is the whole containment argument for `reveal_in_data_dir`: every string
+    //! that could leave `<data dir>/diagnostics/` must be refused before it becomes a path.
+
+    use super::safe_leaf;
+
+    #[test]
+    fn a_plain_archive_name_is_accepted() {
+        assert_eq!(safe_leaf("tempest-diagnostic-20260817T101500.zip").unwrap(),
+                   "tempest-diagnostic-20260817T101500.zip");
+    }
+
+    #[test]
+    fn every_escape_shape_is_refused() {
+        for bad in [
+            "",
+            "..",
+            "../secrets.zip",
+            "a/b.zip",
+            "a\\b.zip",
+            "/etc/passwd",
+            ".hidden",
+            "nul\0byte.zip",
+        ] {
+            assert!(safe_leaf(bad).is_err(), "{bad:?} must be refused");
+        }
+    }
 }
 
 #[cfg(test)]

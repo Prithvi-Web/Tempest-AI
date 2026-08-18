@@ -58,6 +58,16 @@ class InstanceAdapter:
 
 
 @dataclass(frozen=True)
+class KeyCheck:
+    """The result of the Settings "Test key" ping: valid or not, and why. Nothing is stored —
+    the check is one request whose only product is this sentence."""
+
+    ok: bool
+    detail: str
+    model: str | None
+
+
+@dataclass(frozen=True)
 class SynthesisDeclined:
     """The model was consulted but its adapter did not survive validation (or the call
     itself failed). Reported as UNPROVEN(SYNTHESIS_DECLINED) — never a lesser claim."""
@@ -69,6 +79,41 @@ def synthesis_enabled() -> bool:
     return (
         bool(os.environ.get("ANTHROPIC_API_KEY")) and os.environ.get("TEMPEST_NO_SYNTHESIS") != "1"
     )
+
+
+def verify_key() -> KeyCheck:
+    """One minimal live request on the SAME egress surface synthesis uses (§3.2).
+
+    `max_tokens=1` and a single literal "ping" — no source, no repo name, no diff ever rides
+    this call (L9). With no key configured nothing is sent at all.
+    """
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return KeyCheck(
+            ok=False,
+            detail="no API key is configured — add one above, then test it.",
+            model=None,
+        )
+    import anthropic
+
+    model = os.environ.get("TEMPEST_SYNTHESIS_MODEL", _DEFAULT_MODEL)
+    client = anthropic.Anthropic(
+        base_url=os.environ.get("TEMPEST_SYNTHESIS_BASE_URL") or None,
+        max_retries=0,
+        timeout=20.0,
+    )
+    try:
+        client.messages.create(
+            model=model,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+    except anthropic.APIError as err:
+        return KeyCheck(
+            ok=False,
+            detail=f"the key was rejected or unreachable — {err.__class__.__name__}: {err}",
+            model=None,
+        )
+    return KeyCheck(ok=True, detail=f"the key works — {model} answered.", model=model)
 
 
 def remediation_hint() -> str:

@@ -13,12 +13,23 @@ from tempest_api.schemas.health import HealthResponse
 from tempest_api.schemas.local import LocalProveRequest
 from tempest_api.schemas.pagination import Page, decode_cursor, encode_cursor
 from tempest_api.schemas.runs import CancelAccepted, RunCreate, RunCreated, RunDetail, RunSummary
+from tempest_api.schemas.settings import (
+    AiKeyTestResult,
+    DiagnosticBundle,
+    EnvOverride,
+    SettingsIn,
+    SettingsOut,
+)
 from tempest_api.schemas.targets import TargetDetail, TargetSummary
+from tempest_api.schemas.watch import WatchRun, WatchStartRequest, WatchStatus
 
 __all__ = [
+    "AiKeyTestResult",
     "CancelAccepted",
+    "DiagnosticBundle",
     "DivergenceDetail",
     "DivergenceSummary",
+    "EnvOverride",
     "ErrorBody",
     "ErrorCode",
     "ErrorEnvelope",
@@ -31,8 +42,13 @@ __all__ = [
     "RunEventOut",
     "RunStatus",
     "RunSummary",
+    "SettingsIn",
+    "SettingsOut",
     "TargetDetail",
     "TargetSummary",
+    "WatchRun",
+    "WatchStartRequest",
+    "WatchStatus",
     "decode_cursor",
     "encode_cursor",
 ]

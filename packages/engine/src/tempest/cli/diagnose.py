@@ -74,6 +74,29 @@ def _manifest(members: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def default_bundle_name() -> str:
+    return f"tempest-diagnostic-{time.strftime('%Y%m%dT%H%M%S')}.zip"
+
+
+def write_diagnostic_bundle(target: Path) -> str:
+    """Build and write the redacted archive; returns its manifest text.
+
+    The single implementation behind both `tempest diagnose` and the desktop Settings
+    button — one redaction path, one gate, no second-best copy.
+    """
+    # The same builder the gate proves and the crash writer uses — repo names included
+    # via the env-provided source (finding 3), never a hand-wired context.
+    context = production_context()
+    members = _members(context)
+    manifest = _manifest(members)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("MANIFEST.txt", manifest)
+        for name, content in members.items():
+            archive.writestr(name, content)
+    return manifest
+
+
 def register(app: typer.Typer) -> None:
     @app.command()
     def diagnose(
@@ -81,17 +104,7 @@ def register(app: typer.Typer) -> None:
     ) -> None:
         """Export a redacted diagnostic bundle (local zip; inspect it before sharing)."""
         console = Console()
-        # The same builder the gate proves and the crash writer uses — repo names included
-        # via the env-provided source (finding 3), never a hand-wired context.
-        context = production_context()
-        members = _members(context)
-        manifest = _manifest(members)
-        default_name = f"tempest-diagnostic-{time.strftime('%Y%m%dT%H%M%S')}.zip"
-        target = out if out is not None else Path(default_name)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr("MANIFEST.txt", manifest)
-            for name, content in members.items():
-                archive.writestr(name, content)
+        target = out if out is not None else Path(default_bundle_name())
+        manifest = write_diagnostic_bundle(target)
         console.print(manifest)
         console.print(f"wrote {target} — inspect it before sending it to anyone.")

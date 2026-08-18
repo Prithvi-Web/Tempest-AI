@@ -135,7 +135,9 @@ format before verify · 29 Seatbelt carve vs symlink targets · 30 reproduce the
 failure by hand before coding the fix · 31 V8 precise-coverage repeat deltas are empty ·
 32 frozen .mjs are spec datas; parity can't see them · 33 node needs the explicit
 strip-types flag + warning suppression · 34 a DB field is three places ·
-35 V8 cannot run under RLIMIT_AS (heap cap instead; macOS never enforces AS).
+35 V8 cannot run under RLIMIT_AS (heap cap instead; macOS never enforces AS) ·
+36 the line right after a greenlet crossing is mis-attributed by coverage — restructure
+into a sync helper, never pragma the block.
 
 ## 7. Resume commands
 

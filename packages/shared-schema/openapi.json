@@ -1,6 +1,36 @@
 {
   "components": {
     "schemas": {
+      "AiKeyTestResult": {
+        "description": "One live ping's honest outcome (never stored, never cached).",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "detail"
+        ],
+        "title": "AiKeyTestResult",
+        "type": "object"
+      },
       "Body_importRunBundle": {
         "properties": {
           "file": {
@@ -87,6 +117,30 @@
           "cancelling"
         ],
         "title": "CancelAccepted",
+        "type": "object"
+      },
+      "DiagnosticBundle": {
+        "description": "A written, redacted diagnostic archive. `filename` is a bare name inside the data\ndir's `diagnostics/` folder \u2014 the host reveals it by joining, never by trusting a path.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "manifest": {
+            "title": "Manifest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "bytes",
+          "manifest"
+        ],
+        "title": "DiagnosticBundle",
         "type": "object"
       },
       "DivergenceClass": {
@@ -236,6 +290,25 @@
         "title": "DivergenceSummary",
         "type": "object"
       },
+      "EnvOverride": {
+        "description": "One setting the process environment is currently forcing. Named, never hidden: the\nscreen disables that control and says which variable to unset.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "variable": {
+            "title": "Variable",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "variable"
+        ],
+        "title": "EnvOverride",
+        "type": "object"
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -278,6 +351,7 @@
           "REPO_NOT_FOUND",
           "REF_NOT_FOUND",
           "RUN_NOT_ACTIVE",
+          "WATCH_ALREADY_ACTIVE",
           "INTERNAL"
         ],
         "title": "ErrorCode",
@@ -293,6 +367,19 @@
           "error"
         ],
         "title": "ErrorEnvelope",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
         "type": "object"
       },
       "HealthResponse": {
@@ -801,6 +888,109 @@
         "title": "SearchResults",
         "type": "object"
       },
+      "SettingsIn": {
+        "description": "A full replacement of the stored document \u2014 the screen always sends every field, so\n\"unset\" is expressible and partial-update ambiguity cannot exist.",
+        "properties": {
+          "bundle_budget_bytes": {
+            "default": 0,
+            "title": "Bundle Budget Bytes",
+            "type": "integer"
+          },
+          "sync_server_url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Server Url"
+          },
+          "sync_share_source": {
+            "default": false,
+            "title": "Sync Share Source",
+            "type": "boolean"
+          },
+          "telemetry_enabled": {
+            "default": false,
+            "title": "Telemetry Enabled",
+            "type": "boolean"
+          }
+        },
+        "title": "SettingsIn",
+        "type": "object"
+      },
+      "SettingsOut": {
+        "properties": {
+          "bundle_budget_bytes": {
+            "default": 0,
+            "title": "Bundle Budget Bytes",
+            "type": "integer"
+          },
+          "data_dir": {
+            "title": "Data Dir",
+            "type": "string"
+          },
+          "env_overrides": {
+            "items": {
+              "$ref": "#/components/schemas/EnvOverride"
+            },
+            "title": "Env Overrides",
+            "type": "array"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "store_bytes": {
+            "title": "Store Bytes",
+            "type": "integer"
+          },
+          "sync_server_url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Server Url"
+          },
+          "sync_share_source": {
+            "default": false,
+            "title": "Sync Share Source",
+            "type": "boolean"
+          },
+          "telemetry_enabled": {
+            "default": false,
+            "title": "Telemetry Enabled",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "env_overrides",
+          "data_dir",
+          "store_bytes"
+        ],
+        "title": "SettingsOut",
+        "type": "object"
+      },
       "Severity": {
         "description": "Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE.",
         "enum": [
@@ -1046,6 +1236,46 @@
         "title": "TargetSummary",
         "type": "object"
       },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
       "Verdict": {
         "description": "The only verdicts Tempest can emit (Law L2).",
         "enum": [
@@ -1056,6 +1286,158 @@
         ],
         "title": "Verdict",
         "type": "string"
+      },
+      "WatchRun": {
+        "description": "One proven commit in this session, read back from its run row.",
+        "properties": {
+          "divergence_count": {
+            "title": "Divergence Count",
+            "type": "integer"
+          },
+          "head_sha": {
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Verdict"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run_id",
+          "head_sha",
+          "status",
+          "verdict",
+          "divergence_count"
+        ],
+        "title": "WatchRun",
+        "type": "object"
+      },
+      "WatchStartRequest": {
+        "properties": {
+          "interval_seconds": {
+            "default": 15.0,
+            "maximum": 3600.0,
+            "minimum": 1.0,
+            "title": "Interval Seconds",
+            "type": "number"
+          },
+          "max_inputs": {
+            "default": 300,
+            "minimum": 1.0,
+            "title": "Max Inputs",
+            "type": "integer"
+          },
+          "repo_path": {
+            "minLength": 1,
+            "title": "Repo Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_path"
+        ],
+        "title": "WatchStartRequest",
+        "type": "object"
+      },
+      "WatchStatus": {
+        "properties": {
+          "active_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Run Id"
+          },
+          "interval_seconds": {
+            "title": "Interval Seconds",
+            "type": "number"
+          },
+          "last_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sha"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "repo_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Name"
+          },
+          "repo_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repo Path"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/WatchRun"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "watching": {
+            "title": "Watching",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "watching",
+          "repo_path",
+          "repo_name",
+          "interval_seconds",
+          "last_sha",
+          "active_run_id",
+          "runs",
+          "problem"
+        ],
+        "title": "WatchStatus",
+        "type": "object"
       }
     }
   },
@@ -1105,6 +1487,28 @@
         "summary": "Check Bundle Presence",
         "tags": [
           "sync"
+        ]
+      }
+    },
+    "/v1/diagnostics": {
+      "post": {
+        "description": "Write a redacted diagnostic archive into `<data dir>/diagnostics/` and describe it.\n\nNothing is transmitted: the file is local, its manifest is returned so the screen can\nshow exactly what it contains, and sharing stays the user's deliberate act (L9).",
+        "operationId": "exportDiagnostics",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticBundle"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Export Diagnostics",
+        "tags": [
+          "settings"
         ]
       }
     },
@@ -1283,6 +1687,107 @@
         "summary": "Start Local Prove",
         "tags": [
           "local"
+        ]
+      }
+    },
+    "/v1/local/watch": {
+      "delete": {
+        "description": "Idempotent. An in-flight prove is cancelled, so Stop means stop (L11).",
+        "operationId": "stopWatch",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Stop Watching",
+        "tags": [
+          "watch"
+        ]
+      },
+      "get": {
+        "operationId": "getWatchStatus",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Watch Status",
+        "tags": [
+          "watch"
+        ]
+      },
+      "post": {
+        "description": "Arm the loop from this repo's current HEAD. The FIRST proof happens on the NEXT commit \u2014\nwatch proves what changes from now on; proving an existing pair is `startLocalProve`.",
+        "operationId": "startWatch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WatchStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Start Watching",
+        "tags": [
+          "watch"
         ]
       }
     },
@@ -1938,6 +2443,89 @@
         "summary": "Search Divergences",
         "tags": [
           "search"
+        ]
+      }
+    },
+    "/v1/settings": {
+      "get": {
+        "operationId": "getSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "description": "Replace the stored document. Environment overrides still outrank what is saved \u2014 the\nresponse says which fields they are, so the screen never claims a change it cannot make.",
+        "operationId": "updateSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/v1/settings/ai-key/test": {
+      "post": {
+        "description": "One live request to the configured model with the key the host injected at spawn.\nBlocking SDK call, so it runs off the event loop; nothing about it is persisted.",
+        "operationId": "testAiKey",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiKeyTestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Test Ai Key",
+        "tags": [
+          "settings"
         ]
       }
     },

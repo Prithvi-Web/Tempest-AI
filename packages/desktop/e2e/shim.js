@@ -21,6 +21,7 @@
   let nextCallbackId = 1;
   let nextEventId = 1;
   let shimAiKey = null; // the in-memory keychain stand-in (see the ai_key_* handler below)
+  const revealed = []; // every reveal_in_data_dir argument, for the Settings spec to assert
 
   window.__TAURI_INTERNALS__ = {
     transformCallback(callback) {
@@ -69,6 +70,20 @@
           ? { configured: false, last4: null }
           : { configured: true, last4: shimAiKey.slice(-4) };
       }
+      // Host-side action (commands.rs reveal_in_data_dir): there is no sidecar behind it,
+      // and a browser has no Finder. Mirror the host's containment rule so a spec can prove
+      // the UI only ever names a bare leaf, and record the calls for assertion.
+      if (cmd === "reveal_in_data_dir") {
+        const name = args.diagnostic ?? null;
+        if (name !== null) {
+          const bad =
+            name === "" || name === ".." || name.startsWith(".") ||
+            name.includes("/") || name.includes("\\") || name.includes("\0");
+          if (bad) throw { code: -4, message: `${JSON.stringify(name)} is not a plain file name inside the data folder` };
+        }
+        revealed.push(name);
+        return null;
+      }
       const response = await fetch(`${bridgeUrl}/invoke`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -91,6 +106,7 @@
   };
 
   window.__E2E__ = {
+    revealed,
     emit(name, payload) {
       const subscribers = listeners.get(name);
       if (!subscribers) return 0;

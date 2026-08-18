@@ -5,19 +5,19 @@ where `digest` is the sha256 of the zip bytes: identical bundles share one blob,
 be handed back byte-identical for export/replay (L7). Runs reference blobs via
 `runs.bundle_digest`; GC removes only blobs no run references.
 
-A user-controlled budget (`TEMPEST_BUNDLE_BUDGET_BYTES`; unset or 0 = unlimited) bounds the
-store: when an ingest pushes it over, the OLDEST bundle-bearing runs are pruned — row and blob
-together, so every surviving run keeps its evidence — and the newest run is never pruned, so
-the run the user just proved always survives.
+A user-controlled budget (Settings, or `TEMPEST_BUNDLE_BUDGET_BYTES` which outranks it; unset
+or 0 = unlimited) bounds the store: when an ingest pushes it over, the OLDEST bundle-bearing
+runs are pruned — row and blob together, so every surviving run keeps its evidence — and the
+newest run is never pruned, so the run the user just proved always survives.
 """
 
 import hashlib
-import os
 from pathlib import Path
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tempest.settings import load_effective_or_defaults
 from tempest_api.db.models import Run
 
 _SUFFIX = ".tempest.zip"
@@ -85,11 +85,7 @@ def bundle_store() -> BundleStore:
     the desktop can adjust the budget without a restart)."""
     from tempest_api.localprove import data_dir  # local import: localprove imports ingest
 
-    raw = os.environ.get("TEMPEST_BUNDLE_BUDGET_BYTES", "0")
-    try:
-        budget = int(raw)
-    except ValueError:
-        budget = 0
+    budget = load_effective_or_defaults().bundle_budget_bytes
     return BundleStore(data_dir() / "bundles", budget if budget > 0 else None)
 
 

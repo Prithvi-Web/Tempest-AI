@@ -810,3 +810,75 @@ as they happen, and make the evidence readable in plain English — the owner's 
 local Messages peer (identical verdicts with and without them); keyless suites and
 byte-stability gates are untouched (None everywhere). Bundle readers tolerate pre-v3
 bundles; older engines refuse v3 per the schema discipline.
+
+## ADR-0030 — Settings as one config law, and watch inside the app (2026-08-17)
+
+**Context.** HANDOFF-WORLD-CLASS §3.2 left four Settings groups unfinished (sync, storage,
+privacy, and the "Test key" ping) and §4 asked for the watch loop to be reachable from the
+app. Both touch the same question: where does a user preference LIVE, and how does the app
+avoid lying about it? Until now the answers were environment variables read at four unrelated
+call sites (`TEMPEST_SYNC_SHARE_SOURCE`, `TEMPEST_BUNDLE_BUDGET_BYTES`, `TEMPEST_TELEMETRY`,
+plus a sync URL that was never stored at all).
+
+**Decision.**
+
+1. **`settings.json` in the data dir, with the environment on top** (`tempest/settings.py`).
+   It lives in the data dir, so it belongs to one store — the app keeps its own, a bare CLI run
+   uses `~/.tempest`, and a shared `TEMPEST_DATA_DIR` makes them one, exactly as the bundle
+   store, logs, and telemetry counters already behave. What is unconditionally shared is the
+   precedence law, the same one `tempest.toml` already follows: **environment variable >
+   settings.json > built-in default**. A `TEMPEST_*` export in a shell, a CI job, or a script
+   therefore stays authoritative — and because an invisible override would make the Settings
+   screen a liar, `effective_settings()` returns the NAME of every field the environment is
+   forcing, the API forwards the variable name, and the UI disables that control and says
+   which variable to unset. Versioned like the local store (refuse-newer); a corrupt,
+   non-object, or unknown-keyed document is an explicit error, never a silent reset — these
+   are recorded intentions, privacy choices among them. The engine's read path
+   (`load_effective_or_defaults`) degrades a damaged file to defaults so a prove still runs
+   (L8) *while still applying the environment*: a broken file must not switch off something a
+   `TEMPEST_*` export turned on. Only the Settings surface reports the problem, where it can
+   be repaired — writing any setting publishes a fresh valid file.
+   The AI key is deliberately absent: keychain only (L9).
+   The budget's ceiling is 2 GiB and stated out loud — the tri-boundary integer is 32-bit
+   (specta forbids BigInt-style types across Boundary B), so the limit is a named constant
+   with its own refusal message rather than a silent truncation.
+
+2. **"Test key" travels the synthesis egress path, not a second one** (`harness/llm.verify_key`).
+   One `messages.create` with `max_tokens=1` and the literal content `"ping"` — no source, no
+   repo name, no diff, nothing stored. With no key configured it makes no network call at all
+   and says what to do instead. Same client construction, same `TEMPEST_SYNTHESIS_BASE_URL`
+   knob, so the egress surface stays exactly one function wide (L10).
+
+3. **The diagnostic export has ONE implementation.** `cli/diagnose.write_diagnostic_bundle`
+   is now shared by `tempest diagnose` and `POST /v1/diagnostics`; the redaction path and its
+   gate cannot diverge between the CLI and the app. The API answers a bare `filename` inside
+   `<data dir>/diagnostics/`, and the Rust host's `reveal_in_data_dir` accepts only a plain
+   leaf (`safe_leaf`: no separators, no `..`, no dotfiles) which it joins to the app's own
+   data dir — the webview can never turn a string into a path outside it.
+
+4. **Watch in the app produces ORDINARY runs** (`tempest_api/watchsession.py`). The loop
+   polls HEAD and, on a new commit, creates a run row and proves `previous → new` through the
+   same local-prove machinery. That is the whole design: no second kind of evidence, so the
+   run list, ledger, cancellation, bundles, search, and the host's `RunProgressEvent` all keep
+   working unchanged (the host tracks whatever run the loop reports as active, so a watched
+   prove pushes progress exactly like a hand-started one). The feed of proven commits is a
+   QUERY over runs carrying the `watch.commit` ledger mark — not an in-memory list — so it
+   survives a restart and cannot drift from the runs it describes (L1).
+   L11 is explicit: the commit is taken (and `last_sha` advanced) when the prove STARTS, so a
+   cancelled prove can never make the loop re-prove the same commit forever; the battery /
+   thermal hold is entered with a CancelScope the session cancels, so Stop returns the loop
+   immediately even mid-hold; and Stop cancels the in-flight prove, which lands CANCELLED —
+   an honest terminal state, never a verdict (L2).
+
+**Consequences.** Four env-var reads became one document with one precedence rule, and the
+screen states the truth about its own configuration including overrides it cannot change.
+Watch gained a UI without gaining a parallel data model. New shapes (`SettingsIn/Out`,
+`EnvOverride`, `AiKeyTestResult`, `DiagnosticBundle`, `WatchStatus/Run/StartRequest`) and a
+new `ErrorCode.WATCH_ALREADY_ACTIVE` flow through the tri-boundary generator as usual.
+
+**Paid-for lesson (trap 36).** Coverage under SQLAlchemy's async layer mis-attributes the
+line immediately AFTER a greenlet crossing: `return [ ... ]` right after an awaited
+`.execute()` reported as never executed while every line around it was covered. The fix is
+structural, not a pragma sprawl — move post-await shaping into a plain synchronous helper, so
+only the single call line carries a justified pragma and the logic itself is genuinely
+measured. (`localprove.py` documents the same artifact from the other direction.)

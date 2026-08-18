@@ -53,6 +53,7 @@ test("screenshot every view in light and dark", async ({ page, bridge }) => {
     ["run-detail", runUrl],
     ["target", targetUrl],
     ["divergence", divergenceUrl],
+    ["watch", "/?view=watch"],
     ["logs", "/?view=logs"],
     ["settings", "/?view=settings"],
   ];

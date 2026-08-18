@@ -29,6 +29,55 @@ pub mod error {
         }
     }
 }
+#[doc = "One live ping's honest outcome (never stored, never cached)."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"AiKeyTestResult\","]
+#[doc = "  \"description\": \"One live ping's honest outcome (never stored, never cached).\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"detail\","]
+#[doc = "    \"ok\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"detail\": {"]
+#[doc = "      \"title\": \"Detail\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"model\": {"]
+#[doc = "      \"title\": \"Model\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"ok\": {"]
+#[doc = "      \"title\": \"Ok\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct AiKeyTestResult {
+    pub detail: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<::std::string::String>,
+    pub ok: bool,
+}
+impl AiKeyTestResult {
+    pub fn builder() -> builder::AiKeyTestResult {
+        Default::default()
+    }
+}
 #[doc = "`Base`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -316,6 +365,50 @@ pub struct CancelAccepted {
 }
 impl CancelAccepted {
     pub fn builder() -> builder::CancelAccepted {
+        Default::default()
+    }
+}
+#[doc = "A written, redacted diagnostic archive. `filename` is a bare name inside the data\ndir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"DiagnosticBundle\","]
+#[doc = "  \"description\": \"A written, redacted diagnostic archive. `filename` is a bare name inside the data\\ndir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"bytes\","]
+#[doc = "    \"filename\","]
+#[doc = "    \"manifest\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"bytes\": {"]
+#[doc = "      \"title\": \"Bytes\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"filename\": {"]
+#[doc = "      \"title\": \"Filename\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"manifest\": {"]
+#[doc = "      \"title\": \"Manifest\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct DiagnosticBundle {
+    pub bytes: i32,
+    pub filename: ::std::string::String,
+    pub manifest: ::std::string::String,
+}
+impl DiagnosticBundle {
+    pub fn builder() -> builder::DiagnosticBundle {
         Default::default()
     }
 }
@@ -623,6 +716,42 @@ impl DivergenceSummary {
         Default::default()
     }
 }
+#[doc = "One setting the process environment is currently forcing. Named, never hidden: the\nscreen disables that control and says which variable to unset."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"EnvOverride\","]
+#[doc = "  \"description\": \"One setting the process environment is currently forcing. Named, never hidden: the\\nscreen disables that control and says which variable to unset.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"field\","]
+#[doc = "    \"variable\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"field\": {"]
+#[doc = "      \"title\": \"Field\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"variable\": {"]
+#[doc = "      \"title\": \"Variable\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct EnvOverride {
+    pub field: ::std::string::String,
+    pub variable: ::std::string::String,
+}
+impl EnvOverride {
+    pub fn builder() -> builder::EnvOverride {
+        Default::default()
+    }
+}
 #[doc = "`ErrorBody`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -692,6 +821,7 @@ impl ErrorBody {
 #[doc = "    \"REPO_NOT_FOUND\","]
 #[doc = "    \"REF_NOT_FOUND\","]
 #[doc = "    \"RUN_NOT_ACTIVE\","]
+#[doc = "    \"WATCH_ALREADY_ACTIVE\","]
 #[doc = "    \"INTERNAL\""]
 #[doc = "  ]"]
 #[doc = "}"]
@@ -731,6 +861,8 @@ pub enum ErrorCode {
     RefNotFound,
     #[serde(rename = "RUN_NOT_ACTIVE")]
     RunNotActive,
+    #[serde(rename = "WATCH_ALREADY_ACTIVE")]
+    WatchAlreadyActive,
     #[serde(rename = "INTERNAL")]
     Internal,
 }
@@ -747,6 +879,7 @@ impl ::std::fmt::Display for ErrorCode {
             Self::RepoNotFound => f.write_str("REPO_NOT_FOUND"),
             Self::RefNotFound => f.write_str("REF_NOT_FOUND"),
             Self::RunNotActive => f.write_str("RUN_NOT_ACTIVE"),
+            Self::WatchAlreadyActive => f.write_str("WATCH_ALREADY_ACTIVE"),
             Self::Internal => f.write_str("INTERNAL"),
         }
     }
@@ -765,6 +898,7 @@ impl ::std::str::FromStr for ErrorCode {
             "REPO_NOT_FOUND" => Ok(Self::RepoNotFound),
             "REF_NOT_FOUND" => Ok(Self::RefNotFound),
             "RUN_NOT_ACTIVE" => Ok(Self::RunNotActive),
+            "WATCH_ALREADY_ACTIVE" => Ok(Self::WatchAlreadyActive),
             "INTERNAL" => Ok(Self::Internal),
             _ => Err("invalid value".into()),
         }
@@ -1012,6 +1146,43 @@ impl HealthResponse {
         Default::default()
     }
 }
+#[doc = "`HttpValidationError`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"HTTPValidationError\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"detail\": {"]
+#[doc = "      \"title\": \"Detail\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/ValidationError\""]
+#[doc = "      }"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct HttpValidationError {
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub detail: ::std::vec::Vec<ValidationError>,
+}
+impl ::std::default::Default for HttpValidationError {
+    fn default() -> Self {
+        Self {
+            detail: Default::default(),
+        }
+    }
+}
+impl HttpValidationError {
+    pub fn builder() -> builder::HttpValidationError {
+        Default::default()
+    }
+}
 #[doc = "`Lang`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -1139,6 +1310,44 @@ pub struct LocalProveRequest {
 impl LocalProveRequest {
     pub fn builder() -> builder::LocalProveRequest {
         Default::default()
+    }
+}
+#[doc = "`LocationItem`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"anyOf\": ["]
+#[doc = "    {"]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  ]"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+#[serde(untagged)]
+pub enum LocationItem {
+    String(::std::string::String),
+    Integer(i32),
+}
+impl ::std::fmt::Display for LocationItem {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match self {
+            Self::String(x) => x.fmt(f),
+            Self::Integer(x) => x.fmt(f),
+        }
+    }
+}
+impl ::std::convert::From<i32> for LocationItem {
+    fn from(value: i32) -> Self {
+        Self::Integer(value)
     }
 }
 #[doc = "`LogRecordOut`"]
@@ -2176,6 +2385,319 @@ impl<'de> ::serde::Deserialize<'de> for ServerUrl {
             })
     }
 }
+#[doc = "A full replacement of the stored document — the screen always sends every field, so\n\"unset\" is expressible and partial-update ambiguity cannot exist."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SettingsIn\","]
+#[doc = "  \"description\": \"A full replacement of the stored document — the screen always sends every field, so\\n\\\"unset\\\" is expressible and partial-update ambiguity cannot exist.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"bundle_budget_bytes\": {"]
+#[doc = "      \"title\": \"Bundle Budget Bytes\","]
+#[doc = "      \"default\": 0,"]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"sync_server_url\": {"]
+#[doc = "      \"title\": \"Sync Server Url\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\","]
+#[doc = "          \"maxLength\": 2000"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"sync_share_source\": {"]
+#[doc = "      \"title\": \"Sync Share Source\","]
+#[doc = "      \"default\": false,"]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"telemetry_enabled\": {"]
+#[doc = "      \"title\": \"Telemetry Enabled\","]
+#[doc = "      \"default\": false,"]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SettingsIn {
+    #[serde(default)]
+    pub bundle_budget_bytes: i32,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sync_server_url: ::std::option::Option<SettingsInSyncServerUrl>,
+    #[serde(default)]
+    pub sync_share_source: bool,
+    #[serde(default)]
+    pub telemetry_enabled: bool,
+}
+impl ::std::default::Default for SettingsIn {
+    fn default() -> Self {
+        Self {
+            bundle_budget_bytes: Default::default(),
+            sync_server_url: Default::default(),
+            sync_share_source: Default::default(),
+            telemetry_enabled: Default::default(),
+        }
+    }
+}
+impl SettingsIn {
+    pub fn builder() -> builder::SettingsIn {
+        Default::default()
+    }
+}
+#[doc = "`SettingsInSyncServerUrl`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"maxLength\": 2000"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, specta :: Type,
+)]
+#[serde(transparent)]
+pub struct SettingsInSyncServerUrl(::std::string::String);
+impl ::std::ops::Deref for SettingsInSyncServerUrl {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SettingsInSyncServerUrl> for ::std::string::String {
+    fn from(value: SettingsInSyncServerUrl) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SettingsInSyncServerUrl {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SettingsInSyncServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SettingsInSyncServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SettingsInSyncServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SettingsInSyncServerUrl {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`SettingsOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SettingsOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"data_dir\","]
+#[doc = "    \"env_overrides\","]
+#[doc = "    \"store_bytes\","]
+#[doc = "    \"version\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"bundle_budget_bytes\": {"]
+#[doc = "      \"title\": \"Bundle Budget Bytes\","]
+#[doc = "      \"default\": 0,"]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"data_dir\": {"]
+#[doc = "      \"title\": \"Data Dir\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"env_overrides\": {"]
+#[doc = "      \"title\": \"Env Overrides\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/EnvOverride\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"problem\": {"]
+#[doc = "      \"title\": \"Problem\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"store_bytes\": {"]
+#[doc = "      \"title\": \"Store Bytes\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"sync_server_url\": {"]
+#[doc = "      \"title\": \"Sync Server Url\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\","]
+#[doc = "          \"maxLength\": 2000"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"sync_share_source\": {"]
+#[doc = "      \"title\": \"Sync Share Source\","]
+#[doc = "      \"default\": false,"]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"telemetry_enabled\": {"]
+#[doc = "      \"title\": \"Telemetry Enabled\","]
+#[doc = "      \"default\": false,"]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"version\": {"]
+#[doc = "      \"title\": \"Version\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SettingsOut {
+    #[serde(default)]
+    pub bundle_budget_bytes: i32,
+    pub data_dir: ::std::string::String,
+    pub env_overrides: ::std::vec::Vec<EnvOverride>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub problem: ::std::option::Option<::std::string::String>,
+    pub store_bytes: i32,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sync_server_url: ::std::option::Option<SettingsOutSyncServerUrl>,
+    #[serde(default)]
+    pub sync_share_source: bool,
+    #[serde(default)]
+    pub telemetry_enabled: bool,
+    pub version: i32,
+}
+impl SettingsOut {
+    pub fn builder() -> builder::SettingsOut {
+        Default::default()
+    }
+}
+#[doc = "`SettingsOutSyncServerUrl`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"maxLength\": 2000"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, specta :: Type,
+)]
+#[serde(transparent)]
+pub struct SettingsOutSyncServerUrl(::std::string::String);
+impl ::std::ops::Deref for SettingsOutSyncServerUrl {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<SettingsOutSyncServerUrl> for ::std::string::String {
+    fn from(value: SettingsOutSyncServerUrl) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for SettingsOutSyncServerUrl {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for SettingsOutSyncServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for SettingsOutSyncServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for SettingsOutSyncServerUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for SettingsOutSyncServerUrl {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 #[doc = "Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -2717,6 +3239,71 @@ impl TempestDomain {
         Default::default()
     }
 }
+#[doc = "`ValidationError`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ValidationError\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"loc\","]
+#[doc = "    \"msg\","]
+#[doc = "    \"type\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"ctx\": {"]
+#[doc = "      \"title\": \"Context\","]
+#[doc = "      \"type\": \"object\""]
+#[doc = "    },"]
+#[doc = "    \"input\": {"]
+#[doc = "      \"title\": \"Input\""]
+#[doc = "    },"]
+#[doc = "    \"loc\": {"]
+#[doc = "      \"title\": \"Location\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"anyOf\": ["]
+#[doc = "          {"]
+#[doc = "            \"type\": \"string\""]
+#[doc = "          },"]
+#[doc = "          {"]
+#[doc = "            \"type\": \"integer\","]
+#[doc = "            \"maximum\": 2147483647.0,"]
+#[doc = "            \"minimum\": -2147483648.0"]
+#[doc = "          }"]
+#[doc = "        ]"]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"msg\": {"]
+#[doc = "      \"title\": \"Message\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"type\": {"]
+#[doc = "      \"title\": \"Error Type\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ValidationError {
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub ctx: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub input: ::std::option::Option<::serde_json::Value>,
+    pub loc: ::std::vec::Vec<LocationItem>,
+    pub msg: ::std::string::String,
+    #[serde(rename = "type")]
+    pub type_: ::std::string::String,
+}
+impl ValidationError {
+    pub fn builder() -> builder::ValidationError {
+        Default::default()
+    }
+}
 #[doc = "The only verdicts Tempest can emit (Law L2)."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -2802,8 +3389,301 @@ impl ::std::convert::TryFrom<::std::string::String> for Verdict {
         value.parse()
     }
 }
+#[doc = "One proven commit in this session, read back from its run row."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"WatchRun\","]
+#[doc = "  \"description\": \"One proven commit in this session, read back from its run row.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"divergence_count\","]
+#[doc = "    \"head_sha\","]
+#[doc = "    \"run_id\","]
+#[doc = "    \"status\","]
+#[doc = "    \"verdict\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"divergence_count\": {"]
+#[doc = "      \"title\": \"Divergence Count\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"head_sha\": {"]
+#[doc = "      \"title\": \"Head Sha\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"run_id\": {"]
+#[doc = "      \"title\": \"Run Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"status\": {"]
+#[doc = "      \"$ref\": \"#/$defs/RunStatus\""]
+#[doc = "    },"]
+#[doc = "    \"verdict\": {"]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"$ref\": \"#/$defs/Verdict\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct WatchRun {
+    pub divergence_count: i32,
+    pub head_sha: ::std::string::String,
+    pub run_id: i32,
+    pub status: RunStatus,
+    pub verdict: ::std::option::Option<Verdict>,
+}
+impl WatchRun {
+    pub fn builder() -> builder::WatchRun {
+        Default::default()
+    }
+}
+#[doc = "`WatchStartRequest`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"WatchStartRequest\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"repo_path\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"interval_seconds\": {"]
+#[doc = "      \"title\": \"Interval Seconds\","]
+#[doc = "      \"default\": 15,"]
+#[doc = "      \"type\": \"number\","]
+#[doc = "      \"maximum\": 3600.0,"]
+#[doc = "      \"minimum\": 1.0"]
+#[doc = "    },"]
+#[doc = "    \"max_inputs\": {"]
+#[doc = "      \"title\": \"Max Inputs\","]
+#[doc = "      \"default\": 300,"]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"repo_path\": {"]
+#[doc = "      \"title\": \"Repo Path\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"minLength\": 1"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct WatchStartRequest {
+    #[serde(default = "defaults::watch_start_request_interval_seconds")]
+    pub interval_seconds: f64,
+    #[serde(default = "defaults::default_u64::<i32, 300>")]
+    pub max_inputs: i32,
+    pub repo_path: RepoPath,
+}
+impl WatchStartRequest {
+    pub fn builder() -> builder::WatchStartRequest {
+        Default::default()
+    }
+}
+#[doc = "`WatchStatus`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"WatchStatus\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"active_run_id\","]
+#[doc = "    \"interval_seconds\","]
+#[doc = "    \"last_sha\","]
+#[doc = "    \"problem\","]
+#[doc = "    \"repo_name\","]
+#[doc = "    \"repo_path\","]
+#[doc = "    \"runs\","]
+#[doc = "    \"watching\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"active_run_id\": {"]
+#[doc = "      \"title\": \"Active Run Id\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"integer\","]
+#[doc = "          \"maximum\": 2147483647.0,"]
+#[doc = "          \"minimum\": -2147483648.0"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"interval_seconds\": {"]
+#[doc = "      \"title\": \"Interval Seconds\","]
+#[doc = "      \"type\": \"number\""]
+#[doc = "    },"]
+#[doc = "    \"last_sha\": {"]
+#[doc = "      \"title\": \"Last Sha\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"problem\": {"]
+#[doc = "      \"title\": \"Problem\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"repo_name\": {"]
+#[doc = "      \"title\": \"Repo Name\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"repo_path\": {"]
+#[doc = "      \"title\": \"Repo Path\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"runs\": {"]
+#[doc = "      \"title\": \"Runs\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/WatchRun\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"watching\": {"]
+#[doc = "      \"title\": \"Watching\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct WatchStatus {
+    pub active_run_id: ::std::option::Option<i32>,
+    pub interval_seconds: f64,
+    pub last_sha: ::std::option::Option<::std::string::String>,
+    pub problem: ::std::option::Option<::std::string::String>,
+    pub repo_name: ::std::option::Option<::std::string::String>,
+    pub repo_path: ::std::option::Option<::std::string::String>,
+    pub runs: ::std::vec::Vec<WatchRun>,
+    pub watching: bool,
+}
+impl WatchStatus {
+    pub fn builder() -> builder::WatchStatus {
+        Default::default()
+    }
+}
 #[doc = r" Types for composing complex structures."]
 pub mod builder {
+    #[derive(Clone, Debug)]
+    pub struct AiKeyTestResult {
+        detail: ::std::result::Result<::std::string::String, ::std::string::String>,
+        model: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        ok: ::std::result::Result<bool, ::std::string::String>,
+    }
+    impl ::std::default::Default for AiKeyTestResult {
+        fn default() -> Self {
+            Self {
+                detail: Err("no value supplied for detail".to_string()),
+                model: Ok(Default::default()),
+                ok: Err("no value supplied for ok".to_string()),
+            }
+        }
+    }
+    impl AiKeyTestResult {
+        pub fn detail<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.detail = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for detail: {e}"));
+            self
+        }
+        pub fn model<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.model = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for model: {e}"));
+            self
+        }
+        pub fn ok<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.ok = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for ok: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<AiKeyTestResult> for super::AiKeyTestResult {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: AiKeyTestResult,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                detail: value.detail?,
+                model: value.model?,
+                ok: value.ok?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::AiKeyTestResult> for AiKeyTestResult {
+        fn from(value: super::AiKeyTestResult) -> Self {
+            Self {
+                detail: Ok(value.detail),
+                model: Ok(value.model),
+                ok: Ok(value.ok),
+            }
+        }
+    }
     #[derive(Clone, Debug)]
     pub struct BodyImportRunBundle {
         file: ::std::result::Result<::std::string::String, ::std::string::String>,
@@ -2990,6 +3870,74 @@ pub mod builder {
             Self {
                 cancelling: Ok(value.cancelling),
                 run_id: Ok(value.run_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct DiagnosticBundle {
+        bytes: ::std::result::Result<i32, ::std::string::String>,
+        filename: ::std::result::Result<::std::string::String, ::std::string::String>,
+        manifest: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for DiagnosticBundle {
+        fn default() -> Self {
+            Self {
+                bytes: Err("no value supplied for bytes".to_string()),
+                filename: Err("no value supplied for filename".to_string()),
+                manifest: Err("no value supplied for manifest".to_string()),
+            }
+        }
+    }
+    impl DiagnosticBundle {
+        pub fn bytes<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.bytes = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for bytes: {e}"));
+            self
+        }
+        pub fn filename<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.filename = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for filename: {e}"));
+            self
+        }
+        pub fn manifest<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.manifest = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for manifest: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<DiagnosticBundle> for super::DiagnosticBundle {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: DiagnosticBundle,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                bytes: value.bytes?,
+                filename: value.filename?,
+                manifest: value.manifest?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::DiagnosticBundle> for DiagnosticBundle {
+        fn from(value: super::DiagnosticBundle) -> Self {
+            Self {
+                bytes: Ok(value.bytes),
+                filename: Ok(value.filename),
+                manifest: Ok(value.manifest),
             }
         }
     }
@@ -3358,6 +4306,60 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct EnvOverride {
+        field: ::std::result::Result<::std::string::String, ::std::string::String>,
+        variable: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for EnvOverride {
+        fn default() -> Self {
+            Self {
+                field: Err("no value supplied for field".to_string()),
+                variable: Err("no value supplied for variable".to_string()),
+            }
+        }
+    }
+    impl EnvOverride {
+        pub fn field<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.field = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for field: {e}"));
+            self
+        }
+        pub fn variable<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.variable = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for variable: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<EnvOverride> for super::EnvOverride {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: EnvOverride,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                field: value.field?,
+                variable: value.variable?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::EnvOverride> for EnvOverride {
+        fn from(value: super::EnvOverride) -> Self {
+            Self {
+                field: Ok(value.field),
+                variable: Ok(value.variable),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct ErrorBody {
         code: ::std::result::Result<super::ErrorCode, ::std::string::String>,
         details: ::std::result::Result<
@@ -3537,6 +4539,47 @@ pub mod builder {
                 engine_version: Ok(value.engine_version),
                 schema_version: Ok(value.schema_version),
                 status: Ok(value.status),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct HttpValidationError {
+        detail:
+            ::std::result::Result<::std::vec::Vec<super::ValidationError>, ::std::string::String>,
+    }
+    impl ::std::default::Default for HttpValidationError {
+        fn default() -> Self {
+            Self {
+                detail: Ok(Default::default()),
+            }
+        }
+    }
+    impl HttpValidationError {
+        pub fn detail<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::ValidationError>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.detail = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for detail: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<HttpValidationError> for super::HttpValidationError {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: HttpValidationError,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                detail: value.detail?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::HttpValidationError> for HttpValidationError {
+        fn from(value: super::HttpValidationError) -> Self {
+            Self {
+                detail: Ok(value.detail),
             }
         }
     }
@@ -4597,6 +5640,250 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct SettingsIn {
+        bundle_budget_bytes: ::std::result::Result<i32, ::std::string::String>,
+        sync_server_url: ::std::result::Result<
+            ::std::option::Option<super::SettingsInSyncServerUrl>,
+            ::std::string::String,
+        >,
+        sync_share_source: ::std::result::Result<bool, ::std::string::String>,
+        telemetry_enabled: ::std::result::Result<bool, ::std::string::String>,
+    }
+    impl ::std::default::Default for SettingsIn {
+        fn default() -> Self {
+            Self {
+                bundle_budget_bytes: Ok(Default::default()),
+                sync_server_url: Ok(Default::default()),
+                sync_share_source: Ok(Default::default()),
+                telemetry_enabled: Ok(Default::default()),
+            }
+        }
+    }
+    impl SettingsIn {
+        pub fn bundle_budget_bytes<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.bundle_budget_bytes = value.try_into().map_err(|e| {
+                format!("error converting supplied value for bundle_budget_bytes: {e}")
+            });
+            self
+        }
+        pub fn sync_server_url<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::SettingsInSyncServerUrl>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.sync_server_url = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for sync_server_url: {e}"));
+            self
+        }
+        pub fn sync_share_source<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.sync_share_source = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for sync_share_source: {e}"));
+            self
+        }
+        pub fn telemetry_enabled<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.telemetry_enabled = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for telemetry_enabled: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SettingsIn> for super::SettingsIn {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SettingsIn,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                bundle_budget_bytes: value.bundle_budget_bytes?,
+                sync_server_url: value.sync_server_url?,
+                sync_share_source: value.sync_share_source?,
+                telemetry_enabled: value.telemetry_enabled?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SettingsIn> for SettingsIn {
+        fn from(value: super::SettingsIn) -> Self {
+            Self {
+                bundle_budget_bytes: Ok(value.bundle_budget_bytes),
+                sync_server_url: Ok(value.sync_server_url),
+                sync_share_source: Ok(value.sync_share_source),
+                telemetry_enabled: Ok(value.telemetry_enabled),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SettingsOut {
+        bundle_budget_bytes: ::std::result::Result<i32, ::std::string::String>,
+        data_dir: ::std::result::Result<::std::string::String, ::std::string::String>,
+        env_overrides:
+            ::std::result::Result<::std::vec::Vec<super::EnvOverride>, ::std::string::String>,
+        problem: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        store_bytes: ::std::result::Result<i32, ::std::string::String>,
+        sync_server_url: ::std::result::Result<
+            ::std::option::Option<super::SettingsOutSyncServerUrl>,
+            ::std::string::String,
+        >,
+        sync_share_source: ::std::result::Result<bool, ::std::string::String>,
+        telemetry_enabled: ::std::result::Result<bool, ::std::string::String>,
+        version: ::std::result::Result<i32, ::std::string::String>,
+    }
+    impl ::std::default::Default for SettingsOut {
+        fn default() -> Self {
+            Self {
+                bundle_budget_bytes: Ok(Default::default()),
+                data_dir: Err("no value supplied for data_dir".to_string()),
+                env_overrides: Err("no value supplied for env_overrides".to_string()),
+                problem: Ok(Default::default()),
+                store_bytes: Err("no value supplied for store_bytes".to_string()),
+                sync_server_url: Ok(Default::default()),
+                sync_share_source: Ok(Default::default()),
+                telemetry_enabled: Ok(Default::default()),
+                version: Err("no value supplied for version".to_string()),
+            }
+        }
+    }
+    impl SettingsOut {
+        pub fn bundle_budget_bytes<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.bundle_budget_bytes = value.try_into().map_err(|e| {
+                format!("error converting supplied value for bundle_budget_bytes: {e}")
+            });
+            self
+        }
+        pub fn data_dir<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.data_dir = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for data_dir: {e}"));
+            self
+        }
+        pub fn env_overrides<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::EnvOverride>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.env_overrides = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for env_overrides: {e}"));
+            self
+        }
+        pub fn problem<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.problem = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for problem: {e}"));
+            self
+        }
+        pub fn store_bytes<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.store_bytes = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for store_bytes: {e}"));
+            self
+        }
+        pub fn sync_server_url<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::SettingsOutSyncServerUrl>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.sync_server_url = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for sync_server_url: {e}"));
+            self
+        }
+        pub fn sync_share_source<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.sync_share_source = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for sync_share_source: {e}"));
+            self
+        }
+        pub fn telemetry_enabled<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.telemetry_enabled = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for telemetry_enabled: {e}"));
+            self
+        }
+        pub fn version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.version = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for version: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SettingsOut> for super::SettingsOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SettingsOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                bundle_budget_bytes: value.bundle_budget_bytes?,
+                data_dir: value.data_dir?,
+                env_overrides: value.env_overrides?,
+                problem: value.problem?,
+                store_bytes: value.store_bytes?,
+                sync_server_url: value.sync_server_url?,
+                sync_share_source: value.sync_share_source?,
+                telemetry_enabled: value.telemetry_enabled?,
+                version: value.version?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SettingsOut> for SettingsOut {
+        fn from(value: super::SettingsOut) -> Self {
+            Self {
+                bundle_budget_bytes: Ok(value.bundle_budget_bytes),
+                data_dir: Ok(value.data_dir),
+                env_overrides: Ok(value.env_overrides),
+                problem: Ok(value.problem),
+                store_bytes: Ok(value.store_bytes),
+                sync_server_url: Ok(value.sync_server_url),
+                sync_share_source: Ok(value.sync_share_source),
+                telemetry_enabled: Ok(value.telemetry_enabled),
+                version: Ok(value.version),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct SyncPushRequest {
         server_url: ::std::result::Result<super::ServerUrl, ::std::string::String>,
     }
@@ -5208,14 +6495,441 @@ pub mod builder {
             Self {}
         }
     }
+    #[derive(Clone, Debug)]
+    pub struct ValidationError {
+        ctx: ::std::result::Result<
+            ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            ::std::string::String,
+        >,
+        input: ::std::result::Result<
+            ::std::option::Option<::serde_json::Value>,
+            ::std::string::String,
+        >,
+        loc: ::std::result::Result<::std::vec::Vec<super::LocationItem>, ::std::string::String>,
+        msg: ::std::result::Result<::std::string::String, ::std::string::String>,
+        type_: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for ValidationError {
+        fn default() -> Self {
+            Self {
+                ctx: Ok(Default::default()),
+                input: Ok(Default::default()),
+                loc: Err("no value supplied for loc".to_string()),
+                msg: Err("no value supplied for msg".to_string()),
+                type_: Err("no value supplied for type_".to_string()),
+            }
+        }
+    }
+    impl ValidationError {
+        pub fn ctx<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.ctx = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for ctx: {e}"));
+            self
+        }
+        pub fn input<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::serde_json::Value>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.input = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for input: {e}"));
+            self
+        }
+        pub fn loc<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::LocationItem>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.loc = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for loc: {e}"));
+            self
+        }
+        pub fn msg<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.msg = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for msg: {e}"));
+            self
+        }
+        pub fn type_<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.type_ = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for type_: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ValidationError> for super::ValidationError {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ValidationError,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                ctx: value.ctx?,
+                input: value.input?,
+                loc: value.loc?,
+                msg: value.msg?,
+                type_: value.type_?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ValidationError> for ValidationError {
+        fn from(value: super::ValidationError) -> Self {
+            Self {
+                ctx: Ok(value.ctx),
+                input: Ok(value.input),
+                loc: Ok(value.loc),
+                msg: Ok(value.msg),
+                type_: Ok(value.type_),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct WatchRun {
+        divergence_count: ::std::result::Result<i32, ::std::string::String>,
+        head_sha: ::std::result::Result<::std::string::String, ::std::string::String>,
+        run_id: ::std::result::Result<i32, ::std::string::String>,
+        status: ::std::result::Result<super::RunStatus, ::std::string::String>,
+        verdict:
+            ::std::result::Result<::std::option::Option<super::Verdict>, ::std::string::String>,
+    }
+    impl ::std::default::Default for WatchRun {
+        fn default() -> Self {
+            Self {
+                divergence_count: Err("no value supplied for divergence_count".to_string()),
+                head_sha: Err("no value supplied for head_sha".to_string()),
+                run_id: Err("no value supplied for run_id".to_string()),
+                status: Err("no value supplied for status".to_string()),
+                verdict: Err("no value supplied for verdict".to_string()),
+            }
+        }
+    }
+    impl WatchRun {
+        pub fn divergence_count<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.divergence_count = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for divergence_count: {e}"));
+            self
+        }
+        pub fn head_sha<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.head_sha = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for head_sha: {e}"));
+            self
+        }
+        pub fn run_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.run_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for run_id: {e}"));
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::RunStatus>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+        pub fn verdict<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<super::Verdict>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.verdict = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for verdict: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<WatchRun> for super::WatchRun {
+        type Error = super::error::ConversionError;
+        fn try_from(value: WatchRun) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                divergence_count: value.divergence_count?,
+                head_sha: value.head_sha?,
+                run_id: value.run_id?,
+                status: value.status?,
+                verdict: value.verdict?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::WatchRun> for WatchRun {
+        fn from(value: super::WatchRun) -> Self {
+            Self {
+                divergence_count: Ok(value.divergence_count),
+                head_sha: Ok(value.head_sha),
+                run_id: Ok(value.run_id),
+                status: Ok(value.status),
+                verdict: Ok(value.verdict),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct WatchStartRequest {
+        interval_seconds: ::std::result::Result<f64, ::std::string::String>,
+        max_inputs: ::std::result::Result<i32, ::std::string::String>,
+        repo_path: ::std::result::Result<super::RepoPath, ::std::string::String>,
+    }
+    impl ::std::default::Default for WatchStartRequest {
+        fn default() -> Self {
+            Self {
+                interval_seconds: Ok(super::defaults::watch_start_request_interval_seconds()),
+                max_inputs: Ok(super::defaults::default_u64::<i32, 300>()),
+                repo_path: Err("no value supplied for repo_path".to_string()),
+            }
+        }
+    }
+    impl WatchStartRequest {
+        pub fn interval_seconds<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<f64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.interval_seconds = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for interval_seconds: {e}"));
+            self
+        }
+        pub fn max_inputs<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.max_inputs = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for max_inputs: {e}"));
+            self
+        }
+        pub fn repo_path<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::RepoPath>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.repo_path = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for repo_path: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<WatchStartRequest> for super::WatchStartRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: WatchStartRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                interval_seconds: value.interval_seconds?,
+                max_inputs: value.max_inputs?,
+                repo_path: value.repo_path?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::WatchStartRequest> for WatchStartRequest {
+        fn from(value: super::WatchStartRequest) -> Self {
+            Self {
+                interval_seconds: Ok(value.interval_seconds),
+                max_inputs: Ok(value.max_inputs),
+                repo_path: Ok(value.repo_path),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct WatchStatus {
+        active_run_id: ::std::result::Result<::std::option::Option<i32>, ::std::string::String>,
+        interval_seconds: ::std::result::Result<f64, ::std::string::String>,
+        last_sha: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        problem: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        repo_name: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        repo_path: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        runs: ::std::result::Result<::std::vec::Vec<super::WatchRun>, ::std::string::String>,
+        watching: ::std::result::Result<bool, ::std::string::String>,
+    }
+    impl ::std::default::Default for WatchStatus {
+        fn default() -> Self {
+            Self {
+                active_run_id: Err("no value supplied for active_run_id".to_string()),
+                interval_seconds: Err("no value supplied for interval_seconds".to_string()),
+                last_sha: Err("no value supplied for last_sha".to_string()),
+                problem: Err("no value supplied for problem".to_string()),
+                repo_name: Err("no value supplied for repo_name".to_string()),
+                repo_path: Err("no value supplied for repo_path".to_string()),
+                runs: Err("no value supplied for runs".to_string()),
+                watching: Err("no value supplied for watching".to_string()),
+            }
+        }
+    }
+    impl WatchStatus {
+        pub fn active_run_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<i32>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.active_run_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for active_run_id: {e}"));
+            self
+        }
+        pub fn interval_seconds<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<f64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.interval_seconds = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for interval_seconds: {e}"));
+            self
+        }
+        pub fn last_sha<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.last_sha = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for last_sha: {e}"));
+            self
+        }
+        pub fn problem<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.problem = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for problem: {e}"));
+            self
+        }
+        pub fn repo_name<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.repo_name = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for repo_name: {e}"));
+            self
+        }
+        pub fn repo_path<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.repo_path = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for repo_path: {e}"));
+            self
+        }
+        pub fn runs<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::WatchRun>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.runs = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for runs: {e}"));
+            self
+        }
+        pub fn watching<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.watching = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for watching: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<WatchStatus> for super::WatchStatus {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: WatchStatus,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                active_run_id: value.active_run_id?,
+                interval_seconds: value.interval_seconds?,
+                last_sha: value.last_sha?,
+                problem: value.problem?,
+                repo_name: value.repo_name?,
+                repo_path: value.repo_path?,
+                runs: value.runs?,
+                watching: value.watching?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::WatchStatus> for WatchStatus {
+        fn from(value: super::WatchStatus) -> Self {
+            Self {
+                active_run_id: Ok(value.active_run_id),
+                interval_seconds: Ok(value.interval_seconds),
+                last_sha: Ok(value.last_sha),
+                problem: Ok(value.problem),
+                repo_name: Ok(value.repo_name),
+                repo_path: Ok(value.repo_path),
+                runs: Ok(value.runs),
+                watching: Ok(value.watching),
+            }
+        }
+    }
 }
 #[doc = r" Generation of default values for serde."]
 pub mod defaults {
+    pub(super) fn default_i64<T, const V: i64>() -> T
+    where
+        T: ::std::convert::TryFrom<i64>,
+        <T as ::std::convert::TryFrom<i64>>::Error: ::std::fmt::Debug,
+    {
+        T::try_from(V).unwrap()
+    }
     pub(super) fn default_u64<T, const V: u64>() -> T
     where
         T: ::std::convert::TryFrom<u64>,
         <T as ::std::convert::TryFrom<u64>>::Error: ::std::fmt::Debug,
     {
         T::try_from(V).unwrap()
+    }
+    pub(super) fn watch_start_request_interval_seconds() -> f64 {
+        15_f64
     }
 }

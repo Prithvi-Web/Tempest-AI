@@ -3,6 +3,8 @@ interface Window {
   __E2E__: {
     /** Deliver a host-emitted Tauri event to in-page listeners; returns delivery count. */
     emit(name: string, payload: unknown): number;
+    /** Every `reveal_in_data_dir` argument the UI has sent (null = the data folder itself). */
+    revealed: (string | null)[];
   };
   __E2E_BRIDGE_URL__?: string;
   /** Installed by src/devValidate.ts in dev builds (Boundary B deep validation). */

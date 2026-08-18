@@ -9,7 +9,18 @@ import tempest
 from tempest_api.db import create_engine_and_factory, database_url
 from tempest_api.db.local_store import check_not_newer, prepare_local_store
 from tempest_api.errors import install_error_handlers
-from tempest_api.routers import divergences, health, local, logs, runs, search, sync, targets
+from tempest_api.routers import (
+    divergences,
+    health,
+    local,
+    logs,
+    runs,
+    search,
+    settings,
+    sync,
+    targets,
+    watch,
+)
 
 
 @asynccontextmanager
@@ -57,4 +68,6 @@ def create_app() -> FastAPI:
     app.include_router(search.router)
     app.include_router(logs.router)
     app.include_router(sync.router)
+    app.include_router(settings.router)
+    app.include_router(watch.router)
     return app

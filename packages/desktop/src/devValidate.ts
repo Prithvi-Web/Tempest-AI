@@ -57,6 +57,16 @@ const RESULT_SCHEMAS: Record<string, object> = {
   searchDivergences: def("SearchResults"),
   cancelRun: def("CancelAccepted"),
   listLogRecords: listOf("LogRecordOut"),
+  getSettings: def("SettingsOut"),
+  updateSettings: def("SettingsOut"),
+  testAiKey: def("AiKeyTestResult"),
+  syncPush: def("SyncReport"),
+  exportDiagnostics: def("DiagnosticBundle"),
+  // Host-side action with no payload: the contract IS "nothing came back".
+  revealInDataDir: { type: "null" },
+  getWatchStatus: def("WatchStatus"),
+  startWatch: def("WatchStatus"),
+  stopWatch: def("WatchStatus"),
 };
 
 const compiled = new Map<string, ValidateFunction>();

@@ -39,3 +39,91 @@ test("the API key has a clear home: reject junk, save, recognize, remove", async
   await expect(page.getByRole("textbox", { name: "API key" })).toBeVisible();
   await expect(page.getByText("Key configured")).toHaveCount(0);
 });
+
+test("the key can be tested live, and the answer is stated plainly", async ({ page }) => {
+  await page.goto("/?view=settings");
+  await page.getByRole("textbox", { name: "API key" }).fill(PLANTED_KEY);
+  await page.getByRole("button", { name: "Save key" }).click();
+  await expect(page.getByText("Key configured")).toBeVisible();
+
+  // The engine has no key in ITS environment (the shim's keychain stand-in cannot inject one
+  // into an already-running sidecar — the real host injects at spawn), so the honest answer
+  // is the keyless one. What this pins is the whole round trip: button → host → engine →
+  // rendered sentence, with nothing invented in between.
+  await page.getByRole("button", { name: "Test key" }).click();
+  await expect(page.getByText(/no API key is configured/)).toBeVisible();
+});
+
+test("sync, storage and privacy show REAL configuration and persist it", async ({
+  page,
+  bridge,
+}) => {
+  const info = await bridge.info();
+  await page.goto("/?view=settings");
+
+  // Storage states the truth about this machine: the engine's own data dir, live usage.
+  await expect(page.getByRole("heading", { name: "Storage" })).toBeVisible();
+  await expect(page.getByText(info.dataDir, { exact: false })).toBeVisible();
+  await expect(page.getByText("unlimited")).toBeVisible();
+
+  // Privacy: telemetry is off until the user says otherwise, and saying so sticks.
+  const telemetry = page.getByRole("switch", { name: "Share anonymous usage counters" });
+  await expect(telemetry).not.toBeChecked();
+  await telemetry.check();
+  await expect(telemetry).toBeChecked();
+
+  // Sync: a server URL and the source-sharing default (off — the privacy posture).
+  const shareSource = page.getByRole("switch", {
+    name: "Include source code in pushed bundles",
+  });
+  await expect(shareSource).not.toBeChecked();
+  await page.getByRole("textbox", { name: "Team server URL" }).fill("https://team.example.com");
+  await page.getByRole("textbox", { name: "Team server URL" }).blur();
+  await expect(page.getByRole("button", { name: "Push now" })).toBeEnabled();
+
+  // Everything above is one document in the engine — reload proves it was persisted, not
+  // held in React state.
+  await page.reload();
+  await expect(page.getByRole("switch", { name: "Share anonymous usage counters" })).toBeChecked();
+  await expect(page.getByRole("textbox", { name: "Team server URL" })).toHaveValue(
+    "https://team.example.com",
+  );
+
+  // …and turning it back off persists too (the toggle is not one-way).
+  await page.getByRole("switch", { name: "Share anonymous usage counters" }).uncheck();
+  await page.reload();
+  await expect(
+    page.getByRole("switch", { name: "Share anonymous usage counters" }),
+  ).not.toBeChecked();
+});
+
+test("a bundle budget can be set, and it is stated in human units", async ({ page }) => {
+  await page.goto("/?view=settings");
+  await expect(page.getByText("unlimited")).toBeVisible();
+  // Slider index 1 is the first real budget (100 MB) — set it by keyboard, the way a
+  // keyboard-only user would.
+  const slider = page.getByRole("slider", { name: "Bundle budget" });
+  await slider.focus();
+  await slider.press("ArrowRight");
+  await expect(page.getByText("100.0 MB")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("100.0 MB")).toBeVisible();
+});
+
+test("a diagnostic bundle is written locally, described, and revealable by bare name", async ({
+  page,
+}) => {
+  await page.goto("/?view=settings");
+  await page.getByRole("button", { name: "Export diagnostic bundle" }).click();
+  await expect(page.getByText(/^Wrote tempest-diagnostic-.*\.zip$/)).toBeVisible();
+  await expect(page.getByText(/REVIEW EVERY FILE BEFORE SENDING/)).toBeVisible();
+
+  await page.getByRole("button", { name: "Show in Finder" }).click();
+  const revealed = await page.evaluate(() => window.__E2E__.revealed);
+  expect(revealed).toHaveLength(1);
+  // The UI may only ever name a leaf inside the data folder — never a path (commands.rs).
+  expect(revealed[0]).toMatch(/^tempest-diagnostic-[0-9T]+\.zip$/);
+
+  await page.getByRole("button", { name: "Open data folder" }).click();
+  expect(await page.evaluate(() => window.__E2E__.revealed)).toEqual([revealed[0], null]);
+});

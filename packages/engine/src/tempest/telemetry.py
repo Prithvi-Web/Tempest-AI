@@ -3,7 +3,8 @@
 What is counted: run totals, verdict distribution, sandbox-tier distribution, UNPROVEN
 reason distribution, total duration. Nothing else exists in the payload — no paths, no repo
 names, no source, no timestamps per run (L9 by construction, and re-proven by test). OFF by
-default; `TEMPEST_TELEMETRY=1` opts in. The file never leaves the machine by itself: it is
+default; the user opts in from Settings (`settings.json`) or with `TEMPEST_TELEMETRY=1`, which
+outranks the file (tempest.settings). The file never leaves the machine by itself: it is
 carried only inside the user-inspectable diagnostic bundle, and network transmission arrives
 with the opt-in team sync server (Phase 13) — local mode keeps the L10 zero-egress proof.
 """
@@ -11,6 +12,8 @@ with the opt-in team sync server (Phase 13) — local mode keeps the L10 zero-eg
 import json
 import os
 from pathlib import Path
+
+from tempest.settings import load_effective_or_defaults
 
 __all__ = ["record_run_aggregate", "telemetry_enabled", "telemetry_path"]
 
@@ -24,7 +27,7 @@ def telemetry_path() -> Path:
 
 
 def telemetry_enabled() -> bool:
-    return os.environ.get("TEMPEST_TELEMETRY") == "1"
+    return load_effective_or_defaults().telemetry_enabled
 
 
 def record_run_aggregate(

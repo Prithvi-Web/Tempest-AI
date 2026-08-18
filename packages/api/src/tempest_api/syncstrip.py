@@ -8,15 +8,15 @@ field becomes a deterministic short-hash placeholder (`[stripped:<sha12>]` — c
 across pushes, reversible by nobody), and the summary/detail fields pass through the
 redaction engine with their quoted spans hashed. Structure survives untouched: verdicts,
 counts, classes, severities, and repro filenames — so a stripped bundle still passes
-`parse_bundle_zip` and real server ingest. `TEMPEST_SYNC_SHARE_SOURCE=1` is the explicit org
-opt-in (pushed org policy proper arrives with Phase 14) and passes bytes through untouched.
+`parse_bundle_zip` and real server ingest. Source sharing is the explicit org opt-in (the
+Settings toggle, or `TEMPEST_SYNC_SHARE_SOURCE=1`, which outranks it — tempest.settings;
+pushed org policy proper arrives with Phase 14) and passes bytes through untouched.
 The strip re-writes the zip with the engine's own writer and hashes only content, so a
 stripped bundle is as deterministic as any other — and stripping twice is a no-op."""
 
 import dataclasses
 import hashlib
 import io
-import os
 import re
 import tempfile
 import zipfile
@@ -24,6 +24,7 @@ from pathlib import Path
 
 from tempest.bundle.bundle import DivergenceRecord, RunBundle, read_bundle, write_bundle
 from tempest.redact import RedactionContext, production_context, redact_text
+from tempest.settings import load_effective_or_defaults
 
 _STUB = (
     "# repro script stripped at the sync boundary — org source-sharing policy is OFF\n"
@@ -37,7 +38,7 @@ _QUOTED = re.compile(r"(['\"])((?:(?!\1).)+)\1", re.DOTALL)
 
 
 def source_sharing_enabled() -> bool:
-    return os.environ.get("TEMPEST_SYNC_SHARE_SOURCE") == "1"
+    return load_effective_or_defaults().sync_share_source
 
 
 def _short_hash(value: str) -> str:

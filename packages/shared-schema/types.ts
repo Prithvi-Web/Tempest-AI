@@ -27,6 +27,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/diagnostics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Diagnostics
+         * @description Write a redacted diagnostic archive into `<data dir>/diagnostics/` and describe it.
+         *
+         *     Nothing is transmitted: the file is local, its manifest is returned so the screen can
+         *     show exactly what it contains, and sharing stays the user's deliberate act (L9).
+         */
+        post: operations["exportDiagnostics"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/divergences/{divergence_id}": {
         parameters: {
             query?: never;
@@ -97,6 +120,32 @@ export interface paths {
          */
         post: operations["startLocalProve"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/local/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Watch Status */
+        get: operations["getWatchStatus"];
+        put?: never;
+        /**
+         * Start Watching
+         * @description Arm the loop from this repo's current HEAD. The FIRST proof happens on the NEXT commit —
+         *     watch proves what changes from now on; proving an existing pair is `startLocalProve`.
+         */
+        post: operations["startWatch"];
+        /**
+         * Stop Watching
+         * @description Idempotent. An in-flight prove is cancelled, so Stop means stop (L11).
+         */
+        delete: operations["stopWatch"];
         options?: never;
         head?: never;
         patch?: never;
@@ -273,6 +322,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Settings */
+        get: operations["getSettings"];
+        /**
+         * Update Settings
+         * @description Replace the stored document. Environment overrides still outrank what is saved — the
+         *     response says which fields they are, so the screen never claims a change it cannot make.
+         */
+        put: operations["updateSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/ai-key/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Ai Key
+         * @description One live request to the configured model with the key the host injected at spawn.
+         *     Blocking SDK call, so it runs off the event loop; nothing about it is persisted.
+         */
+        post: operations["testAiKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sync/push": {
         parameters: {
             query?: never;
@@ -315,6 +407,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AiKeyTestResult
+         * @description One live ping's honest outcome (never stored, never cached).
+         */
+        AiKeyTestResult: {
+            /** Detail */
+            detail: string;
+            /** Model */
+            model?: string | null;
+            /** Ok */
+            ok: boolean;
+        };
         /** Body_importRunBundle */
         Body_importRunBundle: {
             /** File */
@@ -346,6 +450,19 @@ export interface components {
             cancelling: boolean;
             /** Run Id */
             run_id: number;
+        };
+        /**
+         * DiagnosticBundle
+         * @description A written, redacted diagnostic archive. `filename` is a bare name inside the data
+         *     dir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path.
+         */
+        DiagnosticBundle: {
+            /** Bytes */
+            bytes: number;
+            /** Filename */
+            filename: string;
+            /** Manifest */
+            manifest: string;
         };
         /**
          * DivergenceClass
@@ -399,6 +516,17 @@ export interface components {
             /** Target Id */
             target_id: number;
         };
+        /**
+         * EnvOverride
+         * @description One setting the process environment is currently forcing. Named, never hidden: the
+         *     screen disables that control and says which variable to unset.
+         */
+        EnvOverride: {
+            /** Field */
+            field: string;
+            /** Variable */
+            variable: string;
+        };
         /** ErrorBody */
         ErrorBody: {
             code: components["schemas"]["ErrorCode"];
@@ -415,10 +543,15 @@ export interface components {
          *     Renderers switch on these; the strings are frozen.
          * @enum {string}
          */
-        ErrorCode: "VALIDATION_ERROR" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" | "RUN_NOT_PENDING" | "BUNDLE_INVALID" | "BUNDLE_SCHEMA_UNSUPPORTED" | "BUNDLE_MISMATCH" | "REPO_NOT_FOUND" | "REF_NOT_FOUND" | "RUN_NOT_ACTIVE" | "INTERNAL";
+        ErrorCode: "VALIDATION_ERROR" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" | "RUN_NOT_PENDING" | "BUNDLE_INVALID" | "BUNDLE_SCHEMA_UNSUPPORTED" | "BUNDLE_MISMATCH" | "REPO_NOT_FOUND" | "REF_NOT_FOUND" | "RUN_NOT_ACTIVE" | "WATCH_ALREADY_ACTIVE" | "INTERNAL";
         /** ErrorEnvelope */
         ErrorEnvelope: {
             error: components["schemas"]["ErrorBody"];
+        };
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
         };
         /** HealthResponse */
         HealthResponse: {
@@ -598,6 +731,60 @@ export interface components {
             query: string;
         };
         /**
+         * SettingsIn
+         * @description A full replacement of the stored document — the screen always sends every field, so
+         *     "unset" is expressible and partial-update ambiguity cannot exist.
+         */
+        SettingsIn: {
+            /**
+             * Bundle Budget Bytes
+             * @default 0
+             */
+            bundle_budget_bytes: number;
+            /** Sync Server Url */
+            sync_server_url?: string | null;
+            /**
+             * Sync Share Source
+             * @default false
+             */
+            sync_share_source: boolean;
+            /**
+             * Telemetry Enabled
+             * @default false
+             */
+            telemetry_enabled: boolean;
+        };
+        /** SettingsOut */
+        SettingsOut: {
+            /**
+             * Bundle Budget Bytes
+             * @default 0
+             */
+            bundle_budget_bytes: number;
+            /** Data Dir */
+            data_dir: string;
+            /** Env Overrides */
+            env_overrides: components["schemas"]["EnvOverride"][];
+            /** Problem */
+            problem?: string | null;
+            /** Store Bytes */
+            store_bytes: number;
+            /** Sync Server Url */
+            sync_server_url?: string | null;
+            /**
+             * Sync Share Source
+             * @default false
+             */
+            sync_share_source: boolean;
+            /**
+             * Telemetry Enabled
+             * @default false
+             */
+            telemetry_enabled: boolean;
+            /** Version */
+            version: number;
+        };
+        /**
          * Severity
          * @description Reporting severity: -0.0 vs 0.0 is LOW; a head-only crash is HEADLINE.
          * @enum {string}
@@ -681,12 +868,73 @@ export interface components {
             run_id: number;
             verdict: components["schemas"]["Verdict"];
         };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+        };
         /**
          * Verdict
          * @description The only verdicts Tempest can emit (Law L2).
          * @enum {string}
          */
         Verdict: "DIVERGENT" | "EQUIVALENT_UNDER_BUDGET" | "UNPROVEN" | "ERROR";
+        /**
+         * WatchRun
+         * @description One proven commit in this session, read back from its run row.
+         */
+        WatchRun: {
+            /** Divergence Count */
+            divergence_count: number;
+            /** Head Sha */
+            head_sha: string;
+            /** Run Id */
+            run_id: number;
+            status: components["schemas"]["RunStatus"];
+            verdict: components["schemas"]["Verdict"] | null;
+        };
+        /** WatchStartRequest */
+        WatchStartRequest: {
+            /**
+             * Interval Seconds
+             * @default 15
+             */
+            interval_seconds: number;
+            /**
+             * Max Inputs
+             * @default 300
+             */
+            max_inputs: number;
+            /** Repo Path */
+            repo_path: string;
+        };
+        /** WatchStatus */
+        WatchStatus: {
+            /** Active Run Id */
+            active_run_id: number | null;
+            /** Interval Seconds */
+            interval_seconds: number;
+            /** Last Sha */
+            last_sha: string | null;
+            /** Problem */
+            problem: string | null;
+            /** Repo Name */
+            repo_name: string | null;
+            /** Repo Path */
+            repo_path: string | null;
+            /** Runs */
+            runs: components["schemas"]["WatchRun"][];
+            /** Watching */
+            watching: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -725,6 +973,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    exportDiagnostics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosticBundle"];
                 };
             };
         };
@@ -867,6 +1135,97 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getWatchStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchStatus"];
+                };
+            };
+        };
+    };
+    startWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchStatus"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    stopWatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchStatus"];
                 };
             };
         };
@@ -1292,6 +1651,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SettingsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    testAiKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiKeyTestResult"];
                 };
             };
         };

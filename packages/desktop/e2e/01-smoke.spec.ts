@@ -17,6 +17,9 @@ test("sidebar navigation reaches every destination and returns to runs", async (
   await page.getByRole("button", { name: "New proof" }).click();
   await expect(page.getByRole("heading", { name: "New proof" })).toBeVisible();
   await expect(page).toHaveURL(/view=prove/);
+  await page.locator(".sidebar").getByRole("link", { name: "Watch" }).click();
+  await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
+  await expect(page).toHaveURL(/view=watch/);
   await page.locator(".sidebar").getByRole("link", { name: "Logs" }).click();
   await expect(page.getByRole("heading", { name: "Logs" })).toBeVisible();
   await page.locator(".sidebar").getByRole("link", { name: "Settings" }).click();

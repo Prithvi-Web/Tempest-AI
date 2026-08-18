@@ -58,6 +58,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::ai_key_status,
             commands::set_ai_key,
             commands::clear_ai_key,
+            commands::get_settings,
+            commands::update_settings,
+            commands::test_ai_key,
+            commands::sync_push,
+            commands::export_diagnostics,
+            commands::reveal_in_data_dir,
+            commands::get_watch_status,
+            commands::start_watch,
+            commands::stop_watch,
         ])
         .events(tauri_specta::collect_events![
             commands::SidecarStateEvent,

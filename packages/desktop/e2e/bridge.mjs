@@ -159,6 +159,14 @@ const COMMANDS = {
   cancel_run: (a) => ["cancelRun", { run_id: a.runId }],
   search_divergences: (a) => ["searchDivergences", omitNulls({ q: a.q, limit: a.limit })],
   list_log_records: (a) => ["listLogs", omitNulls({ limit: a.limit, level: a.level })],
+  get_settings: () => ["getSettings", {}],
+  update_settings: (a) => ["updateSettings", { body: a.settings }],
+  test_ai_key: () => ["testAiKey", {}],
+  sync_push: (a) => ["syncPush", { body: { server_url: a.serverUrl } }],
+  export_diagnostics: () => ["exportDiagnostics", {}],
+  get_watch_status: () => ["getWatchStatus", {}],
+  start_watch: (a) => ["startWatch", { body: a.request }],
+  stop_watch: () => ["stopWatch", {}],
 };
 
 // ── HTTP surface (CORS: the page lives on localhost:1420, we are 127.0.0.1:PORT) ──────────
