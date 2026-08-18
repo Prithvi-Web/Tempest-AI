@@ -12,7 +12,11 @@ def mine_literals(root: Path) -> list[object]:
     mined: list[object] = []
     seen: set[str] = set()
     for path in sorted(root.rglob("*.py")):
-        if any(part in _SKIP_DIRS for part in path.parts):
+        # Skip-dirs are judged BELOW the root only (trap 38): the engine's own worktrees
+        # live under `<repo>/.tempest/cache/worktrees/`, and judging the FULL path silently
+        # skipped every file of the very tree being mined — corpus mining was dead in every
+        # real prove, masked by fixtures whose knife-edge values coincide with curated edges.
+        if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))

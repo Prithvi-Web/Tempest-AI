@@ -52,3 +52,42 @@ def test_changed_ts_file_is_surfaced_unproven_never_silently_skipped(tmp_path: P
         assert ts.reason_detail
     # The Python half of the PR is still proven normally alongside the TS record.
     assert by_path["core.py"].verdict is Verdict.DIVERGENT
+
+
+def test_mined_literals_reach_real_proves_and_find_knife_edge_boundaries(tmp_path: Path) -> None:
+    """Field recall bug, 2026-08-18 (trap 38): a two-parameter boundary bug whose killing
+    value exists ONLY as a mined literal (5 is on no curated edge list) was missed by the
+    real pipeline — the engine's worktrees live under `.tempest/`, and mining skipped its
+    own root, so corpus mining was silently dead in every real prove. This is the scenario
+    that exposed it, end to end through run_prove: `>= 5` → `> 5` must be DIVERGENT."""
+    repo = make_repo(
+        tmp_path,
+        {
+            ".tempest-first-party": "tempest-first-party-fixture-v1\n",
+            "shipping.py": (
+                "def shipping_cost(cents: int, items: int) -> int:\n"
+                '    """Order shipping in cents: flat 500, free from 5 items."""\n'
+                "    if items >= 5:\n"
+                "        return 0\n"
+                "    return 500\n"
+            ),
+        },
+    )
+    commit_head(
+        repo,
+        {
+            "shipping.py": (
+                "def shipping_cost(cents: int, items: int) -> int:\n"
+                '    """Order shipping in cents: flat 500, free from 5 items."""\n'
+                "    if items > 5:\n"
+                "        return 0\n"
+                "    return 500\n"
+            ),
+        },
+    )
+    result = run_prove(ProveConfig(repo=repo, base="base", head="head", seed=0))
+    (target,) = result.bundle.targets
+    assert target.verdict is Verdict.DIVERGENT, (target.verdict, target.reason_detail)
+    # …and the evidence names the boundary: every divergence has items == 5 in its input.
+    assert target.divergences
+    assert any("5" in d.minimized_args for d in target.divergences)

@@ -192,6 +192,30 @@ class TestMining:
         assert 86400 in mined
         assert "alpha-key" in mined
 
+    def test_a_root_that_lives_under_a_skip_named_directory_is_still_mined(
+        self, tmp_path: Path
+    ) -> None:
+        """Field recall bug, 2026-08-18 (trap 38): the engine's own worktrees live at
+        `<repo>/.tempest/cache/worktrees/<sha>/`, and the skip check tested the FULL path's
+        parts — so mining skipped every file of the very worktree it was asked to mine, and
+        corpus mining was silently dead in every real prove. Only components BELOW the
+        mining root may be skipped; the root's own location is not the root's business."""
+        worktree = tmp_path / ".tempest" / "cache" / "worktrees" / "abc123def456"
+        worktree.mkdir(parents=True)
+        (worktree / "shipping.py").write_text("FREE_FROM = 5\nFLAT = 500\n")
+        mined = mine_literals(worktree)
+        assert 5 in mined
+        assert 500 in mined
+
+    def test_skip_directories_below_the_root_are_still_skipped(self, tmp_path: Path) -> None:
+        root = tmp_path / ".venv" / "checkout"  # a skip-NAMED ancestor must not matter…
+        (root / ".venv").mkdir(parents=True)  # …while a skip dir INSIDE the root must
+        (root / "app.py").write_text("REAL = 777\n")
+        (root / ".venv" / "vendored.py").write_text("NOISE = 999\n")
+        mined = mine_literals(root)
+        assert 777 in mined
+        assert 999 not in mined
+
     def test_mining_caps_volume(self, tmp_path: Path) -> None:
         body = "\n".join(f"V{i} = {i}" for i in range(5000))
         (tmp_path / "big.py").write_text(body + "\n")
