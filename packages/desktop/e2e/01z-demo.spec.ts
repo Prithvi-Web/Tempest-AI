@@ -4,6 +4,10 @@
  * it for real, and the run view fills with live evidence. Both verdicts appear (the rounding
  * "cleanup" DIVERGENT, the honest label refactor EQUIVALENT_UNDER_BUDGET), because teaching
  * the verdict vocabulary is the demo's actual job.
+ *
+ * Named 01z on purpose: the button lives in the EMPTY runs state, and specs share one
+ * engine store per suite run — this must execute after 01-smoke (which also needs the
+ * pristine store) and before 02-prove-flow creates the first real runs.
  */
 import { expect, test } from "./fixtures";
 
