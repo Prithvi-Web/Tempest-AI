@@ -14,9 +14,12 @@ import path from "node:path";
 import { expect, test } from "./fixtures";
 
 // Watch is process-wide state in the engine: a spec that leaves it armed would prove another
-// spec's repository. Disarm after every test, whatever happened inside it.
+// spec's repository. Disarm after every test, whatever happened inside it. The first status
+// fetch is in flight right after goto, so wait for EITHER button before deciding — an
+// instant isVisible() probe would race it and skip the disarm.
 test.afterEach(async ({ page }) => {
   await page.goto("/?view=watch");
+  await expect(page.getByRole("button", { name: /Start watching|Stop watching/ })).toBeVisible();
   const stop = page.getByRole("button", { name: "Stop watching" });
   if (await stop.isVisible()) await stop.click();
   await expect(page.getByRole("button", { name: "Start watching" })).toBeVisible();

@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { events } from "./generated/bindings";
 import { useGetHealth } from "./hooks";
-import { useRoute, type Route } from "./router";
+import { routeHref, useRoute, type Route } from "./router";
 import { DivergenceView } from "./views/DivergenceView";
 import { LogsView } from "./views/LogsView";
 import { ProveView } from "./views/ProveView";
@@ -64,6 +64,23 @@ export function App() {
   const health = useGetHealth();
   const queryClient = useQueryClient();
 
+  // VoiceOver/keyboard (§3.3): after in-app navigation, focus lands on the new view's title,
+  // so the destination is announced and the Tab order restarts at the content — the standard
+  // SPA pattern for a webview with no real page loads. The guard compares ROUTES rather than
+  // counting renders: StrictMode's dev double-mount re-runs effects with refs intact, so a
+  // boolean "first render" flag would flip on the replay and steal focus on initial load.
+  const lastFocusedRoute = useRef(routeHref(route));
+  useEffect(() => {
+    const href = routeHref(route);
+    if (href === lastFocusedRoute.current) return;
+    lastFocusedRoute.current = href;
+    const title = document.querySelector<HTMLHeadingElement>(".content main h1");
+    if (title) {
+      title.setAttribute("tabindex", "-1");
+      title.focus({ preventScroll: false });
+    }
+  }, [route]);
+
   // Typed sidecar lifecycle event: when the supervisor reports the engine (re)became healthy,
   // every stale query refetches immediately instead of waiting for its own retry clock.
   useEffect(() => {
@@ -97,24 +114,40 @@ export function App() {
 
   return (
     <div className="app">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(e) => {
+          e.preventDefault();
+          const content = document.getElementById("main-content");
+          if (content) {
+            content.setAttribute("tabindex", "-1");
+            content.focus();
+          }
+        }}
+      >
+        Skip to content
+      </a>
       <div className="drag-strip" data-tauri-drag-region />
       <aside className="sidebar">
         <div className="brand">
           <strong>Tempest</strong>
           <span>behavioral proof · evidence, not opinion</span>
         </div>
-        <NavItem route={{ view: "runs" }} current={section === "runs"} navigate={navigate} icon="runs" label="Runs" />
-        <NavItem route={{ view: "prove" }} current={section === "prove"} navigate={navigate} icon="prove" label="New proof" />
-        <NavItem route={{ view: "watch" }} current={section === "watch"} navigate={navigate} icon="watch" label="Watch" />
-        <NavItem route={{ view: "logs" }} current={section === "logs"} navigate={navigate} icon="logs" label="Logs" />
-        <NavItem
-          route={{ view: "settings" }}
-          current={section === "settings"}
-          navigate={navigate}
-          icon="settings"
-          label="Settings"
-        />
-        <div className="sidebar-foot">
+        <nav aria-label="Primary">
+          <NavItem route={{ view: "runs" }} current={section === "runs"} navigate={navigate} icon="runs" label="Runs" />
+          <NavItem route={{ view: "prove" }} current={section === "prove"} navigate={navigate} icon="prove" label="New proof" />
+          <NavItem route={{ view: "watch" }} current={section === "watch"} navigate={navigate} icon="watch" label="Watch" />
+          <NavItem route={{ view: "logs" }} current={section === "logs"} navigate={navigate} icon="logs" label="Logs" />
+          <NavItem
+            route={{ view: "settings" }}
+            current={section === "settings"}
+            navigate={navigate}
+            icon="settings"
+            label="Settings"
+          />
+        </nav>
+        <div className="sidebar-foot" role="status" aria-live="polite" aria-label="engine status">
           {health.isPending ? (
             <span className="pill dim">engine starting…</span>
           ) : health.isError ? (
@@ -126,7 +159,7 @@ export function App() {
           )}
         </div>
       </aside>
-      <div className="content">
+      <div className="content" id="main-content">
         {route.view === "runs" && <RunsView navigate={navigate} />}
         {route.view === "run" && <RunView id={route.id} navigate={navigate} />}
         {route.view === "target" && <TargetView id={route.id} navigate={navigate} />}

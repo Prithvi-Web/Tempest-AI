@@ -11,8 +11,8 @@ use serde_json::{json, Map, Value};
 use crate::generated::domain::{
     AiKeyTestResult, CancelAccepted, DiagnosticBundle, DivergenceDetail, HealthResponse,
     LocalProveRequest, LogRecordOut, PageRunSummary, RunCreated, RunDetail, RunEventOut,
-    SearchResults, SettingsIn, SettingsOut, SyncReport, TargetDetail, Verdict, WatchStartRequest,
-    WatchStatus,
+    SearchResults, SettingsIn, SettingsOut, SyncReport, TargetDetail, UiErrorRecorded,
+    UiErrorReport, Verdict, WatchStartRequest, WatchStatus,
 };
 use crate::supervisor::{RpcError, Supervisor, DEFAULT_CALL_TIMEOUT};
 
@@ -284,6 +284,18 @@ pub fn export_diagnostics(
     state: tauri::State<'_, Arc<Supervisor>>,
 ) -> CmdResult<DiagnosticBundle> {
     call_typed(&state, "exportDiagnostics", json!({}))
+}
+
+/// The webview's crash reports (§1.1): forwarded to the engine, which scrubs them through
+/// the production redaction context before they touch the obslog. Fire-and-forget from the
+/// page's perspective — but typed end to end like everything else.
+#[tauri::command]
+#[specta::specta]
+pub fn report_ui_error(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    report: UiErrorReport,
+) -> CmdResult<UiErrorRecorded> {
+    call_typed(&state, "reportUiError", json!({"body": report}))
 }
 
 /// Watch mode (ADR-0029 in the app). Whatever run the loop has in flight is handed to the

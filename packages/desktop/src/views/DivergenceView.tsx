@@ -1,6 +1,7 @@
 import { useGetDivergence, useGetDivergenceRepro } from "../hooks";
 
 import type { Route } from "../router";
+import { divergenceClassLabel, severityLabel } from "../vocabulary";
 
 function CopyButton({ text }: { text: string }) {
   return (
@@ -48,8 +49,12 @@ export function DivergenceView({ id, navigate }: { id: number; navigate: (r: Rou
       </nav>
       <div className="statusline">
         <h1>Divergence #{d.id}</h1>
-        <span className="chip DIVERGENT">{d.divergence_class}</span>
-        <span className="chip neutral">{d.severity}</span>
+        <span className="chip DIVERGENT" title={divergenceClassLabel(d.divergence_class)}>
+          {d.divergence_class}
+        </span>
+        <span className="chip neutral" title={severityLabel(d.severity)}>
+          {d.severity}
+        </span>
       </div>
       <p className="dim">{d.detail}</p>
 

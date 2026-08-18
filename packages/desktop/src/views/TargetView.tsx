@@ -1,4 +1,12 @@
 import { useGetTarget } from "../hooks";
+import {
+  ClassificationChip,
+  VerdictChip,
+  divergenceClassLabel,
+  langLabel,
+  reasonHint,
+  severityLabel,
+} from "../vocabulary";
 
 import type { Route } from "../router";
 
@@ -39,14 +47,20 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
         <h1>
           {t.module}.{t.qualname}
         </h1>
-        <span className={`chip ${t.verdict}`}>{t.verdict}</span>
-        <span className="chip neutral">{t.classification}</span>
+        <VerdictChip verdict={t.verdict} />
+        <ClassificationChip classification={t.classification} />
+        <span className="chip neutral">{langLabel(t.lang)}</span>
       </div>
 
       {t.verdict === "UNPROVEN" && (
         <div className="panel notproven">
           <strong className="yellow">⚠ {t.reason_code}</strong>
-          <p style={{ marginBottom: 0 }}>{t.reason_detail}</p>
+          <p>{t.reason_detail}</p>
+          {t.reason_code !== null && (
+            <p className="dim" style={{ marginBottom: 0 }}>
+              {reasonHint(t.reason_code)}
+            </p>
+          )}
         </div>
       )}
 
@@ -82,10 +96,14 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
                   }
                 >
                   <td>
-                    <span className="chip DIVERGENT">{d.divergence_class}</span>
+                    <span className="chip DIVERGENT" title={divergenceClassLabel(d.divergence_class)}>
+                      {d.divergence_class}
+                    </span>
                   </td>
                   <td className="mono">{d.minimized_args}</td>
-                  <td className="dim">{d.severity}</td>
+                  <td className="dim" title={severityLabel(d.severity)}>
+                    {d.severity}
+                  </td>
                 </tr>
               ))}
             </tbody>

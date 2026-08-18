@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { useListRuns, useSearchDivergences } from "../hooks";
+import { VerdictChip, runStatusLabel } from "../vocabulary";
 
 import type { Route } from "../router";
 
@@ -108,9 +109,9 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
                 <td className="dim mono">
                   {run.base_sha.slice(0, 8)} → {run.head_sha.slice(0, 8)}
                 </td>
-                <td className="dim">{run.status.toLowerCase()}</td>
+                <td className="dim">{runStatusLabel(run.status)}</td>
                 <td>
-                  {run.verdict ? <span className={`chip ${run.verdict}`}>{run.verdict}</span> : "—"}
+                  {run.verdict ? <VerdictChip verdict={run.verdict} /> : "—"}
                 </td>
                 <td className="num">{run.target_count}</td>
                 <td className={`num ${run.divergence_count > 0 ? "red" : ""}`}>

@@ -19,6 +19,7 @@ from tempest_api.routers import (
     settings,
     sync,
     targets,
+    uierrors,
     watch,
 )
 
@@ -69,5 +70,6 @@ def create_app() -> FastAPI:
     app.include_router(logs.router)
     app.include_router(sync.router)
     app.include_router(settings.router)
+    app.include_router(uierrors.router)
     app.include_router(watch.router)
     return app

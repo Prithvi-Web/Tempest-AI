@@ -167,6 +167,7 @@ const COMMANDS = {
   get_watch_status: () => ["getWatchStatus", {}],
   start_watch: (a) => ["startWatch", { body: a.request }],
   stop_watch: () => ["stopWatch", {}],
+  report_ui_error: (a) => ["reportUiError", { body: a.report }],
 };
 
 // ── HTTP surface (CORS: the page lives on localhost:1420, we are 127.0.0.1:PORT) ──────────

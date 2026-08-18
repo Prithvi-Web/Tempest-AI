@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 
 import { cancelRun, useGetRun } from "../hooks";
+import { VerdictChip, classificationHint, reasonHint } from "../vocabulary";
 
 import type { Route } from "../router";
 
@@ -47,7 +48,7 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
           run #{data.id} · {data.repo}
         </h1>
         {data.verdict ? (
-          <span className={`chip ${data.verdict}`}>{data.verdict}</span>
+          <VerdictChip verdict={data.verdict} />
         ) : (
           <span className="chip neutral">{isPending ? "RUNNING…" : data.status}</span>
         )}
@@ -102,7 +103,12 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
                     {t.module}.{t.qualname}
                   </td>
                   <td>
-                    <span className="chip UNPROVEN">{t.reason_code ?? "UNPROVEN"}</span>
+                    <span
+                      className="chip UNPROVEN"
+                      title={t.reason_code !== null ? reasonHint(t.reason_code) : undefined}
+                    >
+                      {t.reason_code ?? "UNPROVEN"}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -138,9 +144,11 @@ export function RunView({ id, navigate }: { id: number; navigate: (r: Route) => 
                     {t.module}.{t.qualname}
                   </td>
                   <td className="dim">{t.file_path}</td>
-                  <td className="dim">{t.classification}</td>
+                  <td className="dim" title={classificationHint(t.classification)}>
+                    {t.classification}
+                  </td>
                   <td>
-                    <span className={`chip ${t.verdict}`}>{t.verdict}</span>
+                    <VerdictChip verdict={t.verdict} />
                   </td>
                   <td>
                     {/* float-over-JSON is number|null in the contract; coverage is always finite */}

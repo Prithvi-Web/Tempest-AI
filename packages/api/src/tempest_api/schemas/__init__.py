@@ -21,6 +21,7 @@ from tempest_api.schemas.settings import (
     SettingsOut,
 )
 from tempest_api.schemas.targets import TargetDetail, TargetSummary
+from tempest_api.schemas.uierrors import UiErrorRecorded, UiErrorReport
 from tempest_api.schemas.watch import WatchRun, WatchStartRequest, WatchStatus
 
 __all__ = [
@@ -46,6 +47,8 @@ __all__ = [
     "SettingsOut",
     "TargetDetail",
     "TargetSummary",
+    "UiErrorRecorded",
+    "UiErrorReport",
     "WatchRun",
     "WatchStartRequest",
     "WatchStatus",

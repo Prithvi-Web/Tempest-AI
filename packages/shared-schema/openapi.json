@@ -1236,6 +1236,51 @@
         "title": "TargetSummary",
         "type": "object"
       },
+      "UiErrorRecorded": {
+        "properties": {
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "title": "UiErrorRecorded",
+        "type": "object"
+      },
+      "UiErrorReport": {
+        "properties": {
+          "message": {
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "source": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Source",
+            "type": "string"
+          },
+          "stack": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stack"
+          }
+        },
+        "required": [
+          "message",
+          "source"
+        ],
+        "title": "UiErrorReport",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -2620,6 +2665,47 @@
         "summary": "Get Target",
         "tags": [
           "targets"
+        ]
+      }
+    },
+    "/v1/ui-errors": {
+      "post": {
+        "operationId": "reportUiError",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UiErrorReport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiErrorRecorded"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Report Ui Error",
+        "tags": [
+          "logs"
         ]
       }
     }

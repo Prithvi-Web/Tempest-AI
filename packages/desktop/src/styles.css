@@ -106,6 +106,31 @@ a {
   color: inherit;
 }
 
+/* Keyboard-only affordance (§3.3): invisible until focused, then the first Tab stop. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 10px;
+  z-index: 10;
+  padding: 6px 12px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  text-decoration: none;
+  font: var(--text-body);
+}
+
+.skip-link:focus {
+  left: 10px;
+}
+
+/* Programmatic focus targets (the view title after navigation, the content after the skip
+ * link) get no ring — the ring is for the keyboard's own traversal (:focus-visible). */
+h1:focus:not(:focus-visible),
+.content:focus {
+  outline: none;
+}
+
 /* ── shell: sidebar + content ─────────────────────────────────────────────────────────── */
 
 .app {
@@ -147,6 +172,12 @@ a {
   margin-top: 2px;
   font: var(--text-caption);
   color: var(--ink-secondary);
+}
+
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .nav-item {
@@ -450,7 +481,12 @@ button {
   cursor: pointer;
   transition:
     background 160ms ease-out,
-    opacity 160ms ease-out;
+    opacity 160ms ease-out,
+    transform 120ms ease-out;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 button:hover {
@@ -657,4 +693,29 @@ input.slider::-webkit-slider-thumb {
 input.slider:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+
+/* ── accessibility: 200% zoom / narrow windows ────────────────────────────────────────── */
+
+main table {
+  width: 100%;
+}
+
+main td,
+main th,
+main p,
+main li,
+.crumbs {
+  overflow-wrap: anywhere;
+}
+
+/* Control rows re-flow instead of forcing the column wider than the window. */
+.keyrow,
+.setting-row {
+  flex-wrap: wrap;
+}
+
+.keyrow input {
+  min-width: 160px;
 }

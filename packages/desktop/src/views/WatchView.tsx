@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { WatchStatus } from "../generated/bindings";
 import { startWatch, stopWatch, useWatchStatus } from "../hooks";
 import type { Route } from "../router";
+import { VerdictChip, runStatusLabel } from "../vocabulary";
 
 /** Watch — the continuous agent, live (ADR-0029, HANDOFF-WORLD-CLASS §2.4/§3.2).
  *
@@ -183,9 +184,9 @@ export function WatchView({ navigate }: { navigate: (r: Route) => void }) {
               >
                 <td>#{run.run_id}</td>
                 <td className="mono">{run.head_sha.slice(0, 12)}</td>
-                <td className="dim">{run.status}</td>
+                <td className="dim">{runStatusLabel(run.status)}</td>
                 <td>
-                  {run.verdict ? <span className={`chip ${run.verdict}`}>{run.verdict}</span> : "—"}
+                  {run.verdict ? <VerdictChip verdict={run.verdict} /> : "—"}
                 </td>
                 <td>{run.divergence_count}</td>
               </tr>

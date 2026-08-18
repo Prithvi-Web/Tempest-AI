@@ -15,10 +15,14 @@ export type Route =
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
   const view = params.get("view");
-  const id = Number(params.get("id"));
-  if (view === "run" && Number.isFinite(id)) return { view: "run", id };
-  if (view === "target" && Number.isFinite(id)) return { view: "target", id };
-  if (view === "divergence" && Number.isFinite(id)) return { view: "divergence", id };
+  // A MISSING id must not become run #0: Number(null) is 0, so the presence check comes
+  // first, and only a positive integer names a row (ids are 1-based database keys).
+  const raw = params.get("id");
+  const id = raw === null ? NaN : Number(raw);
+  const hasId = Number.isInteger(id) && id > 0;
+  if (view === "run" && hasId) return { view: "run", id };
+  if (view === "target" && hasId) return { view: "target", id };
+  if (view === "divergence" && hasId) return { view: "divergence", id };
   if (view === "prove") return { view: "prove" };
   if (view === "logs") return { view: "logs" };
   if (view === "watch") return { view: "watch" };

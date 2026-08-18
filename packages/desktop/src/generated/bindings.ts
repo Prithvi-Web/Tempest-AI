@@ -43,6 +43,12 @@ export const commands = {
 	getWatchStatus: () => typedError<WatchStatus, SidecarFailure>(__TAURI_INVOKE("get_watch_status")),
 	startWatch: (request: WatchStartRequest) => typedError<WatchStatus, SidecarFailure>(__TAURI_INVOKE("start_watch", { request })),
 	stopWatch: () => typedError<WatchStatus, SidecarFailure>(__TAURI_INVOKE("stop_watch")),
+	/**
+	 *  The webview's crash reports (§1.1): forwarded to the engine, which scrubs them through
+	 *  the production redaction context before they touch the obslog. Fire-and-forget from the
+	 *  page's perspective — but typed end to end like everything else.
+	 */
+	reportUiError: (report: UiErrorReport_Deserialize) => typedError<UiErrorRecorded, SidecarFailure>(__TAURI_INVOKE("report_ui_error", { report })),
 };
 
 /** Events */
@@ -935,6 +941,22 @@ export type LogRecordOut = {
 	message: string,
 	ts: string,
 };
+
+/**
+ * `Message`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "Message",
+ *   "type": "string",
+ *   "minLength": 1
+ * }
+ *  ```
+ *  </details>
+ */
+export type Message = string;
 
 /**
  * `PageRunSummary`
@@ -2031,6 +2053,23 @@ export type SidecarStateEvent = {
 };
 
 /**
+ * `Source`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "Source",
+ *   "type": "string",
+ *   "maxLength": 200,
+ *   "minLength": 1
+ * }
+ *  ```
+ *  </details>
+ */
+export type Source = string;
+
+/**
  * `SyncReport`
  * 
  *  <details><summary>JSON schema</summary>
@@ -2356,6 +2395,169 @@ export type TargetSummary = {
 	reason_code: ReasonCode | null,
 	run_id: number,
 	verdict: Verdict,
+};
+
+/**
+ * `UiErrorRecorded`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "UiErrorRecorded",
+ *   "type": "object",
+ *   "required": [
+ *     "recorded"
+ *   ],
+ *   "properties": {
+ *     "recorded": {
+ *       "title": "Recorded",
+ *       "type": "boolean"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type UiErrorRecorded = {
+	recorded: boolean,
+};
+
+/**
+ * `UiErrorReport`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "UiErrorReport",
+ *   "type": "object",
+ *   "required": [
+ *     "message",
+ *     "source"
+ *   ],
+ *   "properties": {
+ *     "message": {
+ *       "title": "Message",
+ *       "type": "string",
+ *       "minLength": 1
+ *     },
+ *     "source": {
+ *       "title": "Source",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "stack": {
+ *       "title": "Stack",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type UiErrorReport = UiErrorReport_Serialize | UiErrorReport_Deserialize;
+
+/**
+ * `UiErrorReport`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "UiErrorReport",
+ *   "type": "object",
+ *   "required": [
+ *     "message",
+ *     "source"
+ *   ],
+ *   "properties": {
+ *     "message": {
+ *       "title": "Message",
+ *       "type": "string",
+ *       "minLength": 1
+ *     },
+ *     "source": {
+ *       "title": "Source",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "stack": {
+ *       "title": "Stack",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type UiErrorReport_Deserialize = {
+	message: Message,
+	source: Source,
+	stack?: string | null,
+};
+
+/**
+ * `UiErrorReport`
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "UiErrorReport",
+ *   "type": "object",
+ *   "required": [
+ *     "message",
+ *     "source"
+ *   ],
+ *   "properties": {
+ *     "message": {
+ *       "title": "Message",
+ *       "type": "string",
+ *       "minLength": 1
+ *     },
+ *     "source": {
+ *       "title": "Source",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "stack": {
+ *       "title": "Stack",
+ *       "anyOf": [
+ *         {
+ *           "type": "string"
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type UiErrorReport_Serialize = {
+	message: Message,
+	source: Source,
+	stack?: string | null,
 };
 
 /**

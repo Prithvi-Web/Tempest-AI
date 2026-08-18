@@ -403,6 +403,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ui-errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Report Ui Error */
+        post: operations["reportUiError"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -867,6 +884,20 @@ export interface components {
             /** Run Id */
             run_id: number;
             verdict: components["schemas"]["Verdict"];
+        };
+        /** UiErrorRecorded */
+        UiErrorRecorded: {
+            /** Recorded */
+            recorded: boolean;
+        };
+        /** UiErrorReport */
+        UiErrorReport: {
+            /** Message */
+            message: string;
+            /** Source */
+            source: string;
+            /** Stack */
+            stack?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1788,6 +1819,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    reportUiError: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UiErrorReport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiErrorRecorded"];
                 };
             };
             /** @description Unprocessable Entity */

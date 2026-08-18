@@ -1298,6 +1298,51 @@
       "title": "TargetSummary",
       "type": "object"
     },
+    "UiErrorRecorded": {
+      "properties": {
+        "recorded": {
+          "title": "Recorded",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recorded"
+      ],
+      "title": "UiErrorRecorded",
+      "type": "object"
+    },
+    "UiErrorReport": {
+      "properties": {
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "stack": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stack"
+        }
+      },
+      "required": [
+        "message",
+        "source"
+      ],
+      "title": "UiErrorReport",
+      "type": "object"
+    },
     "ValidationError": {
       "properties": {
         "ctx": {

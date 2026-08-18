@@ -1397,6 +1397,77 @@ impl LogRecordOut {
         Default::default()
     }
 }
+#[doc = "`Message`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"Message\","]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"minLength\": 1"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, specta :: Type,
+)]
+#[serde(transparent)]
+pub struct Message(::std::string::String);
+impl ::std::ops::Deref for Message {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Message> for ::std::string::String {
+    fn from(value: Message) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Message {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Message {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for Message {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Message {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Message {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 #[doc = "`PageRunSummary`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -2778,6 +2849,81 @@ impl ::std::convert::TryFrom<::std::string::String> for Severity {
         value.parse()
     }
 }
+#[doc = "`Source`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"Source\","]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"maxLength\": 200,"]
+#[doc = "  \"minLength\": 1"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, specta :: Type,
+)]
+#[serde(transparent)]
+pub struct Source(::std::string::String);
+impl ::std::ops::Deref for Source {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<Source> for ::std::string::String {
+    fn from(value: Source) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for Source {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200usize {
+            return Err("longer than 200 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for Source {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for Source {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for Source {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for Source {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 #[doc = "`SyncPushRequest`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -3236,6 +3382,86 @@ impl ::std::default::Default for TempestDomain {
 }
 impl TempestDomain {
     pub fn builder() -> builder::TempestDomain {
+        Default::default()
+    }
+}
+#[doc = "`UiErrorRecorded`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"UiErrorRecorded\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"recorded\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"recorded\": {"]
+#[doc = "      \"title\": \"Recorded\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct UiErrorRecorded {
+    pub recorded: bool,
+}
+impl UiErrorRecorded {
+    pub fn builder() -> builder::UiErrorRecorded {
+        Default::default()
+    }
+}
+#[doc = "`UiErrorReport`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"UiErrorReport\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"message\","]
+#[doc = "    \"source\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"message\": {"]
+#[doc = "      \"title\": \"Message\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"minLength\": 1"]
+#[doc = "    },"]
+#[doc = "    \"source\": {"]
+#[doc = "      \"title\": \"Source\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"maxLength\": 200,"]
+#[doc = "      \"minLength\": 1"]
+#[doc = "    },"]
+#[doc = "    \"stack\": {"]
+#[doc = "      \"title\": \"Stack\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct UiErrorReport {
+    pub message: Message,
+    pub source: Source,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub stack: ::std::option::Option<::std::string::String>,
+}
+impl UiErrorReport {
+    pub fn builder() -> builder::UiErrorReport {
         Default::default()
     }
 }
@@ -6493,6 +6719,117 @@ pub mod builder {
     impl ::std::convert::From<super::TempestDomain> for TempestDomain {
         fn from(_value: super::TempestDomain) -> Self {
             Self {}
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct UiErrorRecorded {
+        recorded: ::std::result::Result<bool, ::std::string::String>,
+    }
+    impl ::std::default::Default for UiErrorRecorded {
+        fn default() -> Self {
+            Self {
+                recorded: Err("no value supplied for recorded".to_string()),
+            }
+        }
+    }
+    impl UiErrorRecorded {
+        pub fn recorded<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.recorded = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for recorded: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<UiErrorRecorded> for super::UiErrorRecorded {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: UiErrorRecorded,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                recorded: value.recorded?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::UiErrorRecorded> for UiErrorRecorded {
+        fn from(value: super::UiErrorRecorded) -> Self {
+            Self {
+                recorded: Ok(value.recorded),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct UiErrorReport {
+        message: ::std::result::Result<super::Message, ::std::string::String>,
+        source: ::std::result::Result<super::Source, ::std::string::String>,
+        stack: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for UiErrorReport {
+        fn default() -> Self {
+            Self {
+                message: Err("no value supplied for message".to_string()),
+                source: Err("no value supplied for source".to_string()),
+                stack: Ok(Default::default()),
+            }
+        }
+    }
+    impl UiErrorReport {
+        pub fn message<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Message>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.message = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for message: {e}"));
+            self
+        }
+        pub fn source<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Source>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.source = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for source: {e}"));
+            self
+        }
+        pub fn stack<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.stack = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for stack: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<UiErrorReport> for super::UiErrorReport {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: UiErrorReport,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                message: value.message?,
+                source: value.source?,
+                stack: value.stack?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::UiErrorReport> for UiErrorReport {
+        fn from(value: super::UiErrorReport) -> Self {
+            Self {
+                message: Ok(value.message),
+                source: Ok(value.source),
+                stack: Ok(value.stack),
+            }
         }
     }
     #[derive(Clone, Debug)]
