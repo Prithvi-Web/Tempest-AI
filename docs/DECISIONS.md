@@ -974,3 +974,30 @@ the repro text, and demo-twice independence.
 demo run like any other, so live progress is pushed, not polled. The README's "see it work"
 story can now be one sentence. TS wave 2 and the `v0.2.0` tag remain the open distribution
 items (the tag is the owner's push).
+
+## ADR-0016 amendment — the stamp is a claim, not a fact (2026-08-18, trap 37)
+
+**The field defect that forced this.** The owner's own store — the first real user store —
+answered every write with `table runs has no column named sandbox_tier`, while stamped at
+the migration head. History (reconstructed from the file): created in the pre-versioning
+era, adopted by a build carrying the pre-review-M3 adoption bug (stamp written, columns
+not), then forward-migrated 0003→0005 *from the lying stamp* — so it gained `ai_narrative`
+while never gaining the 0001/0002 columns. Review M3 fixed adoption for stores not yet
+adopted; it could not reach stores the bug had already mis-stamped. Every open since
+trusted the stamp (`stamp == HEAD → return`), so the store stayed bricked forever.
+
+**The amendment.** Every open of the local store now ends in `_verify_and_repair`: the live
+schema is compared against the models (the fact), regardless of what `alembic_version`
+says (the claim). Drift the idempotent forward steps can supply is repaired in place —
+existing rows untouched, proven on a byte copy of the real field store (its runs survive;
+a demo prove then lands DIVERGENT on the healed file). Drift they cannot supply raises
+`DamagedDatabaseError` naming every missing column with the remediation (move the file
+aside or restore a backup) — a store that half-works lies with every answer it manages to
+give, and refuse-loudly is the only honest posture (L2 applied to storage). Repairs are
+obslogged, so the LOGS view records that one happened.
+
+**Trap 37, the general lesson:** version stamps, cache markers, and "already done" flags
+are CLAIMS about state, and code that trusts a claim it could cheaply verify inherits
+every historical bug that ever wrote the claim wrong. Verification on open costs one
+schema inspection; the alternative was a permanently bricked user store that no shipped
+fix could reach.

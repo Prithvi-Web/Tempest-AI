@@ -263,6 +263,16 @@ alongside the phase that paid for it. The list resumes here for 36.)*
     (`routers/watch.py::_to_feed`; `localprove.py:214` documents the same artifact from the
     other direction). Related but distinct from trap 27 (the worker's settrace window).
 
+37. **A version stamp is a CLAIM, not a fact — verify what it asserts on every open.** The
+    first real user store was stamped HEAD with a pre-0002 `runs` table: an early adoption
+    bug wrote the stamp without the columns (pre-review-M3), later forward-migrations ran
+    *from the lie*, and `stamp == HEAD → return` trusted it forever — every insert failed
+    with "no column named sandbox_tier" and no shipped fix could reach the file. Opening now
+    ends in `_verify_and_repair` (schema vs models; idempotent repair or a LOUD
+    DamagedDatabaseError naming the columns). The general class: stamps, cache markers, and
+    "already done" flags inherit every historical bug that ever wrote them wrong — verify
+    cheaply instead of trusting (`test_migrations.py::TestTheStampIsAClaimNotAFact`).
+
 ---
 
 ## 6. Resume commands

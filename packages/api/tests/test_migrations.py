@@ -252,3 +252,79 @@ class TestTheStampIsAClaimNotAFact:
         # byte; that is connection metadata, not content. The newer-db refusal above stays
         # byte-strict because it probes read-only before any engine connection exists.)
         assert _schema_snapshot(db) == before, "a refused store must keep its schema untouched"
+
+
+class TestVerifyAndRepairAsUnits:
+    """The same repair machinery driven through a SYNC engine: identical real SQLite files
+    and real DDL, minus the async layer — greenlet hops mis-attribute coverage of exactly
+    these arms (trap 36), so the units are pinned where measurement is reliable. The
+    lifespan-level behavior (repair happening on app open) stays pinned by the classes
+    above."""
+
+    @staticmethod
+    def _sync_engine(db: Path) -> sa.engine.Engine:
+        return sa.create_engine(f"sqlite:///{db}")
+
+    def test_a_missing_table_and_missing_columns_are_both_repaired(self, tmp_path: Path) -> None:
+        from tempest_api.db.local_store import _missing_columns, _verify_and_repair
+
+        db = tmp_path / "drift.db"
+        command.upgrade(_alembic_config(db), "head")
+        with sqlite3.connect(db) as raw:
+            raw.execute("DROP TABLE cassettes")
+            raw.execute("ALTER TABLE runs DROP COLUMN sandbox_tier")
+            raw.commit()
+
+        engine = self._sync_engine(db)
+        with engine.begin() as conn:
+            named = _missing_columns(conn)
+            assert "cassettes (entire table)" in named
+            assert "runs.sandbox_tier" in named
+            _verify_and_repair(conn)
+        with engine.begin() as conn:
+            assert _missing_columns(conn) == []
+            _verify_and_repair(conn)  # a healthy store is a fast no-op, not a re-repair
+        engine.dispose()
+
+    def test_unrepairable_drift_raises_with_every_column_named(self, tmp_path: Path) -> None:
+        from tempest_api.db.local_store import DamagedDatabaseError, _verify_and_repair
+
+        db = tmp_path / "damaged.db"
+        command.upgrade(_alembic_config(db), "head")
+        with sqlite3.connect(db) as raw:
+            raw.execute("ALTER TABLE runs DROP COLUMN engine_version")
+            raw.execute("ALTER TABLE runs DROP COLUMN base_deps")
+            raw.commit()
+
+        engine = self._sync_engine(db)
+        with engine.begin() as conn, pytest.raises(DamagedDatabaseError) as err:
+            _verify_and_repair(conn)
+        engine.dispose()
+        message = str(err.value)
+        assert "runs.base_deps" in message and "runs.engine_version" in message
+        assert "Move it aside" in message  # remediation is the product
+
+    def test_the_idempotent_runner_skips_duplicates_but_never_swallows_real_errors(
+        self, tmp_path: Path
+    ) -> None:
+        from tempest_api.db.local_store import _run_forward_steps_idempotently
+
+        db = tmp_path / "steps.db"
+        command.upgrade(_alembic_config(db), "head")
+        engine = self._sync_engine(db)
+        with engine.begin() as conn:
+            _run_forward_steps_idempotently(conn)  # every step duplicate — all skipped
+        engine.dispose()
+
+        # A GENUINE failure (the runs table itself is gone) must surface, not be skipped.
+        # A fresh engine models the real lifecycle: the app opens the store with a new
+        # engine at startup — nothing holds pooled connections across on-disk damage.
+        with sqlite3.connect(db) as raw:
+            raw.execute("DROP TABLE run_events")
+            raw.execute("DROP TABLE targets")
+            raw.execute("DROP TABLE runs")
+            raw.commit()
+        fresh = self._sync_engine(db)
+        with fresh.begin() as conn, pytest.raises(sa.exc.OperationalError, match="no such table"):
+            _run_forward_steps_idempotently(conn)
+        fresh.dispose()
