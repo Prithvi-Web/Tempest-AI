@@ -125,6 +125,41 @@ class TestValuesForEdges:
         assert 7 in union_pool
         assert "no" not in union_pool
 
+    def test_mined_tuples_and_bare_dicts_and_unknown_generics(self) -> None:
+        """The remaining _matches arms, each with its refusing and admitting case: fixed
+        tuple shapes, variadic tuples, dict with no key/value args (everything welcome
+        inside), and an annotation outside the vocabulary (admit — probe-and-compare is
+        the judge of last resort there)."""
+        from tempest.generate.strategies import parse_annotation, values_for
+
+        fixed = parse_annotation("tuple[int, str]")
+        pool = values_for(fixed, seed=0, mined=[(1, "a"), ("a", 1), (1, "a", 2), [1, "a"], 9])
+        assert (1, "a") in pool
+        assert ("a", 1) not in pool  # positions matter in a fixed shape
+        assert (1, "a", 2) not in pool  # arity matters
+        assert [1, "a"] not in pool  # a list is not a tuple
+        assert 9 not in pool
+
+        # Runtime annotation objects for the shapes parse_annotation cannot spell:
+        # `...` fails its AST validation, and bare typing.Dict has origin dict with no args.
+        var_pool = values_for(tuple[int, ...], seed=0, mined=[(1, 2, 3), (1, "a")])
+        assert (1, 2, 3) in var_pool
+        assert (1, "a") not in var_pool
+
+        import typing
+
+        bare_dict = typing.Dict  # noqa: UP006 — deliberately the LEGACY alias: origin dict, no __args__ (the arm under test)
+        bare_pool = values_for(bare_dict, seed=0, mined=[{"any": (1, 2)}, "not-a-dict"])
+        assert {"any": (1, 2)} in bare_pool  # no declared key/value contract → welcome
+        assert "not-a-dict" not in bare_pool
+
+        exotic_pool_matches = values_for(
+            typing.Callable[[int], int],  # type: ignore[arg-type]  # deliberately outside parse_annotation's vocabulary
+            seed=0,
+            mined=[7],
+        )
+        assert 7 in exotic_pool_matches  # unknown vocabulary → admitted, not silently dropped
+
     def test_mined_values_for_unannotated_params_pass_through(self) -> None:
         values = values_for(None, seed=2, mined=[[7, 8, 9], "kept", 42])
         assert [7, 8, 9] in values  # no annotation → no contract → everything is welcome
