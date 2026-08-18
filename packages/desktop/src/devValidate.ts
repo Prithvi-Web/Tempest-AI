@@ -68,6 +68,7 @@ const RESULT_SCHEMAS: Record<string, object> = {
   startWatch: def("WatchStatus"),
   stopWatch: def("WatchStatus"),
   reportUiError: def("UiErrorRecorded"),
+  startDemoProve: def("RunCreated"),
 };
 
 const compiled = new Map<string, ValidateFunction>();

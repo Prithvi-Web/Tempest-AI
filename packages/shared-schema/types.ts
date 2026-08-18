@@ -104,6 +104,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local/demo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Demo Prove
+         * @description Write a fresh demo repository and prove it — the Phase 18 activation path. The run it
+         *     answers with is an ORDINARY run; only its repo (and this docstring) know it is a demo.
+         */
+        post: operations["startDemoProve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local/prove": {
         parameters: {
             query?: never;
@@ -1124,6 +1145,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    startDemoProve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunCreated"];
                 };
             };
         };

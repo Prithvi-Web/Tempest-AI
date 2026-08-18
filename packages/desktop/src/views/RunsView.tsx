@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { useListRuns, useSearchDivergences } from "../hooks";
+import { startDemoProve, useListRuns, useSearchDivergences } from "../hooks";
 import { VerdictChip, runStatusLabel } from "../vocabulary";
 
 import type { Route } from "../router";
@@ -53,6 +53,20 @@ function SearchResults({ query, navigate }: { query: string; navigate: (r: Route
 export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
   const runs = useListRuns({});
   const [query, setQuery] = useState("");
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [demoProblem, setDemoProblem] = useState<string | null>(null);
+
+  async function runDemo() {
+    setDemoBusy(true);
+    setDemoProblem(null);
+    try {
+      const created = await startDemoProve();
+      navigate({ view: "run", id: created.run_id });
+    } catch (err) {
+      setDemoProblem(err instanceof Error ? err.message : "the demo could not be started");
+      setDemoBusy(false);
+    }
+  }
 
   return (
     <main>
@@ -80,6 +94,21 @@ export function RunsView({ navigate }: { navigate: (r: Route) => void }) {
             No runs yet. Click <span className="yellow">New proof</span> to execute a repository's
             base and head side by side and see where behavior diverges — with evidence.
           </p>
+          <p className="dim">
+            Or watch it happen first: the demo writes a tiny repository with a
+            &ldquo;harmless&rdquo; rounding cleanup and proves — with real inputs and a real
+            reproduction — that it changes what customers pay.
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            <button className="primary" disabled={demoBusy} onClick={() => void runDemo()}>
+              {demoBusy ? "Starting the demo…" : "Try a demo proof"}
+            </button>
+          </p>
+          {demoProblem && (
+            <p className="yellow" style={{ marginBottom: 0 }}>
+              {demoProblem}
+            </p>
+          )}
         </div>
       )}
       {runs.data && runs.data.items.length > 0 && (

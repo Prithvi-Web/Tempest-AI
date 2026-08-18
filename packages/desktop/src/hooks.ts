@@ -192,3 +192,7 @@ export function startWatch(request: WatchStartRequest): Promise<WatchStatus> {
 export function stopWatch(): Promise<WatchStatus> {
   return unwrap("stopWatch", commands.stopWatch());
 }
+
+export function startDemoProve(): Promise<RunCreated> {
+  return unwrap("startDemoProve", commands.startDemoProve());
+}

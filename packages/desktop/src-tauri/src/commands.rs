@@ -286,6 +286,19 @@ pub fn export_diagnostics(
     call_typed(&state, "exportDiagnostics", json!({}))
 }
 
+/// Onboarding (Phase 18): one click writes a fresh demo repository and proves it — the run
+/// this answers with is ORDINARY, tracked by the watcher like any hand-started prove.
+#[tauri::command]
+#[specta::specta]
+pub fn start_demo_prove(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    watcher: tauri::State<'_, Arc<crate::watcher::RunWatcher>>,
+) -> CmdResult<RunCreated> {
+    let created: RunCreated = call_typed(&state, "startDemoProve", json!({}))?;
+    watcher.track(created.run_id);
+    Ok(created)
+}
+
 /// The webview's crash reports (§1.1): forwarded to the engine, which scrubs them through
 /// the production redaction context before they touch the obslog. Fire-and-forget from the
 /// page's perspective — but typed end to end like everything else.

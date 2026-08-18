@@ -11,9 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tempest.prove import ProveConfig
 from tempest_api.db.models import Run
 from tempest_api.db.session import database_url, get_session
+from tempest_api.demorepo import build_demo_repo
 from tempest_api.errors import error_responses
 from tempest_api.ledger import append_run_event
-from tempest_api.localprove import local_run_out_dir, resolve_local_repo, spawn_prove_thread
+from tempest_api.localprove import (
+    data_dir,
+    local_run_out_dir,
+    resolve_local_repo,
+    spawn_prove_thread,
+)
 from tempest_api.routers.runs import get_or_create_repo
 from tempest_api.schemas import LocalProveRequest, RunCreated, RunStatus
 
@@ -55,6 +61,48 @@ async def start_local_prove(body: LocalProveRequest, session: SessionDep) -> Run
         base=base_sha,
         head=head_sha,
         max_inputs=body.max_inputs,
+        out=local_run_out_dir(run.id),
+    )
+    spawn_prove_thread(run.id, cfg, database_url())
+    return RunCreated(run_id=run.id)
+
+
+# Small on purpose: two tiny pure functions saturate quickly, and the demo's job is the
+# first divergence in well under 90 s — depth belongs to the user's own repos.
+_DEMO_MAX_INPUTS = 40
+
+
+@router.post(
+    "/v1/local/demo",
+    status_code=202,
+    operation_id="startDemoProve",
+)
+async def start_demo_prove(session: SessionDep) -> RunCreated:
+    """Write a fresh demo repository and prove it — the Phase 18 activation path. The run it
+    answers with is an ORDINARY run; only its repo (and this docstring) know it is a demo."""
+    repo_dir, base_sha, head_sha = await asyncio.to_thread(build_demo_repo, data_dir() / "demo")
+    repo = await get_or_create_repo(session, "tempest-demo")
+    run = Run(repo_id=repo.id, base_sha=base_sha, head_sha=head_sha, status=RunStatus.PENDING)
+    session.add(run)
+    await session.flush()
+    await append_run_event(
+        session,
+        run.id,
+        "local.started",
+        stage="started",
+        message=(
+            f"demo prove started: a fresh demo repository at {repo_dir.name}, "
+            f"base ({base_sha[:12]}) vs head ({head_sha[:12]}), "
+            f"budget {_DEMO_MAX_INPUTS} inputs — everything that follows is real evidence"
+        ),
+        extra={"repo_path": str(repo_dir), "base_sha": base_sha, "head_sha": head_sha},
+    )
+    await session.commit()
+    cfg = ProveConfig(
+        repo=repo_dir,
+        base=base_sha,
+        head=head_sha,
+        max_inputs=_DEMO_MAX_INPUTS,
         out=local_run_out_dir(run.id),
     )
     spawn_prove_thread(run.id, cfg, database_url())

@@ -49,6 +49,11 @@ export const commands = {
 	 *  page's perspective — but typed end to end like everything else.
 	 */
 	reportUiError: (report: UiErrorReport_Deserialize) => typedError<UiErrorRecorded, SidecarFailure>(__TAURI_INVOKE("report_ui_error", { report })),
+	/**
+	 *  Onboarding (Phase 18): one click writes a fresh demo repository and proves it — the run
+	 *  this answers with is ORDINARY, tracked by the watcher like any hand-started prove.
+	 */
+	startDemoProve: () => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_demo_prove")),
 };
 
 /** Events */

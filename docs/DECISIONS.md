@@ -882,3 +882,63 @@ line immediately AFTER a greenlet crossing: `return [ ... ]` right after an awai
 structural, not a pragma sprawl — move post-await shaping into a plain synchronous helper, so
 only the single call line carries a justified pragma and the logic itself is genuinely
 measured. (`localprove.py` documents the same artifact from the other direction.)
+
+## ADR-0031 — 1.1 hardening + the accessibility pass (2026-08-17)
+
+**Context.** HANDOFF-WORLD-CLASS left four §1.1 hardening items open (exhaustive-enum
+component renders, `reportUiError`, a desktop-src coverage gate, the BUILT-app driver leg)
+and §3.3's accessibility pass. These close the gap between "the E2E suite is green" and
+"the frontend cannot lie, crash silently, or lock a keyboard user out."
+
+**Decision.**
+
+1. **The enum vocabulary is one module with two nets** (`src/vocabulary.tsx`). Every enum
+   the UI renders (Verdict, ReasonCode, DivergenceClass, Severity, TargetClassification,
+   RunStatus, Lang) passes through an exhaustive switch with a `never` guard — a new Python
+   variant regenerates the union and breaks `tsc` until it has copy (compile-time net). The
+   vitest suite reads the variant lists from the GENERATED domain schema and drives every
+   function and chip component over every variant (runtime net) — so the copy is proven
+   non-empty and the schema and the switches cannot drift apart silently. Copy is L2-bound:
+   EQUIVALENT_UNDER_BUDGET explicitly disclaims correctness, CANCELLED claims no verdict,
+   and the guard THROWS on an unknown variant (a stale bundle must crash into the error
+   surface, never invent copy). Views consume it — chips carry honest tooltips and every
+   UNPROVEN panel carries actionable remediation.
+
+2. **`reportUiError` — the webview must never fail silently.** Window `error` and
+   `unhandledrejection` handlers (installed before first render) report through a typed
+   command to `POST /v1/ui-errors`; the engine scrubs message/source/stack through the
+   PRODUCTION redaction context before the obslog write (planted secrets are the proof),
+   and the record surfaces in the LOGS view and `tempest diagnose` like any engine error.
+   The reporter is itself unbreakable: never throws, burst-capped at 20 (a crash loop's
+   first reports are evidence; the ten-thousandth is noise), fields truncated at 4 KB.
+
+3. **Desktop logic coverage gate, scope stated.** `vitest --coverage` holds 100% over
+   `vocabulary.tsx` + `router.ts` and runs inside `pnpm -r test` (so `make verify` carries
+   it). hooks/views/App are deliberately OUTSIDE this gate: their behavior is pinned by the
+   28-spec Playwright suite against the real engine, and unit-covering them would demand a
+   mocked sidecar — the L4 trade stated in `vitest.config.ts`.
+
+4. **Accessibility (§3.3), asserted not promised**: skip link as the first Tab stop; a
+   named Primary navigation landmark; focus moves to the new view's title after in-app
+   navigation (VoiceOver announces the destination); the engine pill is an `aria-live`
+   status; motion stays 150–200 ms ease-out and is fully dead under
+   `prefers-reduced-motion`; and no view forces horizontal scroll at 200% zoom (WebKit
+   halves the CSS viewport, so the spec drives 590×400 and asserts zero `.content`
+   overflow — evidence strings wrap, control rows re-flow). Five E2E specs pin all of it.
+
+5. **The BUILT-app driver leg is platform-blocked, stated.** `tauri-driver` has no macOS
+   backend (WKWebView exposes no WebDriver endpoint), so a driven-UI test of the built
+   .app is not possible on this machine's OS. The compensating gates, already live: the
+   orphan check LAUNCHES the built app and proves its real sidecar spawns and dies with
+   it; parity proves the frozen sidecar produces byte-identical evidence to the CLI; and
+   the E2E suite drives the identical webview bundle against the identical engine over the
+   identical framing. A Linux CI leg can adopt tauri-driver when the Linux desktop ships.
+
+**What the new tests caught (the dividend, again):** `?view=run` with no id parsed as
+run #0 — `Number(null)` is `0`, so the presence check was vacuous; ids now require a
+positive integer. And React StrictMode's double-effect broke a boolean "first render"
+focus guard — the guard now compares routes, which the dev double-mount cannot fool.
+
+**Consequences.** Adding an enum variant now fails three builds (Rust, tsc, vitest) until
+handled everywhere — the §9b discipline finally reaches the pixels. New shapes
+(`UiErrorReport/Recorded`) ride the generator as usual.

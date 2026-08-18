@@ -1683,6 +1683,28 @@
         ]
       }
     },
+    "/v1/local/demo": {
+      "post": {
+        "description": "Write a fresh demo repository and prove it \u2014 the Phase 18 activation path. The run it\nanswers with is an ORDINARY run; only its repo (and this docstring) know it is a demo.",
+        "operationId": "startDemoProve",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunCreated"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start Demo Prove",
+        "tags": [
+          "local"
+        ]
+      }
+    },
     "/v1/local/prove": {
       "post": {
         "description": "Validate repo + refs (400 REPO_NOT_FOUND / REF_NOT_FOUND), create the run, start the\nprove thread, and answer 202 \u2014 the UI polls `getRun` and `listRunEvents` from here.",
