@@ -1028,3 +1028,20 @@ input. The field repo now answers: DIVERGENT, minimized `(0, 5)`, base 0 vs head
 mining unit test mined a plain tmp directory, and every integration fixture found its bugs
 through a second mechanism (curated edges). When a stage's whole VALUE is additive recall,
 it needs at least one end-to-end case that FAILS without it: a bug only that stage can find.
+
+## ADR-0021 amendment — v0.2.0 release rehearsal (2026-08-18)
+
+**The dry-run caught a release-blocking bug before the first real run ever fired:** the
+`python-dist` job built `--package tempest`, but the workspace package is named
+`tempest-engine` — the workflow's very first job would have failed on tag push. Every
+release job is now rehearsed locally before tagging: `uv build --package tempest-engine`
+(produces `tempest_engine-0.2.0` wheel + sdist), the install-check leg in an isolated
+`UV_TOOL_DIR` (`tempest version` → 0.2.0; `doctor --json` assertions pass), and the app
+build + `ditto` zip leg. The rehearsal habit is the lesson: a workflow that has never run
+is a claim, not a fact — the same class as trap 37.
+
+**Versions unified at 0.2.0** across engine (`__version__` + pyproject), api, tauri.conf,
+desktop Cargo.toml, and every package.json — the release tag, `tempest version`, the app's
+About, and the health pill all now agree. The openapi contract regenerated (it embeds the
+app version) and the drift gate holds. Vitest's `coverage/` output was untracked and
+gitignored (build artifacts had slipped into the tree with the 1.1 hardening).

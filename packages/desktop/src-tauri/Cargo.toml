@@ -3,7 +3,7 @@ members = [".", "devtools"]
 
 [package]
 name = "tempest-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tempest — behavioral proof agent. Evidence, not opinion."
 authors = ["Tempest"]
 edition = "2021"

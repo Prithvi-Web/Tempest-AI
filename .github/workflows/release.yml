@@ -18,7 +18,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - run: uv build --package tempest --out-dir dist
+      - run: uv build --package tempest-engine --out-dir dist
       - uses: actions/upload-artifact@v4
         with:
           name: python-dist

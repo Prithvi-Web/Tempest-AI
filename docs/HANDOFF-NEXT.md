@@ -95,9 +95,12 @@ shape, this is the entire law:
    (skip link, focus-to-title, aria-live status, reduced-motion, 200% zoom — 5 E2E specs)
    and **Phase 18 onboarding** (ADR-0032: "Try a demo proof", click → DIVERGENT in 6.4 s,
    bar 90 s).
-3. **2.6 Distribution**: the owner pushes tag `v0.2.0` → `release.yml` fires (wheel +
-   unsigned .app + SHA256SUMS + install-check). Watch its first run; then Sigstore
-   signing and a README demo GIF (the in-app demo now exists — a GIF of IT is the asset).
+3. **2.6 Distribution — READY TO TAG (2026-08-18, ADR-0021 amendment)**: versions
+   unified at 0.2.0, `release.yml`'s package-name bug fixed (`tempest-engine`, caught by
+   the local rehearsal of every job: build ✓, isolated tool-install + doctor ✓, app+zip ✓).
+   The owner creates tag `v0.2.0` in GitHub Desktop and pushes it → `release.yml` fires.
+   WATCH ITS FIRST RUN. Then: Sigstore signing and a README demo GIF (the in-app demo
+   exists — a GIF of IT is the asset).
 4. **TS wave 2** (ADR-0028's stated scope): JS record/replay cassettes, methods via
    constructor synthesis, ddmin for JS inputs, node in the T1 Docker image, `.tsx`.
 5. **Owner-gated measurements**: real-model synthesis + narrative quality with the

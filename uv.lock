@@ -1232,7 +1232,7 @@ wheels = [
 
 [[package]]
 name = "tempest-api"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/api" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1269,7 +1269,7 @@ dev = [{ name = "httpx", specifier = ">=0.28" }]
 
 [[package]]
 name = "tempest-engine"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/engine" }
 dependencies = [
     { name = "anthropic" },

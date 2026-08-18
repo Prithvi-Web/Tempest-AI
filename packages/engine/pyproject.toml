@@ -1,6 +1,6 @@
 [project]
 name = "tempest-engine"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tempest AI — behavioral proof engine and CLI"
 requires-python = ">=3.12"
 dependencies = [
