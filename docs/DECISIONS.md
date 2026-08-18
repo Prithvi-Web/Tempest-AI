@@ -942,3 +942,35 @@ focus guard — the guard now compares routes, which the dev double-mount cannot
 **Consequences.** Adding an enum variant now fails three builds (Rust, tsc, vitest) until
 handled everywhere — the §9b discipline finally reaches the pixels. New shapes
 (`UiErrorReport/Recorded`) ride the generator as usual.
+
+## ADR-0032 — Onboarding: the demo proof (2026-08-17, late night)
+
+**Context.** Phase 18's activation metric is time-to-first-divergence; the roadmap asked
+for a bundled demo repo reaching one in under 90 seconds. An empty app previously offered
+only a form asking for a repository path — the coldest possible start.
+
+**Decision.** "Try a demo proof" in the empty runs state → `POST /v1/local/demo`
+(`demorepo.py` + the ordinary local-prove machinery). Three properties are load-bearing:
+
+1. **The demo is real, not staged.** The engine writes a fresh git repository (base/head
+   branches, first-party marker so the process sandbox may run it on a Docker-less laptop)
+   and proves it exactly like any user repo — the run row, ledger, bundle, live progress
+   events, and downloadable repro are all the ordinary machinery. Nothing anywhere special-
+   cases "demo" except the repo builder and one ledger sentence (L4 extends to marketing).
+2. **The seeded change teaches the vocabulary.** A "harmless" rounding cleanup
+   (`total -= total * 3 // 100` → `int(total * 0.97)`) is DIVERGENT — integer-cents versus
+   float truncation moves real money — while a genuinely equivalent label refactor lands
+   EQUIVALENT_UNDER_BUDGET on the same screen. The first thing a new user learns is the
+   difference between the two claims, which IS the product.
+3. **Identity through ingest**: the bundle manifest carries the repo DIRECTORY's name and
+   ingest verifies manifest-vs-run identity, so the repo lives at
+   `<data>/demo/<unique>/tempest-demo` — constant leaf, fresh worktree per click.
+
+**Measured.** Click → visible DIVERGENT in **6.4 s** (bar: 90 s), pinned by a timed E2E
+spec; the API test pins the same bar, the two-verdict lesson, the evidence chain down to
+the repro text, and demo-twice independence.
+
+**Consequences.** `startDemoProve` rides the tri-boundary generator; the watcher tracks the
+demo run like any other, so live progress is pushed, not polled. The README's "see it work"
+story can now be one sentence. TS wave 2 and the `v0.2.0` tag remain the open distribution
+items (the tag is the owner's push).

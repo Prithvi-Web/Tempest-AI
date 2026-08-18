@@ -19,6 +19,11 @@ tempest doctor
 tempest prove --base main --head my-branch --repo /path/to/repo
 ```
 
+Or see it work before pointing it at anything of yours: open the desktop app and press
+**Try a demo proof** — Tempest writes a tiny real repository with a "harmless" rounding
+cleanup and proves, with real inputs and a downloadable reproduction, that it changes what
+customers pay. First divergence in a few seconds, entirely offline.
+
 The macOS desktop app ships as an **unsigned** zip on the
 [Releases page](https://github.com/Prithvi-Web/Tempest-AI/releases) — this project deliberately
 has no Apple Developer account (ADR-0021), so on first launch: right-click → Open, or

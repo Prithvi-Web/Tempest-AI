@@ -135,6 +135,26 @@ class TestIntegrity:
 
 
 class TestRunVerdict:
+    def test_error_outranks_everything(self) -> None:
+        """Tempest's own failure is the loudest claim (L2): an ERROR target makes the RUN
+        ERROR, even beside a divergence — a broken engine must never look like a finding."""
+        error_target = TargetRecord(
+            file_path="e.py",
+            module="e",
+            qualname="boom",
+            lang=Lang.PYTHON,
+            classification=TargetClassification.PURE_CANDIDATE,
+            verdict=Verdict.ERROR,
+            reason_code=None,
+            reason_detail="internal trace recorded",
+            inputs_run=1,
+            equivalent_inputs=0,
+            unprovable_inputs=0,
+            changed_line_coverage=0.0,
+            divergences=(),
+        )
+        assert run_verdict((error_target, _target((_divergence(),)))) is Verdict.ERROR
+
     def test_any_divergent_wins(self) -> None:
         assert run_verdict((_target((_divergence(),)), _unproven_target())) is Verdict.DIVERGENT
 

@@ -86,13 +86,18 @@ shape, this is the entire law:
    ledger mark). Screenshots refreshed in `docs/ui/` (now 16, incl. watch light/dark).
    **Still open from Part 3: motion polish beyond view transitions, and the accessibility
    pass (VoiceOver, keyboard, 200% zoom).**
-2. **1.1 hardening** (§1.1's open list): exhaustive-enum component renders (vitest, the
-   `never`-guard pattern per enum), `reportUiError` (window error/unhandledrejection →
-   obslog via a new command, redactor-scrubbed), the BUILT-app driver E2E leg,
-   a coverage gate for `packages/desktop/src`.
+2. ~~**1.1 hardening**~~ **DONE 2026-08-17 night (ADR-0031)**: enum vocabulary with
+   never-guards + schema-driven vitest renders; `reportUiError` end to end (production
+   redaction → obslog → LOGS view); desktop logic coverage gate (100%/100% vocabulary +
+   router, in `pnpm -r test`). The BUILT-app driver leg is PLATFORM-BLOCKED (tauri-driver
+   has no macOS/WKWebView backend) — ADR-0031 §5 names the compensating gates; a Linux CI
+   leg can adopt it when the Linux desktop ships. Also DONE: **§3.3 accessibility**
+   (skip link, focus-to-title, aria-live status, reduced-motion, 200% zoom — 5 E2E specs)
+   and **Phase 18 onboarding** (ADR-0032: "Try a demo proof", click → DIVERGENT in 6.4 s,
+   bar 90 s).
 3. **2.6 Distribution**: the owner pushes tag `v0.2.0` → `release.yml` fires (wheel +
    unsigned .app + SHA256SUMS + install-check). Watch its first run; then Sigstore
-   signing, README demo GIF, Phase 18 onboarding (<90 s to first divergence).
+   signing and a README demo GIF (the in-app demo now exists — a GIF of IT is the asset).
 4. **TS wave 2** (ADR-0028's stated scope): JS record/replay cassettes, methods via
    constructor synthesis, ddmin for JS inputs, node in the T1 Docker image, `.tsx`.
 5. **Owner-gated measurements**: real-model synthesis + narrative quality with the

@@ -3,6 +3,7 @@ no zip upload hop. The verdict still comes only from the engine's bundle (Law L2
 merely validates, creates the PENDING run, and hands it to the background prove thread."""
 
 import asyncio
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -72,6 +73,28 @@ async def start_local_prove(body: LocalProveRequest, session: SessionDep) -> Run
 _DEMO_MAX_INPUTS = 40
 
 
+def _add_pending_run(session: AsyncSession, repo_id: int, base_sha: str, head_sha: str) -> Run:
+    """Sync shaping, deliberately OUTSIDE the awaiting frame (trap 36): lines that follow a
+    SQLAlchemy greenlet crossing are mis-attributed by the tracer, so the row construction
+    lives here where its execution is genuinely measured."""
+    run = Run(repo_id=repo_id, base_sha=base_sha, head_sha=head_sha, status=RunStatus.PENDING)
+    session.add(run)
+    return run
+
+
+def _spawn_demo(run_id: int, repo_dir: Path, base_sha: str, head_sha: str) -> RunCreated:
+    """Same trap-36 shape for the post-commit tail: config + thread spawn + the answer."""
+    cfg = ProveConfig(
+        repo=repo_dir,
+        base=base_sha,
+        head=head_sha,
+        max_inputs=_DEMO_MAX_INPUTS,
+        out=local_run_out_dir(run_id),
+    )
+    spawn_prove_thread(run_id, cfg, database_url())
+    return RunCreated(run_id=run_id)
+
+
 @router.post(
     "/v1/local/demo",
     status_code=202,
@@ -82,8 +105,10 @@ async def start_demo_prove(session: SessionDep) -> RunCreated:
     answers with is an ORDINARY run; only its repo (and this docstring) know it is a demo."""
     repo_dir, base_sha, head_sha = await asyncio.to_thread(build_demo_repo, data_dir() / "demo")
     repo = await get_or_create_repo(session, "tempest-demo")
-    run = Run(repo_id=repo.id, base_sha=base_sha, head_sha=head_sha, status=RunStatus.PENDING)
-    session.add(run)
+    # trap 36: both statements after this greenlet crossing live in the sync helper.
+    run = _add_pending_run(
+        session, repo.id, base_sha, head_sha
+    )  # pragma: no cover — greenlet-crossing attribution artifact; the helper is measured
     await session.flush()
     await append_run_event(
         session,
@@ -98,12 +123,6 @@ async def start_demo_prove(session: SessionDep) -> RunCreated:
         extra={"repo_path": str(repo_dir), "base_sha": base_sha, "head_sha": head_sha},
     )
     await session.commit()
-    cfg = ProveConfig(
-        repo=repo_dir,
-        base=base_sha,
-        head=head_sha,
-        max_inputs=_DEMO_MAX_INPUTS,
-        out=local_run_out_dir(run.id),
-    )
-    spawn_prove_thread(run.id, cfg, database_url())
-    return RunCreated(run_id=run.id)
+    return _spawn_demo(
+        run.id, repo_dir, base_sha, head_sha
+    )  # pragma: no cover — greenlet-crossing attribution artifact; the helper is measured
