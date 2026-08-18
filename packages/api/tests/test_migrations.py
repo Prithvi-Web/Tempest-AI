@@ -171,3 +171,84 @@ def test_revision_chain_matches_alembic_scripts() -> None:
     scripted.reverse()  # walk_revisions yields head-first
     assert tuple(scripted) == REVISION_CHAIN
     assert directory.get_current_head() == HEAD_REVISION
+
+
+class TestTheStampIsAClaimNotAFact:
+    """Field defect, 2026-08-18 (trap 37): a real user store was stamped HEAD while its `runs`
+    table still had the pre-0002 shape — an early build's adoption bug (pre-review-M3) wrote
+    the stamp without the columns, and every later open trusted it. The lesson as a contract:
+    OPENING the store verifies the live schema against the models and repairs drift with the
+    idempotent forward steps; what it cannot repair it refuses LOUDLY, never limps."""
+
+    def _brick_like_the_field_store(self, db: Path) -> None:
+        """Reproduce the user's exact observed state: stamped 0005, runs missing the three
+        forward-step columns (verified against the real file on 2026-08-18)."""
+        command.upgrade(_alembic_config(db), "head")
+        with sqlite3.connect(db) as conn:
+            for column in ("sandbox_tier", "sandbox_assurance", "bundle_digest"):
+                conn.execute(f"ALTER TABLE runs DROP COLUMN {column}")
+            conn.commit()
+
+    def test_a_lying_stamp_is_repaired_on_open_and_writes_work(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db = tmp_path / "field.db"
+        self._brick_like_the_field_store(db)
+
+        with _open_app(db, monkeypatch) as client:
+            assert client.get("/v1/health").status_code == 200
+            # The write that failed in the field: creating a run row touches every column.
+            resp = client.post(
+                "/v1/runs",
+                json={"repo": "healed", "base_sha": "a" * 40, "head_sha": "b" * 40},
+            )
+            assert resp.status_code == 202, resp.text
+
+        reference = tmp_path / "reference.db"
+        command.upgrade(_alembic_config(reference), "head")
+        assert _widths_stripped(_schema_snapshot(db)) == _widths_stripped(
+            _schema_snapshot(reference)
+        )
+
+    def test_existing_rows_survive_the_repair(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db = tmp_path / "field.db"
+        self._brick_like_the_field_store(db)
+        with sqlite3.connect(db) as conn:
+            conn.execute("INSERT INTO repos (name, created_at) VALUES ('kept', '2026-07-01')")
+            conn.execute(
+                "INSERT INTO runs (repo_id, base_sha, head_sha, status, created_at) "
+                "VALUES (1, ?, ?, 'COMPLETE', '2026-07-01')",
+                ("c" * 40, "d" * 40),
+            )
+            conn.commit()
+
+        with _open_app(db, monkeypatch) as client:
+            listed = client.get("/v1/runs").json()["items"]
+            assert [r["repo"] for r in listed] == ["kept"]
+            detail = client.get(f"/v1/runs/{listed[0]['id']}").json()
+            assert detail["sandbox_tier"] is None  # repaired column, honest null
+
+    def test_unrepairable_drift_is_refused_loudly_not_limped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A missing column NO forward step can add (hand-edited file, future-era damage)
+        must stop the open with the column NAMED — a store that half-works lies with every
+        answer it manages to give."""
+        db = tmp_path / "damaged.db"
+        command.upgrade(_alembic_config(db), "head")
+        with sqlite3.connect(db) as conn:
+            # engine_version: a model column no forward step supplies (status/verdict are
+            # indexed, which SQLite refuses to drop — same damage class, different column).
+            conn.execute("ALTER TABLE runs DROP COLUMN engine_version")
+            conn.commit()
+
+        before = _schema_snapshot(db)
+        with pytest.raises(Exception, match=r"runs\.engine_version"), _open_app(db, monkeypatch):
+            pass
+        # Schema and data untouched. (Raw bytes are NOT compared here: the WAL pragma runs at
+        # connect time — before damage can be diagnosed — and flips the journal-mode header
+        # byte; that is connection metadata, not content. The newer-db refusal above stays
+        # byte-strict because it probes read-only before any engine connection exists.)
+        assert _schema_snapshot(db) == before, "a refused store must keep its schema untouched"

@@ -21,7 +21,10 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.pool import ConnectionPoolEntry
 
+from tempest.obslog import get_logger
 from tempest_api.db.base import Base
+
+_log = get_logger("api.store")
 
 REVISION_CHAIN: tuple[str, ...] = ("0001", "0002", "0003", "0004", "0005")
 HEAD_REVISION: str = REVISION_CHAIN[-1]
@@ -44,6 +47,11 @@ _FORWARD_STEPS: dict[str, tuple[str, ...]] = {
 
 class NewerDatabaseError(RuntimeError):
     """The database on disk was written by a newer Tempest than this one (refuse-newer)."""
+
+
+class DamagedDatabaseError(RuntimeError):
+    """The live schema is missing pieces no forward step can supply — refuse loudly (trap 37):
+    a store that half-works lies with every answer it manages to give."""
 
 
 def sqlite_file_path(url: str) -> Path | None:
@@ -102,9 +110,64 @@ def _read_stamp(conn: sa.Connection) -> str | None:
     return None if row is None else str(row[0])
 
 
+def _missing_columns(conn: sa.Connection) -> list[str]:
+    """Every model column the LIVE schema lacks, as `table.column` (missing tables count
+    whole). The stamp is a claim; this is the fact it is checked against."""
+    inspector = sa.inspect(conn)
+    missing: list[str] = []
+    for table in Base.metadata.tables.values():
+        if not inspector.has_table(table.name):
+            missing.append(f"{table.name} (entire table)")
+            continue
+        live = {column["name"] for column in inspector.get_columns(table.name)}
+        missing.extend(
+            f"{table.name}.{column.name}" for column in table.columns if column.name not in live
+        )
+    return missing
+
+
+def _run_forward_steps_idempotently(conn: sa.Connection) -> None:
+    """Apply every forward step, skipping the already-applied: the steps are ALTER ADD
+    COLUMNs, so a duplicate-column error is precisely "this one is done"."""
+    for statements in _FORWARD_STEPS.values():
+        for statement in statements:
+            try:
+                conn.execute(text(statement))
+            except sa.exc.OperationalError as exc:  # duplicate column — already there
+                if "duplicate column" not in str(exc).lower():
+                    raise
+
+
+def _verify_and_repair(conn: sa.Connection) -> None:
+    """The stamp is a CLAIM, not a fact (trap 37, field defect 2026-08-18): a real user store
+    was stamped HEAD while `runs` still had its pre-0002 shape — an early adoption bug wrote
+    the stamp without the columns, and every later open trusted it, bricking every insert.
+    So every open ends here: the live schema is checked against the models; drift the forward
+    steps can supply is repaired idempotently (rows untouched); anything they cannot supply
+    is a loud, named refusal — never a store that half-works."""
+    missing = _missing_columns(conn)
+    if not missing:
+        return
+    _run_forward_steps_idempotently(conn)
+    Base.metadata.create_all(conn)  # missing TABLES only; create_all never alters existing ones
+    still_missing = _missing_columns(conn)
+    if still_missing:
+        raise DamagedDatabaseError(
+            f"the local store is missing {', '.join(sorted(still_missing))}, and no known "
+            "upgrade supplies them — the file is damaged or hand-edited. Move it aside "
+            "(Tempest will start fresh), or restore it from a backup; nothing has been changed."
+        )
+    _log.info(
+        "local store repaired on open: a stale schema stamp had hidden missing columns "
+        "(%s) — forward steps re-applied, existing rows untouched",
+        ", ".join(sorted(missing)),
+    )
+
+
 def _prepare(conn: sa.Connection) -> None:
     stamp = _read_stamp(conn)
     if stamp == HEAD_REVISION:
+        _verify_and_repair(conn)
         return
     if stamp is None:
         # Fresh file — or an unstamped legacy store from ANY pre-Phase-11 era. Adoption must
@@ -112,13 +175,7 @@ def _prepare(conn: sa.Connection) -> None:
         # bricked forever — create_all never adds columns). Run every forward step
         # idempotently first: adding a column that exists fails cleanly and is skipped.
         if sa.inspect(conn).has_table("runs"):
-            for statements in _FORWARD_STEPS.values():
-                for statement in statements:
-                    try:
-                        conn.execute(text(statement))
-                    except sa.exc.OperationalError as exc:  # duplicate column — already there
-                        if "duplicate column" not in str(exc).lower():
-                            raise
+            _run_forward_steps_idempotently(conn)
         Base.metadata.create_all(conn)
         conn.execute(
             text(
@@ -140,6 +197,9 @@ def _prepare(conn: sa.Connection) -> None:
         for statement in _FORWARD_STEPS[revision]:
             conn.execute(text(statement))
     conn.execute(text("UPDATE alembic_version SET version_num = :head"), {"head": HEAD_REVISION})
+    # A store that arrived here mis-stamped (trap 37) has now advanced its stamp but may
+    # still carry older gaps — the same verification closes them.
+    _verify_and_repair(conn)
 
 
 # FTS over divergences (Phase 11): an external-content FTS5 index kept in sync by triggers —
