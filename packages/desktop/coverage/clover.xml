@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1787035536609" clover="3.2.0">
-  <project timestamp="1787035536609" name="All files">
+<coverage generated="1787037800861" clover="3.2.0">
+  <project timestamp="1787037800861" name="All files">
     <metrics statements="167" coveredstatements="167" conditionals="90" coveredconditionals="90" methods="14" coveredmethods="14" elements="271" coveredelements="271" complexity="0" loc="167" ncloc="167" packages="1" files="2" classes="2"/>
     <file name="router.ts" path="/Users/prithvivinay/Desktop/Claude Code/tempest/packages/desktop/src/router.ts">
       <metrics statements="37" coveredstatements="37" conditionals="38" coveredconditionals="38" methods="4" coveredmethods="4"/>

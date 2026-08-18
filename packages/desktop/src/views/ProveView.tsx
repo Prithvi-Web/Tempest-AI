@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { startLocalProve } from "../hooks";
+import { startDemoProve, startLocalProve } from "../hooks";
 import type { Route } from "../router";
 
 export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
@@ -10,6 +10,20 @@ export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
   const [maxInputs, setMaxInputs] = useState(300);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+
+  // The demo's second home (ADR-0032): the empty-state button vanishes once history exists,
+  // but "show me it working before I point it at MY code" stays a reasonable ask forever.
+  async function demo() {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const created = await startDemoProve();
+      navigate({ view: "run", id: created.run_id });
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : "the demo could not be started");
+      setBusy(false);
+    }
+  }
 
   async function start() {
     setBusy(true);
@@ -87,10 +101,18 @@ export function ProveView({ navigate }: { navigate: (r: Route) => void }) {
         </div>
       )}
 
-      <p>
+      <p className="keyrow">
         <button className="primary" disabled={busy || repoPath.trim() === ""} onClick={start}>
           {busy ? "Starting…" : "Prove it"}
         </button>
+        <button disabled={busy} onClick={() => void demo()}>
+          Try a demo proof
+        </button>
+      </p>
+      <p className="group-note" style={{ marginTop: 0 }}>
+        The demo writes a tiny repository of its own and proves — with real inputs and a real
+        reproduction — that a &ldquo;harmless&rdquo; rounding cleanup changes what customers
+        pay. Nothing of yours is touched.
       </p>
       <p className="dim">
         Note: repositories always run inside a sandbox, never unsandboxed (Law L6): Docker when
