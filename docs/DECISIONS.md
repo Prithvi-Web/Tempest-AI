@@ -1001,3 +1001,30 @@ are CLAIMS about state, and code that trusts a claim it could cheaply verify inh
 every historical bug that ever wrote the claim wrong. Verification on open costs one
 schema inspection; the alternative was a permanently bricked user store that no shipped
 fix could reach.
+
+## ADR-0033 — Corpus mining was dead in every real prove (2026-08-18, trap 38)
+
+**The field finding that forced this.** The owner's first hand-made proof: a "harmless"
+shipping cleanup (`items >= 5` → `items > 5`) came back EQUIVALENT_UNDER_BUDGET on every
+seed. The verdict was HONEST — the budget genuinely never exercised `items == 5` — but the
+recall was broken: `5` sits in the repo's own source, and corpus mining exists precisely to
+harvest it ("real values find real bugs", master spec stage 5).
+
+**Root cause.** `mine_literals` skipped any path whose PARTS contain a skip-dir name — and
+the engine's own worktrees live at `<repo>/.tempest/cache/worktrees/<sha>/`, so every file
+of the very worktree being mined carried `.tempest` in its path. Mining returned `[]` in
+every real `run_prove` since the cache moved under `.tempest`. No gate noticed because the
+fixtures' knife-edges (0, 1, −1, boundaries of clamp/is_non_negative) all coincide with the
+CURATED edge pools — the corpus proved recall of edges, never recall of mined values.
+
+**Fix + pins.** Skip-dirs are judged relative to the mining root (a nested `.venv`/`.tempest`
+inside a worktree is still skipped; the root's own location is not the root's business).
+Pinned at three levels: unit (a root under a skip-named directory is mined; skip-dirs below
+the root are not), and an end-to-end recall pin driving `run_prove` over the exact field
+scenario — the `>= 5`→`> 5` boundary must land DIVERGENT with `items == 5` in the minimized
+input. The field repo now answers: DIVERGENT, minimized `(0, 5)`, base 0 vs head 500.
+
+**Trap 38, the general lesson:** a component can be simultaneously green and dead — every
+mining unit test mined a plain tmp directory, and every integration fixture found its bugs
+through a second mechanism (curated edges). When a stage's whole VALUE is additive recall,
+it needs at least one end-to-end case that FAILS without it: a bug only that stage can find.

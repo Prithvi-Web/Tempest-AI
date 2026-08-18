@@ -97,9 +97,39 @@ class TestValuesForEdges:
         assert marker not in values
         assert 11 in values
 
-    def test_mined_values_for_generic_annotations_pass_through(self) -> None:
-        values = values_for(list[int], seed=2, mined=[[7, 8, 9]])
-        assert [7, 8, 9] in values
+    def test_mined_values_respect_generic_annotations(self) -> None:
+        """Trap 38's second face: while mining was dead, _matches silently let EVERY mined
+        value into pools for generic annotations (list[int] etc.) — resurrecting mining then
+        fed mined scalars to list parameters, and pyfix's no-op refactors (manual loop vs
+        sum()) diverged on exception MESSAGES for inputs outside their declared types. Typed
+        pools stay inside the declared contract: that is what the annotation is FOR."""
+        from tempest.generate.strategies import parse_annotation, values_for
+
+        list_int = parse_annotation("list[int]")
+        pool = values_for(list_int, seed=0, mined=["abc", 5, [1, 2], ["a"], [3, True], None])
+        assert [1, 2] in pool  # a mined list of ints belongs
+        assert "abc" not in pool  # a string is not a list[int]
+        assert 5 not in pool  # nor is a scalar
+        assert ["a"] not in pool  # nor a list of strings
+        assert [3, True] not in pool  # bool is not int here (the int/bool guard holds inside)
+        assert None not in pool
+
+        dict_pool = values_for(
+            parse_annotation("dict[str, int]"), seed=0, mined=[{"k": 1}, {1: "v"}, "junk"]
+        )
+        assert {"k": 1} in dict_pool
+        assert {1: "v"} not in dict_pool
+        assert "junk" not in dict_pool
+
+        union_pool = values_for(parse_annotation("int | None"), seed=0, mined=[7, "no", None])
+        assert 7 in union_pool
+        assert "no" not in union_pool
+
+    def test_mined_values_for_unannotated_params_pass_through(self) -> None:
+        values = values_for(None, seed=2, mined=[[7, 8, 9], "kept", 42])
+        assert [7, 8, 9] in values  # no annotation → no contract → everything is welcome
+        assert "kept" in values
+        assert 42 in values
 
     def test_union_edge_cases_include_both_sides(self) -> None:
         union_edges = _edge_cases_for(int | None)

@@ -273,6 +273,14 @@ alongside the phase that paid for it. The list resumes here for 36.)*
     "already done" flags inherit every historical bug that ever wrote them wrong — verify
     cheaply instead of trusting (`test_migrations.py::TestTheStampIsAClaimNotAFact`).
 
+38. **Green and dead at the same time: additive stages need a test only THEY can pass.**
+    Corpus mining was silently dead in every real prove — its skip-dirs check matched the
+    `.tempest` component of the engine's own worktree paths, so it mined nothing — while
+    every unit test (plain tmp dirs) and every fixture (knife-edges on curated-edge values)
+    stayed green. If a stage's whole value is additive recall, pin one end-to-end bug that
+    is only findable through it (`test_prove_scope.py::test_mined_literals_reach_real_proves…`).
+    Fix class: judge skip-dirs relative to the root being walked, never the absolute path.
+
 ---
 
 ## 6. Resume commands

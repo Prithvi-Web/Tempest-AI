@@ -144,7 +144,9 @@ strip-types flag + warning suppression · 34 a DB field is three places ·
 35 V8 cannot run under RLIMIT_AS (heap cap instead; macOS never enforces AS) ·
 36 the line right after a greenlet crossing is mis-attributed by coverage — restructure
 into a sync helper, never pragma the block · 37 a schema stamp is a claim, not a fact —
-every open verifies the live schema and repairs or refuses loudly.
+every open verifies the live schema and repairs or refuses loudly · 38 a stage can be
+green and dead (mining skipped its own `.tempest` worktree root) — additive stages need
+one end-to-end bug only they can find.
 
 ## 7. Resume commands
 

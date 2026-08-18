@@ -199,10 +199,45 @@ def _is_edge(annotation: object | None, v: object) -> bool:
 
 
 def _matches(annotation: object | None, value: object) -> bool:
+    """Does a mined value belong in this parameter's pool? Typed pools stay inside the
+    DECLARED contract — that is what the annotation is for. (While mining was dead — trap
+    38 — the old fall-through for generic annotations was invisible; alive, it fed mined
+    scalars to `list[int]` parameters, and pyfix's no-op refactors "diverged" on exception
+    messages for inputs outside their own types.)"""
     if annotation is None:
         return True
     if isinstance(annotation, type):
         return isinstance(value, annotation) and not (
             annotation is not bool and isinstance(value, bool)
         )
+    import types as _types
+
+    args: tuple[object, ...] = getattr(annotation, "__args__", ())
+    if isinstance(annotation, _types.UnionType) or str(annotation).startswith("typing.Optional"):
+        return any((value is None) if arg is type(None) else _matches(arg, value) for arg in args)
+    origin = getattr(annotation, "__origin__", None)
+    if origin in (list, set, frozenset):
+        if not isinstance(value, origin):
+            return False
+        element = args[0] if args else None
+        return all(_matches(element, item) for item in value)
+    if origin is tuple:
+        if not isinstance(value, tuple):
+            return False
+        if not args or (len(args) == 2 and args[1] is Ellipsis):
+            element = args[0] if args else None
+            return all(_matches(element, item) for item in value)
+        return len(value) == len(args) and all(
+            _matches(arg, item) for arg, item in zip(args, value, strict=True)
+        )
+    if origin is dict:
+        if not isinstance(value, dict):
+            return False
+        if len(args) == 2:
+            key_t, val_t = args[0], args[1]
+        else:
+            key_t, val_t = None, None
+        return all(_matches(key_t, k) and _matches(val_t, v) for k, v in value.items())
+    # An annotation this vocabulary cannot describe (user generics, protocols): admit the
+    # mined value — the probe-and-compare machinery is the judge of last resort there.
     return True
