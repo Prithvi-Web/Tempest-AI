@@ -1045,3 +1045,166 @@ desktop Cargo.toml, and every package.json — the release tag, `tempest version
 About, and the health pill all now agree. The openapi contract regenerated (it embeds the
 app version) and the drift gate holds. Vitest's `coverage/` output was untracked and
 gitignored (build artifacts had slipped into the tree with the 1.1 hardening).
+
+## ADR-0034 — CodeMirror 6, not Monaco, for the v2 editor surface (2026-08-18)
+
+**Date:** 2026-08-18 · **Status:** accepted (v2, Phase 20)
+
+**Context.** v2 puts a real editor in the Tauri webview (F11 inline completion, F12 composer
+diffs, F18 gutter divergence markers). The v2 master prompt asserts CodeMirror 6 over Monaco
+and demands that disagreement come with *measured numbers, not preferences*. Agreeing with a
+spec is not evidence either — so this ADR measures both rather than repeating the assertion.
+
+What decides it is not taste, it is `docs/PLAN-V2.md`'s budget table: **idle RAM 300 MB p50 /
+450 MB p95** and **cold launch → interactive 800 ms p50**, both of which the app must hit
+*with* the editor loaded. Measured today (`make bench`, this audit): idle **115.2 MB RSS**,
+cold launch **0.3375 s**. So the editor's whole allowance before breaching the v2 p50 idle
+ceiling is roughly **185 MB**, and everything parsed at startup comes out of a ~460 ms margin.
+
+**Measured** (esbuild `--bundle --minify --format=esm`, monaco-editor 0.56.0, CodeMirror 6 —
+`codemirror` 6.0.2 + `@codemirror/lang-javascript` + `@codemirror/lang-python`; gzip -9):
+
+| Bundle | minified | gzipped | languages included |
+|---|---|---|---|
+| **CodeMirror 6** (`basicSetup` + JS + Python) | **545,591 B** (533 KB) | **185,342 B** (181 KB) | 2 |
+| Monaco core (`editor.api`) | 2,637,749 B (2.52 MB) | 677,392 B (662 KB) | **0** |
+| Monaco main (`editor.main`) | 4,433,553 B (4.23 MB) | 1,147,142 B (1.09 MB) | all built-in |
+
+On-disk footprint a lockfile drags in: `@codemirror/*` + `codemirror` ≈ **3.0 MB** vs
+`monaco-editor` **98 MB** (33×). Monaco additionally ships **9 web-worker entrypoints** and a
+24 MB prebuilt `min/vs` tree; CodeMirror needs no workers.
+
+The honest comparison is CM6-with-two-languages against `editor.main`, because monaco's
+`editor.api` is an editor that cannot yet highlight Python: **8.1× smaller minified, 6.2×
+smaller gzipped.** The master prompt estimated "~5 MB plus worker overhead" and "~10× lighter";
+measured, Monaco is 4.23 MB minified and CM6 is 8.1×/6.2× lighter — the spec's direction is
+right and its magnitude is slightly optimistic. Recorded as measured, not as asserted.
+
+**Decision.** CodeMirror 6, with LSP spoken by a **Rust-side multiplexer** that owns language
+server lifecycles and pushes diagnostics over IPC — language servers never live in the webview.
+
+Three reasons, in order of weight:
+
+1. **Payload.** 662 KB gzipped buys an editor with no languages; 181 KB buys one with the two
+   we need. Against a ~460 ms cold-launch margin and a ~185 MB idle-RAM allowance, that
+   difference is the budget.
+2. **Workers and process count.** Monaco's language intelligence assumes dedicated web workers
+   per language — 9 entrypoints, each a separate bundle and a separate JS heap inside the
+   webview. Tempest already supervises a Python sidecar and, in v2, an agent orchestrator and
+   an index service; adding webview workers pushes against the same L11 ceiling that F17's
+   8-agent fleet (2 GB p50) has to fit under. CM6 needs none — and with LSP in Rust the real
+   language intelligence lives in a process the host already starts, health-checks, restarts
+   with backoff, and kills by process group (the boundary-A pattern that already works).
+3. **Incrementality.** CM6's state/view split is incremental by construction and tree-sitter
+   friendly, which is exactly F18's requirement: gutter markers updating on save with a <5 ms
+   input-latency delta. Monaco's model layer is a fine editor; it is not built around an
+   external incremental parse tree.
+
+**What we give up, honestly.** Monaco ships VS Code's TypeScript/JavaScript language service,
+so out of the box it has better JS/TS smarts than a bare CM6. We pay for that with the LSP
+multiplexer instead — real language servers, per language, which is strictly more capable and
+is the only design that serves Python (Tempest's primary language) as well as it serves TS.
+Monaco would have bought a faster start and a worse ceiling.
+
+**Consequences / risk.** Phase 20 is editor **plus** multiplexer plus completion — the LSP work
+is not deferrable, because CM6 without it is a text box. Risk: CM6's smaller default feature
+surface means more editor UX (minimap, sticky scroll, multi-cursor niceties) is ours to build
+or to consciously omit; `docs/POLISH.md` is where those get enumerated rather than discovered.
+**This ADR is falsifiable:** if Phase 20 measures CM6 breaching any editor budget in the §5
+table, re-open it with the numbers. Measurement script preserved in the phase-20 branch notes;
+re-runnable against any future version pair.
+
+## ADR-0035 — The Agent Tool Protocol is the FOURTH contract boundary (2026-08-18)
+
+**Date:** 2026-08-18 · **Status:** accepted (v2 foundation, Phase 19)
+
+**Context.** v1 desktop has three generated boundaries (L12): Python↔Rust (A), Rust↔TS (B),
+Python↔TS (C). v2 introduces a fourth shape that crosses every one of them and additionally
+crosses into a *model*: the schema of every tool the agent may call. Hand-writing that schema
+in three places plus a prompt is exactly the drift L12 exists to forbid — and the failure mode
+is worse than a type error, because a model handed a stale tool schema produces plausible
+calls that silently do the wrong thing.
+
+**Decision.** The Agent Tool Protocol is a first-class fourth boundary with the same law:
+**one root of truth, everything else generated.** Root: a Rust trait per tool with
+`schemars`-derived JSON Schema. From it we generate (a) the TS bindings the webview uses,
+(b) the model-facing tool definitions, per provider, and (c) the audit-log entry shape.
+`make gen-contracts` covers boundary D and the drift gate diffs it like the rest:
+
+```
+make gen-contracts && git diff --exit-code   # four boundaries, one truth
+```
+
+Rust is the root here, not Python, because the orchestrator owns tool dispatch, budget
+enforcement, and capability checks — the enforcement point and the schema must not be able to
+disagree. Domain *values* inside tool arguments remain Pydantic-rooted (boundary C) and are
+referenced, never redefined.
+
+**Consequences / risk.** Adding a tool, or changing an argument, breaks the TS build and the
+drift gate until regenerated and committed — the design working, as with enum discipline.
+Per-provider adaptation (Anthropic/OpenAI/Google tool formats) is a pure function of the
+generated schema, so adding a provider never touches feature code (§7 of the master prompt).
+Risk: `schemars` output must stay stable across versions or the gate churns; the version is
+pinned and bumped deliberately, like `typify`.
+
+## ADR-0036 — Shadow-worktree execution: the agent never writes the user's tree (2026-08-18)
+
+**Date:** 2026-08-18 · **Status:** accepted (v2 foundation, Phase 19)
+
+**Context.** L19 says the agent is untrusted code that happens to be on your side, and L20
+says every agent action is reversible. Both are unachievable if agent edits land directly in
+the user's working tree: a half-finished multi-file edit interleaved with the user's own
+uncommitted work cannot be cleanly undone, and "hopefully git has it" is not a journal.
+There is also a proof requirement: F1 must prove *a candidate state* against a baseline, and
+a baseline that mutates under the user's fingers while the proof runs is not a baseline.
+
+**Decision.** All agent file writes are staged in a **shadow worktree** — a git worktree under
+`.tempest/agent/worktrees/<task-id>/`, created from the task's baseline commit, never the
+user's checkout. The proof engine runs base = baseline, head = shadow. Acceptance copies the
+accepted hunks into the user's tree as one atomic, journaled operation; rejection deletes the
+worktree. Agent terminal commands (F14) execute at differential-runner isolation tiers with
+the shadow worktree as their cwd.
+
+Every mutation — file write, acceptance, terminal side effect Tempest initiated — is appended
+to a journal that supports one-keystroke undo of any agent change, including multi-file ones
+(L20). The journal is the mechanism; git is not relied upon for reversibility, because the
+user's own uncommitted work must survive an undo untouched.
+
+**Consequences / risk.** Disk cost: one worktree per active task (and per fleet agent, F17) —
+governed by the worktree pool and L11 resource budgets, with reaping of completed tasks.
+Correctness win: the proof baseline is immutable for the turn's duration, which is what makes
+F1's verdict meaningful. Risk: worktrees and the `.tempest` cache root interact with mining
+skip-dirs — trap 38's exact class — so the shadow root is judged relative to the mining root,
+already fixed in ADR-0033 and re-pinned when the agent worktrees land.
+
+## ADR-0037 — BYO inference only: Tempest never proxies your source (2026-08-18)
+
+**Date:** 2026-08-18 · **Status:** accepted (v2 foundation, Phase 19)
+
+**Context.** L9 (source never leaves the machine without explicit per-repo opt-in) and L10
+(egress is tested, not promised) are the enterprise position and the reason the L10 egress
+monitor output is a sales artifact. v2 adds a generative layer that, done the ordinary way,
+would ship source code to a vendor-operated proxy — silently converting the product's central
+claim into a false one.
+
+**Decision.** **L18: BYO inference, always.** Users supply their own API keys (Anthropic,
+OpenAI, Google, any OpenAI-compatible endpoint) or run local models via llama.cpp behind a
+Rust-side runner. Keys live in the OS keychain — never plaintext, never synced. Tempest
+operates no inference proxy in v2; a hosted option may exist later and is explicitly out of
+scope now.
+
+Consequences for the laws already in force: the egress monitor (L10) is extended to the agent
+tier, and requests to the *user's own configured provider* are the only sanctioned generative
+egress — allowlisted per project, visible, and absent entirely in local-model mode. L23
+(graceful offline) is therefore a first-class mode, not a degradation story: with no network
+and no local model, every proof feature works fully and every generative feature is disabled
+with a specific reason and a one-click path to configure a local model — never a spinner,
+never a silent failure.
+
+**Consequences / risk.** We lose the ability to ship a zero-configuration generative
+experience; first-run must make key configuration or model download painless (the onboarding
+work of ADR-0032 extends here). We gain: the air-gapped and enterprise segments remain
+addressable, and L9/L10 stay literally true — provable by the same test that already proves
+them. Risk: local-model quality varies wildly; F21's Model Arena is the honest answer,
+ranking whatever the user actually has by measured proof outcomes on their own repo rather
+than by vendor claims.

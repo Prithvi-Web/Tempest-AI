@@ -1,8 +1,29 @@
-# Tempest AI — The Three Numbers
+# Tempest AI — The Six Numbers
 
-> Phase 8+ master prompt §8: report all three in every status update. They are the company.
+> v2.0.0 master prompt §12: report all six in every status update. They are the company.
+> Numbers 1–3 are the v1 three (Phase 8+ §8); numbers 4–6 are added by v2 and are
+> **not yet measurable** — the features that produce them are Phases 21–24. They are listed
+> here now, with their gate commands, so that "not measured" is visible rather than absent.
 > Every figure below is a real measurement with its command; nothing is estimated.
-> Last measured: 2026-08-13, commit `2358b97`, Apple Silicon macOS, Python 3.12.13.
+> Each figure carries its own measurement date inline — they were taken on different days as
+> each lever landed (proof rate re-measured 2026-08-16 after ADR-0027; TTFD 2026-08-17 with
+> ADR-0032; the original baseline 2026-08-13 at commit `2358b97`). Machine for all of them:
+> Apple Silicon macOS, Python 3.12.13.
+> **Re-verified green at the v2 kickoff: 2026-08-18, commit `6debcec`** (`make verify` exit 0,
+> 1038 passed, 100.00% coverage) — that run re-confirms the gates behind these numbers; it did
+> not re-run the real-world corpus, which is unchanged since 2026-08-16.
+
+| # | Number | Status today |
+|---|---|---|
+| 1 | Proof rate | **34%** real-world keyless (198 targets, 5 OSS repos); 100% on the validation fixture |
+| 2 | False divergence rate | **0** |
+| 3 | Time-to-first-divergence | **6.4 s** demo (bar 90 s); real-repo TTFD still uninstrumented |
+| 4 | Agent verdict coverage | **not measurable — no agent exists yet** (Phase 21; L16 target: 100%) |
+| 5 | Agent task success rate | **not measurable yet** (Phase 21) |
+| 6 | Mutation score | **not measurable yet** (Phase 24, F9) |
+
+*(§§4–6 below state exactly what will measure them. Reporting a number we cannot measure
+would violate L1 — evidence or silence — so they read "not measured", never "0" or "n/a".)*
 
 ## 1. Proof rate
 
@@ -134,6 +155,53 @@ prove time. What is measurable today:
 - Desktop app cold start to healthy sidecar: **~2 s** (HANDOFF, live-verified).
 
 Phase 18's gate instruments the real number end-to-end from a signed install.
+
+**Measured 2026-08-17 (ADR-0032, the demo proof):** click → visible `DIVERGENT` in **6.4 s**
+against a bar of 90 s, pinned by a timed E2E spec and an API test. The demo repo is real, not
+staged — ordinary git repo, ordinary prove machinery, ordinary bundle (L4 extends to marketing).
+This is the *bundled-demo* number; the **user's own code** number still awaits design-partner
+installs, and the two must never be conflated.
+
+---
+
+## 4. Agent verdict coverage *(v2 number — not measurable yet)*
+
+**Definition:** the percentage of agent-presented changes carrying a real verdict traceable to
+a stored bundle. **Target: 100%. Anything less is L16 violated.**
+
+**Status: no agent exists yet.** The Verdict Loop is Phase 21. Reporting any value today would
+be a fabricated measurement (L1/L4).
+
+**Will be measured by:** `python -m tempest.dev.agent_bench --tasks 50 --require-verdict-coverage 1.0`
+plus the adversarial forge test that attempts to produce a "verified" label with no bundle.
+
+## 5. Agent task success rate *(v2 number — not measurable yet)*
+
+**Definition:** the percentage of agent tasks reaching intent-contract conformance without
+human intervention.
+
+**Status: not measurable** — depends on F1 (Phase 21) and F2 (intent contracts, Phase 21).
+
+**Will be measured by:** the same 50-task `agent_bench`, cross-referenced with
+`python -m tempest.dev.intent_bench --min-accuracy 0.90 --max-false-intended 0` and
+`python -m tempest.dev.repair_bench --min-success 0.60 --check-cheats`.
+
+## 6. Mutation score *(v2 number — not measurable yet)*
+
+**Definition:** the median mutation score across `EQUIVALENT_UNDER_BUDGET` verdicts — i.e. of
+faults deliberately injected into changed lines, the fraction the input search would have
+caught. **This is the strength of the evidence**, and it is what makes an equivalence verdict
+falsifiable rather than merely reassuring.
+
+**Status: not measurable** — F9 (adversarial self-validation) is Phase 24. Note the honest
+consequence: today's `EQUIVALENT_UNDER_BUDGET` verdicts state what was exercised (which is why
+they are not "correct"), but they do **not** yet carry a measured sensitivity. Until F9 lands,
+the report's own budget disclosure is the only evidence-strength signal, and it should be read
+as such.
+
+**Will be measured by:** `python -m tempest.dev.mutation_bench --report-scores`. Targets below a
+configurable floor downgrade to the new `WEAK_EVIDENCE` verdict (an L2 vocabulary change
+requiring its own ADR — see `docs/QUESTIONS.md`).
 
 ## Phase 11 performance envelope (measured 2026-08-14, this machine, `make bench`)
 

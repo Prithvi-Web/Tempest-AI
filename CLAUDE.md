@@ -82,15 +82,70 @@ a sales artifact — publish it.
 and yields to the user. Tempest must never make a laptop unusable: CPU affinity caps, memory
 ceilings, and a hard "pause on battery / on thermal pressure" behavior.
 
-**L12 — Three boundaries, one truth.** Type drift across the Python↔Rust↔TypeScript boundary is the
-defining integration risk of the desktop architecture, and it is solved by **generation, not
-discipline** (see the Tri-Boundary Contract below).
+**L12 — Three boundaries, one truth** — **four as of v2.** Type drift across the
+Python↔Rust↔TypeScript boundary is the defining integration risk of the desktop architecture,
+and it is solved by **generation, not discipline** (see the Tri-Boundary Contract below).
+v2 adds a fourth: the **Agent Tool Protocol** (§9c, ADR-0035). Four boundaries, still one truth;
+the gate is one command, `make gen-contracts && git diff --exit-code`.
 
 **L13 — Signed or it doesn't ship.** No unsigned artifact reaches a user, ever, including dev
 builds shared with design partners.
 
 **L14 — Every destructive or privileged action is audit-logged** to an append-only, tamper-evident
 local log, regardless of whether the customer has enterprise features enabled.
+
+### v2-era Laws (v2.0.0 master prompt §2 — additive; L1–L14 all still binding)
+
+> Where v2 conflicts with v1, **v1 wins** unless an ADR says otherwise.
+> Feature detail: `docs/FEATURES-V2.md` · phases: `docs/PLAN-V2.md` · threats:
+> `docs/THREAT-MODEL-V2.md` · polish: `docs/POLISH.md`.
+
+**L15 — The seven zero-properties are gates, not goals.** "Zero errors" is operationalized as:
+1. **Zero unhandled states** — every async operation implements loading, empty, error, partial,
+   cancelled, and stale. Lint rule + Storybook coverage check per data-bound component.
+2. **Zero untyped boundaries** — no `Any`, no `as any`, no `unwrap()` in Rust outside tests, no
+   unchecked JSON; every enum exhaustively matched in all languages.
+3. **Zero silent failures** — every `catch` either recovers meaningfully or surfaces to the user
+   with an actionable message and a diagnostic ID. A `catch` that logs and continues is a build failure.
+4. **Zero unbounded operations** — every loop, retry, agent turn, token spend, and file walk has an
+   explicit budget and a cancellation path.
+5. **Zero data loss** — every user-visible mutation is journaled and undoable; crash mid-operation
+   loses nothing.
+6. **Zero regressions escape** — Tempest proves its own PRs with Tempest, gated in CI.
+7. **A published, enforced error budget** — crash-free session rate ≥ 99.9%; agent turn failure
+   rate ≤ 0.5%; measured in CI and production telemetry; a regression blocks release.
+
+**L16 — The agent may never bypass the proof gate.** Any path where an agent-authored change
+reaches the user marked verified without an actual differential run is a critical bug. There is no
+`--skip-proof`, no "fast mode" that fakes it. Unproven agent output is labeled `UNPROVEN` with the
+same prominence as everywhere else. Enforced by a DB constraint plus an adversarial forge test.
+
+**L17 — The agent's confidence is computed, never generated.** A model may never write into a
+confidence, verdict, or risk field; those are engine outputs. Model text goes in explanation fields
+only, visually distinguished in the UI as narration, not evidence.
+
+**L18 — BYO inference, always.** Users supply their own API keys or run local models. Tempest never
+proxies source code through infrastructure we control (preserves L9/L10). See ADR-0037.
+
+**L19 — The agent runs in the sandbox.** Agent file writes are staged in a shadow worktree, never
+the user's working tree, until accepted. Agent terminal commands run at differential-runner
+isolation tiers. The agent is untrusted code that happens to be on your side. See ADR-0036.
+
+**L20 — Every agent action is reversible.** One-keystroke undo for any agent change, including
+multi-file edits and terminal side effects Tempest initiated. Journaled — not "hopefully git has it."
+
+**L21 — Cost is visible before it is spent.** Token and dollar estimates before any operation over
+a user-set threshold; a running meter; hard caps per task, per session, per day. Never a surprise bill.
+
+**L22 — Latency budgets are gates.** The performance table in `docs/PLAN-V2.md` / master prompt §5
+is enforced in CI from Phase 19. A feature that misses its budget does not ship; it gets fixed or cut.
+
+**L23 — Offline degradation is graceful and explicit.** With no network and no local model, every
+proof feature still works fully and every generative feature is disabled with a clear, specific
+reason — never a spinner, never a silent failure.
+
+**L24 — Dogfood or don't ship.** Tempest's own repo runs Tempest on every PR. The Tempest-on-Tempest
+proof rate is published in the README and tracked over time.
 
 ---
 
@@ -191,6 +246,40 @@ Python must break the Rust build *and* the TS build. That is the design working.
 
 **Round-trip property test:** arbitrary `RunBundle` values generated in Python → serialize →
 deserialize in Rust → re-serialize → deserialize in TS → structural equality. Runs in CI.
+
+---
+
+## 9c. The FOURTH boundary — Agent Tool Protocol (v2 §3) — ADR-0035
+
+v2 adds a fourth generated boundary: **the schema of every tool the agent can call.** It crosses
+all three existing boundaries *and* crosses into a model, where the failure mode is worse than a
+type error — a model handed a stale tool schema produces plausible calls that silently do the
+wrong thing.
+
+```
+   Python engine ──(A)──► Rust host ──(B)──► TypeScript webview
+        │                    │  ▲                    │
+        └────────(C)─────────┼──┼────────────────────┘
+                             │  │
+                    (D: Agent Tool Protocol)
+                             ▼
+                    model-facing tool definitions (per provider)
+```
+
+**Root of truth for boundary D: a Rust trait per tool + `schemars`-derived JSON Schema** — Rust,
+not Python, because the orchestrator owns tool dispatch, budget enforcement, and capability
+checks; the enforcement point and the schema must not be able to disagree. Generated from it:
+the TS bindings, the per-provider model-facing tool definitions, and the audit-log entry shape.
+Domain *values* inside tool arguments stay Pydantic-rooted (boundary C) — referenced, never redefined.
+
+**The gate — four boundaries, still one truth** (`predev`, `prebuild`, CI `contract-check`; no overrides):
+
+```
+make gen-contracts && git diff --exit-code
+```
+
+Adding a tool or changing an argument breaks the TS build and the drift gate until regenerated and
+committed. That is the design working. Adding a model provider must not touch feature code.
 
 ---
 
