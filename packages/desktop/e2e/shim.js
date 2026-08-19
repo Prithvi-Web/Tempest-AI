@@ -84,6 +84,18 @@
         revealed.push(name);
         return null;
       }
+      // Host-side (commands.rs read_project_file): no sidecar behind it. The bridge does a real
+      // read; the guard's rules live in Rust and are pinned there.
+      if (cmd === "read_project_file") {
+        const hosted = await fetch(`${bridgeUrl}/project-file`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo_path: args.repoPath, path: args.path }),
+        });
+        const payload = await hosted.json();
+        if (payload.error !== undefined) throw payload.error;
+        return payload;
+      }
       const response = await fetch(`${bridgeUrl}/invoke`, {
         method: "POST",
         headers: { "content-type": "application/json" },

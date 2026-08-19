@@ -12,6 +12,8 @@ import {
   type RunCreated,
   type SettingsIn_Deserialize,
   type SettingsOut_Serialize,
+  type ProjectFile,
+  type ProjectFileRefusal,
   type SidecarFailure,
   type SyncReport,
   type Verdict,
@@ -195,4 +197,33 @@ export function stopWatch(): Promise<WatchStatus> {
 
 export function startDemoProve(): Promise<RunCreated> {
   return unwrap("startDemoProve", commands.startDemoProve());
+}
+
+/** A refusal from `pathguard`, carrying the branchable reason as well as the sentence. */
+export class ProjectFileError extends Error {
+  readonly refusal: ProjectFileRefusal["refusal"];
+
+  constructor(refusal: ProjectFileRefusal) {
+    super(refusal.message);
+    this.name = "ProjectFileError";
+    this.refusal = refusal.refusal;
+  }
+}
+
+/**
+ * Open one file from one project (Phase 20.1). Not a sidecar call — see `read_project_file`.
+ *
+ * `retry: false` because every failure this command produces is a DECISION (absolute path,
+ * credential, not a project), and retrying a decision just asks the same question again.
+ */
+export function useProjectFile(repoPath: string, path: string) {
+  return useQuery<ProjectFile, ProjectFileError>({
+    queryKey: ["projectFile", repoPath, path],
+    retry: false,
+    queryFn: async () => {
+      const result = await commands.readProjectFile(repoPath, path, null);
+      if (result.status === "error") throw new ProjectFileError(result.error);
+      return result.data;
+    },
+  });
 }

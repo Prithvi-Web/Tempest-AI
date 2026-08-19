@@ -54,6 +54,71 @@ impl From<RpcError> for SidecarFailure {
 
 type CmdResult<T> = Result<T, SidecarFailure>;
 
+/// Hard ceiling on an editor read, regardless of what the caller asks for. A cap the caller
+/// chooses is not a cap (L15.4).
+const MAX_READ_BYTES: u64 = 2 * 1024 * 1024;
+
+/// One file, as the editor receives it.
+///
+/// Deliberately NOT a Boundary A domain type: nothing about opening a file in the user's editor
+/// exists in the Pydantic model, and minting a domain shape for a desktop-local capability would
+/// put a fiction in the contract. `SidecarStateEvent` sets the precedent for Tauri-local types.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ProjectFile {
+    /// Repository-relative path as RESOLVED — a symlink reports where it actually landed, so the
+    /// editor's title bar cannot claim one file while showing another.
+    pub path: String,
+    pub text: String,
+    pub bytes: u32,
+}
+
+/// Why a read was refused: the machine-readable reason the UI branches on, plus the sentence it
+/// shows. The reason is `pathguard::PathRefusal` itself rather than a parallel enum — a second
+/// copy of the vocabulary is a second thing to keep in step (§9b).
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub struct ProjectFileRefusal {
+    pub refusal: crate::pathguard::PathRefusal,
+    pub message: String,
+}
+
+impl From<crate::pathguard::PathRefusal> for ProjectFileRefusal {
+    fn from(refusal: crate::pathguard::PathRefusal) -> Self {
+        Self { message: refusal.to_string(), refusal }
+    }
+}
+
+/// Read one text file out of an open project, for the editor surface (Phase 20.1).
+///
+/// This does NOT go through the sidecar. Every other command here forwards to Python, but §5
+/// budgets "open file (10k lines)" at a p50 of 40 ms, and a JSON-RPC round trip through a
+/// separate process to hand back bytes the OS already has is latency spent for nothing. The
+/// safety that the sidecar boundary would have provided is provided instead by `pathguard`,
+/// which is the same module Phase 21's `read_file` dispatch will use.
+#[tauri::command]
+#[specta::specta]
+pub fn read_project_file(
+    repo_path: String,
+    path: String,
+    max_bytes: Option<u32>,
+) -> Result<ProjectFile, ProjectFileRefusal> {
+    // The caller may ask for LESS than the ceiling, never more.
+    let cap = max_bytes.map_or(MAX_READ_BYTES, |n| u64::from(n).min(MAX_READ_BYTES));
+    let root = std::path::Path::new(&repo_path);
+    let opened = crate::pathguard::open_within(root, &path, cap)?;
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let shown = opened
+        .path
+        .strip_prefix(&canonical_root)
+        .unwrap_or(&opened.path)
+        .to_string_lossy()
+        .into_owned();
+    Ok(ProjectFile {
+        path: shown,
+        bytes: u32::try_from(opened.text.len()).unwrap_or(u32::MAX),
+        text: opened.text,
+    })
+}
+
 /// Not a domain object: the transport wrapper the stdio bridge uses for text responses.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct ReproSource {

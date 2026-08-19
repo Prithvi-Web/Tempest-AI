@@ -54,6 +54,16 @@ export const commands = {
 	 *  this answers with is ORDINARY, tracked by the watcher like any hand-started prove.
 	 */
 	startDemoProve: () => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_demo_prove")),
+	/**
+	 *  Read one text file out of an open project, for the editor surface (Phase 20.1).
+	 * 
+	 *  This does NOT go through the sidecar. Every other command here forwards to Python, but §5
+	 *  budgets "open file (10k lines)" at a p50 of 40 ms, and a JSON-RPC round trip through a
+	 *  separate process to hand back bytes the OS already has is latency spent for nothing. The
+	 *  safety that the sidecar boundary would have provided is provided instead by `pathguard`,
+	 *  which is the same module Phase 21's `read_file` dispatch will use.
+	 */
+	readProjectFile: (repoPath: string, path: string, maxBytes: number | null) => typedError<ProjectFile, ProjectFileRefusal>(__TAURI_INVOKE("read_project_file", { repoPath, path, maxBytes })),
 };
 
 /** Events */
@@ -1003,6 +1013,71 @@ export type Message = string;
 export type PageRunSummary = {
 	items: RunSummary[],
 	next_cursor: string | null,
+};
+
+/**
+ *  Why a path was refused. Each variant names a decision, never a filesystem detail: the message
+ *  reaches a UI, and "no" plus a reason is a product surface (L7).
+ */
+export type PathRefusal = 
+/**  Empty, or containing an interior NUL — not a path this product will interpret. */
+{ kind: "malformed" } | 
+/**  Absolute paths name a machine, not a project. */
+{ kind: "absolute" } | 
+/**
+ *  A `..` component. Rejected outright rather than normalised: a rule you can evaluate by
+ *  reading it is worth more than one that needs a whiteboard.
+ */
+{ kind: "traversal" } | 
+/**  Resolved to somewhere outside the project root — a symlink pointing out. */
+{ kind: "escapes_root" } | 
+/**
+ *  A credential-bearing path (`.env`, `.ssh`, keychains). Matched case-insensitively because
+ *  macOS filesystems are case-insensitive by default, so `.ENV` opens `.env`'s bytes.
+ */
+{ kind: "credential" } | { kind: "not_found" } | 
+/**  Present, but this process may not traverse to it — a different fact from "not there". */
+{ kind: "unreadable" } | 
+/**  A directory, device, or socket. Only regular files are readable here. */
+{ kind: "not_a_file" } | 
+/**
+ *  Not valid UTF-8 — an editor buffer is text, and showing a binary as replacement
+ *  characters would invite someone to "save" it back and destroy the file.
+ */
+{ kind: "not_text" } | 
+/**
+ *  The root named is not a project. Containment is only as strong as the root it confines
+ *  to, so a caller cannot widen the guard by naming `/` and asking for `etc/passwd`.
+ */
+{ kind: "not_a_project" } | 
+/**  Larger than the caller's cap. Unbounded reads are a budget violation (L15.4). */
+{ kind: "too_large"; bytes: number | null; cap: number | null };
+
+/**
+ *  One file, as the editor receives it.
+ * 
+ *  Deliberately NOT a Boundary A domain type: nothing about opening a file in the user's editor
+ *  exists in the Pydantic model, and minting a domain shape for a desktop-local capability would
+ *  put a fiction in the contract. `SidecarStateEvent` sets the precedent for Tauri-local types.
+ */
+export type ProjectFile = {
+	/**
+	 *  Repository-relative path as RESOLVED — a symlink reports where it actually landed, so the
+	 *  editor's title bar cannot claim one file while showing another.
+	 */
+	path: string,
+	text: string,
+	bytes: number,
+};
+
+/**
+ *  Why a read was refused: the machine-readable reason the UI branches on, plus the sentence it
+ *  shows. The reason is `pathguard::PathRefusal` itself rather than a parallel enum — a second
+ *  copy of the vocabulary is a second thing to keep in step (§9b).
+ */
+export type ProjectFileRefusal = {
+	refusal: PathRefusal,
+	message: string,
 };
 
 /**

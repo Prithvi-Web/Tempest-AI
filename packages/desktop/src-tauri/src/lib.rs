@@ -71,6 +71,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::stop_watch,
             commands::report_ui_error,
             commands::start_demo_prove,
+            commands::read_project_file,
         ])
         .events(tauri_specta::collect_events![
             commands::SidecarStateEvent,

@@ -10,7 +10,11 @@ export type Route =
   | { view: "prove" }
   | { view: "logs" }
   | { view: "watch" }
-  | { view: "settings" };
+  | { view: "settings" }
+  // The editor names a project and a file inside it. Both are strings, so both are encoded on
+  // the way out and decoded on the way in — a path contains `/`, `&` and `#` routinely, and a
+  // route that cannot survive its own filenames is not a route.
+  | { view: "editor"; repo: string; file: string };
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
@@ -27,6 +31,13 @@ export function parseRoute(search: string): Route {
   if (view === "logs") return { view: "logs" };
   if (view === "watch") return { view: "watch" };
   if (view === "settings") return { view: "settings" };
+  if (view === "editor") {
+    const repo = params.get("repo");
+    const file = params.get("file");
+    // Both or neither: an editor with no file is not a state this app has, and falling back to
+    // an empty buffer would hide a malformed link instead of showing the list.
+    if (repo && file) return { view: "editor", repo, file };
+  }
   return { view: "runs" };
 }
 
@@ -36,6 +47,11 @@ export function routeHref(route: Route): string {
   if (route.view === "logs") return "?view=logs";
   if (route.view === "watch") return "?view=watch";
   if (route.view === "settings") return "?view=settings";
+  if (route.view === "editor") {
+    const repo = encodeURIComponent(route.repo);
+    const file = encodeURIComponent(route.file);
+    return `?view=editor&repo=${repo}&file=${file}`;
+  }
   return `?view=${route.view}&id=${route.id}`;
 }
 

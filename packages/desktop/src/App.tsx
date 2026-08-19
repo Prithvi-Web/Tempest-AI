@@ -5,6 +5,7 @@ import { events } from "./generated/bindings";
 import { useGetHealth } from "./hooks";
 import { routeHref, useRoute, type Route } from "./router";
 import { DivergenceView } from "./views/DivergenceView";
+import { EditorView } from "./views/EditorView";
 import { LogsView } from "./views/LogsView";
 import { ProveView } from "./views/ProveView";
 import { RunsView } from "./views/RunsView";
@@ -168,6 +169,9 @@ export function App() {
         {route.view === "watch" && <WatchView navigate={navigate} />}
         {route.view === "logs" && <LogsView navigate={navigate} />}
         {route.view === "settings" && <SettingsView />}
+        {route.view === "editor" && (
+          <EditorView repo={route.repo} file={route.file} navigate={navigate} />
+        )}
       </div>
     </div>
   );

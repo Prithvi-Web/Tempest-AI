@@ -18,6 +18,7 @@
 
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, existsSync, appendFileSync } from "node:fs";
+import fs from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -208,6 +209,42 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { sidecarAlive: true });
     return;
   }
+  // Phase 20.1: `read_project_file` is a HOST command with no sidecar behind it, so the bridge
+  // performs a genuine read from a real fixture project. The guard's RULES (traversal,
+  // credentials, symlink escapes, binary) are pinned by 26 Rust tests in pathguard.rs; what this
+  // endpoint exists to prove is the other half — that real bytes off a real disk reach the real
+  // CodeMirror instance in the real webview.
+  if (req.method === "POST" && req.url === "/project-file") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", async () => {
+      try {
+        const body = JSON.parse(raw);
+        const root = await fs.realpath(body.repo_path);
+        const resolved = await fs.realpath(path.join(root, body.path));
+        if (!resolved.startsWith(root + path.sep)) throw new Error("escapes root");
+        const text = await fs.readFile(resolved, "utf8");
+        json(res, 200, {
+          path: path.relative(root, resolved),
+          text,
+          bytes: Buffer.byteLength(text),
+        });
+      } catch (err) {
+        // A MISSING file is a product refusal; anything else is the harness breaking, and the two
+        // must not look alike. They did once: a missing `fs` import made every read throw, the
+        // refusal spec went green on the resulting "not found", and only the specs that needed a
+        // mounted editor noticed. A broken bridge now says so, loudly.
+        const missing = err && (err.code === "ENOENT" || err.code === "ENOTDIR");
+        json(res, 200, {
+          error: missing
+            ? { refusal: { kind: "not_found" }, message: "no such file in the project" }
+            : { refusal: { kind: "unreadable" }, message: `e2e bridge failure: ${err?.message ?? err}` },
+        });
+      }
+    });
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/invoke") {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));

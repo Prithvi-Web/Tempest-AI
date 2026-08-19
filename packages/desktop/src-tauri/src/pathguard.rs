@@ -15,7 +15,8 @@ use std::path::{Component, Path, PathBuf};
 
 /// Why a path was refused. Each variant names a decision, never a filesystem detail: the message
 /// reaches a UI, and "no" plus a reason is a product surface (L7).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+#[serde(rename_all = "snake_case", tag = "kind")]
 pub enum PathRefusal {
     /// Empty, or containing an interior NUL — not a path this product will interpret.
     Malformed,
@@ -34,8 +35,22 @@ pub enum PathRefusal {
     Unreadable,
     /// A directory, device, or socket. Only regular files are readable here.
     NotAFile,
+    /// Not valid UTF-8 — an editor buffer is text, and showing a binary as replacement
+    /// characters would invite someone to "save" it back and destroy the file.
+    NotText,
+    /// The root named is not a project. Containment is only as strong as the root it confines
+    /// to, so a caller cannot widen the guard by naming `/` and asking for `etc/passwd`.
+    NotAProject,
     /// Larger than the caller's cap. Unbounded reads are a budget violation (L15.4).
-    TooLarge { bytes: u64, cap: u64 },
+    TooLarge {
+        // u64 in Rust because a file's size is a u64; `f64` on the wire because specta forbids
+        // BigInt-style types in TypeScript, and a JSON number is exact to 2^53 — nine petabytes
+        // of slack for a value that is only ever reported alongside a 2 MiB cap.
+        #[specta(type = f64)]
+        bytes: u64,
+        #[specta(type = f64)]
+        cap: u64,
+    },
 }
 
 impl std::fmt::Display for PathRefusal {
@@ -50,6 +65,8 @@ impl std::fmt::Display for PathRefusal {
             Self::Unreadable => write!(f, "that file cannot be read (permissions)"),
             Self::NotAFile => write!(f, "not a regular file"),
             Self::TooLarge { bytes, cap } => write!(f, "{bytes} bytes exceeds the {cap}-byte cap"),
+            Self::NotAProject => write!(f, "that folder is not a project Tempest can open"),
+            Self::NotText => write!(f, "that file is not text"),
         }
     }
 }
@@ -99,6 +116,14 @@ pub fn resolve_within(root: &Path, rel: &str, max_bytes: u64) -> Result<PathBuf,
         return Err(PathRefusal::Credential);
     }
 
+    // Containment is only as strong as the root, and the root arrives from the webview — the
+    // same place `start_local_prove` gets `repo_path`. Every root this product works with is a
+    // git working tree (shadow worktrees, prove, watch all assume it), and `/` is not one, so
+    // requiring it removes "name a bigger root" as a way to widen the guard.
+    if !root.join(".git").exists() {
+        return Err(PathRefusal::NotAProject);
+    }
+
     // The root is trusted but not necessarily canonical — on macOS `/tmp` is a symlink to
     // `/private/tmp`, so comparing against the pretty form would call every path an escape.
     let canonical_root = canonicalize(root)?;
@@ -127,6 +152,36 @@ pub fn resolve_within(root: &Path, rel: &str, max_bytes: u64) -> Result<PathBuf,
         });
     }
     Ok(resolved)
+}
+
+/// Resolve `rel` inside `root` and return its text, or refuse with a reason.
+///
+/// Reading lives beside resolving so there is one refusal vocabulary rather than two: a caller
+/// that had to combine `resolve_within` with its own `read_to_string` would invent its own words
+/// for "that file is not text", and the UI would learn both.
+pub fn read_within(root: &Path, rel: &str, max_bytes: u64) -> Result<String, PathRefusal> {
+    open_within(root, rel, max_bytes).map(|opened| opened.text)
+}
+
+/// What a caller gets when a file is opened: where it actually landed, and its text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedFile {
+    /// The RESOLVED path. A caller that reports the requested path instead would let a symlink
+    /// show one name while displaying another file's contents.
+    pub path: PathBuf,
+    pub text: String,
+}
+
+/// Resolve and read in one pass. Callers that need both take this rather than calling
+/// [`resolve_within`] and [`read_within`] in turn, which would walk and canonicalise the path
+/// twice — real syscalls against a 40 ms open-file budget.
+pub fn open_within(root: &Path, rel: &str, max_bytes: u64) -> Result<OpenedFile, PathRefusal> {
+    let path = resolve_within(root, rel, max_bytes)?;
+    let bytes = std::fs::read(&path).map_err(map_io)?;
+    // `from_utf8` rather than `from_utf8_lossy`: lossy conversion produces a buffer that LOOKS
+    // editable and would destroy the file if saved back.
+    let text = String::from_utf8(bytes).map_err(|_| PathRefusal::NotText)?;
+    Ok(OpenedFile { path, text })
 }
 
 fn canonicalize(path: &Path) -> Result<PathBuf, PathRefusal> {
@@ -158,6 +213,8 @@ mod tests {
                 .join(format!("tempest-pathguard-{}-{}", std::process::id(), tag));
             let _ = fs::remove_dir_all(&root);
             fs::create_dir_all(&root).expect("temp project root");
+            // A project is a git working tree; the fixture is one, because the guard checks.
+            fs::create_dir_all(root.join(".git")).expect("fixture .git");
             // The root itself may be a symlink (/tmp -> /private/tmp on macOS), so the fixture
             // canonicalises: containment is judged against the resolved root, not the pretty one.
             let root = root.canonicalize().expect("canonical root");
@@ -375,6 +432,19 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_that_is_not_a_project_is_refused() {
+        // Without this, a caller widens the guard simply by naming a bigger root: containment
+        // succeeds against `/`, and `etc/passwd` is neither denylisted nor an escape.
+        let plain = std::env::temp_dir().join(format!("tempest-notaproj-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&plain);
+        fs::create_dir_all(&plain).expect("plain dir");
+        fs::write(plain.join("readme.md"), "hi\n").expect("file");
+        let verdict = resolve_within(&plain, "readme.md", CAP);
+        let _ = fs::remove_dir_all(&plain);
+        assert_eq!(verdict, Err(PathRefusal::NotAProject));
+    }
+
+    #[test]
     fn an_unreadable_directory_is_not_reported_as_missing() {
         // The state nobody sets up: the file exists, and the process cannot get to it. Reported
         // as NotFound it would send someone looking for a file that is right there.
@@ -387,6 +457,53 @@ mod tests {
         fs::set_permissions(&dir, <fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o755))
             .expect("unlock dir");
         assert_eq!(verdict, Err(PathRefusal::Unreadable));
+    }
+
+    #[test]
+    fn reading_returns_the_files_text() {
+        let p = Project::new("read-text");
+        p.write("src/main.py", "print('hi')\n");
+        assert_eq!(
+            read_within(&p.root, "src/main.py", CAP),
+            Ok("print('hi')\n".to_string())
+        );
+    }
+
+    #[test]
+    fn reading_a_binary_file_is_refused_rather_than_mangled() {
+        // Invalid UTF-8 rendered as replacement characters looks editable, and saving it back
+        // would destroy the file. Refusing is the only honest answer an editor can give.
+        let p = Project::new("read-binary");
+        let path = p.root.join("logo.png");
+        fs::write(&path, [0x89, 0x50, 0x4E, 0x47, 0xFF, 0xFE, 0x00, 0x01]).expect("binary");
+        assert_eq!(read_within(&p.root, "logo.png", CAP), Err(PathRefusal::NotText));
+    }
+
+    #[test]
+    fn reading_applies_every_guard_that_resolving_does() {
+        // The read path must not be a second, weaker door into the same building.
+        let p = Project::new("read-guarded");
+        p.write(".env", "SECRET=1\n");
+        assert_eq!(read_within(&p.root, ".env", CAP), Err(PathRefusal::Credential));
+        assert_eq!(
+            read_within(&p.root, "../outside.txt", CAP),
+            Err(PathRefusal::Traversal)
+        );
+        assert_eq!(
+            read_within(&p.root, "/etc/passwd", CAP),
+            Err(PathRefusal::Absolute)
+        );
+    }
+
+    #[test]
+    fn opening_reports_where_the_path_actually_landed() {
+        // A symlink must not let the editor title one file while showing another's bytes.
+        let p = Project::new("open-resolved");
+        let target = p.write("src/real.py", "x = 1\n");
+        std::os::unix::fs::symlink(&target, p.root.join("alias.py")).expect("symlink");
+        let opened = open_within(&p.root, "alias.py", CAP).expect("opens");
+        assert_eq!(opened.path, target, "the resolved path is reported, not the alias");
+        assert_eq!(opened.text, "x = 1\n");
     }
 
     #[test]
