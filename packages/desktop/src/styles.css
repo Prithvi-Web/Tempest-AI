@@ -44,6 +44,12 @@
   --equivalent-soft: rgba(29, 125, 63, 0.1);
   --unproven: #a05a00;
   --unproven-soft: rgba(160, 90, 0, 0.1);
+  /* Verdict inks for text sitting on the MATCHING soft background. `--unproven` and
+     `--divergent` are tuned against `--surface`; on their own tinted chips at caption size they
+     fall to 4.22:1 and 4.16:1. Measured on the composited chip (soft over the active line over
+     the surface): 5.31:1 and 5.55:1. */
+  --unproven-on-soft: #8a4d00;
+  --divergent-on-soft: #b3000f;
   --errorv: #6b4fd8;
   --errorv-soft: rgba(107, 79, 216, 0.1);
 
@@ -94,6 +100,10 @@
     --equivalent-soft: rgba(48, 209, 88, 0.13);
     --unproven: #ffd60a;
     --unproven-soft: rgba(255, 214, 10, 0.12);
+    --unproven-on-soft: #ffd60a;
+    /* 4.89:1 on its own chip; `--divergent` itself is 3.28:1 there — a red-on-red chip is the
+       worst pairing in either palette, and it is the one the badge uses to shout. */
+    --divergent-on-soft: #ff8a80;
     --errorv: #bf9fff;
     --errorv-soft: rgba(191, 159, 255, 0.13);
   }
@@ -939,12 +949,15 @@ main li,
 
 .editor-host .cm-risk-high {
   background: var(--divergent-soft);
-  color: var(--divergent);
+  /* Not `--divergent`: on its own soft chip that is 4.16:1 light and 3.28:1 dark. The gate could
+     not see this until 20.7 made the symbol lookup work, because until then no run ever reached
+     a badge state other than `unmeasured`. */
+  color: var(--divergent-on-soft);
 }
 
 .editor-host .cm-risk-elevated {
   background: var(--unproven-soft);
-  color: var(--unproven);
+  color: var(--unproven-on-soft);
 }
 
 .editor-host .cm-risk-unmeasured {

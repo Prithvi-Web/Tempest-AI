@@ -71,6 +71,42 @@ for (const scheme of ["light", "dark"] as const) {
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.press("F11");
     await expect(page.getByTestId("ghost-text")).toBeVisible({ timeout: 10_000 });
+    // The badge is attached AFTER the suggestion, once the divergence lookup answers — so it has
+    // to be waited for, not assumed. Without this the probe raced it and the run passed or
+    // failed by timing, which is worse than either verdict.
+    await expect(page.getByTestId("risk-badge")).toBeVisible({ timeout: 10_000 });
+
+    // EVERY badge state, not only the one this harness can reach.
+    //
+    // `unmeasured` is the only level a run with no recorded divergences produces, so `elevated`
+    // and `high` — the two the indicator exists for — were never on screen when the probe ran.
+    // One of them shipped at 4.16:1 for exactly that reason. These are real elements carrying
+    // the SHIPPED classes, mounted in the real editor, so what is measured is the CSS the app
+    // ships; only the trigger is synthetic, because no fixture can make the engine record a
+    // HEADLINE divergence from inside a contrast test.
+    await page.evaluate(() => {
+      const host = document.querySelector(".editor-host");
+      if (host === null) throw new Error("no editor host to mount the badge states on");
+      // Mounted beside the content, NOT inside `.cm-content`: CodeMirror observes mutations
+      // there and reconciles foreign nodes away — the first attempt did that and took the ghost
+      // widget with it, which the assertions below caught.
+      const strip = document.createElement("div");
+      strip.setAttribute("data-testid", "probe-strip");
+      // The badge renders on the cursor's line, so the probe carries the active line's tint.
+      // That is the one thing the harness supplies; the COLOURS being measured are entirely the
+      // app's, read from the shipped `.cm-risk-*` rules.
+      strip.style.background = getComputedStyle(
+        document.querySelector(".cm-activeLine") ?? host,
+      ).backgroundColor;
+      for (const level of ["unmeasured", "elevated", "high"]) {
+        const span = document.createElement("span");
+        span.className = `cm-risk-badge cm-risk-${level}`;
+        span.setAttribute("data-testid", `probe-risk-${level}`);
+        span.textContent = `⚠ ${level} — 2 divergences recorded here`;
+        strip.appendChild(span);
+      }
+      host.appendChild(strip);
+    });
 
     const probe = await page.evaluate(() => {
       const host = document.querySelector(".editor-host");
@@ -122,6 +158,7 @@ for (const scheme of ["light", "dark"] as const) {
         ".cm-gutters .cm-lineNumbers .cm-gutterElement",
         '[data-testid="ghost-text"]',
         '[data-testid="risk-badge"]',
+        '[data-testid^="probe-risk-"]',
       ];
       for (const selector of selectors) {
         for (const el of Array.from(host.querySelectorAll(selector))) {
@@ -138,7 +175,12 @@ for (const scheme of ["light", "dark"] as const) {
             [text_color[0], text_color[1], text_color[2], text_color[3] * alpha],
             background,
           );
-          const label = `${selector} ${text.slice(0, 14)}${alpha < 1 ? ` @${style.opacity}` : ""}`;
+          // Named by the element's own testid where it has one, not by the SELECTOR that found
+          // it: a prefix selector like `[data-testid^="probe-risk-"]` matches three different
+          // elements and would label all three identically, so the presence assertions below
+          // could not tell them apart — and would pass while two of the three were missing.
+          const name = el.getAttribute("data-testid") ?? selector;
+          const label = `${name} ${text.slice(0, 14)}${alpha < 1 ? ` @${style.opacity}` : ""}`;
           measured.push([label, rgb(effective), rgb(background)]);
         }
       }
@@ -148,7 +190,14 @@ for (const scheme of ["light", "dark"] as const) {
     // If the highlighter ever stops emitting spans this test must fail loudly rather than pass
     // over an empty list — a vacuous "all colours are fine" is worse than no check.
     expect(probe.measured.length, "editor text is present to measure").toBeGreaterThan(2);
-    for (const kind of ["ghost-text", "risk-badge", "cm-gutterElement"]) {
+    for (const kind of [
+      "ghost-text",
+      "risk-badge",
+      ".cm-gutters",
+      "probe-risk-unmeasured",
+      "probe-risk-elevated",
+      "probe-risk-high",
+    ]) {
       expect(
         probe.measured.some(([label]) => label.includes(kind)),
         `${kind} must be on screen and measured, not silently absent`,
