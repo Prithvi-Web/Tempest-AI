@@ -261,3 +261,29 @@ journal's rollback masks it.
 3. **Never `git add -A`** while a workflow is running; stage the exact paths you authored
    (which is what saved this commit).
 4. If `git status` shows a change you did not write, **stop and diff it** before anything else.
+
+---
+
+## 11. Trap 43 — 100% coverage proves which LINES ran, not which STATES were considered
+
+The Phase-19 review workflow found five real defects in code that had 100% line **and** branch
+coverage, no pragmas, and a green `make verify`. Every arm had been executed — just never in the
+state that mattered:
+
+| Defect | The state nobody set up |
+|---|---|
+| Untracked files poisoned the baseline | a repo with **one ordinary untracked file** |
+| `list_shadows()` rebuilt the wrong baseline | a shadow **snapshotted, then reloaded** |
+| Conflict compare wrong both ways | a file whose content **begins with whitespace** |
+| API key leaked on redirect | a server that answers with **302** |
+
+The most instructive one was a *test*: it set up the exact precondition for the worst bug and
+then stopped one assertion short — it checked the file arrived, and never called the function
+that would have failed.
+
+**How to apply.** When a module's behaviour depends on external state — a git tree, a network
+peer, the filesystem, the clock — write the state list down before the tests and cover it
+deliberately. For git-backed code the standing list is: clean tree · uncommitted tracked edit ·
+**untracked file** · gitignored file · file deleted by the user · **after a snapshot/restart** ·
+content with leading/trailing whitespace · path with spaces · empty repo with no commits.
+A green 100% gate is precisely the thing that makes you stop looking, so look before you see it.

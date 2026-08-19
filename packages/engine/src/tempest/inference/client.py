@@ -27,6 +27,7 @@ when local runners are configured, the suggestion that they keep working unplugg
 import json
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -44,6 +45,36 @@ from tempest.inference.providers import (
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TIMEOUT_S = 60.0
+
+
+class _Redirected(Exception):
+    """Internal: a 3xx arrived. Carries only the target host — never the request headers."""
+
+    def __init__(self, host: str) -> None:
+        super().__init__(host)
+        self.host = host
+
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow redirects, because the API key travels in the request headers.
+
+    `urlopen` follows 3xx by default, and CPython's `HTTPRedirectHandler` copies every header
+    onto the new request — so `x-api-key` / `authorization` would be re-sent verbatim to
+    whatever host the redirect names, past the per-project egress allowlist (THREAT-MODEL T2).
+    A provider that legitimately moves its endpoint is a configuration change the user makes
+    deliberately, not something a response header gets to do silently.
+    """
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        raise _Redirected(urllib.parse.urlsplit(newurl).hostname or "an unnamed host")
 
 
 class ModelError(Exception):
@@ -185,8 +216,18 @@ def _open(
         headers=_headers(provider, key),
         method="POST",
     )
+    opener = urllib.request.build_opener(_RefuseRedirects)
     try:
-        return urllib.request.urlopen(request, timeout=timeout)
+        return opener.open(request, timeout=timeout)
+    except _Redirected as err:
+        # `from None`: the chained context would carry the request, and the request carries the
+        # key. This message names the host and nothing else.
+        raise UpstreamError(
+            f"{provider.label} responded with a redirect to {err.host}; refusing to follow it "
+            f"because the API key travels in the request headers and that host is not the one "
+            f"you configured. If the endpoint really moved, set {provider.base_url_env()} "
+            f"deliberately."
+        ) from None
     except urllib.error.HTTPError as err:
         detail = err.read().decode("utf-8", errors="replace")[:500]
         raise UpstreamError(

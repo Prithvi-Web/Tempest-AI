@@ -541,3 +541,72 @@ class TestRealStreamShapes:
             mc.complete("ollama", [mc.Message("user", "hi")], env=env, model="m", timeout=2)
         assert "still work unplugged" not in str(caught.value)
         assert "Proof features are unaffected" in str(caught.value)
+
+
+class TestRedirectsNeverCarryTheKey:
+    """Regression: `urlopen` follows 3xx and CPython copies every header onto the new request,
+    so `x-api-key` / `authorization` were re-sent verbatim to whatever host a redirect named —
+    a silent key leak to an unconfigured host, past the per-project egress allowlist
+    (THREAT-MODEL T2). Found by the Phase-19 review workflow.
+    """
+
+    @staticmethod
+    def _redirector(target: str) -> type[BaseHTTPRequestHandler]:
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # the http.server contract dictates this name
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *_: object) -> None:
+                return
+
+        return Handler
+
+    def test_a_redirect_is_refused_rather_than_followed(self) -> None:
+        provider = mp.get("anthropic")
+        thief = Peer(provider.wire)
+        with serve(thief) as thief_base:
+            server = HTTPServer(("127.0.0.1", 0), self._redirector(thief_base + "/v1/messages"))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}"
+                with pytest.raises(mc.UpstreamError, match="redirect"):
+                    mc.complete(
+                        "anthropic",
+                        [mc.Message("user", "hi")],
+                        env=_env(provider, base, key="SECRET-KEY"),
+                        model="m-1",
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+        assert thief.headers == [], "the redirect target received a request at all"
+
+    def test_the_refusal_names_the_host_without_leaking_the_key(self) -> None:
+        provider = mp.get("openai")
+        with serve(Peer(provider.wire)) as thief_base:
+            server = HTTPServer(
+                ("127.0.0.1", 0), self._redirector(thief_base + "/chat/completions")
+            )
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                base = f"http://127.0.0.1:{server.server_port}"
+                with pytest.raises(mc.UpstreamError) as caught:
+                    mc.complete(
+                        "openai",
+                        [mc.Message("user", "hi")],
+                        env=_env(provider, base, key="SECRET-KEY"),
+                        model="m-1",
+                    )
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+        assert "SECRET-KEY" not in str(caught.value), "the key appeared in an error message"
+        assert "redirect" in str(caught.value)

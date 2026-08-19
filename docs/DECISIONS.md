@@ -1634,3 +1634,63 @@ depend on machine load; `make verify` must stay deterministic. Same reasoning th
 **Also recorded:** a budget is a **ceiling, not a strict inequality** — 300 MB is within a 300 MB
 budget — and the percentile is nearest-rank, defined in one place, so "p95" means one thing
 across the repo.
+
+## ADR-0043 — Five defects the review workflow found in Phase 19, and what they teach (2026-08-18)
+
+**Context.** With multi-agent review re-authorised (owner, 18 Aug, capped at ten), four
+independent lenses were run over the landed 19.1–19.5 code — agent correctness, inference
+correctness, security/Laws, and test quality — with refute-by-default verification of the top
+findings. **28 raw findings, 5 verified, 0 refuted.** All five were real, all five are fixed
+here, and every fix landed test-first (each new test was watched failing on the old code).
+
+**1. CRITICAL — untracked files poisoned the baseline (`shadow.py`).** `git stash create`
+captures *tracked* changes only. `create()` copied untracked files into the worktree but never
+into the baseline commit, so `changed_files()` reported the user's own files as agent work,
+`accept()` raised a false conflict naming a file the agent never touched, and — acceptance being
+all-or-nothing — **one ordinary untracked file anywhere in the repo made every acceptance
+impossible**. The same gap corrupted the proof pair: `snapshot()` on an untouched shadow no
+longer equalled its baseline, so F1 would have attributed the user's files to the agent. Fixed by
+committing the carried files into the baseline, so the baseline is *true*: a claim about what the
+agent started from that actually holds.
+
+**2. CRITICAL — the API key leaked on redirect (`inference/client.py`).** `urlopen` follows 3xx,
+and CPython's redirect handler copies every header onto the new request, so `x-api-key` /
+`authorization` were re-sent verbatim to whatever host a `Location` named — past the per-project
+egress allowlist, exactly the exfiltration THREAT-MODEL T2 exists to prevent. Fixed by refusing
+redirects: a provider that genuinely moves is a configuration change the user makes deliberately,
+not something a response header does silently. The refusal names the host and **not** the key,
+and uses `raise ... from None` because the chained context would carry the request, and the
+request carries the key.
+
+**3. CRITICAL — the test that hid defect 1.** `test_untracked_user_files_are_carried_into_the
+_baseline` set up the exact precondition and then stopped one assertion short: it checked the
+bytes arrived in the shadow and never called `changed_files()` or `accept()`. **This is the
+finding that matters most**, because it explains how the other two survived a 100% gate.
+
+**4. MAJOR — the conflict comparison was wrong in both directions (`shadow.py`).** It compared
+against `_git()` output, which does `.strip()` — leading *and* trailing whitespace, not the
+trailing newline the comment claimed. So it invented conflicts on any file whose content begins
+with a blank line (ordinary YAML and markdown), and it **missed real user edits that changed only
+surrounding whitespace, silently overwriting their work**. Now compared as bytes via a raw git
+wrapper.
+
+**5. MAJOR — `list_shadows()` rebuilt the wrong baseline.** It read the branch tip, but
+`snapshot()` moves that branch forward, so after a restart a shadow diffed against itself,
+`changed_files()` returned `[]`, and `accept()` silently applied nothing — losing agent work in
+exactly the flow the docstring advertised ("survives a restart with no state"). The baseline is
+now *recorded* on disk at creation and never re-derived from a mutable ref. The metadata lives
+**outside** the worktree, because the first fix put it inside and `changed_files()` immediately
+reported it as agent work — the same class of bug, caught within the minute.
+
+**The lesson worth more than the fixes: 100% line and branch coverage proved nothing about
+these.** Every arm was executed — just never in the *state* that mattered (an untracked file
+present; a snapshot taken and then reloaded; a file beginning with whitespace; a server that
+answers with a redirect). Coverage measures which lines ran, not which situations were
+considered. **Trap 43:** when a module's behaviour depends on external state (a git tree, a
+network peer, the filesystem), enumerate the *states* explicitly — coverage will not do it for
+you, and a green 100% gate is exactly the thing that makes you stop looking.
+
+**Process note.** The reviewing lens that found defect 3 did so by mutation testing — editing
+`shadow.py` in the real tree to see whether a test would catch the break. Correct technique,
+wrong sandbox: it raced a commit. Reviewers now get read-only instructions explicitly, or
+`isolation: 'worktree'` (trap 42).

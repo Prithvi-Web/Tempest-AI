@@ -313,3 +313,133 @@ class TestEdgeCases:
         (repo / "pkg" / "brand_new.py").unlink()  # the user got there first
         sw.revert(acc)
         assert not (repo / "pkg" / "brand_new.py").exists()
+
+
+class TestUntrackedFilesDoNotPoisonTheBaseline:
+    """Regression: `git stash create` captures TRACKED changes only.
+
+    The carried-over untracked files (create()) landed in the worktree but not in the baseline
+    commit, so `changed_files()` reported them as agent work, `accept()` raised a false conflict
+    naming a file the agent never touched, and — because acceptance is all-or-nothing — a single
+    ordinary untracked file anywhere in the repo made every acceptance impossible. It also
+    corrupted the proof pair F1 depends on. Found by the Phase-19 review workflow.
+    """
+
+    def test_an_untracked_file_is_not_reported_as_an_agent_change(self, repo: Path) -> None:
+        (repo / "notes.md").write_text("my scratch notes\n")
+        s = sw.create(repo, "task-1")
+        sw.write(s, "pkg/calc.py", "def add(a, b):\n    return a * b\n")
+        assert sw.changed_files(s) == ["pkg/calc.py"]
+
+    def test_acceptance_succeeds_with_an_untracked_file_present(self, repo: Path) -> None:
+        (repo / "notes.md").write_text("my scratch notes\n")
+        s = sw.create(repo, "task-1")
+        sw.write(s, "pkg/calc.py", "def add(a, b):\n    return a * b\n")
+        sw.accept(s)
+        assert (repo / "pkg" / "calc.py").read_text() == "def add(a, b):\n    return a * b\n"
+        assert (repo / "notes.md").read_text() == "my scratch notes\n"
+
+    def test_an_untouched_shadow_still_snapshots_to_its_baseline(self, repo: Path) -> None:
+        """The proof pair: prove(baseline, snapshot) must attribute nothing to the agent."""
+        (repo / "notes.md").write_text("my scratch notes\n")
+        s = sw.create(repo, "task-1")
+        assert sw.snapshot(s) == s.baseline
+
+    def test_the_agent_can_edit_a_file_the_user_had_not_added_yet(self, repo: Path) -> None:
+        (repo / "notes.md").write_text("draft\n")
+        s = sw.create(repo, "task-1")
+        sw.write(s, "notes.md", "draft, improved by the agent\n")
+        assert sw.changed_files(s) == ["notes.md"]
+        sw.accept(s)
+        assert (repo / "notes.md").read_text() == "draft, improved by the agent\n"
+
+    def test_the_conflict_guard_still_bites_on_a_carried_untracked_file(self, repo: Path) -> None:
+        """Fixing the false conflict must not remove the true one."""
+        (repo / "notes.md").write_text("draft\n")
+        s = sw.create(repo, "task-1")
+        sw.write(s, "notes.md", "agent version\n")
+        (repo / "notes.md").write_text("USER KEPT TYPING\n")
+        with pytest.raises(sw.AcceptConflict, match=r"notes\.md"):
+            sw.accept(s)
+        assert (repo / "notes.md").read_text() == "USER KEPT TYPING\n"
+
+
+class TestConflictComparisonIsExact:
+    """Regression: `_git()` strips leading AND trailing whitespace, so the comparison was wrong
+    in both directions — inventing conflicts on content that starts with whitespace, and missing
+    real user edits that only changed surrounding whitespace (silently overwriting their work).
+    """
+
+    def test_a_file_whose_content_starts_with_a_blank_line_is_acceptable(self, repo: Path) -> None:
+        (repo / "cfg.yml").write_text("\nkey: value\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-m", "cfg", "--no-gpg-sign")
+        s = sw.create(repo, "task-1")
+        sw.write(s, "cfg.yml", "\nkey: other\n")
+        sw.accept(s)
+        assert (repo / "cfg.yml").read_text() == "\nkey: other\n"
+
+    def test_a_whitespace_only_user_edit_is_still_a_conflict(self, repo: Path) -> None:
+        """The user's trailing newline is their work; overwriting it silently is data loss."""
+        s = sw.create(repo, "task-1")
+        sw.write(s, "pkg/calc.py", "AGENT\n")
+        (repo / "pkg" / "calc.py").write_text("def add(a, b):\n    return a + b\n\n\n")
+        with pytest.raises(sw.AcceptConflict, match=r"pkg/calc\.py"):
+            sw.accept(s)
+
+
+class TestShadowsRebuiltFromDiskKeepTheirBaseline:
+    """Regression: `list_shadows()` read the branch tip as the baseline, but `snapshot()` moves
+    that branch forward — so after a restart the shadow diffed against itself, `changed_files()`
+    returned [], and `accept()` silently applied nothing.
+    """
+
+    def test_a_snapshotted_shadow_survives_a_restart_with_work_intact(self, repo: Path) -> None:
+        s = sw.create(repo, "task-1")
+        sw.write(s, "pkg/calc.py", "AGENT\n")
+        sw.snapshot(s)
+        rebuilt = sw.list_shadows(repo)[0]
+        assert rebuilt.baseline == s.baseline, "the baseline moved with the branch"
+        assert sw.changed_files(rebuilt) == ["pkg/calc.py"]
+
+    def test_acceptance_after_a_restart_actually_applies_the_work(self, repo: Path) -> None:
+        s = sw.create(repo, "task-1")
+        sw.write(s, "pkg/calc.py", "AGENT\n")
+        sw.snapshot(s)
+        rebuilt = sw.list_shadows(repo)[0]
+        acc = sw.accept(rebuilt)
+        assert acc.files == ["pkg/calc.py"]
+        assert (repo / "pkg" / "calc.py").read_text() == "AGENT\n"
+
+    def test_a_worktree_without_metadata_is_skipped_not_guessed_at(self, repo: Path) -> None:
+        """A directory from an older version has no recorded baseline; inventing one from the
+        branch tip is exactly the bug this metadata replaced."""
+        s = sw.create(repo, "task-1")
+        (repo / ".tempest" / "agent" / "meta" / "task-1.json").unlink()
+        assert sw.list_shadows(repo) == []
+        assert s.path.is_dir(), "the worktree itself is left alone"
+
+    def test_corrupt_metadata_is_skipped_rather_than_trusted(self, repo: Path) -> None:
+        sw.create(repo, "task-1")
+        (repo / ".tempest" / "agent" / "meta" / "task-1.json").write_text('"not an object"')
+        assert sw.list_shadows(repo) == []
+
+    def test_metadata_missing_its_baseline_is_skipped(self, repo: Path) -> None:
+        sw.create(repo, "task-1")
+        (repo / ".tempest" / "agent" / "meta" / "task-1.json").write_text('{"task_id": "task-1"}')
+        assert sw.list_shadows(repo) == []
+
+
+class TestRawGitErrors:
+    def test_a_failing_git_command_names_what_failed(self, repo: Path) -> None:
+        """Every git wrapper surfaces the real stderr — a silent git failure would be the worst
+        kind of bug here, because the caller would carry on against a tree it never inspected."""
+        with pytest.raises(sw.ShadowError, match="rev-parse"):
+            sw._git(repo, "rev-parse", "no-such-ref^{commit}")
+
+    def test_reading_a_path_absent_from_the_baseline_raises(self, repo: Path) -> None:
+        """`_git_bytes` must fail loudly; `_user_moved_since_baseline` relies on that signal to
+        recognise a file the agent newly created."""
+        s = sw.create(repo, "task-1")
+        with pytest.raises(sw.ShadowError, match="git show"):
+            sw._git_bytes(repo, "show", f"{s.baseline}:does/not/exist.py")

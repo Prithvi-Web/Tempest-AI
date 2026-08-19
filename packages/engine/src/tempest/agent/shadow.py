@@ -26,16 +26,21 @@ Scope: this is the staging substrate. The orchestrator that decides *what* to wr
 Phase 21.
 """
 
+import json
 import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from tempest.agent import journal
 
 _AGENT_DIR = Path(".tempest") / "agent"
 _WORKTREES = _AGENT_DIR / "worktrees"
 _BRANCH_PREFIX = "tempest/agent/"
+#: Per-shadow metadata, kept OUTSIDE the worktree — a file inside it would be picked up by
+#: `changed_files()` as agent work, which is the very confusion this record exists to end.
+_META_DIR = _AGENT_DIR / "meta"
 #: git refuses to operate through these; a staged write must never reach repository internals.
 _FORBIDDEN_TOP = {".git"}
 
@@ -80,6 +85,14 @@ def _git(repo: Path, *args: str) -> str:
     if result.returncode != 0:
         raise ShadowError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout.strip()
+
+
+def _git_bytes(repo: Path, *args: str) -> bytes:
+    """Exactly what git wrote, unmodified — for content comparisons where bytes matter."""
+    result = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, check=False)
+    if result.returncode != 0:
+        raise ShadowError(f"git {' '.join(args)} failed: {result.stderr.decode(errors='replace')}")
+    return result.stdout
 
 
 def _require_repo(repo: Path) -> None:
@@ -127,6 +140,7 @@ def create(repo: Path, task_id: str, *, baseline: str | None = None) -> Shadow:
 
     # `git stash create` captures tracked changes only; untracked files are part of what the
     # user sees, so carry them across or the agent edits a tree the user does not recognise.
+    carried = False
     for rel in _untracked(repo):
         if rel.startswith(str(_AGENT_DIR)) or rel.startswith(".tempest"):
             continue
@@ -134,8 +148,57 @@ def create(repo: Path, task_id: str, *, baseline: str | None = None) -> Shadow:
         if src.is_file():
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
+            carried = True
 
+    if carried:
+        # The carried files must be IN the baseline commit, not merely in the worktree. When
+        # they were only in the worktree, `changed_files()` reported the user's untracked files
+        # as agent work, `accept()` raised a false conflict naming a file the agent never
+        # touched, and — acceptance being all-or-nothing — one ordinary untracked file made
+        # every acceptance impossible. It also corrupted the proof pair, attributing the user's
+        # files to the agent. The baseline is a claim about what the agent started from; it has
+        # to be true.
+        _git(path, "add", "-A")
+        _commit(path, "tempest: baseline (untracked carry-over)")
+        sha = _git(path, "rev-parse", "HEAD^{commit}")
+
+    _write_meta(repo, slug, task_id=task_id, baseline=sha)
     return Shadow(task_id=task_id, repo=repo, path=path, branch=branch, baseline=sha)
+
+
+def _commit(worktree: Path, message: str) -> None:
+    """Commit whatever is staged in `worktree` with a fixed identity (no user config needed)."""
+    _git(
+        worktree,
+        "-c",
+        "user.name=Tempest",
+        "-c",
+        "user.email=agent@tempest.local",
+        "commit",
+        "-m",
+        message,
+        "--no-gpg-sign",
+    )
+
+
+def _meta_path(repo: Path, slug: str) -> Path:
+    return repo / _META_DIR / f"{slug}.json"
+
+
+def _write_meta(repo: Path, slug: str, *, task_id: str, baseline: str) -> None:
+    """Record the baseline on disk.
+
+    `list_shadows()` used to recover it from the branch tip, but `snapshot()` moves that branch
+    forward — so after a restart a shadow diffed against itself, reported nothing staged, and
+    `accept()` silently applied nothing. The baseline is a fact about when the shadow was
+    created; it is written down once and never derived from mutable state.
+    """
+    target = _meta_path(repo, slug)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        json.dumps({"task_id": task_id, "baseline": baseline}, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _resolve_inside(shadow: Shadow, relpath: str) -> Path:
@@ -180,17 +243,7 @@ def snapshot(shadow: Shadow, message: str = "tempest: agent staged change") -> s
     """Commit the shadow's state and return a sha the engine can prove against."""
     if not changed_files(shadow):
         return shadow.baseline
-    _git(
-        shadow.path,
-        "-c",
-        "user.name=Tempest",
-        "-c",
-        "user.email=agent@tempest.local",
-        "commit",
-        "-m",
-        message,
-        "--no-gpg-sign",
-    )
+    _commit(shadow.path, message)
     return _git(shadow.path, "rev-parse", "HEAD^{commit}")
 
 
@@ -235,14 +288,17 @@ def _user_moved_since_baseline(shadow: Shadow, rel: str) -> bool:
     """True when the user's copy differs from the baseline the agent started from."""
     user_file = shadow.repo / rel
     try:
-        baseline_blob = _git(shadow.repo, "show", f"{shadow.baseline}:{rel}")
+        # NOT `_git()`: that strips leading and trailing whitespace, which made this comparison
+        # wrong in both directions — inventing conflicts on content beginning with a blank line
+        # (ordinary in YAML and markdown), and missing real user edits that only changed
+        # surrounding whitespace, silently overwriting their work. Bytes are compared as bytes.
+        baseline_blob = _git_bytes(shadow.repo, "show", f"{shadow.baseline}:{rel}")
     except ShadowError:
         # Not in the baseline: a new file. It conflicts only if the user has since made one.
         return user_file.exists()
     if not user_file.is_file():
         return True  # the user deleted it; re-creating it silently would be a surprise
-    current = user_file.read_text(encoding="utf-8", errors="replace")
-    return current.rstrip("\n") != baseline_blob.rstrip("\n")
+    return user_file.read_bytes() != baseline_blob
 
 
 def revert(acceptance: Acceptance) -> None:
@@ -261,6 +317,9 @@ def discard(shadow: Shadow) -> None:
         _git(shadow.repo, "worktree", "remove", "--force", str(shadow.path))
     _git_quiet(shadow.repo, "branch", "-D", shadow.branch)
     _git_quiet(shadow.repo, "worktree", "prune")
+    meta = _meta_path(shadow.repo, _slug(shadow.task_id))
+    if meta.exists():
+        meta.unlink()
 
 
 def _git_quiet(repo: Path, *args: str) -> None:
@@ -276,12 +335,19 @@ def list_shadows(repo: Path) -> list[Shadow]:
         return []
     out: list[Shadow] = []
     for path in sorted(p for p in root.iterdir() if p.is_dir()):
-        branch = f"{_BRANCH_PREFIX}{path.name}"
-        try:
-            baseline = _git(repo, "rev-parse", f"{branch}^{{commit}}")
-        except ShadowError:  # pragma: no cover — a worktree whose branch vanished
+        meta_path = _meta_path(repo, path.name)
+        if not meta_path.is_file():
+            continue  # not a shadow this version created; nothing trustworthy to rebuild from
+        meta: Any = json.loads(meta_path.read_text(encoding="utf-8"))
+        if not isinstance(meta, dict) or not meta.get("baseline"):
             continue
         out.append(
-            Shadow(task_id=path.name, repo=repo, path=path, branch=branch, baseline=baseline)
+            Shadow(
+                task_id=str(meta.get("task_id", path.name)),
+                repo=repo,
+                path=path,
+                branch=f"{_BRANCH_PREFIX}{path.name}",
+                baseline=str(meta["baseline"]),
+            )
         )
     return out
