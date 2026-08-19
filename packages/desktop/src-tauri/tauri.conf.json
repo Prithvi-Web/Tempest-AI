@@ -12,14 +12,18 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: asset: http://asset.localhost; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": [
+      "app"
+    ],
     "category": "DeveloperTool",
-    "externalBin": ["binaries/tempest-server"],
+    "externalBin": [
+      "binaries/tempest-server"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

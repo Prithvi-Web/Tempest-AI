@@ -112,6 +112,44 @@ jobs:
       - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
       - run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace
       - run: pnpm --filter @tempest/desktop typecheck
+      # The desktop E2E suite: the REAL vite UI against the REAL stdio sidecar, console-clean.
+      # It ran only on the author's Mac until now, which is the exposure trap 44 names — 37 specs
+      # (the whole editor surface, the contrast gates, the reachability spec) had never once been
+      # executed from a fresh checkout. Same runner as the rest of this job so the browser, the
+      # sidecar and the fixture all come from one install; @bench is excluded by `test:e2e`
+      # because a measurement inside a correctness suite is a measurement taken under load.
+      - name: install playwright browser
+        run: pnpm --filter @tempest/desktop exec playwright install chromium
+      - name: e2e
+        run: |
+          set -o pipefail
+          pnpm --filter @tempest/desktop test:e2e 2>&1 | tee /tmp/e2e.log
+        env:
+          TEMPEST_DEV: "1"
+          TEMPEST_NO_POWER_PAUSE: "1"
+      - name: surface e2e failure
+        # Same reasoning as the python job: check annotations are readable without a signed-in
+        # session, so a red build stays diagnosable from the public API alone.
+        if: failure()
+        run: |
+          {
+            echo '## e2e failed'
+            echo '```'
+            tail -n 150 /tmp/e2e.log || echo '(no e2e log captured)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /tmp/e2e.log ]; then
+            grep -E '^\s*[0-9]+\) |✘|Error:' /tmp/e2e.log | head -n 20 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+      - name: keep the playwright report when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: packages/desktop/playwright-report
+          retention-days: 7
 
   contract-check:
     runs-on: macos-latest
