@@ -70,7 +70,8 @@ pub struct RunnerStatus {
     pub field: String,
     /// The command line in EFFECT — the env var if one is forcing, else the stored value.
     pub command: String,
-    /// True when the program resolves to something executable on this machine.
+    /// True when the program resolves to a file this process may EXECUTE — the execute bit is
+    /// checked, not merely existence, because "found" is a claim about startability.
     pub found: bool,
 }
 
@@ -145,18 +146,33 @@ pub fn parse_command(command: &str) -> Option<(String, Vec<String>)> {
 
 /// Can this program be started? An absolute or relative path is checked directly; a bare name is
 /// looked up on `PATH`, which is what `Command::new` will do.
+///
+/// **A regular file is not an executable.** The first version checked only `is_file()`, so a
+/// downloaded model wrapper still sitting at mode 644 — the single most likely thing a user
+/// misconfigures — reported "found", and then `spawn` failed with a permission error the settings
+/// screen had just promised would not happen. `found` is a claim about startability, so it checks
+/// the execute bit.
+fn is_executable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path)
+            .map(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
+}
+
 fn resolves(program: &str) -> bool {
     let candidate = Path::new(program);
     if candidate.components().count() > 1 || candidate.is_absolute() {
-        return candidate.is_file();
+        return is_executable(candidate);
     }
     std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths).any(|dir| {
-                let full = dir.join(program);
-                full.is_file()
-            })
-        })
+        .map(|paths| std::env::split_paths(&paths).any(|dir| is_executable(&dir.join(program))))
         .unwrap_or(false)
 }
 
@@ -172,8 +188,34 @@ pub fn describe(data_dir: &Path) -> EditorRunnersOut {
                 variable: variable.to_string(),
             });
         }
-        let command = effective(&stored, field);
-        let found = parse_command(&command).is_some_and(|(program, _)| resolves(&program));
+        // ...and the arguments variable, which is not an override of the FIELD but does change
+        // what gets spawned. A setting the user cannot see is a setting they cannot fix.
+        if field == "local_model" && override_for("TEMPEST_LOCAL_MODEL_ARGS").is_some() {
+            forced.push(RunnerOverride {
+                field: field.to_string(),
+                variable: "TEMPEST_LOCAL_MODEL_ARGS".to_string(),
+            });
+        }
+        // The command as it will ACTUALLY be spawned, including the pieces that come from
+        // elsewhere. `TEMPEST_LOCAL_MODEL_ARGS` changes what runs and appeared in neither
+        // `forced` nor `status`, so the screen showed one command and the host ran another.
+        let (command, found) = match field {
+            "local_model" => match model_spec(data_dir) {
+                Some(spec) => {
+                    let shown = std::iter::once(spec.program.clone())
+                        .chain(spec.args.iter().cloned())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    (shown, resolves(&spec.program))
+                }
+                None => (String::new(), false),
+            },
+            _ => {
+                let command = effective(&stored, field);
+                let found = parse_command(&command).is_some_and(|(p, _)| resolves(&p));
+                (command, found)
+            }
+        };
         status.push(RunnerStatus { field: field.to_string(), command, found });
     }
     EditorRunnersOut {
@@ -199,7 +241,14 @@ pub fn server_specs(data_dir: &Path) -> Vec<crate::lsp::ServerSpec> {
 /// The local model spec, or `None` when none is configured — the fresh-install state.
 pub fn model_spec(data_dir: &Path) -> Option<crate::localmodel::ModelSpec> {
     let stored = load(data_dir);
-    let (program, mut args) = parse_command(&effective(&stored, "local_model"))?;
+    // The ENV VAR names a PROGRAM, whole — it always has, and splitting it on whitespace would
+    // break every existing launcher whose model path contains a space. The SETTINGS field is a
+    // command line, because that is what a text box in a settings screen is for. Two different
+    // shapes, stated here rather than discovered by a user whose model stopped starting.
+    let (program, mut args) = match override_for("TEMPEST_LOCAL_MODEL") {
+        Some(whole) => (whole.trim().to_string(), Vec::new()),
+        None => parse_command(&stored.local_model)?,
+    };
     // `TEMPEST_LOCAL_MODEL_ARGS` predates this surface and still appends, so a launcher that set
     // both keeps working rather than silently losing its arguments.
     if let Ok(extra) = std::env::var("TEMPEST_LOCAL_MODEL_ARGS") {
@@ -236,20 +285,42 @@ mod tests {
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Serialises EVERY test in this module that touches process environment state.
+    ///
+    /// **Readers need this as much as writers, and getting that wrong made a flaky test.** cargo
+    /// runs tests as threads in ONE process and environment variables are process-global, so a
+    /// test that merely READS through `describe`/`server_specs`/`model_spec` can observe a
+    /// variable another test has temporarily set. The first version put the lock inside
+    /// `EnvGuard`, which covered only the setters:
+    /// `only_configured_languages_produce_a_server_spec` then saw `TEMPEST_LSP_PYTHON` set by
+    /// `the_environment_wins_and_is_reported_as_forcing` and read `env-server` where it expected
+    /// `pyright-langserver`. It failed 2 runs in 6 — and passed the two full `make verify` runs
+    /// before that, which is what makes this worse than a consistent failure.
+    ///
+    /// Every test takes it, including the ones that touch no environment today, so a later test
+    /// that starts reading one cannot silently reopen the race.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Sets an env var for the duration of the guard, then restores exactly what was there.
+    ///
+    /// The caller must already hold `env_lock()`. The lock is NOT taken here: `std::sync::Mutex`
+    /// is not reentrant, so a test that locked and then constructed a guard would deadlock.
     struct EnvGuard {
         key: &'static str,
         previous: Option<String>,
-        _lock: std::sync::MutexGuard<'static, ()>,
     }
 
     impl EnvGuard {
         fn set(key: &'static str, value: &str) -> Self {
-            let lock = ENV_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             let previous = std::env::var(key).ok();
-            // SAFETY: the whole suite's env access for these keys is serialised by ENV_LOCK.
+            // SAFETY: every test in this module takes `env_lock()` as its first statement, so
+            // no other test is reading or writing the environment while this guard lives. The
+            // first version put the lock inside this guard, which serialised only the SETTERS —
+            // and the readers raced, which is precisely the flake that made this comment false.
             unsafe { std::env::set_var(key, value) };
-            Self { key, previous, _lock: lock }
+            Self { key, previous }
         }
     }
 
@@ -264,6 +335,7 @@ mod tests {
 
     #[test]
     fn a_fresh_install_has_no_runners_and_that_is_not_an_error() {
+        let _env = env_lock();
         let dir = Dir::new("fresh");
         assert_eq!(load(&dir.path), EditorRunners::default());
         let view = describe(&dir.path);
@@ -276,6 +348,7 @@ mod tests {
 
     #[test]
     fn what_is_saved_is_what_is_loaded() {
+        let _env = env_lock();
         let dir = Dir::new("roundtrip");
         let runners = EditorRunners {
             python_lsp: "pyright-langserver --stdio".into(),
@@ -288,6 +361,7 @@ mod tests {
 
     #[test]
     fn a_corrupt_file_reads_as_defaults_rather_than_stopping_the_editor() {
+        let _env = env_lock();
         // A settings file a user hand-edited into invalid JSON must not be the reason the editor
         // will not open. The screen shows the defaults; saving repairs the file.
         let dir = Dir::new("corrupt");
@@ -297,6 +371,7 @@ mod tests {
 
     #[test]
     fn a_file_written_by_an_older_version_keeps_the_fields_it_has() {
+        let _env = env_lock();
         // `#[serde(default)]`: a document missing a field must not fail to parse, or a later
         // release adding a runner would wipe the two the user already configured.
         let dir = Dir::new("partial");
@@ -308,6 +383,7 @@ mod tests {
 
     #[test]
     fn the_environment_wins_and_is_reported_as_forcing() {
+        let _env = env_lock();
         // The rule the engine settings screen already follows: a control that silently disagrees
         // with reality is a lie. A user who set this in a launcher plist has to be able to SEE
         // why the box they typed in is being ignored.
@@ -333,6 +409,7 @@ mod tests {
 
     #[test]
     fn an_empty_environment_variable_does_not_count_as_forcing() {
+        let _env = env_lock();
         // `FOO=` in a launcher plist is how a variable gets unset in practice. Treating it as an
         // override would blank a working configuration and report it as forced.
         let dir = Dir::new("blank-env");
@@ -346,14 +423,19 @@ mod tests {
 
     #[test]
     fn a_program_that_exists_is_reported_found_and_one_that_does_not_is_not() {
+        let _env = env_lock();
         // "I typed it and nothing happened" is the failure this surface exists to prevent, and
         // a missing binary is indistinguishable from a broken one from outside.
         let dir = Dir::new("resolve");
+        // A file that exists but is NOT executable — mode 644, which is exactly how a
+        // downloaded model wrapper arrives, and the single most likely misconfiguration.
+        let not_executable = dir.path.join("not-executable.sh");
+        std::fs::write(&not_executable, "#!/bin/sh\n").expect("write");
         save(
             &dir.path,
             &EditorRunners {
                 python_lsp: "/bin/sh -c true".into(),
-                typescript_lsp: "definitely-not-a-real-binary-xyz".into(),
+                typescript_lsp: not_executable.to_string_lossy().into_owned(),
                 local_model: "sh".into(),
             },
         )
@@ -362,13 +444,77 @@ mod tests {
         let found = |field: &str| {
             view.status.iter().find(|s| s.field == field).expect("a status").found
         };
-        assert!(found("python_lsp"), "an absolute path that exists resolves");
-        assert!(!found("typescript_lsp"), "a name that is on no PATH does not");
+        assert!(found("python_lsp"), "an absolute path that exists and is executable resolves");
+        assert!(
+            !found("typescript_lsp"),
+            "a file that exists but cannot be EXECUTED is not found — `found` is a claim about \
+             startability, and reporting it would promise a spawn that fails on permissions"
+        );
         assert!(found("local_model"), "a bare name found on PATH resolves");
     }
 
     #[test]
+    fn a_missing_name_on_path_is_not_found() {
+        let _env = env_lock();
+        let dir = Dir::new("missing-name");
+        save(
+            &dir.path,
+            &EditorRunners { python_lsp: "definitely-not-a-real-binary-xyz".into(), ..Default::default() },
+        )
+        .expect("save");
+        let view = describe(&dir.path);
+        assert!(!view.status.iter().find(|s| s.field == "python_lsp").expect("status").found);
+    }
+
+    #[test]
+    fn the_env_var_names_a_whole_program_and_is_never_split() {
+        let _env = env_lock();
+        // It never was split, and splitting it would break every launcher whose model path
+        // contains a space — the exact shape a wrapper script has, since a path with a space is
+        // WHY a wrapper exists. The settings field is a command line; the env var is a program.
+        let dir = Dir::new("whole-program");
+        let _guard = EnvGuard::set("TEMPEST_LOCAL_MODEL", "/Users/me/My Models/run.sh");
+        let spec = model_spec(&dir.path).expect("a model");
+        assert_eq!(spec.program, "/Users/me/My Models/run.sh");
+        assert!(spec.args.is_empty());
+    }
+
+    #[test]
+    fn the_settings_field_is_a_command_line() {
+        let _env = env_lock();
+        let dir = Dir::new("settings-command");
+        save(&dir.path, &EditorRunners { local_model: "llama-cli -m x.gguf".into(), ..Default::default() })
+            .expect("save");
+        let spec = model_spec(&dir.path).expect("a model");
+        assert_eq!(spec.program, "llama-cli");
+        assert_eq!(spec.args, vec!["-m", "x.gguf"]);
+    }
+
+    #[test]
+    fn the_args_variable_is_reported_because_it_changes_what_runs() {
+        let _env = env_lock();
+        // It appends to the spawned command, so a screen that does not show it shows one command
+        // while the host runs another. A setting the user cannot see is one they cannot fix.
+        let dir = Dir::new("args-visible");
+        save(&dir.path, &EditorRunners { local_model: "llama-cli".into(), ..Default::default() })
+            .expect("save");
+        let _guard = EnvGuard::set("TEMPEST_LOCAL_MODEL_ARGS", "--threads 4");
+        let view = describe(&dir.path);
+        assert!(
+            view.forced.iter().any(|o| o.variable == "TEMPEST_LOCAL_MODEL_ARGS"),
+            "the args variable must be reported: {:?}",
+            view.forced
+        );
+        let status = view.status.iter().find(|s| s.field == "local_model").expect("status");
+        assert_eq!(
+            status.command, "llama-cli --threads 4",
+            "the status shows what will ACTUALLY be spawned"
+        );
+    }
+
+    #[test]
     fn a_command_line_becomes_a_program_and_its_arguments() {
+        let _env = env_lock();
         assert_eq!(
             parse_command("pyright-langserver --stdio --verbose"),
             Some(("pyright-langserver".into(), vec!["--stdio".into(), "--verbose".into()]))
@@ -381,6 +527,7 @@ mod tests {
 
     #[test]
     fn only_configured_languages_produce_a_server_spec() {
+        let _env = env_lock();
         let dir = Dir::new("specs");
         save(
             &dir.path,
@@ -401,14 +548,14 @@ mod tests {
 
     #[test]
     fn the_legacy_args_variable_still_appends() {
+        let _env = env_lock();
         // `TEMPEST_LOCAL_MODEL_ARGS` predates this surface. A launcher that set both must keep
         // working rather than silently losing its arguments the day settings arrived.
         let dir = Dir::new("legacy-args");
-        save(&dir.path, &EditorRunners { local_model: "llama-cli -m x.gguf".into(), ..Default::default() })
-            .expect("save");
-        let _guard = EnvGuard::set("TEMPEST_LOCAL_MODEL_ARGS", "--threads 4");
+        let _model = EnvGuard::set("TEMPEST_LOCAL_MODEL", "/models/llama-cli");
+        let _guard = EnvGuard::set("TEMPEST_LOCAL_MODEL_ARGS", "-m x.gguf --threads 4");
         let spec = model_spec(&dir.path).expect("a model");
-        assert_eq!(spec.program, "llama-cli");
+        assert_eq!(spec.program, "/models/llama-cli");
         assert_eq!(spec.args, vec!["-m", "x.gguf", "--threads", "4"]);
     }
 }

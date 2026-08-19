@@ -234,12 +234,28 @@ enum Incoming {
     Broken(String),
 }
 
-/// What the multiplexer believes the server currently holds for one document. Both halves are
-/// needed: the version because `didChange` must increment it, and the text because sending a
-/// `didChange` for bytes the server already has is a lie about an edit that did not happen.
+/// What the multiplexer believes the server currently holds for one document.
+///
+/// The version, because `didChange` must increment it — and a DIGEST of the text rather than the
+/// text, because "have these bytes changed?" is all that is ever asked of it. Keeping the text
+/// meant every document ever hovered was retained in full, per server, for the life of the app:
+/// a 2 MiB file per open, never freed, with no `didClose` anywhere and no bound but the number of
+/// files the user looks at. A hash answers the only question at 8 bytes.
+///
+/// A hash collision would suppress one `didChange`. That is a 1-in-2^64 event against text the
+/// user typed, not against text an attacker chose — and the consequence is one stale hover, not a
+/// wrong answer about a different file, because the URI is the key.
 struct OpenDoc {
     version: i64,
-    text: String,
+    digest: u64,
+}
+
+/// A cheap, stable digest of the buffer. Not cryptographic and not required to be.
+fn digest_of(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// One running server, and the id counter for the conversation with it.
@@ -626,13 +642,23 @@ impl Running {
             // stream, and its request ids come from a counter of its own that starts where ours
             // does. So an id is not a correlation — a response is a frame with an id and NO
             // `method`, and anything else is the server's business, not our answer.
+            //
+            // The id is taken as a raw `Value`, not as an i64. **JSON-RPC 2.0 allows a String id**
+            // and real servers use them (`"id": "reg-1"` for `client/registerCapability`). Reading
+            // it as an i64 answered `None` for those, which fell through to `continue` — so the
+            // very case this fix exists to close, a server request left unanswered forever, was
+            // still open for every server that numbers its requests with strings.
             let server_method = message.get("method").and_then(serde_json::Value::as_str);
-            match (message.get("id").and_then(serde_json::Value::as_i64), server_method) {
+            let their_id = message.get("id");
+            match (their_id, server_method) {
                 // The server is asking US something. Answer it — a server left waiting on a
                 // reply to `client/registerCapability` blocks, which looks exactly like a hang.
-                (Some(theirs), Some(asked)) => {
+                (Some(theirs), Some(asked)) if !theirs.is_null() => {
                     let refusal = serde_json::json!({
                         "jsonrpc": "2.0",
+                        // Echoed VERBATIM: the spec requires the response id to equal the
+                        // request's, of whatever type, and a server matching on a number it
+                        // never sent is a server still waiting.
                         "id": theirs,
                         "error": {
                             "code": -32601,
@@ -643,7 +669,7 @@ impl Running {
                         self.send(language, body, deadline)?;
                     }
                 }
-                (Some(seen), None) if seen == id => {
+                (Some(seen), None) if seen.as_i64() == Some(id) => {
                     if let Some(error) = message.get("error") {
                         let raw = error.get("code").and_then(serde_json::Value::as_i64);
                         let Some(code) = raw.and_then(|n| i32::try_from(n).ok()) else {
@@ -702,6 +728,7 @@ impl Running {
         timeout: Duration,
     ) -> Result<(), LspError> {
         let deadline = Instant::now() + timeout;
+        let incoming = digest_of(text);
         match self.opened.get(uri) {
             None => {
                 self.notify(
@@ -717,9 +744,9 @@ impl Running {
                     }),
                     deadline,
                 )?;
-                self.opened.insert(uri.to_string(), OpenDoc { version: 1, text: text.to_string() });
+                self.opened.insert(uri.to_string(), OpenDoc { version: 1, digest: incoming });
             }
-            Some(open) if open.text != text => {
+            Some(open) if open.digest != incoming => {
                 let version = open.version + 1;
                 self.notify(
                     language,
@@ -733,7 +760,7 @@ impl Running {
                     }),
                     deadline,
                 )?;
-                self.opened.insert(uri.to_string(), OpenDoc { version, text: text.to_string() });
+                self.opened.insert(uri.to_string(), OpenDoc { version, digest: incoming });
             }
             Some(_) => {}
         }
@@ -843,9 +870,32 @@ import json, os, subprocess, sys, time
 
 BEHAVIOUR = "__BEHAVIOUR__"
 
-# A server that never reads its stdin at all. The client's write must still hit a deadline.
+# Answers the handshake, then stops reading stdin entirely — so the deadline the test observes is
+# the one on the WRITE of a large didOpen, not one on the handshake's read. The first version of
+# this fake never read anything, so `a_server_that_never_reads_its_stdin_cannot_wedge_the_
+# multiplexer` timed out during `initialize` and never reached the big write it claimed to test.
 if BEHAVIOUR == "deaf":
-    time.sleep(120)
+    def _read_frame():
+        header = b""
+        while not header.endswith(b"\r\n\r\n"):
+            ch = sys.stdin.buffer.read(1)
+            if not ch:
+                return None
+            header += ch
+        length = int(header.split(b":")[1].strip())
+        return json.loads(sys.stdin.buffer.read(length))
+
+    def _write_frame(obj):
+        body = json.dumps(obj).encode()
+        sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+        sys.stdout.buffer.flush()
+
+    first = _read_frame()          # initialize
+    if first is not None:
+        _write_frame({"jsonrpc": "2.0", "id": first["id"],
+                      "result": {"capabilities": {"hoverProvider": True}}})
+    _read_frame()                  # the `initialized` notification
+    time.sleep(120)                # ...and then never read another byte
     sys.exit(0)
 
 # A shim over a grandchild that inherits stdout — npx, an nvm shim, a wrapper.sh. Killing the
@@ -897,6 +947,14 @@ while True:
         continue
     if request.get("id") is None:
         # A notification. No reply, by protocol.
+        continue
+    if BEHAVIOUR == "string_id" and not collided:
+        # A server-initiated request numbered with a STRING, which JSON-RPC 2.0 allows and real
+        # servers use. A client that reads ids as integers sees None here and never answers.
+        collided = True
+        write_frame({"jsonrpc": "2.0", "id": "reg-1",
+                     "method": "client/registerCapability", "params": {"registrations": []}})
+        write_frame({"jsonrpc": "2.0", "id": request["id"], "result": {"echo": method}})
         continue
     if BEHAVIOUR == "collide" and not collided and method != "textDocument/hover":
         # OUR id, but a REQUEST of the server's own: a client that correlates on the number
@@ -1120,6 +1178,29 @@ while True:
     }
 
     #[test]
+    fn a_server_request_numbered_with_a_string_id_is_answered_too() {
+        // JSON-RPC 2.0 allows a String id, and real servers use them. Reading the id as an i64
+        // answered `None` for those and fell through to `continue` — so the case the collision
+        // fix exists to close was still open for every server that numbers with strings, and the
+        // integer-only test could never have seen it.
+        let f = Fixture::new("string-id");
+        let mut mux = Multiplexer::new(vec![f.server("python", "string_id")]);
+        let out = mux
+            .request("python", &f.root, "textDocument/definition", serde_json::json!({}))
+            .expect("our own answer, not the server's request");
+        assert_eq!(out["echo"], "textDocument/definition");
+        let hover = mux
+            .hover("python", &f.root, &f.file("main.py"), "x = 1\n", 0, 0)
+            .expect("hover");
+        let contents = hover["contents"].as_str().expect("contents");
+        assert!(
+            contents.contains("client-reply"),
+            "a string-id request must be answered, not swallowed: {contents}"
+        );
+        mux.shutdown_all();
+    }
+
+    #[test]
     fn a_json_rpc_error_is_an_answer_and_does_not_cost_the_server_its_life() {
         // `-32601 MethodNotFound` is the spec'd reply to an optional method. Killing a server for
         // it meant hover never worked at all against a server without `workspace/symbol`.
@@ -1178,6 +1259,14 @@ while True:
         // write returned — so a 1.5 MB `didOpen` against a busy server hung the command thread
         // forever, holding the mutex, with no error ever surfaced.
         let f = Fixture::new("deaf");
+        let mut mux =
+            Multiplexer::with_timeout(vec![f.server("python", "deaf")], Duration::from_millis(700));
+        // The fake ANSWERS the handshake and only then stops reading, so the deadline observed
+        // below is the one on the big write. The first version of this fake never read a byte,
+        // so the timeout fired during `initialize` and this test passed without the large write
+        // ever being attempted — a test that could not fail for the reason it names.
+        let small = mux.hover("python", &f.root, &f.file("small.py"), "x = 1\n", 0, 0);
+        assert!(small.is_err(), "the server is not reading, so even a small hover ends");
         let mut mux =
             Multiplexer::with_timeout(vec![f.server("python", "deaf")], Duration::from_millis(700));
         let started = Instant::now();

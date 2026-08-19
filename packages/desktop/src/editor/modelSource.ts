@@ -26,8 +26,12 @@ export type CompletionContext = { textBeforeCursor: string; textAfterCursor: str
  * least able to force.
  */
 export function modelBackedSource(
-  invokeLocal: (prompt: string, deadlineMs: number) => Promise<string | null> = (p, d) =>
-    commands.localCompletion(p, d),
+  invokeLocal: (prompt: string, deadlineMs: number) => Promise<string | null> = async (p, d) => {
+    // `local_completion` became a Result when it moved to the blocking pool (a spawn_blocking
+    // task can itself fail). An error is not a completion, and the fallback below is the answer.
+    const result = await commands.localCompletion(p, d);
+    return result.status === "ok" ? result.data : null;
+  },
 ): (context: CompletionContext) => Promise<string> {
   return async (context) => {
     let fromModel: string | null = null;

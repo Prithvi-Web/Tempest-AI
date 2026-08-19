@@ -106,35 +106,47 @@ impl From<crate::pathguard::PathRefusal> for ProjectFileRefusal {
 /// symlinked to `~/.ssh/id_rsa` was refused by the editor and accepted here (trap 45, again).
 /// One guard, one vocabulary: `PathRefusal` crosses into `LspError::Refused` unchanged.
 ///
-/// `async` is not decoration. A bare `#[tauri::command]` is `ExecutionContext::Blocking` in
-/// tauri-macros, which runs the body INLINE on the IPC handler — the main thread on macOS. This
-/// command can wait ten seconds for a language server; the window must not.
+/// **The blocking work runs on the BLOCKING POOL, and that took two attempts to get right.**
+/// A bare `#[tauri::command]` is `ExecutionContext::Blocking` in tauri-macros and runs the body
+/// inline on the IPC handler — the main thread on macOS. Adding `(async)` to a SYNCHRONOUS fn
+/// does not fix that; it spawns the future on tokio's multi-thread runtime, where the sync body
+/// then blocks a WORKER. With no in-flight guard on hover and a ten-second request timeout held
+/// across the multiplexer's mutex, ordinary reading could occupy every worker and starve every
+/// other async command — including the Settings screen, the user's only way to clear the bad
+/// command. The stall had been moved, not removed. `spawn_blocking` is what actually removes it.
 ///
 /// Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are absent by
 /// default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
-#[tauri::command(async)]
+#[tauri::command]
 #[specta::specta]
-pub fn lsp_hover(
-    state: tauri::State<'_, std::sync::Mutex<crate::lsp::Multiplexer>>,
+pub async fn lsp_hover(
+    state: tauri::State<'_, Arc<std::sync::Mutex<crate::lsp::Multiplexer>>>,
     repo_path: String,
     path: String,
     text: String,
     line: u32,
     character: u32,
 ) -> Result<Option<crate::lsp::HoverInfo>, crate::lsp::LspError> {
-    let root = std::path::Path::new(&repo_path);
-    // The same guard the editor read the file through, applied before a single byte of the path
-    // reaches an arbitrary user-configured binary.
-    let resolved = crate::pathguard::resolve_within(root, &path, MAX_READ_BYTES)?;
-    let Some(language) = language_for(&resolved.to_string_lossy()) else {
-        return Err(crate::lsp::LspError::Unsupported { language: "unknown".into() });
-    };
-    let mut mux = state.lock().map_err(|_| crate::lsp::LspError::ServerGone {
-        language: language.to_string(),
-    })?;
-    let result = mux.hover(language, root, &resolved, &text, line, character)?;
-    // `None` means the server had nothing to say — a real answer, and different from an error.
-    Ok(crate::lsp::hover_text(&result).map(|contents| crate::lsp::HoverInfo { contents }))
+    let mux = Arc::clone(&state);
+    // Everything below blocks: a path canonicalisation, a mutex, and up to REQUEST_TIMEOUT of
+    // waiting on a child process. None of it may hold a tokio worker.
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = std::path::Path::new(&repo_path);
+        // The same guard the editor read the file through, applied before a single byte of the
+        // path reaches an arbitrary user-configured binary.
+        let resolved = crate::pathguard::resolve_within(root, &path, MAX_READ_BYTES)?;
+        let Some(language) = language_for(&resolved.to_string_lossy()) else {
+            return Err(crate::lsp::LspError::Unsupported { language: "unknown".into() });
+        };
+        let mut guard = mux.lock().map_err(|_| crate::lsp::LspError::ServerGone {
+            language: language.to_string(),
+        })?;
+        let result = guard.hover(language, root, &resolved, &text, line, character)?;
+        // `None` means the server had nothing to say — a real answer, different from an error.
+        Ok(crate::lsp::hover_text(&result).map(|contents| crate::lsp::HoverInfo { contents }))
+    })
+    .await
+    .map_err(|_| crate::lsp::LspError::ServerGone { language: "unknown".into() })?
 }
 
 /// Which language server, from the file's extension. Unknown extensions get none rather than a
@@ -177,7 +189,7 @@ pub fn get_editor_runners(
 #[specta::specta]
 pub fn update_editor_runners(
     data_dir: tauri::State<'_, DataDir>,
-    lsp: tauri::State<'_, std::sync::Mutex<crate::lsp::Multiplexer>>,
+    lsp: tauri::State<'_, Arc<std::sync::Mutex<crate::lsp::Multiplexer>>>,
     runners: crate::runners::EditorRunners,
 ) -> Result<crate::runners::EditorRunnersOut, SidecarFailure> {
     crate::runners::save(&data_dir.0, &runners).map_err(|err| SidecarFailure {
@@ -211,18 +223,30 @@ pub fn update_editor_runners(
 /// IPC handler — on macOS, the WKWebView script-message callback on the app's main thread. This
 /// function spawns a process and waits up to the deadline for it, so as a sync command it froze
 /// the window for exactly as long as `localmodel.rs`'s doc comment says it refuses to.
-#[tauri::command(async)]
+#[tauri::command]
 #[specta::specta]
-pub fn local_completion(
+pub async fn local_completion(
     data_dir: tauri::State<'_, DataDir>,
     prompt: String,
     deadline_ms: u32,
+) -> Result<Option<String>, SidecarFailure> {
+    let dir = data_dir.0.clone();
+    // Spawns a process and waits on it — blocking-pool work, not tokio-worker work.
+    tauri::async_runtime::spawn_blocking(move || local_completion_blocking(&dir, &prompt, deadline_ms))
+        .await
+        .map_err(|_| SidecarFailure { code: -6, message: "the local model task failed".into() })
+}
+
+fn local_completion_blocking(
+    data_dir: &std::path::Path,
+    prompt: &str,
+    deadline_ms: u32,
 ) -> Option<String> {
-    let spec = crate::runners::model_spec(&data_dir.0);
+    let spec = crate::runners::model_spec(data_dir);
     // The deadline the CALLER chose, clamped: a webview asking for a ten-minute completion would
     // hold a model process open long past any use for its answer.
     let deadline = std::time::Duration::from_millis(u64::from(deadline_ms).min(2_000));
-    crate::localmodel::LocalModel::new(spec).complete(&prompt, deadline).ok()
+    crate::localmodel::LocalModel::new(spec).complete(prompt, deadline).ok()
 }
 
 /// Read one text file out of an open project, for the editor surface (Phase 20.1).
@@ -233,12 +257,22 @@ pub fn local_completion(
 /// safety that the sidecar boundary would have provided is provided instead by `pathguard`,
 /// which is the same module Phase 21's `read_file` dispatch will use.
 ///
-/// `async` for the same reason as the other two host commands: canonicalising a path and reading
-/// up to 2 MiB through a UTF-8 validation is real work, and a sync tauri command does it on the
-/// main thread.
-#[tauri::command(async)]
+/// On the blocking pool for the same reason as the other two host commands: canonicalising a
+/// path and reading up to 2 MiB through a UTF-8 validation is real work, and neither the main
+/// thread nor a tokio worker is the place for it.
+#[tauri::command]
 #[specta::specta]
-pub fn read_project_file(
+pub async fn read_project_file(
+    repo_path: String,
+    path: String,
+    max_bytes: Option<u32>,
+) -> Result<ProjectFile, ProjectFileRefusal> {
+    tauri::async_runtime::spawn_blocking(move || read_project_file_blocking(repo_path, path, max_bytes))
+        .await
+        .unwrap_or(Err(ProjectFileRefusal::from(crate::pathguard::PathRefusal::Unreadable)))
+}
+
+fn read_project_file_blocking(
     repo_path: String,
     path: String,
     max_bytes: Option<u32>,

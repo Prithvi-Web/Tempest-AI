@@ -127,6 +127,34 @@ export function riskFor(symbol: string, recorded: DivergenceRecord[] | null): Ri
   };
 }
 
+/**
+ * The symbol a suggestion NAMES, or null when it names none.
+ *
+ * The editor's completion is `prefix + text`. With the offline document source that is always an
+ * identifier, so the first version looked up the concatenation directly — and that quietly made
+ * the badge inert for exactly the users who configured a local model, because a model answers
+ * with real code (`ulateTotal(items)`, or `    return total`) and `calc    return total` matches
+ * no qualname that has ever existed. The badge then said "no recorded runs name this symbol"
+ * about a symbol it had never asked after: a true sentence about the wrong question.
+ *
+ * The leading identifier of the concatenation IS the symbol being completed, for both sources.
+ * When there is none — the suggestion starts with punctuation or whitespace — there is no symbol
+ * to ask about, and that is reported as its own kind of absence rather than as an empty result.
+ */
+export function symbolNamedBy(prefix: string, text: string): string | null {
+  const match = /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(prefix + text);
+  return match === null ? null : match[0];
+}
+
+/** A suggestion that names no symbol: unmeasured, and honest about WHY it is unmeasured. */
+export function namesNoSymbol(): Risk {
+  return {
+    level: "unmeasured",
+    divergences: 0,
+    reason: "this suggestion does not name a symbol",
+  };
+}
+
 /** The short label the editor shows beside a suggestion. Never a bare colour. */
 export function riskLabel(risk: Risk): string {
   switch (risk.level) {

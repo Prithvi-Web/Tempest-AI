@@ -8,7 +8,14 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { ESCALATION_TABLE, riskFor, riskLabel, type DivergenceRecord } from "./risk";
+import {
+  ESCALATION_TABLE,
+  namesNoSymbol,
+  riskFor,
+  riskLabel,
+  symbolNamedBy,
+  type DivergenceRecord,
+} from "./risk";
 
 import type { Severity } from "../generated/bindings";
 
@@ -89,6 +96,42 @@ describe("riskFor", () => {
       expect(riskFor("calculateTotal", [record({ severity })]).level, severity).toBe(level);
       expect(ESCALATION_TABLE[severity], severity).toBe(level === "high");
     }
+  });
+});
+
+describe("symbolNamedBy", () => {
+  it("takes the identifier a document-source completion finishes", () => {
+    expect(symbolNamedBy("calc", "ulateTotal")).toBe("calculateTotal");
+  });
+
+  it("takes the identifier a MODEL completion starts, ignoring the code after it", () => {
+    // The defect this exists for: a model answers with real code, and the raw concatenation
+    // `calculateTotal(items)` or `calc    return total` matches no qualname that ever existed —
+    // so the badge reported "no recorded runs name this symbol" about a question never asked.
+    expect(symbolNamedBy("calc", "ulateTotal(items)")).toBe("calculateTotal");
+    expect(symbolNamedBy("calc", "ulateTotal = 1\nreturn x")).toBe("calculateTotal");
+  });
+
+  it("answers null when the suggestion names nothing", () => {
+    expect(symbolNamedBy("", "    return total")).toBeNull();
+    expect(symbolNamedBy("", "(items)")).toBeNull();
+    expect(symbolNamedBy("", "")).toBeNull();
+    // A leading digit is not an identifier start in either language Tempest proves.
+    expect(symbolNamedBy("", "3total")).toBeNull();
+  });
+});
+
+describe("namesNoSymbol", () => {
+  it("is unmeasured, and says why it is unmeasured", () => {
+    const risk = namesNoSymbol();
+    expect(risk.level).toBe("unmeasured");
+    expect(risk.divergences).toBe(0);
+    // Distinct from BOTH other absences, so a reader can tell "we could not ask" from "there is
+    // nothing recorded" from "there was no symbol to ask about".
+    expect(risk.reason).not.toBe(riskFor("x", null).reason);
+    expect(risk.reason).not.toBe(riskFor("x", []).reason);
+    expect(riskLabel(risk)).toContain("unmeasured");
+    expect(riskLabel(risk)).not.toContain("safe");
   });
 });
 

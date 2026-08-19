@@ -100,8 +100,10 @@ pub fn run() {
             // lifetime. Managed state rather than a global so ONE thing owns them — NOT because
             // `Drop` runs at exit, which it does not (see `sweep_on_exit`); that belief is what
             // left language servers orphaned on every quit.
-            app.manage(std::sync::Mutex::new(lsp::Multiplexer::new(runners::server_specs(
-                &data_dir,
+            // `Arc` so a command can clone a handle and take it onto the BLOCKING POOL:
+            // `tauri::State` borrows, and blocking work must not hold a tokio worker.
+            app.manage(Arc::new(std::sync::Mutex::new(lsp::Multiplexer::new(
+                runners::server_specs(&data_dir),
             ))));
             // The data dir is managed so the runner commands can find the settings file without
             // re-resolving it, and so a test can point them somewhere else.
@@ -187,7 +189,7 @@ fn sweep_on_exit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     // Blocking sweep: after this, no sidecar or runner process exists (L11).
     app.state::<Arc<Supervisor>>().shutdown();
     // ...and no language server, which is a process this app started and therefore owns.
-    if let Ok(mut mux) = app.state::<std::sync::Mutex<lsp::Multiplexer>>().lock() {
+    if let Ok(mut mux) = app.state::<Arc<std::sync::Mutex<lsp::Multiplexer>>>().lock() {
         mux.shutdown_all();
     }
 }

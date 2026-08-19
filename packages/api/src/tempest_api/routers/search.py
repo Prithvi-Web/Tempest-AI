@@ -103,15 +103,17 @@ async def _search_like(session: AsyncSession, q: str, limit: int) -> list[Search
     ]
 
 
-def _final_segment_pattern(symbol: str) -> str:
-    """A LIKE pattern matching any qualname whose LAST dotted segment is `symbol`.
+def _ends_with_segment(symbol: str) -> sa.ColumnElement[bool]:
+    """`qualname` ends in `.symbol`, compared CASE-SENSITIVELY on every backend.
 
-    `_` and `%` are LIKE wildcards and are both legal in an identifier, so they are escaped:
-    without this, a symbol named `a_b` would match `axb`, and the badge would attribute one
-    symbol's recorded history to another.
+    Built from `substr`/`length` rather than `LIKE` because LIKE's case behaviour is a dialect
+    property: SQLite folds ASCII case by default, Postgres does not. A lookup that answers
+    differently depending on which store the user runs is not a lookup, and the arm beside this
+    one (`qualname == symbol`) is case-sensitive on both — so the two halves disagreed with each
+    other on SQLite, which is the store every desktop install uses.
     """
-    escaped = symbol.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%.{escaped}"
+    suffix = f".{symbol}"
+    return sa.func.substr(Target.qualname, -len(suffix)) == suffix
 
 
 def _symbol_hits(rows: Sequence[Row[tuple[Divergence, Target]]]) -> list[SymbolDivergence]:
@@ -144,12 +146,7 @@ async def _by_symbol(session: AsyncSession, symbol: str, limit: int) -> list[Sym
     query = (
         sa.select(Divergence, Target)
         .join(Target, Target.id == Divergence.target_id)
-        .where(
-            sa.or_(
-                Target.qualname == symbol,
-                Target.qualname.like(_final_segment_pattern(symbol), escape="\\"),
-            )
-        )
+        .where(sa.or_(Target.qualname == symbol, _ends_with_segment(symbol)))
         .order_by(Divergence.id.asc())
         .limit(limit)
     )
@@ -173,8 +170,8 @@ async def divergences_for_symbol(
     reports the qualname it came from, so a caller can tell "one symbol, three divergences" from
     "three symbols that happen to share a name" instead of guessing.
 
-    An empty symbol answers nothing. It is not a query for everything: `LIKE '%.'` matches every
-    dotted qualname there is, which would put an entire history behind one stray call.
+    An empty symbol answers nothing. It is not a query for everything: a suffix of "." matches
+    every dotted qualname there is, which would put an entire history behind one stray call.
     """
     if not symbol:
         return SymbolDivergences(symbol=symbol, hits=[])

@@ -50,28 +50,52 @@ function render(answer: { kind: "info" | "problem"; text: string }): HTMLElement
  * was first opened.
  */
 export function lspHoverTooltip(lookup: HoverLookup): ReturnType<typeof hoverTooltip> {
+  // ONE question at a time, exactly as F11 has.
+  //
+  // CodeMirror does not provide this: `HoverPlugin.checkHover` skips only when a tooltip is
+  // already SHOWN (`if (this.active.length) return`), not when a request is pending — so every
+  // ~300 ms rest at a new position starts another `lsp_hover`. Each one blocks a thread for up
+  // to the multiplexer's ten-second timeout while holding its mutex, so ordinary reading over a
+  // slow or wedged server queued unbounded work. The host now runs that on the blocking pool
+  // rather than a tokio worker, which stops it starving every other command — and this stops it
+  // being started in the first place, which is the half CodeMirror cannot do for us.
+  let inFlight = false;
   return hoverTooltip(
     async (view: EditorView, pos: number): Promise<Tooltip | null> => {
       // Only over a word. Hovering whitespace or punctuation has no symbol to ask about, and
       // asking anyway would spawn a language server for a pointer resting in the margin.
       const word = view.state.wordAt(pos);
       if (word === null) return null;
-
-      const line = view.state.doc.lineAt(pos);
-      const answer = await lookup(
-        // LSP positions are zero-based; CodeMirror numbers lines from 1.
-        line.number - 1,
-        pos - line.from,
-        view.state.doc.toString(),
-      );
-      if (answer === null) return null;
-      return {
-        pos: word.from,
-        end: word.to,
-        above: true,
-        create: () => ({ dom: render(answer) }),
-      };
+      if (inFlight) return null;
+      inFlight = true;
+      try {
+        return await answer(view, pos, word, lookup);
+      } finally {
+        inFlight = false;
+      }
     },
     { hoverTime: HOVER_DELAY_MS },
   );
+}
+
+async function answer(
+  view: EditorView,
+  pos: number,
+  word: { from: number; to: number },
+  lookup: HoverLookup,
+): Promise<Tooltip | null> {
+  const line = view.state.doc.lineAt(pos);
+  const said = await lookup(
+    // LSP positions are zero-based; CodeMirror numbers lines from 1.
+    line.number - 1,
+    pos - line.from,
+    view.state.doc.toString(),
+  );
+  if (said === null) return null;
+  return {
+    pos: word.from,
+    end: word.to,
+    above: true,
+    create: () => ({ dom: render(said) }),
+  };
 }

@@ -402,8 +402,8 @@ export interface paths {
          *     reports the qualname it came from, so a caller can tell "one symbol, three divergences" from
          *     "three symbols that happen to share a name" instead of guessing.
          *
-         *     An empty symbol answers nothing. It is not a query for everything: `LIKE '%.'` matches every
-         *     dotted qualname there is, which would put an entire history behind one stray call.
+         *     An empty symbol answers nothing. It is not a query for everything: a suffix of "." matches
+         *     every dotted qualname there is, which would put an entire history behind one stray call.
          */
         get: operations["divergencesForSymbol"];
         put?: never;

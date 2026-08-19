@@ -72,9 +72,9 @@ export const commands = {
 	 *  safety that the sidecar boundary would have provided is provided instead by `pathguard`,
 	 *  which is the same module Phase 21's `read_file` dispatch will use.
 	 * 
-	 *  `async` for the same reason as the other two host commands: canonicalising a path and reading
-	 *  up to 2 MiB through a UTF-8 validation is real work, and a sync tauri command does it on the
-	 *  main thread.
+	 *  On the blocking pool for the same reason as the other two host commands: canonicalising a
+	 *  path and reading up to 2 MiB through a UTF-8 validation is real work, and neither the main
+	 *  thread nor a tokio worker is the place for it.
 	 */
 	readProjectFile: (repoPath: string, path: string, maxBytes: number | null) => typedError<ProjectFile, ProjectFileRefusal>(__TAURI_INVOKE("read_project_file", { repoPath, path, maxBytes })),
 	/**
@@ -97,7 +97,7 @@ export const commands = {
 	 *  function spawns a process and waits up to the deadline for it, so as a sync command it froze
 	 *  the window for exactly as long as `localmodel.rs`'s doc comment says it refuses to.
 	 */
-	localCompletion: (prompt: string, deadlineMs: number) => __TAURI_INVOKE<string | null>("local_completion", { prompt, deadlineMs }),
+	localCompletion: (prompt: string, deadlineMs: number) => typedError<string | null, SidecarFailure>(__TAURI_INVOKE("local_completion", { prompt, deadlineMs })),
 	/**
 	 *  Hover information from a language server (Phase 20.2 dispatch).
 	 * 
@@ -118,9 +118,14 @@ export const commands = {
 	 *  symlinked to `~/.ssh/id_rsa` was refused by the editor and accepted here (trap 45, again).
 	 *  One guard, one vocabulary: `PathRefusal` crosses into `LspError::Refused` unchanged.
 	 * 
-	 *  `async` is not decoration. A bare `#[tauri::command]` is `ExecutionContext::Blocking` in
-	 *  tauri-macros, which runs the body INLINE on the IPC handler — the main thread on macOS. This
-	 *  command can wait ten seconds for a language server; the window must not.
+	 *  **The blocking work runs on the BLOCKING POOL, and that took two attempts to get right.**
+	 *  A bare `#[tauri::command]` is `ExecutionContext::Blocking` in tauri-macros and runs the body
+	 *  inline on the IPC handler — the main thread on macOS. Adding `(async)` to a SYNCHRONOUS fn
+	 *  does not fix that; it spawns the future on tokio's multi-thread runtime, where the sync body
+	 *  then blocks a WORKER. With no in-flight guard on hover and a ten-second request timeout held
+	 *  across the multiplexer's mutex, ordinary reading could occupy every worker and starve every
+	 *  other async command — including the Settings screen, the user's only way to clear the bad
+	 *  command. The stall had been moved, not removed. `spawn_blocking` is what actually removes it.
 	 * 
 	 *  Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are absent by
 	 *  default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
@@ -1708,7 +1713,10 @@ export type RunnerStatus = {
 	field: string,
 	/**  The command line in EFFECT — the env var if one is forcing, else the stored value. */
 	command: string,
-	/**  True when the program resolves to something executable on this machine. */
+	/**
+	 *  True when the program resolves to a file this process may EXECUTE — the execute bit is
+	 *  checked, not merely existence, because "found" is a claim about startability.
+	 */
 	found: boolean,
 };
 

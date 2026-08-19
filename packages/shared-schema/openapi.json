@@ -2667,7 +2667,7 @@
     },
     "/v1/symbols/divergences": {
       "get": {
-        "description": "Every divergence recorded against `symbol`, by name rather than by text.\n\nAn editor can see an identifier; the engine records a `qualname`, which for a method is\n`Class.method`. Both are matched \u2014 the whole qualname, and its final segment \u2014 and every hit\nreports the qualname it came from, so a caller can tell \"one symbol, three divergences\" from\n\"three symbols that happen to share a name\" instead of guessing.\n\nAn empty symbol answers nothing. It is not a query for everything: `LIKE '%.'` matches every\ndotted qualname there is, which would put an entire history behind one stray call.",
+        "description": "Every divergence recorded against `symbol`, by name rather than by text.\n\nAn editor can see an identifier; the engine records a `qualname`, which for a method is\n`Class.method`. Both are matched \u2014 the whole qualname, and its final segment \u2014 and every hit\nreports the qualname it came from, so a caller can tell \"one symbol, three divergences\" from\n\"three symbols that happen to share a name\" instead of guessing.\n\nAn empty symbol answers nothing. It is not a query for everything: a suffix of \".\" matches\nevery dotted qualname there is, which would put an entire history behind one stray call.",
         "operationId": "divergencesForSymbol",
         "parameters": [
           {

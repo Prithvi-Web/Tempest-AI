@@ -15,8 +15,18 @@ import { MODEL_DEADLINE_MS, modelBackedSource } from "./modelSource";
 // The generated Boundary B binding calls __TAURI_INVOKE, which does not exist outside Tauri.
 // Mocked so the DEFAULT source — the one product code actually uses — is exercised here rather
 // than only the injected one. Without this, nothing proved the source calls the real command.
+//
+// The mock returns the RESULT SHAPE the generated binding returns, `{status, data}`. It used to
+// return a bare string, which stopped being what `localCompletion` produces the moment the
+// command moved to the blocking pool and gained a Result — and a double that stands in for a
+// shape the real command does not have is the exact defect this project found in its E2E shim.
 vi.mock("../generated/bindings", () => ({
-  commands: { localCompletion: vi.fn(async () => "from the generated binding") },
+  commands: {
+    localCompletion: vi.fn(async () => ({
+      status: "ok" as const,
+      data: "from the generated binding",
+    })),
+  },
 }));
 
 const CONTEXT = {
@@ -70,6 +80,16 @@ describe("modelBackedSource", () => {
 });
 
 describe("the default source — the one product code uses", () => {
+  it("unwraps the binding's Result, and treats an error as no completion", async () => {
+    const { commands } = await import("../generated/bindings");
+    const mocked = commands.localCompletion as unknown as {
+      mockResolvedValueOnce: (v: unknown) => void;
+    };
+    mocked.mockResolvedValueOnce({ status: "error", error: { code: -6, message: "task failed" } });
+    // An error is not a completion; the offline document source is the answer.
+    await expect(modelBackedSource()(CONTEXT)).resolves.toBe("ulateTotal");
+  });
+
   it("calls the generated localCompletion binding", async () => {
     const { commands } = await import("../generated/bindings");
     const source = modelBackedSource();

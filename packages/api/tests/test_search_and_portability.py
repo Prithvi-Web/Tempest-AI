@@ -129,6 +129,16 @@ class TestDivergencesBySymbol:
         api.ingest(api.make_bundle(targets=(target,), repo="suffix", head_sha="e" * 40))
         assert _by_symbol(api, "post")["hits"] == [], "the boundary is a dot, not a substring"
 
+    def test_the_suffix_match_is_case_sensitive_on_every_backend(self, api) -> None:
+        # SQLite's LIKE folds ASCII case and Postgres's does not, so the first version answered
+        # differently per backend AND disagreed with the exact-match arm beside it: `Ledger.post`
+        # matched a recorded `ledger.POST` and the badge reported another symbol's history as
+        # this one's. Identifiers are case-sensitive in both languages Tempest proves.
+        target = api.make_target((api.make_divergence(0),), module="m", qualname="Ledger.POST")
+        api.ingest(api.make_bundle(targets=(target,), repo="case", head_sha="7" * 40))
+        assert _by_symbol(api, "post")["hits"] == [], "post must not match .POST"
+        assert len(_by_symbol(api, "POST")["hits"]) == 1
+
     def test_like_metacharacters_in_a_symbol_are_literal(self, api) -> None:
         # `_` is a LIKE wildcard AND a legal identifier character. Unescaped, `a_b` matches
         # `axb`, and the badge reports another symbol's divergences as this one's.

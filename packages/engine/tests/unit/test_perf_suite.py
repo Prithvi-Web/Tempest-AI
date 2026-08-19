@@ -6,6 +6,7 @@ PASS while enforcing 3 of 13 budgets is worse than no gate, because it manufactu
 """
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -330,8 +331,13 @@ class TestCli:
         assert "3 of 13 §5 budgets MEASURED and judged" in out
         assert "3 armed but NOT-YET-MEASURED" in out
         assert "7 NOT-YET-MEASURABLE" in out
-        assert 3 + 3 + 7 == 13, (
-            "the three states must account for every budget, with none double-counted"
+        # Parsed BACK OUT of the rendered line. `assert 3 + 3 + 7 == 13` is a constant the
+        # interpreter folds before the test runs: it asserts arithmetic, not perf_suite, and
+        # would pass with the module deleted.
+        counts = [int(n) for n in re.findall(r"(\d+) (?:of 13|armed|NOT-YET-MEASURABLE)", out)]
+        assert len(counts) == 3, f"all three counts must be rendered: {out}"
+        assert sum(counts) == len(ps.BUDGETS), (
+            f"the three states must account for every budget, none double-counted: {counts}"
         )
         assert "every measurable budget met" in out
 

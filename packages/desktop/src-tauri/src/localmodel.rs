@@ -118,16 +118,23 @@ impl LocalModel {
         let verdict = match outcome {
             Ok(Ok(text)) => {
                 sweep(&mut child);
-                // `trim`, not `trim_end_matches('\n')`. A model answering a single space or a
-                // tab — ordinary for a mid-token FIM prompt — passed the old check and was
-                // returned as a completion, which renders as an invisible "accept me" under Tab.
-                // The test that claimed to pin this drove the ONE whitespace string the newline
-                // trim happens to handle (trap 43: the line ran, the state was never set up).
-                let trimmed = text.trim().to_string();
-                if trimmed.is_empty() {
+                // Two different questions, and conflating them mangles real completions.
+                //
+                // IS IT A COMPLETION AT ALL? — asked of `text.trim()`, so a model answering a
+                // single space or a tab is refused. The old check was
+                // `trim_end_matches('\n')`, which let those through as an invisible "accept me"
+                // under Tab, and the test that claimed to pin it drove the ONE whitespace string
+                // the newline trim happens to handle (trap 43).
+                //
+                // WHAT DO WE RETURN? — the text with only its trailing newline removed. LEADING
+                // whitespace is the completion: a mid-token FIM prompt ending in `\n` is
+                // answered with `    return x`, and `trim()` would delete the indentation and
+                // insert the body at column zero. The first fix here used `trim()` for both and
+                // silently broke every indented answer.
+                if text.trim().is_empty() {
                     Err(ModelError::NoCompletion)
                 } else {
-                    Ok(trimmed)
+                    Ok(text.trim_end_matches('\n').to_string())
                 }
             }
             Ok(Err(_)) => {
@@ -207,6 +214,9 @@ elif BEHAVIOUR == "spaces":
     sys.stdout.write("   ")
 elif BEHAVIOUR == "tab":
     sys.stdout.write("\t\n")
+elif BEHAVIOUR == "indented":
+    # A mid-token FIM answer: the leading whitespace IS the completion.
+    sys.stdout.write("    return total\n")
 elif BEHAVIOUR == "deaf":
     # Never reads stdin — the runner must not wedge on the write.
     sys.stdout.write("answered without listening\n")
@@ -306,6 +316,17 @@ sys.stdout.flush()
                 "{behaviour} is not a completion"
             );
         }
+    }
+
+    #[test]
+    fn leading_whitespace_is_the_completion_and_survives() {
+        // A FIM prompt ending in a newline is answered with an INDENTED line, and the indentation
+        // is the answer. The first version of the whitespace fix used `trim()` for both the
+        // is-this-a-completion test and the returned value, which deleted that indentation and
+        // would have inserted the body at column zero — a regression introduced by a fix.
+        let f = Fake::new("indented");
+        let model = LocalModel::new(Some(f.spec("indented")));
+        assert_eq!(model.complete("def total(xs):\n", QUICK).as_deref(), Ok("    return total"));
     }
 
     #[test]

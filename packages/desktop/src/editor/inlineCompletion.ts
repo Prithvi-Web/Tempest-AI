@@ -20,7 +20,14 @@ import {
 } from "@codemirror/view";
 
 import { prefixAt } from "./documentSource";
-import { riskFor, riskLabel, type DivergenceRecord, type Risk } from "./risk";
+import {
+  namesNoSymbol,
+  riskFor,
+  riskLabel,
+  symbolNamedBy,
+  type DivergenceRecord,
+  type Risk,
+} from "./risk";
 import {
   emptyMetrics,
   onAccept,
@@ -223,7 +230,13 @@ export function inlineCompletion(source: CompletionSource, lookupRisk?: RiskLook
         // after the suggestion so a slow lookup never delays the completion itself — the §5
         // budget is about the text appearing, and evidence arriving a moment later is fine.
         const before = view.state.doc.sliceString(0, view.state.selection.main.head);
-        const symbol = prefixAt(before) + text;
+        // The symbol the suggestion NAMES, not the raw concatenation: a local model answers with
+        // code, and `calc` + `    return total` names nothing the engine has ever recorded.
+        const symbol = symbolNamedBy(prefixAt(before), text);
+        if (symbol === null) {
+          view.dispatch({ effects: setRisk.of(namesNoSymbol()) });
+          return;
+        }
         void lookupRisk(symbol)
           .then((records) => {
             // Only if this suggestion is still the one on screen.
