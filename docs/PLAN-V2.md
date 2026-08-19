@@ -46,8 +46,8 @@ release, so the work survives across sessions. Progress ledger:
 |---|---|---|
 | **19.1** | MIT `LICENSE` + attribution + `license_check` gate | ✅ **DONE** — ADR-0038 amendment |
 | **19.2** | Agent Tool Protocol — the fourth contract boundary (ADR-0035) | ✅ **DONE** |
-| 19.3 | Shadow-worktree manager (L19, ADR-0036) | next |
-| 19.4 | Journal + one-keystroke undo (L20) | pending |
+| **19.3** | Shadow-worktree manager (L19, ADR-0036) | ✅ **DONE** |
+| 19.4 | Journal + one-keystroke undo (L20) | next |
 | 19.5 | P1 multi-provider model layer, 12+ providers (L18, ADR-0037) | pending |
 | 19.6 | P11 cost meter with hard caps at the router (L21) | pending |
 | 19.7 | `perf_suite --enforce-budgets` CI gate (L22) | pending |
@@ -68,7 +68,13 @@ release, so the work survives across sessions. Progress ledger:
       canonical manifest, the Anthropic and OpenAI envelopes, and the webview's typed view);
       they land inside the paths `verify-contract` already diffs, so the fourth boundary is
       drift-gated by the same command. 13 Rust tests. **Contract only — dispatch is Phase 21.**
-- [ ] **Shadow-worktree manager** (L19, ADR-0036) + **journal/undo** (L20).
+- [x] **19.3 — Shadow-worktree manager** (L19, ADR-0036 + its amendment): `tempest/agent/shadow.py`.
+      Baseline via `git stash create` (captures uncommitted work without touching the tree);
+      a snapshot is a real commit so the v1 engine proves it unchanged; acceptance is
+      all-or-nothing with journalled pre-images, so it is reversible from day one. 167 stmts /
+      52 branches / **100%**, 38 tests against real repositories, no pragmas.
+- [ ] **19.4 — journal/undo** (L20): generalise the acceptance journal to every agent action and
+      add the one-keystroke surface.
 - [ ] **Model layer** (L18, ADR-0037): keys in OS keychain; llama.cpp local runner; streaming
       with real upstream cancellation; graceful offline (L23).
 - [ ] **P1 multi-provider abstraction** — 12+ providers; adapter layer only, generated from

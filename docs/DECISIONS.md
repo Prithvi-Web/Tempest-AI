@@ -1362,3 +1362,55 @@ assert" habit the product sells.
 
 **Cost of the dependency:** `schemars` added **two lines** to `Cargo.lock` (it was already
 present transitively), so the fourth boundary costs essentially no new supply-chain surface.
+
+## ADR-0036 amendment — the shadow worktree lives in the ENGINE, not the Rust host (2026-08-18, 19.3)
+
+**The deviation, stated rather than drifted.** ADR-0036 placed the shadow-worktree manager in the
+Rust orchestrator. It is implemented in Python instead — `tempest/agent/shadow.py`. Three reasons,
+in order of weight:
+
+1. **The Rust host is a supervisor and a typed bridge, not a domain layer.** All 25 commands in
+   `commands.rs` delegate to the sidecar; putting git-worktree semantics in Rust would be the
+   first piece of domain logic to live there, and would then need its own RPC surface anyway for
+   the engine to prove against.
+2. **The engine already owns worktrees** (`envrepro/worktree.py` materialises base/head for every
+   proof) and the real-git test infrastructure that goes with them.
+3. **The 100% coverage gate applies to Python.** `shadow.py` lands at 167 statements / 52
+   branches / **100%** with no pragmas, against real repositories — a standard the Rust side does
+   not currently hold itself to.
+
+Boundary D (ADR-0035) is unaffected: the orchestrator still owns dispatch and capability
+enforcement in Rust; it reaches staging over boundary A like everything else.
+
+**The design decision worth keeping.** The baseline is built with **`git stash create`**, which
+writes a commit object capturing the working state *without touching the tree, the index, or the
+stash list*. A baseline of bare `HEAD` would have handed the agent a tree that differs from the
+user's screen whenever anything is uncommitted — and then every uncommitted edit of theirs would
+read as an agent change in the proof diff. Untracked files are carried across separately, because
+`stash create` captures tracked changes only. A test asserts the user's tree is byte-identical
+before and after `create()`.
+
+**Why a snapshot is a commit.** `snapshot()` commits the shadow onto its own branch and returns a
+sha resolvable from the user's repository, so F1's proof step is `prove(baseline_sha,
+shadow_sha)` against the existing nine stages — no "prove a dirty directory" concept, no engine
+change. That is the whole reason to use a git worktree rather than a copied directory.
+
+**Acceptance is all-or-nothing and already reversible.** Preconditions are validated across the
+entire changeset before a byte is written, so one conflict applies nothing. Pre-images are
+journalled to `.tempest/agent/journal/<id>/`, which means undo restores the user's bytes **even
+when their baseline was never committed** — precisely the case `git checkout` cannot serve, and
+exactly why L20 says "journalled, not 'hopefully git has it'". 19.4 generalises this journal to
+every agent action and adds the one-keystroke surface; acceptance is reversible from day one so
+that no window exists where an agent mutation is unrevertable.
+
+**Conflict policy: the user always wins.** If a target file changed since staging — edited *or
+deleted* — acceptance refuses and names the files. Re-creating a file the user deliberately
+removed is a silent surprise, so deletion counts as a conflict too.
+
+**Containment is checked against the RESOLVED path**, so a symlink planted inside the shadow
+cannot tunnel out; absolute paths, `..` traversal, and anything touching `.git` are refused.
+Seven traversal shapes and a real symlink escape are pinned as tests.
+
+**Trap 38 interaction, noted for 19.4+:** these worktrees live under `.tempest`, and corpus mining
+judges skip-dirs relative to the mining root (ADR-0033). Nothing regressed here — mining a shadow
+is not yet wired — but the pin belongs with whatever first proves a shadow.

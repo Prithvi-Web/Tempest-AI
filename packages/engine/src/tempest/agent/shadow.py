@@ -1,0 +1,312 @@
+"""The shadow worktree — **the agent never writes the user's working tree** (L19, ADR-0036).
+
+Agent edits are staged in a git worktree under `.tempest/agent/worktrees/<task-id>/`. The user's
+checkout is not touched until they accept, and every acceptance is journalled so it can be undone
+exactly (L20). Three properties make this more than a scratch directory:
+
+**1. The baseline is what the user can actually see.** A worktree created from bare `HEAD` would
+hand the agent a tree that differs from the user's screen whenever anything is uncommitted — and
+then every uncommitted edit of theirs would read as an agent change in the diff. Instead the
+baseline is built with `git stash create`, which writes a commit object capturing the working
+state **without mutating the tree or the stash list**, plus a carry-over of untracked files. The
+user's tree is observably unchanged by creating a shadow; a test asserts exactly that.
+
+**2. A snapshot is a real commit, so the v1 engine proves it unchanged.** `snapshot()` commits the
+shadow's state onto its own branch and returns a sha resolvable from the user's repository. That
+means F1's proof step is `prove(baseline_sha, shadow_sha)` against the existing nine stages —
+no new engine concept, no special "prove a dirty directory" path.
+
+**3. Acceptance is all-or-nothing and reversible.** Preconditions are checked for the whole
+changeset before a single byte is written; a conflict aborts with nothing applied. Pre-images are
+journalled to `.tempest/agent/journal/`, so undo restores the user's bytes even when their
+baseline was never committed — which is the case `git checkout` cannot serve and is exactly why
+L20 says "journalled, not 'hopefully git has it'".
+
+Scope: this is the staging substrate. The orchestrator that decides *what* to write arrives in
+Phase 21.
+"""
+
+import json
+import shutil
+import subprocess
+import uuid
+from dataclasses import dataclass
+from pathlib import Path
+
+_AGENT_DIR = Path(".tempest") / "agent"
+_WORKTREES = _AGENT_DIR / "worktrees"
+_JOURNAL = _AGENT_DIR / "journal"
+_BRANCH_PREFIX = "tempest/agent/"
+#: git refuses to operate through these; a staged write must never reach repository internals.
+_FORBIDDEN_TOP = {".git"}
+
+
+class ShadowError(Exception):
+    """A shadow-worktree operation could not be completed. The message names the reason."""
+
+
+class PathEscape(ShadowError):
+    """A staged write tried to leave the shadow worktree (L19's hard edge)."""
+
+
+class AcceptConflict(ShadowError):
+    """The user edited a file since staging. Their work wins; nothing is applied."""
+
+
+@dataclass(frozen=True)
+class Shadow:
+    """One task's staging area. Stateless by design — the filesystem is the source of truth."""
+
+    task_id: str
+    repo: Path
+    path: Path
+    branch: str
+    baseline: str
+
+
+@dataclass(frozen=True)
+class Acceptance:
+    """The record that makes an acceptance undoable (L20)."""
+
+    id: str
+    repo: Path
+    files: list[str]
+    journal_dir: Path
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args], capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise ShadowError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _require_repo(repo: Path) -> None:
+    if not (repo / ".git").exists():
+        raise ShadowError(f"{repo} is not a git repository")
+
+
+def _slug(task_id: str) -> str:
+    """Task ids reach the filesystem and a git ref, so keep them to a safe alphabet."""
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in task_id).strip("-")
+    if not safe:
+        raise ShadowError(f"task id {task_id!r} has no usable characters")
+    return safe
+
+
+def _baseline_commit(repo: Path) -> str:
+    """A commit capturing what the user can see right now, without disturbing anything.
+
+    `git stash create` builds the commit object and prints its sha but does **not** touch the
+    working tree, the index, or the stash list. On a clean tree it prints nothing, and HEAD is
+    already the answer.
+    """
+    created = _git(repo, "stash", "create")
+    return created or _git(repo, "rev-parse", "HEAD^{commit}")
+
+
+def _untracked(repo: Path) -> list[str]:
+    listing = _git(repo, "ls-files", "--others", "--exclude-standard")
+    return [line for line in listing.splitlines() if line]
+
+
+def create(repo: Path, task_id: str, *, baseline: str | None = None) -> Shadow:
+    """Stage a fresh shadow worktree for `task_id`, seeded from the user's visible state."""
+    repo = Path(repo)
+    _require_repo(repo)
+    slug = _slug(task_id)
+    path = repo / _WORKTREES / slug
+    if path.exists():
+        raise ShadowError(f"a shadow for task {task_id!r} already exists at {path}")
+
+    sha = _git(repo, "rev-parse", f"{baseline}^{{commit}}") if baseline else _baseline_commit(repo)
+    branch = f"{_BRANCH_PREFIX}{slug}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _git(repo, "worktree", "add", "--force", "-B", branch, str(path), sha)
+
+    # `git stash create` captures tracked changes only; untracked files are part of what the
+    # user sees, so carry them across or the agent edits a tree the user does not recognise.
+    for rel in _untracked(repo):
+        if rel.startswith(str(_AGENT_DIR)) or rel.startswith(".tempest"):
+            continue
+        src, dst = repo / rel, path / rel
+        if src.is_file():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+
+    return Shadow(task_id=task_id, repo=repo, path=path, branch=branch, baseline=sha)
+
+
+def _resolve_inside(shadow: Shadow, relpath: str) -> Path:
+    """Resolve `relpath` inside the shadow, refusing anything that leaves it.
+
+    Checked against the *resolved* path, so a symlink planted inside the shadow cannot be used
+    as a tunnel to somewhere else on disk.
+    """
+    if not relpath or relpath.strip() == "":
+        raise PathEscape("empty path")
+    candidate = Path(relpath)
+    if candidate.is_absolute():
+        raise PathEscape(f"absolute paths are not writable: {relpath}")
+    if candidate.parts and candidate.parts[0] in _FORBIDDEN_TOP:
+        raise PathEscape(f"repository internals are not writable: {relpath}")
+
+    root = shadow.path.resolve()
+    target = (root / candidate).resolve()
+    if target != root and root not in target.parents:
+        raise PathEscape(f"path escapes the shadow worktree: {relpath}")
+    if any(part in _FORBIDDEN_TOP for part in target.relative_to(root).parts):
+        raise PathEscape(f"repository internals are not writable: {relpath}")
+    return target
+
+
+def write(shadow: Shadow, relpath: str, contents: str) -> Path:
+    """Stage one file write inside the shadow. Never reaches the user's tree."""
+    target = _resolve_inside(shadow, relpath)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(contents, encoding="utf-8")
+    return target
+
+
+def changed_files(shadow: Shadow) -> list[str]:
+    """Repository-relative paths the agent has changed, relative to the baseline."""
+    _git(shadow.path, "add", "-A")
+    listing = _git(shadow.path, "diff", "--cached", "--name-only", shadow.baseline)
+    return [line for line in listing.splitlines() if line]
+
+
+def snapshot(shadow: Shadow, message: str = "tempest: agent staged change") -> str:
+    """Commit the shadow's state and return a sha the engine can prove against."""
+    if not changed_files(shadow):
+        return shadow.baseline
+    _git(
+        shadow.path,
+        "-c",
+        "user.name=Tempest",
+        "-c",
+        "user.email=agent@tempest.local",
+        "commit",
+        "-m",
+        message,
+        "--no-gpg-sign",
+    )
+    return _git(shadow.path, "rev-parse", "HEAD^{commit}")
+
+
+def accept(shadow: Shadow, *, files: list[str] | None = None) -> Acceptance:
+    """Apply staged changes into the user's tree — all of them, or none.
+
+    Refuses if the user modified any target since the shadow was created: their work wins.
+    """
+    changed = changed_files(shadow)
+    selected = list(changed) if files is None else list(files)
+    unknown = [f for f in selected if f not in changed]
+    if unknown:
+        raise ShadowError(f"not changed in this shadow: {', '.join(sorted(unknown))}")
+
+    # Phase 1 — validate the WHOLE changeset before touching anything.
+    conflicts = [rel for rel in selected if _user_moved_since_baseline(shadow, rel)]
+    if conflicts:
+        raise AcceptConflict(
+            "the user edited these since staging, so nothing was applied: "
+            + ", ".join(sorted(conflicts))
+        )
+
+    acceptance_id = uuid.uuid4().hex[:12]
+    journal_dir = shadow.repo / _JOURNAL / acceptance_id
+    (journal_dir / "pre").mkdir(parents=True, exist_ok=True)
+
+    # Phase 2 — journal every pre-image, then write. A failure mid-write rolls back from these.
+    pre_state: dict[str, bool] = {}
+    for rel in selected:
+        user_file = shadow.repo / rel
+        existed = user_file.is_file()
+        pre_state[rel] = existed
+        if existed:
+            dest = journal_dir / "pre" / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(user_file, dest)
+    (journal_dir / "manifest.json").write_text(
+        json.dumps({"id": acceptance_id, "files": selected, "existed": pre_state}, indent=2),
+        encoding="utf-8",
+    )
+
+    written: list[str] = []
+    try:
+        for rel in selected:
+            src, dst = shadow.path / rel, shadow.repo / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            written.append(rel)
+    except OSError as err:  # pragma: no cover — defensive; the rollback is pinned by unit test
+        _restore(shadow.repo, journal_dir, written, pre_state)
+        raise ShadowError(f"acceptance failed and was rolled back: {err}") from err
+
+    return Acceptance(id=acceptance_id, repo=shadow.repo, files=selected, journal_dir=journal_dir)
+
+
+def _user_moved_since_baseline(shadow: Shadow, rel: str) -> bool:
+    """True when the user's copy differs from the baseline the agent started from."""
+    user_file = shadow.repo / rel
+    try:
+        baseline_blob = _git(shadow.repo, "show", f"{shadow.baseline}:{rel}")
+    except ShadowError:
+        # Not in the baseline: a new file. It conflicts only if the user has since made one.
+        return user_file.exists()
+    if not user_file.is_file():
+        return True  # the user deleted it; re-creating it silently would be a surprise
+    current = user_file.read_text(encoding="utf-8", errors="replace")
+    return current.rstrip("\n") != baseline_blob.rstrip("\n")
+
+
+def _restore(repo: Path, journal_dir: Path, files: list[str], existed: dict[str, bool]) -> None:
+    for rel in files:
+        target = repo / rel
+        if existed.get(rel):
+            shutil.copy2(journal_dir / "pre" / rel, target)
+        elif target.exists():
+            target.unlink()
+
+
+def revert(acceptance: Acceptance) -> None:
+    """Undo an acceptance exactly. Idempotent — undo must never become its own failure mode."""
+    manifest_path = acceptance.journal_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _restore(acceptance.repo, acceptance.journal_dir, manifest["files"], manifest["existed"])
+    manifest_path.unlink()
+
+
+def discard(shadow: Shadow) -> None:
+    """Throw the shadow away. Idempotent, and it never touches the user's tree."""
+    if shadow.path.exists():
+        _git(shadow.repo, "worktree", "remove", "--force", str(shadow.path))
+    _git_quiet(shadow.repo, "branch", "-D", shadow.branch)
+    _git_quiet(shadow.repo, "worktree", "prune")
+
+
+def _git_quiet(repo: Path, *args: str) -> None:
+    """Best-effort cleanup: a branch that is already gone is success, not an error."""
+    subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, check=False)
+
+
+def list_shadows(repo: Path) -> list[Shadow]:
+    """Every live shadow, rebuilt from disk — the manager survives a restart with no state."""
+    repo = Path(repo)
+    root = repo / _WORKTREES
+    if not root.is_dir():
+        return []
+    out: list[Shadow] = []
+    for path in sorted(p for p in root.iterdir() if p.is_dir()):
+        branch = f"{_BRANCH_PREFIX}{path.name}"
+        try:
+            baseline = _git(repo, "rev-parse", f"{branch}^{{commit}}")
+        except ShadowError:  # pragma: no cover — a worktree whose branch vanished
+            continue
+        out.append(
+            Shadow(task_id=path.name, repo=repo, path=path, branch=branch, baseline=baseline)
+        )
+    return out
