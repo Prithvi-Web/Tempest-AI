@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from tempest.model import Severity
+
 
 def _searchable_bundle(api, *, phrase: str, repo: str = "searchable", head: str = "f" * 40):
     divergence = dataclasses.replace(api.make_divergence(0), detail=phrase)
@@ -63,6 +65,100 @@ class TestDivergenceSearch:
 
         assert _hits(api, "xylophone") == [], "pruned run's divergences must leave the index"
         assert len(_hits(api, "fresh")) == 1
+
+
+def _by_symbol(api, symbol: str, **params):
+    return api.get_json("/v1/symbols/divergences", params={"symbol": symbol, **params})
+
+
+class TestDivergencesBySymbol:
+    """The lookup the editor's risk badge needs, and the one text search cannot be.
+
+    Every test here also asserts what FREE-TEXT search answers for the same query. That pairing
+    is the regression: the badge was wired to `/v1/search/divergences`, whose FTS index covers
+    `detail`, `base_summary` and `head_summary` and not `qualname`, so a symbol Tempest had
+    watched diverge came back with zero hits and rendered as "unmeasured". A test that only
+    asserted the new endpoint works would pass again the day someone re-points the caller.
+    """
+
+    def test_a_symbol_is_found_by_name_where_text_search_finds_nothing(self, api) -> None:
+        # The detail string is what the comparator really writes: value-shaped, and containing
+        # no occurrence of the symbol's name anywhere.
+        divergence = dataclasses.replace(api.make_divergence(0), detail="return values differ")
+        target = api.make_target((divergence,), module="billing", qualname="calculateTotal")
+        run_id = api.ingest(api.make_bundle(targets=(target,), repo="by-symbol"))
+
+        assert _hits(api, "calculateTotal") == [], (
+            "text search cannot see a qualname — this is the defect, pinned"
+        )
+
+        found = _by_symbol(api, "calculateTotal")
+        assert found["symbol"] == "calculateTotal"
+        assert len(found["hits"]) == 1
+        hit = found["hits"][0]
+        assert hit["run_id"] == run_id
+        assert hit["qualname"] == "calculateTotal"
+        assert hit["module"] == "billing"
+        assert hit["detail"] == "return values differ"
+
+    def test_severity_crosses_the_wire_in_the_engine_vocabulary(self, api) -> None:
+        # The editor compared against {"HIGH","CRITICAL"}, which this enum has never contained,
+        # so its "high risk" arm was unreachable. HEADLINE is what a head-only crash records.
+        divergence = dataclasses.replace(api.make_divergence(0), severity=Severity.HEADLINE)
+        target = api.make_target((divergence,), qualname="crasher")
+        api.ingest(api.make_bundle(targets=(target,), repo="sev", head_sha="c" * 40))
+        hit = _by_symbol(api, "crasher")["hits"][0]
+        assert hit["severity"] == "HEADLINE"
+        assert hit["severity"] not in {"HIGH", "CRITICAL"}
+
+    def test_a_method_is_found_by_its_final_segment_and_reports_its_whole_qualname(
+        self, api
+    ) -> None:
+        # An editor sees `post`; the engine recorded `Ledger.post`. Both halves matter: the
+        # match has to happen, and the answer has to say WHICH symbol it matched so a badge
+        # cannot silently attribute one class's history to another.
+        target = api.make_target((api.make_divergence(0),), module="ledger", qualname="Ledger.post")
+        api.ingest(api.make_bundle(targets=(target,), repo="methods", head_sha="d" * 40))
+        hits = _by_symbol(api, "post")["hits"]
+        assert len(hits) == 1
+        assert hits[0]["qualname"] == "Ledger.post"
+        assert _by_symbol(api, "Ledger.post")["hits"][0]["qualname"] == "Ledger.post"
+
+    def test_a_name_that_merely_ends_in_the_symbol_is_not_a_match(self, api) -> None:
+        target = api.make_target((api.make_divergence(0),), qualname="repost")
+        api.ingest(api.make_bundle(targets=(target,), repo="suffix", head_sha="e" * 40))
+        assert _by_symbol(api, "post")["hits"] == [], "the boundary is a dot, not a substring"
+
+    def test_like_metacharacters_in_a_symbol_are_literal(self, api) -> None:
+        # `_` is a LIKE wildcard AND a legal identifier character. Unescaped, `a_b` matches
+        # `axb`, and the badge reports another symbol's divergences as this one's.
+        target = api.make_target((api.make_divergence(0),), qualname="Cls.axb")
+        api.ingest(api.make_bundle(targets=(target,), repo="wildcards", head_sha="1" * 40))
+        assert _by_symbol(api, "a_b")["hits"] == []
+        assert len(_by_symbol(api, "axb")["hits"]) == 1
+
+    def test_an_empty_symbol_answers_nothing_rather_than_everything(self, api) -> None:
+        # `LIKE '%.'` matches every dotted qualname there is. An empty query is not a query.
+        target = api.make_target((api.make_divergence(0),), qualname="Cls.method")
+        api.ingest(api.make_bundle(targets=(target,), repo="empty", head_sha="2" * 40))
+        assert _by_symbol(api, "")["hits"] == []
+
+    def test_an_unrecorded_symbol_is_empty_not_an_error(self, api) -> None:
+        api.ingest(api.make_bundle(repo="absent", head_sha="3" * 40))
+        assert _by_symbol(api, "neverProved")["hits"] == []
+
+    def test_the_limit_binds_and_is_validated(self, api) -> None:
+        divergences = tuple(api.make_divergence(n) for n in range(4))
+        target = api.make_target(divergences, qualname="busy")
+        api.ingest(api.make_bundle(targets=(target,), repo="limits", head_sha="4" * 40))
+        assert len(_by_symbol(api, "busy")["hits"]) == 4
+        assert len(_by_symbol(api, "busy", limit=2)["hits"]) == 2
+        assert (
+            api.client.get(
+                "/v1/symbols/divergences", params={"symbol": "busy", "limit": 0}
+            ).status_code
+            == 422
+        )
 
 
 class TestBundleExport:

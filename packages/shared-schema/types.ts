@@ -386,6 +386,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/symbols/divergences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Divergences For Symbol
+         * @description Every divergence recorded against `symbol`, by name rather than by text.
+         *
+         *     An editor can see an identifier; the engine records a `qualname`, which for a method is
+         *     `Class.method`. Both are matched — the whole qualname, and its final segment — and every hit
+         *     reports the qualname it came from, so a caller can tell "one symbol, three divergences" from
+         *     "three symbols that happen to share a name" instead of guessing.
+         *
+         *     An empty symbol answers nothing. It is not a query for everything: `LIKE '%.'` matches every
+         *     dotted qualname there is, which would put an entire history behind one stray call.
+         */
+        get: operations["divergencesForSymbol"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sync/push": {
         parameters: {
             query?: never;
@@ -828,6 +856,47 @@ export interface components {
          * @enum {string}
          */
         Severity: "LOW" | "NORMAL" | "HEADLINE";
+        /**
+         * SymbolDivergence
+         * @description One divergence recorded against a symbol, carrying the symbol it was recorded FOR.
+         *
+         *     `qualname` and `module` are on every hit deliberately: a bare identifier in an editor can
+         *     match more than one recorded symbol (two classes with a `post` method), and a badge that
+         *     said "3 divergences recorded here" without being able to name them would be over-claiming.
+         */
+        SymbolDivergence: {
+            /** Detail */
+            detail: string;
+            divergence_class: components["schemas"]["DivergenceClass"];
+            /** Divergence Id */
+            divergence_id: number;
+            /** Module */
+            module: string;
+            /** Qualname */
+            qualname: string;
+            /** Run Id */
+            run_id: number;
+            severity: components["schemas"]["Severity"];
+            /** Target Id */
+            target_id: number;
+        };
+        /**
+         * SymbolDivergences
+         * @description What Tempest has RECORDED for one symbol — the query the editor's risk badge needs.
+         *
+         *     Deliberately NOT `SearchResults`. Free-text search answers "which divergences mention this
+         *     string", over an FTS index built on `detail`, `base_summary` and `head_summary`; `qualname`
+         *     is not in that index and never was. Every detail string the comparator emits is value-shaped
+         *     ("return values differ", "stdout differs"), so asking that endpoint about a symbol name
+         *     returned nothing for symbols Tempest had watched diverge — and the badge rendered
+         *     "unmeasured", which is the failure looking exactly like the honest answer.
+         */
+        SymbolDivergences: {
+            /** Hits */
+            hits: components["schemas"]["SymbolDivergence"][];
+            /** Symbol */
+            symbol: string;
+        };
         /** SyncPushRequest */
         SyncPushRequest: {
             /** Server Url */
@@ -1796,6 +1865,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AiKeyTestResult"];
+                };
+            };
+        };
+    };
+    divergencesForSymbol: {
+        parameters: {
+            query: {
+                symbol: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SymbolDivergences"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };

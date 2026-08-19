@@ -16,6 +16,15 @@ export const commands = {
 	getDivergenceRepro: (divergenceId: number) => typedError<ReproSource, SidecarFailure>(__TAURI_INVOKE("get_divergence_repro", { divergenceId })),
 	startLocalProve: (request: LocalProveRequest) => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_local_prove", { request })),
 	searchDivergences: (q: string, limit: number | null) => typedError<SearchResults, SidecarFailure>(__TAURI_INVOKE("search_divergences", { q, limit })),
+	/**
+	 *  Every divergence Tempest has RECORDED for one symbol (Phase 20.3e, the risk badge).
+	 * 
+	 *  Distinct from `search_divergences`, which is free-text over an FTS index that does not
+	 *  contain `qualname`. The editor asked the text endpoint for a symbol name and got nothing for
+	 *  symbols Tempest had watched diverge, so the badge said "unmeasured" — the failure looking
+	 *  exactly like the honest answer.
+	 */
+	divergencesForSymbol: (symbol: string, limit: number | null) => typedError<SymbolDivergences, SidecarFailure>(__TAURI_INVOKE("divergences_for_symbol", { symbol, limit })),
 	cancelRun: (runId: number) => typedError<CancelAccepted, SidecarFailure>(__TAURI_INVOKE("cancel_run", { runId })),
 	listLogRecords: (limit: number | null, level: string | null) => typedError<LogRecordOut[], SidecarFailure>(__TAURI_INVOKE("list_log_records", { limit, level })),
 	aiKeyStatus: () => typedError<AiKeyStatus, SidecarFailure>(__TAURI_INVOKE("ai_key_status")),
@@ -2260,6 +2269,126 @@ export type SidecarStateEvent = {
  *  </details>
  */
 export type Source = string;
+
+/**
+ * One divergence recorded against a symbol, carrying the symbol it was recorded FOR.
+ * 
+ * `qualname` and `module` are on every hit deliberately: a bare identifier in an editor can
+ * match more than one recorded symbol (two classes with a `post` method), and a badge that
+ * said "3 divergences recorded here" without being able to name them would be over-claiming.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SymbolDivergence",
+ *   "description": "One divergence recorded against a symbol, carrying the symbol it was recorded FOR.\n\n`qualname` and `module` are on every hit deliberately: a bare identifier in an editor can\nmatch more than one recorded symbol (two classes with a `post` method), and a badge that\nsaid \"3 divergences recorded here\" without being able to name them would be over-claiming.",
+ *   "type": "object",
+ *   "required": [
+ *     "detail",
+ *     "divergence_class",
+ *     "divergence_id",
+ *     "module",
+ *     "qualname",
+ *     "run_id",
+ *     "severity",
+ *     "target_id"
+ *   ],
+ *   "properties": {
+ *     "detail": {
+ *       "title": "Detail",
+ *       "type": "string"
+ *     },
+ *     "divergence_class": {
+ *       "$ref": "#/$defs/DivergenceClass"
+ *     },
+ *     "divergence_id": {
+ *       "title": "Divergence Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "module": {
+ *       "title": "Module",
+ *       "type": "string"
+ *     },
+ *     "qualname": {
+ *       "title": "Qualname",
+ *       "type": "string"
+ *     },
+ *     "run_id": {
+ *       "title": "Run Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "severity": {
+ *       "$ref": "#/$defs/Severity"
+ *     },
+ *     "target_id": {
+ *       "title": "Target Id",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SymbolDivergence = {
+	detail: string,
+	divergence_class: DivergenceClass,
+	divergence_id: number,
+	module: string,
+	qualname: string,
+	run_id: number,
+	severity: Severity,
+	target_id: number,
+};
+
+/**
+ * What Tempest has RECORDED for one symbol — the query the editor's risk badge needs.
+ * 
+ * Deliberately NOT `SearchResults`. Free-text search answers "which divergences mention this
+ * string", over an FTS index built on `detail`, `base_summary` and `head_summary`; `qualname`
+ * is not in that index and never was. Every detail string the comparator emits is value-shaped
+ * ("return values differ", "stdout differs"), so asking that endpoint about a symbol name
+ * returned nothing for symbols Tempest had watched diverge — and the badge rendered
+ * "unmeasured", which is the failure looking exactly like the honest answer.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "SymbolDivergences",
+ *   "description": "What Tempest has RECORDED for one symbol — the query the editor's risk badge needs.\n\nDeliberately NOT `SearchResults`. Free-text search answers \"which divergences mention this\nstring\", over an FTS index built on `detail`, `base_summary` and `head_summary`; `qualname`\nis not in that index and never was. Every detail string the comparator emits is value-shaped\n(\"return values differ\", \"stdout differs\"), so asking that endpoint about a symbol name\nreturned nothing for symbols Tempest had watched diverge — and the badge rendered\n\"unmeasured\", which is the failure looking exactly like the honest answer.",
+ *   "type": "object",
+ *   "required": [
+ *     "hits",
+ *     "symbol"
+ *   ],
+ *   "properties": {
+ *     "hits": {
+ *       "title": "Hits",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/SymbolDivergence"
+ *       }
+ *     },
+ *     "symbol": {
+ *       "title": "Symbol",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type SymbolDivergences = {
+	hits: SymbolDivergence[],
+	symbol: string,
+};
 
 /**
  * `SyncReport`

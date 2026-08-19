@@ -2924,6 +2924,121 @@ impl<'de> ::serde::Deserialize<'de> for Source {
             })
     }
 }
+#[doc = "One divergence recorded against a symbol, carrying the symbol it was recorded FOR.\n\n`qualname` and `module` are on every hit deliberately: a bare identifier in an editor can\nmatch more than one recorded symbol (two classes with a `post` method), and a badge that\nsaid \"3 divergences recorded here\" without being able to name them would be over-claiming."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SymbolDivergence\","]
+#[doc = "  \"description\": \"One divergence recorded against a symbol, carrying the symbol it was recorded FOR.\\n\\n`qualname` and `module` are on every hit deliberately: a bare identifier in an editor can\\nmatch more than one recorded symbol (two classes with a `post` method), and a badge that\\nsaid \\\"3 divergences recorded here\\\" without being able to name them would be over-claiming.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"detail\","]
+#[doc = "    \"divergence_class\","]
+#[doc = "    \"divergence_id\","]
+#[doc = "    \"module\","]
+#[doc = "    \"qualname\","]
+#[doc = "    \"run_id\","]
+#[doc = "    \"severity\","]
+#[doc = "    \"target_id\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"detail\": {"]
+#[doc = "      \"title\": \"Detail\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"divergence_class\": {"]
+#[doc = "      \"$ref\": \"#/$defs/DivergenceClass\""]
+#[doc = "    },"]
+#[doc = "    \"divergence_id\": {"]
+#[doc = "      \"title\": \"Divergence Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"module\": {"]
+#[doc = "      \"title\": \"Module\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"qualname\": {"]
+#[doc = "      \"title\": \"Qualname\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"run_id\": {"]
+#[doc = "      \"title\": \"Run Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"severity\": {"]
+#[doc = "      \"$ref\": \"#/$defs/Severity\""]
+#[doc = "    },"]
+#[doc = "    \"target_id\": {"]
+#[doc = "      \"title\": \"Target Id\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SymbolDivergence {
+    pub detail: ::std::string::String,
+    pub divergence_class: DivergenceClass,
+    pub divergence_id: i32,
+    pub module: ::std::string::String,
+    pub qualname: ::std::string::String,
+    pub run_id: i32,
+    pub severity: Severity,
+    pub target_id: i32,
+}
+impl SymbolDivergence {
+    pub fn builder() -> builder::SymbolDivergence {
+        Default::default()
+    }
+}
+#[doc = "What Tempest has RECORDED for one symbol — the query the editor's risk badge needs.\n\nDeliberately NOT `SearchResults`. Free-text search answers \"which divergences mention this\nstring\", over an FTS index built on `detail`, `base_summary` and `head_summary`; `qualname`\nis not in that index and never was. Every detail string the comparator emits is value-shaped\n(\"return values differ\", \"stdout differs\"), so asking that endpoint about a symbol name\nreturned nothing for symbols Tempest had watched diverge — and the badge rendered\n\"unmeasured\", which is the failure looking exactly like the honest answer."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SymbolDivergences\","]
+#[doc = "  \"description\": \"What Tempest has RECORDED for one symbol — the query the editor's risk badge needs.\\n\\nDeliberately NOT `SearchResults`. Free-text search answers \\\"which divergences mention this\\nstring\\\", over an FTS index built on `detail`, `base_summary` and `head_summary`; `qualname`\\nis not in that index and never was. Every detail string the comparator emits is value-shaped\\n(\\\"return values differ\\\", \\\"stdout differs\\\"), so asking that endpoint about a symbol name\\nreturned nothing for symbols Tempest had watched diverge — and the badge rendered\\n\\\"unmeasured\\\", which is the failure looking exactly like the honest answer.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"hits\","]
+#[doc = "    \"symbol\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"hits\": {"]
+#[doc = "      \"title\": \"Hits\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/SymbolDivergence\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"symbol\": {"]
+#[doc = "      \"title\": \"Symbol\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SymbolDivergences {
+    pub hits: ::std::vec::Vec<SymbolDivergence>,
+    pub symbol: ::std::string::String,
+}
+impl SymbolDivergences {
+    pub fn builder() -> builder::SymbolDivergences {
+        Default::default()
+    }
+}
 #[doc = "`SyncPushRequest`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -6106,6 +6221,199 @@ pub mod builder {
                 sync_share_source: Ok(value.sync_share_source),
                 telemetry_enabled: Ok(value.telemetry_enabled),
                 version: Ok(value.version),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SymbolDivergence {
+        detail: ::std::result::Result<::std::string::String, ::std::string::String>,
+        divergence_class: ::std::result::Result<super::DivergenceClass, ::std::string::String>,
+        divergence_id: ::std::result::Result<i32, ::std::string::String>,
+        module: ::std::result::Result<::std::string::String, ::std::string::String>,
+        qualname: ::std::result::Result<::std::string::String, ::std::string::String>,
+        run_id: ::std::result::Result<i32, ::std::string::String>,
+        severity: ::std::result::Result<super::Severity, ::std::string::String>,
+        target_id: ::std::result::Result<i32, ::std::string::String>,
+    }
+    impl ::std::default::Default for SymbolDivergence {
+        fn default() -> Self {
+            Self {
+                detail: Err("no value supplied for detail".to_string()),
+                divergence_class: Err("no value supplied for divergence_class".to_string()),
+                divergence_id: Err("no value supplied for divergence_id".to_string()),
+                module: Err("no value supplied for module".to_string()),
+                qualname: Err("no value supplied for qualname".to_string()),
+                run_id: Err("no value supplied for run_id".to_string()),
+                severity: Err("no value supplied for severity".to_string()),
+                target_id: Err("no value supplied for target_id".to_string()),
+            }
+        }
+    }
+    impl SymbolDivergence {
+        pub fn detail<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.detail = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for detail: {e}"));
+            self
+        }
+        pub fn divergence_class<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::DivergenceClass>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.divergence_class = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for divergence_class: {e}"));
+            self
+        }
+        pub fn divergence_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.divergence_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for divergence_id: {e}"));
+            self
+        }
+        pub fn module<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.module = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for module: {e}"));
+            self
+        }
+        pub fn qualname<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.qualname = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for qualname: {e}"));
+            self
+        }
+        pub fn run_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.run_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for run_id: {e}"));
+            self
+        }
+        pub fn severity<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Severity>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.severity = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for severity: {e}"));
+            self
+        }
+        pub fn target_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.target_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for target_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SymbolDivergence> for super::SymbolDivergence {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SymbolDivergence,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                detail: value.detail?,
+                divergence_class: value.divergence_class?,
+                divergence_id: value.divergence_id?,
+                module: value.module?,
+                qualname: value.qualname?,
+                run_id: value.run_id?,
+                severity: value.severity?,
+                target_id: value.target_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SymbolDivergence> for SymbolDivergence {
+        fn from(value: super::SymbolDivergence) -> Self {
+            Self {
+                detail: Ok(value.detail),
+                divergence_class: Ok(value.divergence_class),
+                divergence_id: Ok(value.divergence_id),
+                module: Ok(value.module),
+                qualname: Ok(value.qualname),
+                run_id: Ok(value.run_id),
+                severity: Ok(value.severity),
+                target_id: Ok(value.target_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SymbolDivergences {
+        hits:
+            ::std::result::Result<::std::vec::Vec<super::SymbolDivergence>, ::std::string::String>,
+        symbol: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for SymbolDivergences {
+        fn default() -> Self {
+            Self {
+                hits: Err("no value supplied for hits".to_string()),
+                symbol: Err("no value supplied for symbol".to_string()),
+            }
+        }
+    }
+    impl SymbolDivergences {
+        pub fn hits<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::SymbolDivergence>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.hits = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for hits: {e}"));
+            self
+        }
+        pub fn symbol<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.symbol = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for symbol: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SymbolDivergences> for super::SymbolDivergences {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SymbolDivergences,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                hits: value.hits?,
+                symbol: value.symbol?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SymbolDivergences> for SymbolDivergences {
+        fn from(value: super::SymbolDivergences) -> Self {
+            Self {
+                hits: Ok(value.hits),
+                symbol: Ok(value.symbol),
             }
         }
     }

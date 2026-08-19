@@ -55,6 +55,7 @@ const RESULT_SCHEMAS: Record<string, object> = {
   setAiKey: AI_KEY_STATUS,
   clearAiKey: AI_KEY_STATUS,
   searchDivergences: def("SearchResults"),
+  divergencesForSymbol: def("SymbolDivergences"),
   cancelRun: def("CancelAccepted"),
   listLogRecords: listOf("LogRecordOut"),
   getSettings: def("SettingsOut"),

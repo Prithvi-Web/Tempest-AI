@@ -57,6 +57,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_divergence_repro,
             commands::start_local_prove,
             commands::search_divergences,
+            commands::divergences_for_symbol,
             commands::cancel_run,
             commands::list_log_records,
             commands::ai_key_status,
@@ -93,7 +94,9 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             let program = sidecar_program().map_err(std::io::Error::other)?;
             // Phase 20.2: the multiplexer owns every language-server process for the app's
-            // lifetime. Managed state rather than a global so its Drop runs with the app.
+            // lifetime. Managed state rather than a global so ONE thing owns them — NOT because
+            // `Drop` runs at exit, which it does not (see `sweep_on_exit`); that belief is what
+            // left language servers orphaned on every quit.
             app.manage(std::sync::Mutex::new(lsp::Multiplexer::new(
                 commands::configured_servers(),
             )));

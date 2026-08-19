@@ -1,9 +1,14 @@
-"""Full-text search over divergences (Phase 11).
+"""Two ways to reach a divergence: by TEXT (Phase 11) and by SYMBOL (Phase 20.3e).
 
-SQLite serves from the FTS5 index (`divergences_fts`, maintained by triggers in
-`db.local_store`); Postgres falls back to ILIKE over the same three text columns. User input
+Full-text search: SQLite serves from the FTS5 index (`divergences_fts`, maintained by triggers
+in `db.local_store`); Postgres falls back to ILIKE over the same three text columns. User input
 is never passed to the FTS engine raw — it is re-tokenized into quoted terms, so operator
 syntax cannot error or subvert the query.
+
+By symbol: an EXACT lookup against `targets.qualname`, which the FTS index does not contain and
+which no amount of text search can substitute for. The editor's risk badge asked the text
+endpoint for a symbol name and got nothing back for symbols Tempest had watched diverge, because
+`detail` says "return values differ", not "calculateTotal". Same table, different question.
 """
 
 import re
@@ -17,7 +22,12 @@ from tempest.model import DivergenceClass, Severity
 from tempest_api.db.models import Divergence, Target
 from tempest_api.db.session import get_session
 from tempest_api.errors import error_responses
-from tempest_api.schemas.search import SearchHit, SearchResults
+from tempest_api.schemas.search import (
+    SearchHit,
+    SearchResults,
+    SymbolDivergence,
+    SymbolDivergences,
+)
 
 router = APIRouter(tags=["search"])
 
@@ -89,6 +99,71 @@ async def _search_like(session: AsyncSession, q: str, limit: int) -> list[Search
         )
         for divergence, target in rows
     ]
+
+
+def _final_segment_pattern(symbol: str) -> str:
+    """A LIKE pattern matching any qualname whose LAST dotted segment is `symbol`.
+
+    `_` and `%` are LIKE wildcards and are both legal in an identifier, so they are escaped:
+    without this, a symbol named `a_b` would match `axb`, and the badge would attribute one
+    symbol's recorded history to another.
+    """
+    escaped = symbol.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%.{escaped}"
+
+
+@router.get(
+    "/v1/symbols/divergences",
+    operation_id="divergencesForSymbol",
+    responses=error_responses(422),
+)
+async def divergences_for_symbol(
+    symbol: str,
+    session: SessionDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> SymbolDivergences:
+    """Every divergence recorded against `symbol`, by name rather than by text.
+
+    An editor can see an identifier; the engine records a `qualname`, which for a method is
+    `Class.method`. Both are matched — the whole qualname, and its final segment — and every hit
+    reports the qualname it came from, so a caller can tell "one symbol, three divergences" from
+    "three symbols that happen to share a name" instead of guessing.
+
+    An empty symbol answers nothing. It is not a query for everything: `LIKE '%.'` matches every
+    dotted qualname there is, which would put an entire history behind one stray call.
+    """
+    if not symbol:
+        return SymbolDivergences(symbol=symbol, hits=[])
+    rows = (
+        await session.execute(
+            sa.select(Divergence, Target)
+            .join(Target, Target.id == Divergence.target_id)
+            .where(
+                sa.or_(
+                    Target.qualname == symbol,
+                    Target.qualname.like(_final_segment_pattern(symbol), escape="\\"),
+                )
+            )
+            .order_by(Divergence.id.asc())
+            .limit(limit)
+        )
+    ).all()
+    return SymbolDivergences(
+        symbol=symbol,
+        hits=[
+            SymbolDivergence(
+                divergence_id=divergence.id,
+                target_id=divergence.target_id,
+                run_id=target.run_id,
+                module=target.module,
+                qualname=target.qualname,
+                divergence_class=divergence.divergence_class,
+                severity=divergence.severity,
+                detail=divergence.detail,
+            )
+            for divergence, target in rows
+        ],
+    )
 
 
 @router.get(

@@ -1,81 +1,72 @@
 /**
- * The measured lookup behind the risk badge (Phase 20.3e).
- *
- * The property under test is the distinction this product refuses to blur: an EMPTY result means
- * "the engine has no record of this symbol"; a FAILED call means "we do not know". Returning `[]`
- * for the second would let a broken lookup render as a clean history.
+ * The lookup's ONE job beyond calling a command: never let a failure look like an empty result.
  */
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { LOOKUP_LIMIT, divergenceLookup } from "./divergenceLookup";
 
-import type { SearchHit } from "../generated/bindings";
+import type { SymbolDivergence, SymbolDivergences } from "../generated/bindings";
 
-vi.mock("../generated/bindings", () => ({
-  commands: { searchDivergences: vi.fn(async () => ({ status: "ok", data: { hits: [] } })) },
-}));
-
-/**
- * A wire hit. `severity` and `divergence_class` are generated ENUMS on the real boundary; this
- * lookup only forwards them as strings, so the cast keeps the test about the mapping rather than
- * about enum spelling — the enums themselves are pinned by the contract gate.
- */
-const hit = (qualname: string, severity: string): SearchHit =>
-  ({
-    qualname,
-    severity,
-    divergence_class: "RETURN_VALUE",
+function hit(over: Partial<SymbolDivergence> = {}): SymbolDivergence {
+  return {
     divergence_id: 1,
-    module: "pkg",
-    run_id: 1,
-    snippet: "",
     target_id: 1,
-  }) as unknown as SearchHit;
+    run_id: 7,
+    module: "billing",
+    qualname: "calculateTotal",
+    divergence_class: "RETURN_VALUE",
+    severity: "HEADLINE",
+    detail: "return values differ",
+    ...over,
+  };
+}
+
+function ok(hits: SymbolDivergence[]): { status: "ok"; data: SymbolDivergences } {
+  return { status: "ok", data: { symbol: "calculateTotal", hits } };
+}
 
 describe("divergenceLookup", () => {
-  it("maps engine hits onto the shape risk.ts consumes", async () => {
-    const lookup = divergenceLookup(async () => ({
-      status: "ok",
-      data: { hits: [hit("pkg.f", "HIGH")] },
-    }));
-    await expect(lookup("pkg.f")).resolves.toEqual([
-      { qualname: "pkg.f", severity: "HIGH", divergence_class: "RETURN_VALUE" },
-    ]);
-  });
-
-  it("passes the symbol and a bounded limit", async () => {
-    const search = vi.fn(async () => ({ status: "ok", data: { hits: [] } }));
-    await divergenceLookup(search)("pkg.calculateTotal");
-    expect(search).toHaveBeenCalledWith("pkg.calculateTotal", LOOKUP_LIMIT);
-  });
-
-  it("returns an empty list when the engine genuinely has no record", async () => {
-    const lookup = divergenceLookup(async () => ({ status: "ok", data: { hits: [] } }));
-    await expect(lookup("pkg.f")).resolves.toEqual([]);
-  });
-
-  it("returns NULL — not an empty list — when the call errors", async () => {
-    // The whole point: `[]` would render as "no divergences recorded", i.e. a clean history for
-    // a symbol nobody managed to ask about.
-    const lookup = divergenceLookup(async () => ({ status: "error" }));
-    await expect(lookup("pkg.f")).resolves.toBeNull();
-  });
-
-  it("returns NULL when the call has no data", async () => {
-    const lookup = divergenceLookup(async () => ({ status: "ok" }));
-    await expect(lookup("pkg.f")).resolves.toBeNull();
-  });
-
-  it("returns NULL when the invoke throws", async () => {
-    const lookup = divergenceLookup(async () => {
-      throw new Error("ipc down");
+  it("asks the by-symbol endpoint, with the cap it documents", async () => {
+    const asked: Array<[string, number]> = [];
+    const lookup = divergenceLookup(async (symbol, limit) => {
+      asked.push([symbol, limit]);
+      return ok([hit()]);
     });
-    await expect(lookup("pkg.f")).resolves.toBeNull();
+    const records = await lookup("calculateTotal");
+    expect(asked).toEqual([["calculateTotal", LOOKUP_LIMIT]]);
+    expect(records).toEqual([hit()]);
   });
 
-  it("uses the generated binding by default", async () => {
-    const { commands } = await import("../generated/bindings");
-    await expect(divergenceLookup()("pkg.f")).resolves.toEqual([]);
-    expect(commands.searchDivergences).toHaveBeenCalledWith("pkg.f", LOOKUP_LIMIT);
+  it("passes the severity through UNWIDENED", async () => {
+    // `String(hit.severity)` is what defeated the compiler last time: it turned a closed union
+    // into `string`, and a comparison against a value the wire cannot carry then type-checked.
+    const lookup = divergenceLookup(async () => ok([hit({ severity: "HEADLINE" })]));
+    const records = await lookup("calculateTotal");
+    expect(records?.[0]?.severity).toBe("HEADLINE");
+  });
+
+  it("answers null — not [] — when the command reports an error", async () => {
+    const lookup = divergenceLookup(async () => ({ status: "error", error: { code: -1 } }));
+    expect(await lookup("calculateTotal")).toBeNull();
+  });
+
+  it("answers null — not [] — when the call throws", async () => {
+    const lookup = divergenceLookup(async () => {
+      throw new Error("the bridge is down");
+    });
+    expect(await lookup("calculateTotal")).toBeNull();
+  });
+
+  it("answers null when there is no host to ask — the default caller, exercised", async () => {
+    // Called with no injected lookup, so the real generated binding runs. Under vitest there is
+    // no Tauri IPC, so it throws — and the contract is that a lookup which cannot be MADE is
+    // null, never []. This is the arm the coverage gate named, and it is worth a test rather
+    // than a pragma: it is exactly the state of a webview whose host has gone away.
+    expect(await divergenceLookup()("calculateTotal")).toBeNull();
+  });
+
+  it("answers [] when the engine genuinely has no record", async () => {
+    const lookup = divergenceLookup(async () => ok([]));
+    expect(await lookup("neverProved")).toEqual([]);
   });
 });

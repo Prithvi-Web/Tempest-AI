@@ -11,8 +11,8 @@ use serde_json::{json, Map, Value};
 use crate::generated::domain::{
     AiKeyTestResult, CancelAccepted, DiagnosticBundle, DivergenceDetail, HealthResponse,
     LocalProveRequest, LogRecordOut, PageRunSummary, RunCreated, RunDetail, RunEventOut,
-    SearchResults, SettingsIn, SettingsOut, SyncReport, TargetDetail, UiErrorRecorded,
-    UiErrorReport, Verdict, WatchStartRequest, WatchStatus,
+    SearchResults, SettingsIn, SettingsOut, SymbolDivergences, SyncReport, TargetDetail,
+    UiErrorRecorded, UiErrorReport, Verdict, WatchStartRequest, WatchStatus,
 };
 use crate::supervisor::{RpcError, Supervisor, DEFAULT_CALL_TIMEOUT};
 
@@ -344,6 +344,27 @@ pub fn start_local_prove(
 #[specta::specta]
 pub fn cancel_run(state: tauri::State<'_, Arc<Supervisor>>, run_id: i32) -> CmdResult<CancelAccepted> {
     call_typed(&state, "cancelRun", json!({"run_id": run_id}))
+}
+
+/// Every divergence Tempest has RECORDED for one symbol (Phase 20.3e, the risk badge).
+///
+/// Distinct from `search_divergences`, which is free-text over an FTS index that does not
+/// contain `qualname`. The editor asked the text endpoint for a symbol name and got nothing for
+/// symbols Tempest had watched diverge, so the badge said "unmeasured" — the failure looking
+/// exactly like the honest answer.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn divergences_for_symbol(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    symbol: String,
+    limit: Option<u32>,
+) -> CmdResult<SymbolDivergences> {
+    let mut params = Map::new();
+    params.insert("symbol".into(), Value::String(symbol));
+    if let Some(limit) = limit {
+        params.insert("limit".into(), json!(limit));
+    }
+    call_typed(&state, "divergencesForSymbol", Value::Object(params))
 }
 
 #[tauri::command]

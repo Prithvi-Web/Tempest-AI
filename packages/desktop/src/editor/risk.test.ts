@@ -1,83 +1,114 @@
 /**
- * The behavioural risk indicator (Phase 20.3e).
+ * The risk indicator's honesty, and the two ways it shipped inert.
  *
- * States enumerated first: the lookup failed · the lookup succeeded and found nothing · hits that
- * name OTHER symbols · one ordinary divergence · several ordinary divergences · a serious one ·
- * a serious one mixed with ordinary ones · severity in unexpected case.
- *
- * The assertion that matters most is that ABSENCE IS NOT SAFETY. Tempest exists because "no
- * evidence of a problem" and "evidence of no problem" are different sentences; an indicator that
- * rendered the first as the second would be the product contradicting itself in its own editor.
+ * These tests are deliberately built on the GENERATED types rather than on hand-written record
+ * literals. The old suite constructed `{severity: "HIGH"}` objects and asserted the badge
+ * escalated on them — a test of data the test itself invented, which passed for the whole life of
+ * a feature whose escalation arm the wire could never reach (trap 43, in its purest form).
  */
 import { describe, expect, it } from "vitest";
 
-import { riskFor, riskLabel, type DivergenceRecord } from "./risk";
+import { ESCALATION_TABLE, riskFor, riskLabel, type DivergenceRecord } from "./risk";
 
-const hit = (qualname: string, severity: string): DivergenceRecord => ({
-  qualname,
-  severity,
-  divergence_class: "RETURN_VALUE",
-});
+import type { Severity } from "../generated/bindings";
 
-describe("absence is never safety", () => {
-  it("reports unmeasured when the lookup failed", () => {
-    const risk = riskFor("pkg.calculateTotal", null);
+function record(over: Partial<DivergenceRecord> = {}): DivergenceRecord {
+  return {
+    divergence_id: 1,
+    target_id: 1,
+    run_id: 1,
+    module: "billing",
+    qualname: "calculateTotal",
+    divergence_class: "RETURN_VALUE",
+    severity: "NORMAL",
+    detail: "return values differ",
+    ...over,
+  };
+}
+
+describe("riskFor", () => {
+  it("renders a failed lookup as unmeasured, never as safe", () => {
+    const risk = riskFor("calculateTotal", null);
     expect(risk.level).toBe("unmeasured");
-    expect(risk.divergences).toBe(0);
-  });
-
-  it("reports unmeasured when nothing names the symbol", () => {
-    const risk = riskFor("pkg.calculateTotal", []);
-    expect(risk.level, "no recorded divergence is NOT a clean bill of health").toBe("unmeasured");
-    expect(riskLabel(risk)).toContain("unmeasured");
+    expect(risk.reason).toBe("no measurement available");
     expect(riskLabel(risk)).not.toContain("safe");
   });
 
-  it("has no level that claims safety at all", () => {
-    // Nothing available today can establish behavioural safety; a level saying so would be a
-    // claim the product cannot support.
-    const levels = ["unmeasured", "elevated", "high"];
-    for (const level of levels) expect(riskLabel({ level, divergences: 1, reason: "r" } as never)).toBeTruthy();
-    expect(levels).not.toContain("clean");
-    expect(levels).not.toContain("proved");
+  it("distinguishes 'we could not ask' from 'the engine has no record'", () => {
+    // Both are unmeasured; the reason is the only thing that tells them apart, and a caller
+    // that cannot tell them apart cannot report honestly.
+    expect(riskFor("x", null).reason).not.toBe(riskFor("x", []).reason);
+    expect(riskFor("x", []).reason).toBe("no recorded runs name this symbol");
+    expect(riskFor("x", []).level).toBe("unmeasured");
+  });
+
+  it("escalates a HEADLINE divergence — the severity the wire actually carries", () => {
+    // The defect this pins: the old set was {"HIGH","CRITICAL"}, neither of which
+    // `tempest.model.Severity` has ever contained, so `high` was unreachable in production.
+    const risk = riskFor("calculateTotal", [record({ severity: "HEADLINE" })]);
+    expect(risk.level).toBe("high");
+    expect(risk.divergences).toBe(1);
+    expect(risk.reason).toBe("1 headline divergence recorded in billing.calculateTotal");
+  });
+
+  it("reports an ordinary divergence as elevated, not as high", () => {
+    const risk = riskFor("calculateTotal", [record(), record({ divergence_id: 2 })]);
+    expect(risk.level).toBe("elevated");
+    expect(risk.reason).toBe("2 divergences recorded in billing.calculateTotal");
+  });
+
+  it("names the symbol it measured, so the badge cannot over-claim", () => {
+    // A bare editor identifier can match more than one recorded symbol.
+    const risk = riskFor("post", [
+      record({ module: "ledger", qualname: "Ledger.post" }),
+      record({ module: "mail", qualname: "Outbox.post", divergence_id: 2 }),
+    ]);
+    expect(risk.reason).toBe("2 divergences recorded in 2 symbols named post");
+  });
+
+  it("counts only the serious ones when both are present", () => {
+    const risk = riskFor("calculateTotal", [
+      record(),
+      record({ divergence_id: 2, severity: "HEADLINE" }),
+      record({ divergence_id: 3, severity: "LOW" }),
+    ]);
+    expect(risk.level).toBe("high");
+    expect(risk.divergences).toBe(3);
+    expect(risk.reason).toBe("1 headline divergence recorded in billing.calculateTotal");
+  });
+
+  it("escalates on every severity the engine can emit, and only those", () => {
+    // `ESCALATION_TABLE` is a Record over the generated union, so this loop covers the WHOLE
+    // vocabulary by construction: adding a variant in Python breaks the build, not this test.
+    const expected: Record<Severity, "elevated" | "high"> = {
+      LOW: "elevated",
+      NORMAL: "elevated",
+      HEADLINE: "high",
+    };
+    for (const [severity, level] of Object.entries(expected) as [Severity, string][]) {
+      expect(riskFor("calculateTotal", [record({ severity })]).level, severity).toBe(level);
+      expect(ESCALATION_TABLE[severity], severity).toBe(level === "high");
+    }
   });
 });
 
-describe("measured history", () => {
-  it("ignores hits that name other symbols", () => {
-    // A substring match on a search index is not evidence about THIS symbol.
-    const risk = riskFor("pkg.calculateTotal", [hit("pkg.calculateSubtotal", "LOW")]);
-    expect(risk.level).toBe("unmeasured");
-    expect(risk.divergences).toBe(0);
+describe("riskLabel", () => {
+  it("never renders absence as approval", () => {
+    for (const risk of [riskFor("x", null), riskFor("x", [])]) {
+      const label = riskLabel(risk);
+      expect(label).toContain("unmeasured");
+      expect(label).not.toContain("safe");
+      expect(label).not.toContain("proved");
+      expect(label).not.toContain("clean");
+    }
   });
 
-  it("flags one ordinary divergence as elevated, and says how many", () => {
-    const risk = riskFor("pkg.f", [hit("pkg.f", "LOW")]);
-    expect(risk.level).toBe("elevated");
-    expect(risk.divergences).toBe(1);
-    expect(risk.reason).toBe("1 divergence recorded here");
-    expect(riskLabel(risk)).toContain("elevated");
-  });
-
-  it("pluralises honestly", () => {
-    const risk = riskFor("pkg.f", [hit("pkg.f", "LOW"), hit("pkg.f", "MEDIUM")]);
-    expect(risk.reason).toBe("2 divergences recorded here");
-  });
-
-  it("escalates to high on a serious divergence", () => {
-    const risk = riskFor("pkg.f", [hit("pkg.f", "LOW"), hit("pkg.f", "CRITICAL")]);
-    expect(risk.level).toBe("high");
-    expect(risk.divergences).toBe(2);
-    expect(risk.reason).toBe("1 serious divergence recorded here");
-  });
-
-  it("counts several serious ones", () => {
-    const risk = riskFor("pkg.f", [hit("pkg.f", "HIGH"), hit("pkg.f", "CRITICAL")]);
-    expect(risk.reason).toBe("2 serious divergences recorded here");
-  });
-
-  it("compares severity case-insensitively", () => {
-    // The wire says HIGH; nobody should have to know that to get a correct badge.
-    expect(riskFor("pkg.f", [hit("pkg.f", "high")]).level).toBe("high");
+  it("says what it measured, not just that it is worried", () => {
+    expect(riskLabel(riskFor("calculateTotal", [record({ severity: "HEADLINE" })]))).toBe(
+      "⚠ high risk — 1 headline divergence recorded in billing.calculateTotal",
+    );
+    expect(riskLabel(riskFor("calculateTotal", [record()]))).toBe(
+      "⚠ elevated — 1 divergence recorded in billing.calculateTotal",
+    );
   });
 });

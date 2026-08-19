@@ -16,7 +16,7 @@
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Why a local completion could not be produced. Each names a fact, never a guess.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
@@ -65,13 +65,26 @@ impl LocalModel {
     /// no longer wanted burns the user's battery to produce text nobody will read.
     pub fn complete(&self, prompt: &str, deadline: Duration) -> Result<String, ModelError> {
         let spec = self.spec.as_ref().ok_or(ModelError::NotConfigured)?;
-        let mut child = Command::new(&spec.program)
+        let mut command = Command::new(&spec.program);
+        command
             .args(&spec.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|_| ModelError::Unlaunchable)?;
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // Own process group, exactly as `supervisor.rs` does for the sidecar and `lsp.rs`
+            // for a language server. `TEMPEST_LOCAL_MODEL` is whitespace-split, so naming a
+            // model whose path contains a space REQUIRES a wrapper script — which means the
+            // common configuration is a shim whose real work is a grandchild. A probe against
+            // a two-line wrapper printed `GRANDCHILD alive=true` after `child.kill()`: the
+            // model keeps burning battery producing text nobody will read, which is the exact
+            // outcome the deadline exists to prevent.
+            command.process_group(0);
+        }
+        let mut child = command.spawn().map_err(|_| ModelError::Unlaunchable)?;
+        let pgid = i32::try_from(child.id()).unwrap_or(0);
 
         let mut stdin = child.stdin.take().ok_or(ModelError::Unlaunchable)?;
         let mut stdout = child.stdout.take().ok_or(ModelError::Unlaunchable)?;
@@ -83,44 +96,60 @@ impl LocalModel {
         });
 
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
+        let mut reader = Some(std::thread::spawn(move || {
             let mut out = String::new();
             let read = stdout.read_to_string(&mut out);
             let _ = tx.send(read.map(|_| out));
-        });
+        }));
 
-        let started = Instant::now();
         let outcome = rx.recv_timeout(deadline);
-        let _ = started;
-        match outcome {
+        // ONE sweep, on every path including success.
+        //
+        // The old code called `child.wait()` with no kill after a good answer, which assumes the
+        // model exits once it has written. An interactive llama.cpp REPL does not: it writes its
+        // completion and waits for the next prompt, and `wait()` then blocks for the life of the
+        // process. The answer is already in hand; the process is no longer wanted; sweep it.
+        let sweep = |child: &mut std::process::Child| {
+            crate::supervisor::terminate_group(pgid);
+            crate::supervisor::kill_group(pgid);
+            let _ = child.kill();
+            let _ = child.wait();
+        };
+        let verdict = match outcome {
             Ok(Ok(text)) => {
-                let _ = child.wait();
-                let trimmed = text.trim_end_matches('\n').to_string();
+                sweep(&mut child);
+                // `trim`, not `trim_end_matches('\n')`. A model answering a single space or a
+                // tab — ordinary for a mid-token FIM prompt — passed the old check and was
+                // returned as a completion, which renders as an invisible "accept me" under Tab.
+                // The test that claimed to pin this drove the ONE whitespace string the newline
+                // trim happens to handle (trap 43: the line ran, the state was never set up).
+                let trimmed = text.trim().to_string();
                 if trimmed.is_empty() {
-                    return Err(ModelError::NoCompletion);
+                    Err(ModelError::NoCompletion)
+                } else {
+                    Ok(trimmed)
                 }
-                Ok(trimmed)
             }
             Ok(Err(_)) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                sweep(&mut child);
                 Err(ModelError::NoCompletion)
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Kill, do not detach: see the doc comment above.
-                let _ = child.kill();
-                let _ = child.wait();
+                sweep(&mut child);
                 Err(ModelError::Deadline)
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
-                let _ = child.wait();
+                sweep(&mut child);
                 Err(ModelError::NoCompletion)
             }
+        };
+        // Joining is what makes "abandoned" false: the sweep closes the pipe, the reader returns,
+        // and this function does not leave a blocked thread and an open fd behind per F11 press.
+        if let Some(handle) = reader.take() {
+            let _ = handle.join();
         }
-    }
-
-    pub fn is_configured(&self) -> bool {
-        self.spec.is_some()
+        verdict
     }
 }
 
@@ -128,6 +157,7 @@ impl LocalModel {
 mod tests {
     use super::*;
     use std::fs;
+    use std::time::Instant;
     use std::path::PathBuf;
 
     /// A REAL model process (L4). States enumerated before the tests, because a runner's
@@ -163,7 +193,7 @@ mod tests {
     }
 
     const FAKE_MODEL: &str = r#"
-import sys, time
+import os, subprocess, sys, time
 BEHAVIOUR = "__BEHAVIOUR__"
 if BEHAVIOUR == "slow":
     time.sleep(30)
@@ -172,9 +202,33 @@ elif BEHAVIOUR == "silent":
     pass
 elif BEHAVIOUR == "whitespace":
     sys.stdout.write("\n\n")
+elif BEHAVIOUR == "spaces":
+    # The whitespace the newline trim CANNOT see. Ordinary for a mid-token FIM prompt.
+    sys.stdout.write("   ")
+elif BEHAVIOUR == "tab":
+    sys.stdout.write("\t\n")
 elif BEHAVIOUR == "deaf":
     # Never reads stdin — the runner must not wedge on the write.
     sys.stdout.write("answered without listening\n")
+elif BEHAVIOUR == "shim":
+    # A wrapper that runs the real model as a CHILD — which is what naming a model whose path
+    # contains a space forces, because TEMPEST_LOCAL_MODEL is whitespace-split.
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "grandchild.pid"), "w") as fh:
+        fh.write(str(child.pid))
+    sys.stdout.write("wrapped\n")
+    sys.stdout.flush()
+    time.sleep(120)
+elif BEHAVIOUR == "never_exits":
+    # Answers, CLOSES its stdout, and then lives on. The close is what matters: it gives the
+    # reader EOF, so the answer really does arrive and the success path really is taken — and
+    # that is the path whose `child.wait()` then had nothing to wait for but a process that
+    # never ends. (A model that merely keeps stdout open is a different, already-handled case:
+    # the read blocks and the deadline fires.)
+    sys.stdout.write("an answer\n")
+    sys.stdout.flush()
+    os.close(1)
+    time.sleep(120)
 else:
     prompt = sys.stdin.read()
     sys.stdout.write("completion for: " + prompt.strip()[-12:] + "\n")
@@ -187,7 +241,6 @@ sys.stdout.flush()
     fn no_configured_model_is_a_state_not_a_failure() {
         // The expected state on a fresh install. It must be distinguishable from a broken one.
         let model = LocalModel::new(None);
-        assert!(!model.is_configured());
         assert_eq!(model.complete("x", QUICK), Err(ModelError::NotConfigured));
     }
 
@@ -195,7 +248,6 @@ sys.stdout.flush()
     fn a_configured_model_answers() {
         let f = Fake::new("ok");
         let model = LocalModel::new(Some(f.spec("ok")));
-        assert!(model.is_configured());
         let out = model.complete("def calculateTotal", QUICK).expect("an answer");
         assert!(out.starts_with("completion for:"), "{out}");
         assert!(out.contains("culateTotal"), "{out}");
@@ -238,6 +290,68 @@ sys.stdout.flush()
         let f = Fake::new("whitespace");
         let model = LocalModel::new(Some(f.spec("whitespace")));
         assert_eq!(model.complete("x", QUICK), Err(ModelError::NoCompletion));
+    }
+
+    #[test]
+    fn whitespace_the_newline_trim_cannot_see_is_still_not_a_completion() {
+        // The old check was `trim_end_matches('\n')`, and the old test drove the ONE whitespace
+        // string that happens to handle. Spaces and tabs came back as completions — an invisible
+        // "accept me" under Tab. Every line was covered; the state was never set up (trap 43).
+        for behaviour in ["spaces", "tab", "whitespace"] {
+            let f = Fake::new(behaviour);
+            let model = LocalModel::new(Some(f.spec(behaviour)));
+            assert_eq!(
+                model.complete("x", QUICK),
+                Err(ModelError::NoCompletion),
+                "{behaviour} is not a completion"
+            );
+        }
+    }
+
+    #[test]
+    fn a_model_that_answers_and_then_keeps_running_is_swept_not_awaited() {
+        // A model that writes its completion, closes stdout, and lives on — a served daemon, or
+        // llama.cpp keeping a session warm. The answer arrives, so the SUCCESS path is taken,
+        // and that path called `child.wait()` with no kill: `complete` then blocked there for
+        // the life of the process, holding a Tauri command thread. The first version of this
+        // test had the fake keep stdout open instead, and the code corrected me — that state is
+        // the already-handled one where the read blocks and the deadline fires.
+        let f = Fake::new("never-exits");
+        let model = LocalModel::new(Some(f.spec("never_exits")));
+        let started = Instant::now();
+        assert_eq!(model.complete("x", QUICK).as_deref(), Ok("an answer"));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "an answer in hand must not wait on a process that never exits"
+        );
+    }
+
+    #[test]
+    fn the_sweep_reaps_a_wrapper_model_grandchild() {
+        // `TEMPEST_LOCAL_MODEL` is whitespace-split, so a model whose path contains a space can
+        // only be named through a wrapper script — which makes "the real model is a grandchild"
+        // the COMMON configuration, not an exotic one. A probe showed `child.kill()` leaving it
+        // alive: the model keeps burning battery producing text nobody will read, which is the
+        // exact outcome the deadline exists to prevent.
+        let f = Fake::new("shim");
+        let model = LocalModel::new(Some(f.spec("shim")));
+        assert_eq!(model.complete("x", Duration::from_millis(400)), Err(ModelError::Deadline));
+        let grandchild: i32 = fs::read_to_string(f.dir.join("grandchild.pid"))
+            .expect("the wrapper records its grandchild")
+            .trim()
+            .parse()
+            .expect("a pid");
+        for _ in 0..50 {
+            if unsafe { libc::kill(grandchild, 0) } != 0 {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_ne!(
+            unsafe { libc::kill(grandchild, 0) },
+            0,
+            "the model's own child must not outlive the deadline that killed its parent"
+        );
     }
 
     #[test]

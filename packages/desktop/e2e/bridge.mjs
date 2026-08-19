@@ -159,6 +159,8 @@ const COMMANDS = {
   start_local_prove: (a) => ["startLocalProve", { body: a.request }],
   cancel_run: (a) => ["cancelRun", { run_id: a.runId }],
   search_divergences: (a) => ["searchDivergences", omitNulls({ q: a.q, limit: a.limit })],
+  divergences_for_symbol: (a) =>
+    ["divergencesForSymbol", omitNulls({ symbol: a.symbol, limit: a.limit })],
   list_log_records: (a) => ["listLogs", omitNulls({ limit: a.limit, level: a.level })],
   get_settings: () => ["getSettings", {}],
   update_settings: (a) => ["updateSettings", { body: a.settings }],

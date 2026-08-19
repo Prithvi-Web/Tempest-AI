@@ -11,18 +11,33 @@
  * would be the product contradicting itself in its own editor (L7, and the whole reason
  * NOT-YET-MEASURED exists in the §5 table rather than a green tick).
  *
+ * ## Two ways this shipped inert, and what stops each from recurring
+ *
+ * The Phase 20 review found that neither non-`unmeasured` level could EVER be reached, so the
+ * badge was honest about absence by accident rather than by measurement:
+ *
+ * 1. **The escalation set named severities the wire does not carry.** It tested for
+ *    `{"HIGH", "CRITICAL"}`; the engine's vocabulary is `LOW | NORMAL | HEADLINE`
+ *    (`tempest.model.Severity`), and HEADLINE is exactly what a head-only crash records — the
+ *    one thing this badge exists to shout about. The compiler could not see it because the
+ *    severity arrived here as a `string`: `divergenceLookup` did `String(hit.severity)`, which
+ *    widens a closed union into a type where any spelling is legal. The fix is not a better
+ *    string — it is the GENERATED `Severity` type, so a set naming a value the wire cannot carry
+ *    stops compiling.
+ * 2. **The lookup asked a question the index cannot answer.** It called `searchDivergences`,
+ *    whose FTS index covers `detail`, `base_summary` and `head_summary` — never `qualname`. See
+ *    `divergenceLookup.ts`; the fix is a real by-symbol endpoint.
+ *
  * Scope, stated: F11 names three inputs — historical divergence rates, low proof rates, and many
  * dependents. Only the FIRST is measurable today. Proof rate per symbol has no command behind it
  * yet, and dependents need the call graph that arrives in Phase 22 (F13). They are absent rather
  * than approximated: a risk score padded with guesses is worse than a narrower one that is true.
  */
+import type { Severity, SymbolDivergence } from "../generated/bindings";
 
-/** One recorded divergence, in the shape the generated `SearchHit` provides. */
-export type DivergenceRecord = {
-  qualname: string;
-  severity: string;
-  divergence_class: string;
-};
+/** One recorded divergence, exactly as the engine reports it. Re-exported so the editor modules
+ * name one type rather than a hand-written mirror of it (§9b). */
+export type DivergenceRecord = SymbolDivergence;
 
 /**
  * Deliberately has no "clean"/"proved" level.
@@ -38,27 +53,56 @@ export type Risk = {
   level: RiskLevel;
   /** How many recorded divergences name this symbol. */
   divergences: number;
-  /** The count that drove the level, so the badge can explain itself rather than assert. */
+  /** The count and the symbol that drove the level, so the badge can explain itself. */
   reason: string;
 };
 
-/** Severities that count as serious. Anything else contributes, but does not escalate alone. */
-const SERIOUS = new Set(["HIGH", "CRITICAL"]);
+/**
+ * Severities serious enough to escalate, as a `Record` over the WHOLE generated union.
+ *
+ * A `Set` of strings would have accepted `"HIGH"` — and did, for the life of 20.3e. A
+ * `Record<Severity, ...>` must name every variant the wire can carry, so adding one to the
+ * Python enum breaks this file until somebody decides what it means. That is the design working
+ * (§9b), applied to a value rather than a shape.
+ */
+const ESCALATES: Record<Severity, boolean> = {
+  LOW: false,
+  NORMAL: false,
+  // "headline (crash or contract break)" — `vocabulary.severityLabel`. The comparator assigns it
+  // to a head-only CRASH and to HANG, which is the most serious thing Tempest can measure.
+  HEADLINE: true,
+};
+
+/** Where the divergences were recorded, named precisely enough that the badge cannot over-claim. */
+function attribution(symbol: string, recorded: readonly DivergenceRecord[]): string {
+  const names = new Set(recorded.map((hit) => `${hit.module}.${hit.qualname}`));
+  // `join("")` on a one-element set IS that element. Written this way rather than as
+  // `[...names][0] ?? symbol` because `noUncheckedIndexedAccess` makes the index `string |
+  // undefined`, and the `??` arm is then a branch that cannot be reached and cannot be tested —
+  // a permanent hole in a 100% gate, defended by a fallback that would never run.
+  if (names.size === 1) return [...names].join("");
+  // A bare identifier can name more than one recorded symbol (two classes with a `post`). Saying
+  // "recorded here" in that case would attribute one symbol's history to another.
+  return `${names.size} symbols named ${symbol}`;
+}
+
+function plural(n: number, word: string): string {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
 
 /**
- * Risk for `qualname`, from the divergences Tempest has actually recorded.
+ * Risk for `symbol`, from the divergences Tempest has actually recorded against it.
  *
- * `searched` is the full result set for the query; entries naming other symbols are ignored
- * rather than counted, because a substring match on a search index is not evidence about this
- * symbol.
+ * `recorded` is what `divergencesForSymbol` returned — already selected BY SYMBOL in the engine,
+ * so there is no client-side filtering left to get wrong. `null` means the lookup could not be
+ * made at all, which is a different fact from an empty result and is reported as one.
  */
-export function riskFor(qualname: string, searched: DivergenceRecord[] | null): Risk {
+export function riskFor(symbol: string, recorded: DivergenceRecord[] | null): Risk {
   // A failed or absent lookup is NOT a clean bill of health.
-  if (searched === null) {
+  if (recorded === null) {
     return { level: "unmeasured", divergences: 0, reason: "no measurement available" };
   }
-  const mine = searched.filter((hit) => hit.qualname === qualname);
-  if (mine.length === 0) {
+  if (recorded.length === 0) {
     return {
       level: "unmeasured",
       divergences: 0,
@@ -67,18 +111,19 @@ export function riskFor(qualname: string, searched: DivergenceRecord[] | null): 
       reason: "no recorded runs name this symbol",
     };
   }
-  const serious = mine.filter((hit) => SERIOUS.has(hit.severity.toUpperCase())).length;
+  const where = attribution(symbol, recorded);
+  const serious = recorded.filter((hit) => ESCALATES[hit.severity]).length;
   if (serious > 0) {
     return {
       level: "high",
-      divergences: mine.length,
-      reason: `${serious} serious divergence${serious === 1 ? "" : "s"} recorded here`,
+      divergences: recorded.length,
+      reason: `${plural(serious, "headline divergence")} recorded in ${where}`,
     };
   }
   return {
     level: "elevated",
-    divergences: mine.length,
-    reason: `${mine.length} divergence${mine.length === 1 ? "" : "s"} recorded here`,
+    divergences: recorded.length,
+    reason: `${plural(recorded.length, "divergence")} recorded in ${where}`,
   };
 }
 
@@ -97,3 +142,6 @@ export function riskLabel(risk: Risk): string {
   // exhaustiveness without a branch no test can reach. (Verified by adding a fourth level and
   // watching tsc reject it, rather than assuming.)
 }
+
+/** Exposed so a test can prove the escalation table covers the whole wire vocabulary. */
+export const ESCALATION_TABLE: Readonly<Record<Severity, boolean>> = ESCALATES;
