@@ -1,4 +1,5 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19, Phase 19 complete)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19; Phase 19 steps
+# all landed, phase NOT settled until CI is green — see §1)
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
 older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
@@ -9,7 +10,7 @@ Phase 19 step ledger),
 foundations adopted from LibreChat **and the rejection table — read the rejections, they are
 load-bearing**), `docs/CRAFT.md` + `docs/POLISH.md` (the craft bar, 150 items),
 `THIRD_PARTY_LICENSES.md`, `docs/HANDOFF-PHASES.md` §2 (the DONE ledger — do not redo anything
-there) and its traps, `docs/DECISIONS.md` (ADR-0001..**0043** — 0034–0043 are all v2).
+there) and its traps, `docs/DECISIONS.md` (ADR-0001..**0044** — 0034–0044 are all v2).
 
 **The owner is a non-coder.** Plain English, copy-paste commands, verify by running the real app.
 
@@ -30,10 +31,13 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 
 ---
 
-## 1. Live state (2026-08-19 — **Phase 19 COMPLETE and pushed**; Phase 20 next)
+## 1. Live state (2026-08-19 — **Phase 19's seven steps have all landed; the phase is NOT
+settled until CI is green on the tip**; Phase 20 next)
 
-- **Everything is pushed.** `origin/main == HEAD == 5717c41`. Fifteen commits landed this
-  session (`72dd048`…`5717c41`).
+- **NOT everything is pushed.** Fifteen commits landed in the Phase 19 session
+  (`72dd048`…`5717c41`), then three docs commits (`a44f239`, `037ec90`, `b68f212`), and then
+  the trap-44 fix — which is **unpushed at the time of writing**. Check reality rather than
+  this sentence: `git rev-parse --short HEAD origin/main` and `git log origin/main..HEAD`.
 - **v1 remains green.** The audit at the v2 kickoff: `make verify` exit 0, 1038 passed /
   100.00%; corpus 30/30 ×20; parity byte-identical; orphan 2.1 s; `bench_guard: PASS`. The suite
   has since grown to **1162+ tests, still 100.00%** on both denominators.
@@ -47,17 +51,25 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 - **v2 planning docs are complete**: `PLAN-V2.md` (phases 19–32), `FEATURES-V2.md` (F1–F21),
   `PLATFORM-V2.md` (P1–P14 **and the rejection table — read the rejections**), `CRAFT.md`,
   `POLISH.md` (150 items), `THREAT-MODEL-V2.md`, `METRICS.md` (six numbers),
-  `CLAUDE.md` (L1–**L26** + the four-boundary contract), ADR-0034..**0043**.
+  `CLAUDE.md` (L1–**L26** + the four-boundary contract), ADR-0034..**0044**.
 - **The final local `make verify` on `5717c41` came back GREEN after the defect fixes:**
   `MAKE_EXIT=0` — **1243 passed, 100.00% coverage**, ruff clean, `mypy --strict` clean on 130
   source files (both platform views), escape suite fully contained, redaction 24/24,
   `license_check` zero missing notices, `provider_matrix` 16 providers with every request path
   exercised, vitest 20+27, cargo 25+5, E2E 29 passed, four-boundary contract drift-free.
-- **Still unconfirmed at hand-off: CI on `5717c41`** (it was `in_progress`). Confirm it first —
-  Linux is where the coverage denominator and platform-specific behaviour actually get tested
-  (traps 15/20/21/22).
+- **CI on `5717c41` came back RED, and the local green did not travel** (ADR-0044, trap 44).
+  One test failed on the fresh checkout — `test_perf_suite.py::TestCli::
+  test_the_real_repo_bench_file_is_evaluated`, `AssertionError: the repo ships a committed
+  bench.json` — while the *same run* reported 100.00% coverage and 1235 other tests passing.
+  The repo does **not** ship `bench/bench.json`: it is gitignored machine-local measurement
+  output, and the test passed on the author's Mac only because a generated copy sat in the tree.
+  **Fixed** by pointing the test at `bench/baseline-darwin.json` (which the repo does ship) and
+  asserting the path is *in the committed tree* (`git cat-file -e HEAD:<path>` — NOT
+  `git ls-files`, which answers about the index). Exactly one instance of this defect; the
+  gitignored artifacts other tests read are all produced by an explicit CI step.
 
-## 2. WHERE WE ARE: **Phase 19 is COMPLETE (19.1–19.7 + the review fixes). Phase 20 is next.**
+## 2. WHERE WE ARE: **19.1–19.7 + the review fixes have all landed. The phase closes when a
+fresh-checkout CI run is green — not before (ADR-0044). Phase 20 is next.**
 
 **The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
 retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
@@ -90,7 +102,8 @@ streaming cancellation (the peer observes a broken pipe, so the connection genui
 `provider_matrix --min-providers 12` is in `make verify`, runs **offline**, and exercises all
 16 request paths against real loopback peers.
 
-**All seven steps landed and are PUSHED** (`origin/main == 5717c41`):
+**All seven steps landed** (they were pushed at `5717c41`; the trap-44 fix on top is newer —
+confirm with `git log origin/main..HEAD`):
 
 | Step | What | Commit |
 |---|---|---|
@@ -105,17 +118,18 @@ streaming cancellation (the peer observes a broken pipe, so the connection genui
 
 ### FIRST TASK for the next session — verify, then choose
 
-1. **Confirm CI is green on `5717c41`.** The local `make verify` already came back
-   `MAKE_EXIT=0` (1243 passed / 100.00%) *with the five defect fixes in*, so the local side is
-   settled; Linux CI was still running. If you want a local re-confirmation anyway:
+1. **Confirm CI is green on the tip.** CI was **RED** on `5717c41` and on both docs commits it
+   ran (`037ec90`, `b68f212`; the third, `a44f239`, never got its own run) — one test, fixed in the commit that added ADR-0044 and trap 44 (§12). Phase 19
+   is not settled until a fresh-checkout run agrees with the local one:
    ```bash
-   TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify   # expect MAKE_EXIT=0
+   TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/verify.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/verify.log
+   grep -E "^MAKE_EXIT=" /tmp/verify.log
    make verify-linux-denominator
    ```
-   **Read the logged exit line, never the task notification (trap 40).**
-2. **Confirm CI is green on `5717c41`** — that run contains the five defect fixes and had not
-   finished at hand-off.
-3. **Settle the one deliberately-failing gate** (below), then start Phase 20.
+   **Read the logged exit line, never the task notification (trap 40).** Then read the CI
+   conclusion itself — the check-run annotations carry the failing line without admin rights:
+   `curl -s .../check-runs/<id>/annotations`.
+2. **Settle the one deliberately-failing gate** (below), then start Phase 20.
 
 ### The one thing deliberately left RED — do not "fix" it by re-baselining
 
@@ -203,6 +217,16 @@ generation + gates, not discipline. When you touch ANY shape:
 1. **Settle the cold-launch perf signal** — `make bench` on an idle machine, then `make
    perf-gate`. Never re-baseline to make it green.
 2. **Phase 20** — the editor surface (CodeMirror 6 + Rust LSP multiplexer + F11). Details in §2.
+2b. **Queued by the trap-44 review (ADR-0044) — none of these are done:**
+   - **A repo-wide gate for the trap-44 class.** Today only `test_perf_suite.py` proves the file
+     it reads is committed; nothing stops the next test from using bare `Path.is_file()` on a repo
+     path. A mechanical check (every non-`tmp_path` repo path a test reads must be in HEAD, or be
+     produced by a named CI step) would gate the class instead of the instance.
+   - **`test_prove_scope.py:41-52`** gates *which assertion runs* on gitignored
+     `node_modules/ts-morph`: `DIVERGENT` when present, `UNPROVEN` when not. It never fails, it
+     silently downgrades — the strong assertion can evaporate with nothing turning red.
+   - **`tempest.dev.bench` emits only aggregates.** Emitting raw `samples` turns three p95 budgets
+     from NOT-YET-MEASURED into enforced (also listed in §2).
 3. **19.5b** — one model path: migrate `harness/llm.py` + `report/narrative.py` onto
    `tempest/inference/` and drop the `anthropic` SDK.
 4. **Answer QV1 before Phase 21** — the standing rule says engine work outranks feature work
@@ -256,6 +280,7 @@ root) — additive stages need one end-to-end bug only they can find ·
 (§8) · 41 a scratch-package rehearsal proves LOGIC, never a NAME collision (§9) · 42 a REVIEW
 agent that mutates the shared tree races your commits — reviewers are read-only (§10) ·
 43 100% coverage proves which LINES ran, not which STATES were considered (§11) ·
+44 a test that reads a repo file must assert the file is COMMITTED (in HEAD, not the index), not merely present — local green is measured in a tree full of untracked build output, CI in a fresh checkout (§12) ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -266,7 +291,7 @@ release job itself.
 cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
-git log origin/main..HEAD --oneline          # expect empty (all pushed at 5717c41)
+git log origin/main..HEAD --oneline          # what is NOT yet pushed (do not assume empty)
 
 # Run detached with a GREPPABLE exit marker — a task notification reports the WRAPPER's
 # status, not make's, so never trust it (trap 40).
@@ -366,3 +391,51 @@ deliberately. For git-backed code the standing list is: clean tree · uncommitte
 **untracked file** · gitignored file · file deleted by the user · **after a snapshot/restart** ·
 content with leading/trailing whitespace · path with spaces · empty repo with no commits.
 A green 100% gate is precisely the thing that makes you stop looking, so look before you see it.
+
+---
+
+## 12. Trap 44 — a test that reads a repo file must assert the file is COMMITTED
+
+Phase 19 was handed off as complete on a green local `make verify` while CI on the same commit was
+still running. CI came back **failure**. The single failing test asserted *"the repo ships a
+committed bench.json"* — a false statement. `bench/bench.json` is gitignored: it is what
+`make bench` writes on **your** machine. The repo ships `bench/baseline-darwin.json`.
+
+The test was green locally for a reason that does not travel: a generated file happened to be in
+the working tree. Coverage was **100.00% in the same run that failed**, because the defect was not
+in a line of code — it was in a claim about the *repository*, which no coverage number ranges over.
+
+**How to apply.**
+1. Any test that reaches outside `tmp_path` into the repo asserts something about the repo.
+   Prove it with `git cat-file -e HEAD:<repo-relative-path>` at the point of use —
+   `Path.is_file()` answers a question about your laptop, not about the project.
+   `test_perf_suite.py::_is_committed` is the ready-made helper.
+   **Not `git ls-files`** — that reports the INDEX, so a `git add`ed-but-uncommitted file answers
+   "tracked" while a fresh checkout still lacks it. That is this same trap one step later, and the
+   first draft of the fix had it.
+2. The real question is **not** "is it gitignored" but **"does a CI step produce it on a fresh
+   checkout?"** `node_modules/` is gitignored too, and `pnpm install --frozen-lockfile` produces
+   it; nothing produces `bench.json`.
+3. Assert what the gate actually *did*, not that it ran. The first fix asserted
+   `"of 13 §5 budgets" in out`, which reads identically when the gate evaluates **nothing** —
+   `0 of 13` contains that substring. Assert the count.
+4. To reproduce a "CI-only" failure of this class locally, move the untracked artifact aside and
+   re-run — the fresh-checkout condition is usually one `mv` away, not a Docker image.
+5. **A local `make verify` is evidence about this machine; "Phase N is complete" is a claim about
+   the repository.** Do not write the second on the strength of the first. Wait for CI.
+
+**How the fix was verified.** The old assertion was watched failing with `bench.json` moved aside
+(byte-identical to CI's message); the new one was watched passing in that same state; the guard was
+proved load-bearing by showing `bench.json` reports `exists_on_disk=True, committed=False`; and the
+HEAD-based form was checked against a depth-1 shallow clone in detached HEAD, which is what
+`actions/checkout` produces.
+
+**Known remaining instances of the PATTERN (not defects today, but the shape to watch).**
+- `test_prove_scope.py:41-52` gates *which assertion runs* on gitignored
+  `node_modules/ts-morph` existing: `DIVERGENT` when present, `UNPROVEN` when not. It never fails,
+  it silently downgrades. CI installs the dependency so the strong arm does run there.
+- `test_license_check.py:138` and the corpus fixture loaders use bare `Path.is_file()` on repo
+  paths. Those files are committed, so the tests are right today.
+- **No repo-wide mechanical gate for this class exists.** The fix pins the instance and its own
+  file; it does not stop a new test elsewhere from using bare `is_file()`. That gate is queued in
+  §4, not built — do not read "the class is pinned" anywhere; it is not.

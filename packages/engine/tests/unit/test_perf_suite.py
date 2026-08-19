@@ -6,6 +6,7 @@ PASS while enforcing 3 of 13 budgets is worse than no gate, because it manufactu
 """
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,28 @@ def _metrics(**kw: float) -> dict[str, float]:
     base = {"cold_launch_s": 0.34, "idle_rss_mb": 115.2, "idle_cpu_pct": 0.0}
     base.update(kw)
     return base
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+
+def _is_committed(path: Path) -> bool:
+    """True when `path` is in the committed tree — i.e. a fresh checkout would contain it.
+
+    Deliberately **not** `git ls-files`, which reports the INDEX: a file that has been `git add`ed
+    but never committed answers "tracked" there, while a fresh checkout would still lack it —
+    trap 44 again, one step later. `HEAD` is the question actually being asked. The `rev:path`
+    form also takes a literal path rather than a pathspec, so glob metacharacters in a filename
+    cannot be reinterpreted. Checked against a depth-1 shallow clone in detached HEAD, which is
+    what `actions/checkout` produces.
+    """
+    rel = path.relative_to(_REPO_ROOT).as_posix()
+    result = subprocess.run(
+        ["git", "-C", str(_REPO_ROOT), "cat-file", "-e", f"HEAD:{rel}"],
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 class TestTheTableIsTheMasterPromptsTable:
@@ -210,20 +233,72 @@ class TestCli:
         )
         assert ps.main(["--enforce-budgets", "--bench", str(bench)]) == 0
 
-    def test_the_real_repo_bench_file_is_evaluated(
+    def test_the_committed_baseline_artifact_is_evaluated(
         self, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """The gate must parse and evaluate the committed bench.json, not only synthetic input.
+        """The gate must parse and evaluate a REAL committed artifact, not only synthetic input.
 
-        It deliberately does **not** assert the exit code. Whether this machine currently meets
-        the budgets is a fact about the machine, measured by `make bench`; asserting it here
-        would make the correctness suite fail because a laptop was busy, and `make verify` has to
-        stay deterministic. The gate's pass/fail behaviour is pinned by the synthetic cases
-        above, where the inputs are known exactly.
+        The file is `bench/baseline-darwin.json` — the committed *baseline*, deliberately not
+        called "the committed bench file". In this repo `bench.json` and `baseline-<platform>.json`
+        are two different roles (`--bench` defaults to the former, the baseline is resolved
+        separately from the latter), and blurring them is what produced trap 44 in the first place.
+
+        It names `baseline-darwin.json` and not `bench.json` because `bench.json` is **this
+        machine's** latest measurement and is gitignored. The first version of this test asserted
+        that "the repo ships a committed bench.json" — a false statement that passed anyway,
+        because a locally generated copy happened to be sitting on disk. On CI's fresh checkout
+        there was no such file and the suite went red (trap 44). Presence on disk is therefore
+        not the property this test needs; being IN the repo is, so that is asserted directly and
+        the test can no longer be green for a reason that does not travel.
+
+        It deliberately does **not** assert the exit code. The gate's pass/fail logic is pinned
+        exactly by the synthetic cases above, where the inputs are known; what this case adds is
+        that the gate reaches a verdict on a real shipped artifact instead of crashing on it, and
+        that it actually reads something out of it.
+
+        One honest limit: `_is_committed` asks HEAD, while the evaluation below reads the working
+        copy from disk. In a clean tree those are the same bytes; if someone edits the baseline
+        without committing, the guard still passes and the gate reads the edit. Determinism here
+        rests on a clean tree, which `verify-contract` assumes too.
+
+        Note that `perf_suite` derives the baseline from the payload's own `platform` field, so
+        feeding it `baseline-darwin.json` makes the file its own baseline and the regression arm
+        is identically 0%. That arm is covered by the synthetic cases; this one is about parsing
+        and evaluating real committed data, and it stays deterministic on Linux CI precisely
+        because the platform comes from the payload rather than from the running machine.
         """
-        root = Path(__file__).resolve().parents[4]
-        bench = root / "bench" / "bench.json"
-        assert bench.is_file(), "the repo ships a committed bench.json"
+        bench = _REPO_ROOT / "bench" / "baseline-darwin.json"
+        assert bench.is_file(), f"{bench} is missing"
+        assert _is_committed(bench), (
+            f"{bench} is not in the committed tree — a test that reads a repo file must name one "
+            "the repo actually ships, or it passes on the author's machine and fails on a fresh "
+            "checkout"
+        )
         exit_code = ps.main(["--enforce-budgets", "--bench", str(bench)])
         assert exit_code in (0, 1), "the gate must reach a verdict, not crash"
-        assert "of 13 §5 budgets" in capsys.readouterr().out
+        out = capsys.readouterr().out
+        # The exact count, not just the phrase: `"of 13 §5 budgets" in out` reads the SAME when
+        # the gate evaluates nothing at all — `ps.evaluate({}, None, None)` renders "0 of 13 §5
+        # budgets" and returns 0. The loose form passed while the gate read nothing, which is the
+        # failure this case exists to catch. `measured` counts MET and OVER alike, so 3 is pinned
+        # to the metric KEY SET, not to any measured value. Phase 20 turns three editor budgets on
+        # and this becomes 6 — deliberately, visibly, here.
+        assert "3 of 13 §5 budgets are measurable today" in out
+        assert "every measurable budget met" in out
+
+    def test_the_committed_check_tells_a_shipped_file_from_a_local_measurement(self) -> None:
+        """The guard in the test above is only worth having if it can tell the two apart.
+
+        `bench/baseline-darwin.json` is committed; `bench/bench.json` is what `make bench` writes
+        on **this** machine, is gitignored, and a fresh checkout has none. Trap 44 was one being
+        mistaken for the other. Without this case the guard's discriminating power is incidental,
+        and repointing the test above at the gitignored file would go quietly green again on the
+        author's machine. Neither assertion depends on what happens to be on disk, which is the
+        whole point.
+
+        Scope, stated honestly: this pins the predicate and *this file*. It is **not** a repo-wide
+        gate — `_is_committed` is module-private and nothing stops a new test elsewhere from using
+        bare `Path.is_file()` on a repo path. That gate is queued, not built.
+        """
+        assert _is_committed(_REPO_ROOT / "bench" / "baseline-darwin.json")
+        assert not _is_committed(_REPO_ROOT / "bench" / "bench.json")

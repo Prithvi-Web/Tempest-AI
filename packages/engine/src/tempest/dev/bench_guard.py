@@ -53,7 +53,8 @@ def evaluate(
     if baseline is None:
         report.notes.append(
             "PENDING(baseline): no committed baseline for this platform — absolute targets "
-            "enforced; commit bench/bench.json as the baseline to arm the regression bar"
+            "enforced; copy bench/bench.json to bench/baseline-<platform>.json and commit THAT "
+            "to arm the regression bar (bench.json itself is gitignored per-machine output)"
         )
         return report
     for metric in ABSOLUTE_TARGETS:
