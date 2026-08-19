@@ -104,7 +104,7 @@ export function EditorView({
       {opened.isSuccess && (
         <EditorChunkBoundary>
           <Suspense fallback={<p className="dim">loading editor…</p>}>
-            <CodeMirrorHost path={opened.data.path} text={opened.data.text} />
+            <CodeMirrorHost repo={repo} path={opened.data.path} text={opened.data.text} />
           </Suspense>
         </EditorChunkBoundary>
       )}

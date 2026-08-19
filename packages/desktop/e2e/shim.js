@@ -22,6 +22,8 @@
   let nextEventId = 1;
   let shimAiKey = null; // the in-memory keychain stand-in (see the ai_key_* handler below)
   const revealed = []; // every reveal_in_data_dir argument, for the Settings spec to assert
+  const hovered = []; // every lsp_hover the webview issues (Phase 20.5 reachability)
+  let scriptedHover = null; // a spec may script ONE answer; null = behave as a fresh install
 
   window.__TAURI_INTERNALS__ = {
     transformCallback(callback) {
@@ -94,10 +96,41 @@
         return null;
       }
       // Host-side (commands.rs lsp_hover): no sidecar behind it, and no language server is
-      // configured in this environment. `null` is exactly what the real command returns when a
-      // server has nothing to say, so the UI exercises its no-hover path rather than an error.
+      // configured in this environment.
+      //
+      // THE REAL COMMAND NEVER RETURNS null HERE, and the previous comment claiming it did was
+      // the shim standing in for behaviour the app does not have. With no TEMPEST_LSP_* set,
+      // `configured_servers()` is empty and the multiplexer answers
+      // `Err(Unsupported { language })` — so a UI branch written against `ok(null)` would be
+      // exercised by every E2E spec and taken by no user on a fresh install. `unsupported` is
+      // also the ONE error `hoverSource` renders as silence, so the no-hover path is still what
+      // gets exercised — now for the reason the shipped app has, not a fictional one.
+      //
+      // Thrown as a plain object, never an Error: that is what makes the generated `typedError`
+      // wrapper produce `{status: "error", error}` rather than a rejected promise.
       if (cmd === "lsp_hover") {
-        return null;
+        // Every call is recorded, so a spec can prove the webview REACHES this command at all —
+        // which is the whole of Phase 20.5, and was false for the life of 20.2.
+        hovered.push({
+          repoPath: args.repoPath,
+          path: args.path,
+          line: args.line,
+          character: args.character,
+          textLength: String(args.text ?? "").length,
+        });
+        // A spec may script one answer, to exercise the rendered paths that a harness with no
+        // Rust host and no installed language server cannot otherwise reach.
+        if (scriptedHover !== null) {
+          if (scriptedHover.error !== undefined) throw scriptedHover.error;
+          return scriptedHover.ok ?? null;
+        }
+        const lower = String(args.path ?? "").toLowerCase();
+        const language = lower.endsWith(".py") || lower.endsWith(".pyi")
+          ? "python"
+          : /\.(tsx?|js)$/.test(lower)
+            ? "typescript"
+            : "unknown";
+        throw { kind: "unsupported", language };
       }
       // Host-side (commands.rs read_project_file): no sidecar behind it. The bridge does a real
       // read; the guard's rules live in Rust and are pinned there.
@@ -134,6 +167,12 @@
 
   window.__E2E__ = {
     revealed,
+    /** Every `lsp_hover` the webview has issued (Phase 20.5 reachability). */
+    hovered,
+    /** Script the next hover answer: {ok:{contents}} | {error:LspError} | null to reset. */
+    scriptHover(reply) {
+      scriptedHover = reply;
+    },
     emit(name, payload) {
       const subscribers = listeners.get(name);
       if (!subscribers) return 0;

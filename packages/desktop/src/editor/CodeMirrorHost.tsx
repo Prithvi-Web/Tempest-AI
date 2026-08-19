@@ -15,6 +15,8 @@ import { basicSetup } from "codemirror";
 import { useEffect, useRef } from "react";
 
 import { divergenceLookup } from "./divergenceLookup";
+import { lspHoverLookup } from "./hoverSource";
+import { lspHoverTooltip } from "./hoverTooltip";
 import { inlineCompletion } from "./inlineCompletion";
 import { modelBackedSource } from "./modelSource";
 
@@ -51,7 +53,15 @@ function languageFor(path: string) {
   return [];
 }
 
-export default function CodeMirrorHost({ path, text }: { path: string; text: string }) {
+export default function CodeMirrorHost({
+  repo,
+  path,
+  text,
+}: {
+  repo: string;
+  path: string;
+  text: string;
+}) {
   const host = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -75,6 +85,10 @@ export default function CodeMirrorHost({ path, text }: { path: string; text: str
         // ...and F11's twist: the badge reports what Tempest has RECORDED about the symbol the
         // completion names. Measured runs, not a heuristic and not a model's opinion.
         inlineCompletion(modelBackedSource(), divergenceLookup()),
+        // Phase 20.5: the way IN to the LSP multiplexer. Until this line, `lsp_hover` was a
+        // typed, generated, eighteen-times-tested command that nothing could call — the same
+        // "no way in" defect the 20.1 review found in the editor surface itself, one layer up.
+        lspHoverTooltip(lspHoverLookup(repo, path)),
       ],
     });
     const view = new EditorView({ state, parent: host.current });
@@ -84,7 +98,7 @@ export default function CodeMirrorHost({ path, text }: { path: string; text: str
     // away the cursor, the selection and the undo history for a document that had not changed.
     // A new FILE is a new document; new bytes for the same file are not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path]);
+  }, [repo, path]);
 
   return (
     <div

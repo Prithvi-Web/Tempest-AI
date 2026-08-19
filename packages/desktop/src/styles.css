@@ -897,6 +897,33 @@ main li,
   pointer-events: none;
 }
 
+/* The LSP hover tooltip (Phase 20.5). CodeMirror positions it; the app dresses it, because a
+ * popover in CM6's own default styling is a white card in a dark editor. Two variants, and the
+ * difference between them is the product's whole point: `info` is what a language server said,
+ * `problem` is a fact about a server that IS configured — never rendered as documentation. */
+.editor-host .cm-tooltip {
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.editor-host .cm-tempest-hover {
+  max-width: 44rem;
+  padding: 8px 10px;
+  font: var(--text-body);
+  /* `pre-wrap`: a signature is code, and collapsing its whitespace would misreport it. */
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+.editor-host .cm-tempest-hover-problem {
+  /* The unproven palette, not the divergent one: a language server that stopped is a gap in
+     what Tempest can tell you, not evidence of a defect in your code. */
+  color: var(--unproven);
+  font: var(--text-body);
+}
+
 /* The behavioural risk badge (Phase 20.3e). It uses the verdict vocabulary's colours because it
  * IS a verdict — measured, not guessed — and `unmeasured` is deliberately neutral: absence of
  * evidence must not look like a pass. */

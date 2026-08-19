@@ -5,6 +5,16 @@ interface Window {
     emit(name: string, payload: unknown): number;
     /** Every `reveal_in_data_dir` argument the UI has sent (null = the data folder itself). */
     revealed: (string | null)[];
+    /** Every `lsp_hover` the webview has issued — Phase 20.5's reachability evidence. */
+    hovered: {
+      repoPath: string;
+      path: string;
+      line: number;
+      character: number;
+      textLength: number;
+    }[];
+    /** Script the next hover answer, or null to behave as a fresh install does. */
+    scriptHover(reply: { ok?: { contents: string } | null; error?: unknown } | null): void;
   };
   __E2E_BRIDGE_URL__?: string;
   /** Installed by src/devValidate.ts in dev builds (Boundary B deep validation). */

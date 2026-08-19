@@ -7,6 +7,9 @@
  * completionPolicy.ts joins them in Phase 20.3: deciding whether a completion is still VALID is
  * a correctness question with no engine in it, and the race it exists to survive (an answer
  * arriving after the document moved) is exactly what an E2E suite is worst at pinning.
+ * hoverSource.ts joins them in Phase 20.5 for the same reason: WHICH language-server outcomes are
+ * ordinary and which the user must be told about is a decision, and an E2E suite can only reach
+ * the one outcome its harness happens to produce.
  *
  * hooks.ts, App.tsx, and the views are deliberately excluded from THIS gate because their
  * behavior is pinned end-to-end by the Playwright suite against the real engine (26 specs,
@@ -31,6 +34,7 @@ export default defineConfig({
         "src/editor/modelSource.ts",
         "src/editor/risk.ts",
         "src/editor/divergenceLookup.ts",
+        "src/editor/hoverSource.ts",
       ],
       thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
     },
