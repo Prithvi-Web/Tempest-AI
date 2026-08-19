@@ -43,6 +43,13 @@ test("a real file opens in a real CodeMirror instance", async ({ page }) => {
   await expect(host).toContainText("def greet(name):");
   await expect(host).toContainText("hello {name}");
   await expect(page.getByTestId("editor-path")).toHaveText(file);
+  // The editor must have a height and a visible frame: it shipped once with no CSS rule at all,
+  // which the screenshot pass would have caught had it been looking at this view.
+  const box = await host.boundingBox();
+  expect(box, "the editor host has a layout box").not.toBeNull();
+  expect(box!.height, "the editor has a real height, not a collapsed container").toBeGreaterThan(
+    200,
+  );
 });
 
 test("the editor is typable and renders what was typed", async ({ page }) => {
@@ -62,7 +69,11 @@ test("a file that is not there is refused as a sentence, not a crash", async ({ 
 
   const refusal = page.getByTestId("editor-refusal");
   await expect(refusal).toBeVisible({ timeout: 15_000 });
-  await expect(refusal).toHaveText("no such file in the project");
+  // The reason AND what to do about it: a refusal that only says "no" makes the user guess.
+  await expect(refusal).toContainText("no such file in the project");
+  await expect(refusal).toContainText("Check the path");
+  // Announced, not merely coloured — a screen reader must hear the refusal.
+  await expect(refusal).toHaveAttribute("role", "alert");
   // A refusal is a product surface: no editor is mounted behind it.
   await expect(page.getByTestId("editor-host")).toHaveCount(0);
 });

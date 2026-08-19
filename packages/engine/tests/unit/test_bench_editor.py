@@ -11,11 +11,18 @@ both present.
 """
 
 import json
+import subprocess
 from pathlib import Path
 
 from tempest.dev.bench import _editor_measurements
 
 EMPTY: tuple[dict[str, float], dict[str, list[float]], None] = ({}, {}, None)
+
+
+def _head() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
 
 
 def _write(tmp_path: Path, doc: object) -> Path:
@@ -81,8 +88,11 @@ def test_one_metric_present_does_not_invent_the_other(tmp_path: Path) -> None:
 
 
 def test_both_metrics_ride_through_with_provenance(tmp_path: Path) -> None:
+    # The commit must be THIS one: a measurement recorded against any other is stale and is
+    # discarded (see the staleness tests below). Using a placeholder here would have made this
+    # test assert the merge of something the merge now refuses.
     doc = {
-        "commit": "deadbeef",
+        "commit": _head(),
         "measured_at": "2026-08-19T00:00:00Z",
         "samples": {
             "open_file_ms": [30.0, 31.0, 32.0, 33.0, 34.0],
@@ -93,7 +103,35 @@ def test_both_metrics_ride_through_with_provenance(tmp_path: Path) -> None:
     assert metrics == {"open_file_ms": 32.0, "keystroke_ms": 6.0}
     assert set(samples) == {"open_file_ms", "keystroke_ms"}
     assert provenance == {
-        "commit": "deadbeef",
+        "commit": _head(),
         "measured_at": "2026-08-19T00:00:00Z",
         "counts": {"open_file_ms": 5, "keystroke_ms": 5},
     }
+
+
+def test_a_measurement_from_another_commit_is_discarded_not_merged(tmp_path: Path) -> None:
+    """Recording provenance is not the same as acting on it.
+
+    The first version wrote the commit into bench.json and claimed a stale file "cannot pass as
+    this run's work" — while nothing read it back. A measurement of code that no longer exists
+    must leave the budgets NOT-YET-MEASURED, not arm them.
+    """
+    doc = {
+        "commit": "0000000000000000000000000000000000000000",
+        "samples": {"open_file_ms": [10.0, 11.0, 12.0, 13.0, 14.0]},
+    }
+    assert _editor_measurements(_write(tmp_path, doc)) == EMPTY
+
+
+def test_a_measurement_from_this_commit_is_merged(tmp_path: Path) -> None:
+    doc = {"commit": _head(), "samples": {"open_file_ms": [10.0, 11.0, 12.0, 13.0, 14.0]}}
+    metrics, _, provenance = _editor_measurements(_write(tmp_path, doc))
+    assert metrics == {"open_file_ms": 12.0}
+    assert provenance is not None and provenance["commit"] == _head()
+
+
+def test_a_measurement_with_no_commit_recorded_is_still_used(tmp_path: Path) -> None:
+    """Absent provenance is not evidence of staleness — only a MISMATCH is."""
+    doc = {"samples": {"open_file_ms": [10.0, 11.0, 12.0, 13.0, 14.0]}}
+    metrics, _, _ = _editor_measurements(_write(tmp_path, doc))
+    assert metrics == {"open_file_ms": 12.0}

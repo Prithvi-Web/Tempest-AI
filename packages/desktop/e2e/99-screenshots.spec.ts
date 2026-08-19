@@ -56,6 +56,13 @@ test("screenshot every view in light and dark", async ({ page, bridge }) => {
     ["watch", "/?view=watch"],
     ["logs", "/?view=logs"],
     ["settings", "/?view=settings"],
+    // The editor over REAL code from the same pyfix fixture the run above proved. Added because
+    // the view shipped unstyled and this pass — the one place a human sees every surface in both
+    // schemes — was not looking at it.
+    [
+      "editor",
+      `/?view=editor&repo=${encodeURIComponent(fixture.repo)}&file=${encodeURIComponent("b01.py")}`,
+    ],
   ];
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });

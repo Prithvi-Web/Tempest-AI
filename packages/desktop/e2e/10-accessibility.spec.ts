@@ -58,7 +58,17 @@ test("prefers-reduced-motion kills the view transition", async ({ page }) => {
 
 test("no view forces horizontal scroll at 200% zoom", async ({ page }) => {
   await page.setViewportSize({ width: 590, height: 400 });
-  for (const url of ["/", "/?view=prove", "/?view=watch", "/?view=logs", "/?view=settings"]) {
+  for (const url of [
+    "/",
+    "/?view=prove",
+    "/?view=watch",
+    "/?view=logs",
+    "/?view=settings",
+    // The editor route, with a repo that does not exist: the REFUSAL surface is a view like any
+    // other and must not overflow either. The view shipped outside this loop entirely, which is
+    // how it also shipped with no stylesheet.
+    "/?view=editor&repo=%2Fnope&file=main.py",
+  ]) {
     await page.goto(url);
     await expect(page.locator("main")).toBeVisible();
     const overflow = await page.evaluate(() => {

@@ -35,6 +35,12 @@ pub enum PathRefusal {
     Unreadable,
     /// A directory, device, or socket. Only regular files are readable here.
     NotAFile,
+    /// More than one directory entry points at these bytes. A hard link IS the file — there is
+    /// no link target to inspect and `canonicalize` returns the innocent name you asked with —
+    /// so a name-based denylist cannot see it at all. A review probe read `.env` through a hard
+    /// link named `notes.txt` and every check above passed. A file with more than one name
+    /// therefore cannot be judged by the name it was requested under, and is refused.
+    HardLinked,
     /// Not valid UTF-8 — an editor buffer is text, and showing a binary as replacement
     /// characters would invite someone to "save" it back and destroy the file.
     NotText,
@@ -43,12 +49,14 @@ pub enum PathRefusal {
     NotAProject,
     /// Larger than the caller's cap. Unbounded reads are a budget violation (L15.4).
     TooLarge {
-        // u64 in Rust because a file's size is a u64; `f64` on the wire because specta forbids
-        // BigInt-style types in TypeScript, and a JSON number is exact to 2^53 — nine petabytes
-        // of slack for a value that is only ever reported alongside a 2 MiB cap.
-        #[specta(type = f64)]
+        // u64 in Rust, because a file's size is a u64 and the message must state it truthfully.
+        // NOT on the wire: specta forbids BigInt-style types, and the `f64` workaround exported
+        // `bytes: number | null` — a null this code can never emit, i.e. a contract that lies in
+        // the one place the project generates contracts to stop lying. The numbers already reach
+        // the UI inside `message`; sending them twice, once wrongly typed, bought nothing.
+        #[serde(skip)]
         bytes: u64,
-        #[specta(type = f64)]
+        #[serde(skip)]
         cap: u64,
     },
 }
@@ -62,19 +70,38 @@ impl std::fmt::Display for PathRefusal {
             Self::EscapesRoot => write!(f, "that path resolves outside the project"),
             Self::Credential => write!(f, "that path holds credentials and is never read"),
             Self::NotFound => write!(f, "no such file in the project"),
-            Self::Unreadable => write!(f, "that file cannot be read (permissions)"),
+            Self::Unreadable => write!(f, "that file could not be opened"),
             Self::NotAFile => write!(f, "not a regular file"),
             Self::TooLarge { bytes, cap } => write!(f, "{bytes} bytes exceeds the {cap}-byte cap"),
             Self::NotAProject => write!(f, "that folder is not a project Tempest can open"),
             Self::NotText => write!(f, "that file is not text"),
+            Self::HardLinked => write!(f, "that file has more than one name and cannot be vouched for"),
         }
     }
 }
 
 /// Path segments that carry credentials. Compared case-folded (see [`PathRefusal::Credential`]).
-const DENIED_SEGMENTS: &[&str] = &[".env", ".ssh", ".aws", ".gnupg", ".netrc", "id_rsa"];
+const DENIED_SEGMENTS: &[&str] = &[
+    // $HOME-shaped secrets that a project can still contain
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".netrc",
+    "id_rsa",
+    // ssh-keygen has defaulted to ed25519 for years; naming only id_rsa denies the legacy key
+    // and passes the modern one.
+    "id_ed25519",
+    "id_ecdsa",
+    // ...and the ones that live in the project root the guard is pointed at. `.git` is the
+    // sharpest: the NotAProject check GUARANTEES it is present under every accepted root, and
+    // `.git/config` carries remote URLs with embedded tokens.
+    ".git",
+    ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+];
 /// Suffixes that carry credentials wherever they appear.
-const DENIED_SUFFIXES: &[&str] = &[".keychain", ".keychain-db", ".pem", ".p12", ".pfx"];
+const DENIED_SUFFIXES: &[&str] = &[".keychain", ".keychain-db", ".pem", ".p12", ".pfx", ".key"];
 
 fn is_credential_segment(segment: &str) -> bool {
     let lower = segment.to_ascii_lowercase();
@@ -97,7 +124,11 @@ fn any_credential_component(path: &Path) -> bool {
 
 /// Resolve `rel` inside `root`, or refuse with a reason.
 ///
-/// `root` is trusted (it is the project the user opened); `rel` is not.
+/// **Neither argument is trusted.** An earlier version of this comment said "`root` is trusted
+/// (it is the project the user opened)" — it is not: `root` arrives from `?repo=` in the webview
+/// URL, exactly as `repo_path` does for `start_local_prove`, and nothing has asked a human about
+/// it. That is why the root must itself be a git working tree: containment is only as strong as
+/// the thing it confines to, and a caller free to name `/` has no containment at all.
 pub fn resolve_within(root: &Path, rel: &str, max_bytes: u64) -> Result<PathBuf, PathRefusal> {
     // Cheapest and most certain first: these need no filesystem at all, so a hostile path is
     // rejected before it can cause a single syscall.
@@ -142,8 +173,22 @@ pub fn resolve_within(root: &Path, rel: &str, max_bytes: u64) -> Result<PathBuf,
     }
 
     let meta = std::fs::metadata(&resolved).map_err(map_io)?;
+    check_metadata(&meta, max_bytes)?;
+    Ok(resolved)
+}
+
+/// The checks that depend on the file itself rather than on its name.
+///
+/// Taken separately so they can be applied to an OPEN HANDLE as well as to a path: `open_within`
+/// re-runs them on the descriptor it is about to read, which is the only way the size and link
+/// count it enforces describe the bytes it actually returns.
+fn check_metadata(meta: &std::fs::Metadata, max_bytes: u64) -> Result<(), PathRefusal> {
+    use std::os::unix::fs::MetadataExt;
     if !meta.is_file() {
         return Err(PathRefusal::NotAFile);
+    }
+    if meta.nlink() > 1 {
+        return Err(PathRefusal::HardLinked);
     }
     if meta.len() > max_bytes {
         return Err(PathRefusal::TooLarge {
@@ -151,7 +196,7 @@ pub fn resolve_within(root: &Path, rel: &str, max_bytes: u64) -> Result<PathBuf,
             cap: max_bytes,
         });
     }
-    Ok(resolved)
+    Ok(())
 }
 
 /// Resolve `rel` inside `root` and return its text, or refuse with a reason.
@@ -176,8 +221,29 @@ pub struct OpenedFile {
 /// [`resolve_within`] and [`read_within`] in turn, which would walk and canonicalise the path
 /// twice — real syscalls against a 40 ms open-file budget.
 pub fn open_within(root: &Path, rel: &str, max_bytes: u64) -> Result<OpenedFile, PathRefusal> {
+    use std::io::Read;
     let path = resolve_within(root, rel, max_bytes)?;
-    let bytes = std::fs::read(&path).map_err(map_io)?;
+    // Open ONCE and judge the descriptor. `resolve_within` validated a path; between that and a
+    // second `fs::read(&path)` the name could point somewhere else, and the size and link count
+    // just checked would describe a file that is no longer the one being read. Everything below
+    // is asked of the handle.
+    let mut file = std::fs::File::open(&path).map_err(map_io)?;
+    check_metadata(&file.metadata().map_err(map_io)?, max_bytes)?;
+    // The CAP binds the read, not just the stat. Checking metadata and then reading to EOF meant
+    // a file that grew between the two returned arbitrarily many bytes into the webview — the
+    // size gate applied to a number, never to the bytes. Read one past the cap so exceeding it
+    // is detectable rather than silently truncated into a corrupt buffer.
+    let mut bytes = Vec::new();
+    let allowed = max_bytes.saturating_add(1);
+    std::io::Read::take(&mut file, allowed)
+        .read_to_end(&mut bytes)
+        .map_err(map_io)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(PathRefusal::TooLarge {
+            bytes: bytes.len() as u64,
+            cap: max_bytes,
+        });
+    }
     // `from_utf8` rather than `from_utf8_lossy`: lossy conversion produces a buffer that LOOKS
     // editable and would destroy the file if saved back.
     let text = String::from_utf8(bytes).map_err(|_| PathRefusal::NotText)?;
@@ -192,7 +258,10 @@ fn canonicalize(path: &Path) -> Result<PathBuf, PathRefusal> {
 /// them is how a permissions problem gets reported for months as a missing file.
 fn map_io(err: std::io::Error) -> PathRefusal {
     match err.kind() {
-        std::io::ErrorKind::NotFound => PathRefusal::NotFound,
+        // ENOTDIR — a component of the path is not a directory — is "there is no such file
+        // there", not a permissions problem. Reporting it as Unreadable sent the reader looking
+        // for a file that was never there.
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory => PathRefusal::NotFound,
         _ => PathRefusal::Unreadable,
     }
 }
@@ -324,12 +393,34 @@ mod tests {
     }
 
     #[test]
-    fn an_uppercase_dotenv_is_refused_because_macos_is_case_insensitive() {
-        // On APFS `.ENV` opens `.env`'s bytes, so a case-sensitive denylist is bypassable on the
-        // user's own machine while looking correct on Linux CI.
+    fn the_credential_denylist_is_case_folded() {
+        // Renamed from `..._because_macos_is_case_insensitive`, which named a filesystem property
+        // this test cannot observe: it creates no `.env`, so the refusal comes from the lexical
+        // fold and would be identical on a case-SENSITIVE filesystem. What is pinned here is the
+        // fold itself. The reason the fold exists is macOS: on APFS `.ENV` opens `.env`'s bytes,
+        // so a case-sensitive denylist is bypassable on the developer's own machine while looking
+        // correct on Linux CI. The deliberate consequence is that a file genuinely named `.ENV`
+        // on Linux is also refused — a false refusal this project accepts, because a path spelled
+        // that way is a secret in every case anyone has produced.
         let p = Project::new("dotenv-case");
+        for spelling in [".ENV", ".Env", ".SSH/id_rsa", "ID_RSA"] {
+            assert_eq!(
+                resolve_within(&p.root, spelling, CAP),
+                Err(PathRefusal::Credential),
+                "{spelling}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_case_insensitive_filesystem_cannot_be_used_to_reach_a_real_dotenv() {
+        // The property the old name CLAIMED, actually exercised: a real `.env` on disk, opened
+        // through a differently-cased spelling. On macOS this resolves to the same inode; the
+        // fold must refuse it before the filesystem gets the chance to be helpful.
+        let p = Project::new("dotenv-case-real");
+        p.write(".env", "SECRET=1\n");
         assert_eq!(
-            resolve_within(&p.root, ".ENV", CAP),
+            read_within(&p.root, ".ENV", CAP),
             Err(PathRefusal::Credential)
         );
     }
@@ -448,6 +539,12 @@ mod tests {
     fn an_unreadable_directory_is_not_reported_as_missing() {
         // The state nobody sets up: the file exists, and the process cannot get to it. Reported
         // as NotFound it would send someone looking for a file that is right there.
+        // Root ignores permission bits, so this assertion is meaningless when the suite runs as
+        // root (some CI containers do). Skipping is honest; asserting would be a test that
+        // passes for a reason unrelated to what it names — the failure mode this repo hunts.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
         let p = Project::new("locked");
         p.write("locked/secret.txt", "x\n");
         let dir = p.root.join("locked");
@@ -509,7 +606,22 @@ mod tests {
     #[test]
     fn every_refusal_reads_as_a_sentence_and_never_leaks_the_path() {
         // The reason reaches a UI. It must explain without echoing what was asked for.
-        for refusal in [
+        for refusal in every_variant() {
+            let text = refusal.to_string();
+            assert!(!text.is_empty(), "{refusal:?} has no message");
+            assert!(!text.contains('/'), "{refusal:?} leaks a path: {text}");
+        }
+    }
+
+    /// Every variant, by construction.
+    ///
+    /// The test above used to iterate a hand-written array of NINE literals while the enum had
+    /// twelve — and the three it missed (`NotAProject`, `NotText`, `HardLinked`) were the three
+    /// added after it was written. A list that claims to be universal has to be enforced as one:
+    /// the `match` below is exhaustive, so the compiler refuses to build until a new variant is
+    /// added here as well.
+    fn every_variant() -> Vec<PathRefusal> {
+        let all = vec![
             PathRefusal::Malformed,
             PathRefusal::Absolute,
             PathRefusal::Traversal,
@@ -518,11 +630,87 @@ mod tests {
             PathRefusal::NotFound,
             PathRefusal::Unreadable,
             PathRefusal::NotAFile,
+            PathRefusal::HardLinked,
+            PathRefusal::NotText,
+            PathRefusal::NotAProject,
             PathRefusal::TooLarge { bytes: 9, cap: 8 },
-        ] {
-            let text = refusal.to_string();
-            assert!(!text.is_empty(), "{refusal:?} has no message");
-            assert!(!text.contains('/'), "{refusal:?} leaks a path: {text}");
+        ];
+        for refusal in &all {
+            // Exhaustiveness sentinel — when this stops compiling, add the variant above too.
+            match refusal {
+                PathRefusal::Malformed
+                | PathRefusal::Absolute
+                | PathRefusal::Traversal
+                | PathRefusal::EscapesRoot
+                | PathRefusal::Credential
+                | PathRefusal::NotFound
+                | PathRefusal::Unreadable
+                | PathRefusal::NotAFile
+                | PathRefusal::HardLinked
+                | PathRefusal::NotText
+                | PathRefusal::NotAProject
+                | PathRefusal::TooLarge { .. } => {}
+            }
         }
+        all
+    }
+
+    #[test]
+    fn a_hard_link_to_a_denylisted_file_is_refused() {
+        // The state that defeated the name-based denylist entirely. A hard link IS the file:
+        // both names are directory entries for one inode, there is no target to follow, and
+        // `canonicalize("notes.txt")` answers "notes.txt". A review probe read SECRET=hunter2
+        // through exactly this before the link count was checked.
+        let p = Project::new("hardlink");
+        let secret = p.write(".env", "SECRET=hunter2\n");
+        fs::hard_link(&secret, p.root.join("notes.txt")).expect("hard link");
+        assert_eq!(
+            read_within(&p.root, "notes.txt", CAP),
+            Err(PathRefusal::HardLinked)
+        );
+    }
+
+    #[test]
+    fn an_ordinary_file_with_one_name_is_not_mistaken_for_a_hard_link() {
+        let p = Project::new("hardlink-negative");
+        let want = p.write("src/main.py", "x = 1\n");
+        assert_eq!(resolve_within(&p.root, "src/main.py", CAP), Ok(want));
+    }
+
+    #[test]
+    fn the_git_directory_is_refused_although_the_guard_requires_it() {
+        // `.git` is present under EVERY accepted root — that is how a project is recognised —
+        // and `.git/config` carries remote URLs with embedded tokens.
+        let p = Project::new("gitdir");
+        p.write(".git/config", "[remote]\n  url = https://x:token@example.com\n");
+        assert_eq!(
+            read_within(&p.root, ".git/config", CAP),
+            Err(PathRefusal::Credential)
+        );
+    }
+
+    #[test]
+    fn the_modern_ssh_key_names_are_refused_too() {
+        let p = Project::new("ssh-modern");
+        for name in [".ssh/id_ed25519", ".ssh/id_ecdsa", ".git-credentials", ".npmrc"] {
+            assert_eq!(
+                resolve_within(&p.root, name, CAP),
+                Err(PathRefusal::Credential),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_git_worktree_is_a_project_even_though_its_dot_git_is_a_file() {
+        // Tempest's own agent shadows ARE git worktrees, and in a worktree `.git` is a FILE
+        // holding a gitdir pointer, not a directory. The guard uses `exists()`, true for both.
+        // Pinned because the natural refactor to `is_dir()` would silently make every shadow
+        // unreadable to Phase 21's agent, with no test to notice.
+        let p = Project::new("worktree");
+        fs::remove_dir_all(p.root.join(".git")).expect("drop the dir");
+        fs::write(p.root.join(".git"), "gitdir: /elsewhere\n").expect(".git file");
+        let want = p.write("src/main.py", "x = 1\n");
+        assert_eq!(resolve_within(&p.root, "src/main.py", CAP), Ok(want));
     }
 }

@@ -1041,6 +1041,14 @@ export type PathRefusal =
 /**  A directory, device, or socket. Only regular files are readable here. */
 { kind: "not_a_file" } | 
 /**
+ *  More than one directory entry points at these bytes. A hard link IS the file — there is
+ *  no link target to inspect and `canonicalize` returns the innocent name you asked with —
+ *  so a name-based denylist cannot see it at all. A review probe read `.env` through a hard
+ *  link named `notes.txt` and every check above passed. A file with more than one name
+ *  therefore cannot be judged by the name it was requested under, and is refused.
+ */
+{ kind: "hard_linked" } | 
+/**
  *  Not valid UTF-8 — an editor buffer is text, and showing a binary as replacement
  *  characters would invite someone to "save" it back and destroy the file.
  */
@@ -1051,7 +1059,7 @@ export type PathRefusal =
  */
 { kind: "not_a_project" } | 
 /**  Larger than the caller's cap. Unbounded reads are a budget violation (L15.4). */
-{ kind: "too_large"; bytes: number | null; cap: number | null };
+{ kind: "too_large" };
 
 /**
  *  One file, as the editor receives it.

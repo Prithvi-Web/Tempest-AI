@@ -41,6 +41,19 @@
   --unproven-soft: rgba(160, 90, 0, 0.1);
   --errorv: #6b4fd8;
   --errorv-soft: rgba(107, 79, 216, 0.1);
+
+  /* code (Phase 20.1) — the editor's syntax palette. Defined here, per scheme, because
+     CodeMirror's bundled style is tuned for a white page and rendered ~1.7:1 keywords when
+     dropped into the dark shell. Every colour below clears 4.5:1 on its own surface. */
+  --code-ink: #1d1d1f;
+  --code-keyword: #9026a8;
+  --code-function: #0057c2;
+  --code-property: #0b6a63;
+  --code-string: #a3341c;
+  --code-number: #1a5fb4;
+  --code-type: #7a4b00;
+  --code-comment: #5c6370;
+  --code-punctuation: #4a4a4f;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -57,6 +70,17 @@
     --sidebar-bg: rgba(30, 30, 32, 0.8);
     --hover: rgba(255, 255, 255, 0.055);
     --active: rgba(255, 255, 255, 0.1);
+
+    /* code — dark scheme */
+    --code-ink: #e6e6ea;
+    --code-keyword: #d9a2f0;
+    --code-function: #79b8ff;
+    --code-property: #7fd6c9;
+    --code-string: #f0a58a;
+    --code-number: #9cc4ff;
+    --code-type: #e2c08d;
+    --code-comment: #9aa0aa;
+    --code-punctuation: #c2c2c9;
 
     --divergent: #ff453a;
     --divergent-soft: rgba(255, 69, 58, 0.14);
@@ -122,6 +146,22 @@ a {
 
 .skip-link:focus {
   left: 10px;
+}
+
+/* Available to assistive tech and to the route-change focus effect, absent from the visual
+ * design. The editor names its own file in the chrome above; a second visible title would be
+ * noise, but the effect that focuses a view's <h1> needs one to exist. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Programmatic focus targets (the view title after navigation, the content after the skip
@@ -718,4 +758,117 @@ main li,
 
 .keyrow input {
   min-width: 160px;
+}
+
+/* ── editor surface (Phase 20.1) ──────────────────────────────────────────────────────────
+ * CodeMirror ships its own light theme and knows nothing about this app's palette, so the
+ * tokens are handed TO it rather than letting it paint. Without this block the editor renders
+ * a white page inside the dark shell — and it did, because the view was added to the router
+ * before it was added to the stylesheet or to the screenshot pass that would have shown it.
+ */
+.editor-host {
+  /* A CM6 instance in a container with no height has none: cm-scroller grows to the document
+     and the page scrolls instead of the editor, which breaks the gutter and the active line. */
+  height: calc(100vh - 168px);
+  min-height: 240px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.editor-host .cm-editor {
+  height: 100%;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* CM6 sets its own focus ring on a child; the app's convention is the accent colour. */
+.editor-host .cm-editor.cm-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.editor-host .cm-scroller {
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.editor-host .cm-gutters {
+  background: var(--surface-sunken);
+  color: var(--ink-secondary);
+  border-right: 1px solid var(--hairline);
+}
+
+.editor-host .cm-activeLine {
+  background: var(--hover);
+}
+
+.editor-host .cm-activeLineGutter {
+  background: var(--active);
+  color: var(--ink);
+}
+
+.editor-host .cm-cursor {
+  border-left-color: var(--ink);
+}
+
+/* CM6 paints selection on its own layer; both selectors are needed for focused and blurred. */
+.editor-host .cm-selectionBackground,
+.editor-host .cm-editor.cm-focused .cm-selectionBackground,
+.editor-host .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* CodeMirror's own surfaces: the find panel (Cmd-F, live because basicSetup installs
+ * searchKeymap) and autocomplete tooltips. Untouched, they render CM6's `&light` defaults —
+ * a white panel with black text inside the dark editor. */
+.editor-host .cm-panels,
+.editor-host .cm-panel {
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border-top: 1px solid var(--hairline);
+  font: var(--text-body);
+}
+
+/* The app styles ALL controls with `input, select { width: 100% }`, unconditionally and outside
+ * every media query. That rule reached into CM6's panel and stretched its three option
+ * checkboxes to the full panel width — ~700px each — pushing their labels to the far edge. A
+ * global control rule has to be scoped away from a subtree that ships its own controls. */
+.editor-host .cm-panel input,
+.editor-host .cm-panel select,
+.editor-host .cm-panels input,
+.editor-host .cm-panels select {
+  width: auto;
+}
+
+.editor-host .cm-panel.cm-search input[type="text"] {
+  width: 16em;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.editor-host .cm-button {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background-image: none;
+}
+
+.editor-host .cm-tooltip {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+}
+
+.editor-host .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--accent);
+  color: var(--accent-ink);
 }

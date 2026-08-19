@@ -15,7 +15,8 @@ supervises, minus PyInstaller freezing):
 The last two are WEBVIEW facts and cannot be measured from here: they come from
 `bench/editor-metrics.json`, which the Playwright leg writes (`make bench-editor`). When that
 file is absent the keys are simply omitted, and `perf_suite` reports the budgets as
-NOT-YET-MEASURED. A missing measurement must never read as a met budget.
+NOT-YET-MEASURED. A missing measurement must never read as a met budget — and neither must a
+STALE one: a file recorded against a different commit is discarded, not merged.
 
 Webview paint metrics (first paint @60fps, app-level cold launch incl. WebKit) belong to the
 desktop E2E leg — PENDING(desktop-e2e), stated here so the narrowing is loud, not silent.
@@ -185,12 +186,39 @@ def _editor_measurements(
         samples[name] = numeric
     if not metrics:
         return {}, {}, None
+
+    # Provenance is CHECKED, not merely recorded. The first version wrote the commit into
+    # bench.json and claimed that "a stale file cannot pass as this run's work" — but nothing
+    # ever read it back, so a measurement from three commits ago merged silently and armed the
+    # budgets with numbers describing code that no longer exists. Recording is not rejecting.
+    head = _head_commit()
+    measured_at_commit = doc.get("commit")
+    if head is not None and isinstance(measured_at_commit, str) and measured_at_commit != head:
+        return {}, {}, None
+
     provenance = {
-        "commit": doc.get("commit"),
+        "commit": measured_at_commit,
         "measured_at": doc.get("measured_at"),
         "counts": {name: len(series) for name, series in samples.items()},
     }
     return metrics, samples, provenance
+
+
+def _head_commit() -> str | None:
+    """The commit the tree is on, or None when that cannot be established.
+
+    None means "do not judge": a tarball or a detached checkout without git is not a reason to
+    throw away a real measurement. A MISMATCH is a reason.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
 
 
 def main(argv: list[str] | None = None) -> int:

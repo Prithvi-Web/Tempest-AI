@@ -28,14 +28,25 @@ import { expect, test } from "./fixtures";
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const OUT = join(REPO_ROOT, "bench", "editor-metrics.json");
 
-/** Two 10k-line files: the budget names that size, so the fixture is that size. */
+/** How many distinct files the open-file measurement walks. */
+const OPENS = 12;
+
+/**
+ * `OPENS` DISTINCT 10k-line files, each with a unique first line.
+ *
+ * Distinct because react-query caches by ["projectFile", repo, path]: the first version of this
+ * spec alternated between two files, so eleven of its twelve "opens" were served from memory
+ * without touching disk or the host command at all. Unique first lines because the wait below
+ * has to be able to tell THIS file's document from the previous one — the first version polled
+ * for "any text", which the outgoing document also satisfies.
+ */
 async function bigProject() {
   const repo = await mkdtemp(join(tmpdir(), "tempest-e2e-budget-"));
   await mkdir(join(repo, ".git"), { recursive: true });
   await mkdir(join(repo, "src"), { recursive: true });
-  for (const name of ["alpha.py", "beta.py"]) {
-    const lines = Array.from({ length: 10_000 }, (_, i) => `def f_${i}(x):\n    return x + ${i}`);
-    await writeFile(join(repo, "src", name), lines.join("\n"), "utf8");
+  for (let n = 0; n < OPENS; n++) {
+    const body = Array.from({ length: 10_000 }, (_, i) => `def f_${i}(x):\n    return x + ${i}`);
+    await writeFile(join(repo, "src", `m${n}.py`), `# MARKER_${n}\n${body.join("\n")}`, "utf8");
   }
   return repo;
 }
@@ -51,36 +62,42 @@ test("measures the §5 editor budgets and writes them for perf_suite @bench", as
   // Not cold page load. §5 budgets 40 ms p50, which no page boot plus lazy-chunk fetch could
   // meet; the honest reading of "open file" is switching files in a running editor. Stated here
   // rather than chosen quietly, because the flattering reading was available.
-  await page.goto(url(repo, "src/alpha.py"));
+  await page.goto(url(repo, "src/m0.py"));
   await expect(page.getByTestId("editor-host").locator(".cm-content")).toBeVisible({
     timeout: 30_000,
   });
 
   const openSamples: number[] = [];
-  for (let i = 0; i < 12; i++) {
-    const file = i % 2 === 0 ? "src/beta.py" : "src/alpha.py";
-    const ms = await page.evaluate(async (href) => {
-      const started = performance.now();
-      history.pushState(null, "", href);
-      window.dispatchEvent(new PopStateEvent("popstate"));
-      // Resolve on the frame after CodeMirror has laid the new document out.
-      await new Promise<void>((resolve) => {
-        const deadline = performance.now() + 10_000;
-        const poll = () => {
-          const content = document.querySelector('[data-testid="editor-host"] .cm-content');
-          if (content && content.textContent && content.textContent.length > 0) {
-            requestAnimationFrame(() => resolve());
-          } else if (performance.now() < deadline) {
-            requestAnimationFrame(poll);
-          } else {
-            resolve();
-          }
-        };
-        poll();
-      });
-      return performance.now() - started;
-    }, url(repo, file));
-    openSamples.push(ms);
+  const seenMarkers: string[] = [];
+  for (let n = 1; n < OPENS; n++) {
+    const measured = await page.evaluate(
+      async ({ href, marker }) => {
+        const started = performance.now();
+        history.pushState(null, "", href);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+        // Wait for THIS document, identified by its own marker. Polling for "text is present"
+        // resolved on the OUTGOING document — synchronously, in the same task as the dispatch,
+        // before React had committed anything — so the old number was one animation frame and
+        // measured nothing at all.
+        const found = await new Promise<boolean>((resolve) => {
+          const deadline = performance.now() + 15_000;
+          const poll = () => {
+            const el = document.querySelector('[data-testid="editor-host"] .cm-content');
+            if (el?.textContent?.includes(marker)) resolve(true);
+            else if (performance.now() < deadline) requestAnimationFrame(poll);
+            else resolve(false);
+          };
+          poll();
+        });
+        return { ms: performance.now() - started, found };
+      },
+      { href: url(repo, `src/m${n}.py`), marker: `# MARKER_${n}` },
+    );
+    // A sample is only recorded when the new document was actually observed. An unconditional
+    // push is what made the old length assertion a tautology.
+    expect(measured.found, `open of src/m${n}.py never showed its own content`).toBe(true);
+    openSamples.push(measured.ms);
+    seenMarkers.push(`MARKER_${n}`);
   }
 
   // ---- keystroke → render: keydown timestamp → the frame that shows it -----------------------
@@ -127,8 +144,19 @@ test("measures the §5 editor budgets and writes them for perf_suite @bench", as
     () => (window as unknown as { __keystrokes__: number[] }).__keystrokes__,
   );
 
-  expect(openSamples.length, "open-file samples").toBeGreaterThanOrEqual(5);
+  // These are NOT tautologies: openSamples is only appended when a distinct document was seen
+  // (asserted per iteration above), and every sample must be a positive duration.
+  expect(openSamples.length, "open-file samples").toBe(OPENS - 1);
+  expect(new Set(seenMarkers).size, "each open showed a DIFFERENT document").toBe(OPENS - 1);
+  expect(
+    openSamples.every((ms) => ms > 0),
+    "every open-file sample is a positive duration",
+  ).toBe(true);
   expect(keySamples.length, "keystroke samples").toBeGreaterThanOrEqual(5);
+  expect(
+    keySamples.every((ms) => ms > 0),
+    "every keystroke sample is a positive duration",
+  ).toBe(true);
 
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" })
     .trim();
