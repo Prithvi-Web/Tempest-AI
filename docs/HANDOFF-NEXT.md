@@ -46,8 +46,9 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   hover tooltip that makes `lsp_hover` reachable** · **20.6 the runners' settings surface**.
   Everything through `30f970a` was pushed and CI-green (7/7 on `6b417c4`, `05eb5c9`, `30f970a`);
   the six commits after it are LOCAL and awaiting the owner's push (trap 13).
-- **Test counts after Phase 20**: pytest 1270+ at 100.00% · cargo 109 (was 84) · vitest 81
-  desktop + 27 ts-sidecar · Playwright 48 specs (was 42).
+- **Test counts after Phase 20**: pytest **1273** at 100.00% · cargo **115** (was 84) · vitest
+  **86** desktop + 27 ts-sidecar · Playwright **48 passed** (was 42). Final `make verify`:
+  `MAKE_EXIT=0`, "verify: all live steps green".
 - **The §5 editor budgets are MET and the count is 6 of 13**: open file p50 15.4 ms (bar 40),
   keystroke p50 1.3 ms (bar 8), completion p50 4.1 ms (bar 120), all three p95s inside their
   bars. The input-storm test (900 keys at 15/s, zero drops, order-exact) passes. Those were
@@ -165,6 +166,19 @@ FALSE 100% instead of a false 0%, and only one of those two is self-announcing.
 
 The three things this section used to list as blocking are done. Read the carried items before
 assuming anything about measurement.
+
+**0. THE FIXES WERE REVIEWED TOO, and that found eighteen more defects** (`f577f7d`, `23f4e9f`).
+The 20.4–20.6 commits were new code with fresh tests, 100% coverage and green gates — the exact
+state 20.2/20.3 were in when eleven lenses found 37 defects in them. Six lenses over the fixes,
+56 agents, **18 confirmed unanimously**. Four were REGRESSIONS the fixes introduced (`trim()`
+deleting the indentation that IS a FIM answer; `model_spec` splitting an env var that names a
+whole program; a `LIKE` whose case behaviour is a dialect property; a risk badge that went inert
+as soon as a model was configured). One was a FLAKE that had already passed two full `make
+verify` runs. And `#[tauri::command(async)]` on a synchronous fn turned out to move the stall to
+a tokio worker rather than remove it — starving every other async command, including the Settings
+screen that is the user's only way to clear a bad language-server command.
+
+**Trap 48: the review of a fix is not optional because the fix was careful.**
 
 **1. The Phase 20 review RAN** (ADR-0046). Eleven read-only lenses over 20.2/20.3, every finding
 adversarially verified by two refute-by-default verifiers: **138 agents, 63 findings judged, 126
@@ -416,7 +430,10 @@ agent that mutates the shared tree races your commits — reviewers are read-onl
 **46 a REVIEW agent that reads the tree AFTER you have fixed it judges the FIX, not the defect —
 verification and repair must not overlap on the same file (§14) ·
 47 a GATE can measure the wrong thing and report green about something it never looked at; when a
-corrected ruler goes red, the ruler was the bug (§15)** ·
+corrected ruler goes red, the ruler was the bug (§15) ·
+48 THE REVIEW OF A FIX IS NOT OPTIONAL BECAUSE THE FIX WAS CAREFUL — six lenses over the Phase 20
+fix wave found 18 more defects, four of them regressions the fixes themselves introduced, in code
+written by an author who had just read 37 findings about the same modules (§16)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -662,3 +679,38 @@ because its own text extraction counted a widget as typed text.
 that it can see it. A cheap version: break the thing on purpose and confirm the gate notices. If
 correcting a gate makes it fail, the gate was the defect and the failure is the first honest
 measurement you have had.
+
+
+---
+
+## 16. Trap 48 — the review of a fix is not optional because the fix was careful
+
+The Phase 20 review found 37 confirmed defects in 20.2/20.3. The fix wave that answered it was
+written deliberately, test-first, with 100% coverage and green gates — and was then reviewed the
+same way, on the reasoning that this is *precisely* the state the reviewed code had been in.
+Six lenses, 56 agents, **18 confirmed unanimously.**
+
+What that second pass caught that the first could not:
+
+1. **A fix that only appeared to work.** `#[tauri::command(async)]` on a synchronous fn spawns
+   the future on tokio's multi-thread runtime and the sync body blocks a WORKER. The stall was
+   moved off the main thread and onto the runtime, where it could starve every other async
+   command — including the Settings screen, the only way to clear the bad command that caused it.
+   The doc comment written with the fix argued only about the main thread and was persuasive.
+2. **Regressions introduced BY the fixes** — four of them. A `trim()` that refused whitespace
+   answers also deleted the leading indentation that IS a mid-token completion. A settings parser
+   split an env var that had always named a whole program. A `LIKE` made a lookup answer
+   differently on SQLite and Postgres. A symbol derivation correct for the offline source made
+   the risk badge inert for anyone with a model configured.
+3. **A flake that had already passed two full `make verify` runs** — env-var tests serialising
+   their setters but not their readers, failing 2 runs in 6.
+4. **Claims, again.** In a fix wave whose entire subject was untrue claims, three new untrue
+   claims: a test that timed out during the handshake and never reached the write it names, an
+   `assert 3 + 3 + 7 == 13` the interpreter folds before the test runs, and a doc describing a
+   `default: never` arm the function deliberately does not have.
+
+**How to apply.** Budget the review of a fix wave as part of the fix wave, not as an optional
+extra if time allows. The author of a fix has just read a list of everything that was wrong with
+the old code, which is the worst possible preparation for seeing what is wrong with the new. And
+run it *before* declaring the phase done — every one of these was found after a green
+`make verify` and would otherwise have shipped under a completion claim.

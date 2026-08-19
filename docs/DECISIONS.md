@@ -1885,11 +1885,16 @@ THREAT-MODEL-V2.md T8 promises a CSP, in the webview that now holds a file-read 
 for this phase — are Mac-only evidence. Both predate this work; both are recorded in the handoff
 as the next items rather than smuggled into a fix commit.
 
-## ADR-0046 — Phase 20 as a whole: an editor that can be reached, and eleven lenses over what 20.2/20.3 claimed (2026-08-19)
+## ADR-0046 — Phase 20 as a whole: an editor that can be reached, eleven lenses over what 20.2/20.3 claimed, and six more over the fixes (2026-08-19)
 
 **Status:** accepted (v2, Phase 20 complete) · **Commits:** `da171eb`, `d63e968`, `2cc1810`,
-`93c726e`, `d72c66d`, `af58163`, on top of the landed 20.1–20.3e set. ADR-0045 covers 20.1/20.1b
-only; this covers the phase.
+`93c726e`, `d72c66d`, `af58163`, `2149642`, `f577f7d`, `23f4e9f`, on top of the landed 20.1–20.3e
+set. ADR-0045 covers 20.1/20.1b only; this covers the phase.
+
+> **Read §"The fixes were reviewed too" before trusting anything below it.** The first eight
+> sections describe the 20.4–20.6 fix wave as it was written. A second review then found
+> **eighteen defects in those fixes**, several of them regressions the fixes introduced, and the
+> corrections are recorded at the end. Nothing above has been edited to look better in hindsight.
 
 **Context.** 20.1–20.3e all landed and were pushed, `make verify` was green, coverage was 100%,
 and CI was green on all seven jobs for `6b417c4`, `05eb5c9` and `30f970a` (re-confirmed at the
@@ -2026,3 +2031,60 @@ unreachable.
   `pathguard` and Tauri IPC and include an HTTP hop to a node bridge. Stated in the spec.
 - **`update_editor_runners` chooses a binary this host later spawns.** Nothing routes model
   output into settings and the CSP forbids injected script; that is the whole mitigation.
+
+
+### The fixes were reviewed too, and that found eighteen more defects
+
+The 20.4–20.6 commits were new code with fresh tests, 100% coverage and green gates — which is
+exactly the state 20.2/20.3 were in when eleven lenses found 37 defects in them. So the same
+treatment was applied to the fixes: six lenses (the new concurrency · the new Rust logic · the
+new webview logic · the engine endpoint and changed gates · the new claims · regression risk),
+refute-by-default verification, 56 agents. **Eighteen confirmed unanimously**, fixed in `f577f7d`
+and `23f4e9f`.
+
+**The worst one is a lesson about a fix that looked complete.** `#[tauri::command(async)]` on a
+SYNCHRONOUS fn does not take work off the runtime: tauri-macros' `body_async` spawns the future
+on tokio's multi-thread runtime and the sync body then blocks a WORKER. With no in-flight guard
+on hover and a ten-second timeout held across the multiplexer's mutex, ordinary reading over a
+slow server could occupy every worker and starve every other async command — including the
+Settings screen, the user's only way to clear the bad command. The doc comment written with the
+fix reasoned solely about the main thread. **The stall had been moved, not removed.** All three
+host commands now run their blocking half on `spawn_blocking`, and `hoverTooltip` has the
+in-flight guard F11 already had — CodeMirror's `checkHover` skips only when a tooltip is already
+SHOWN, so every ~300 ms rest started another request.
+
+**Four were regressions the fixes introduced**, which is the specific risk of a large repair
+wave and the reason it was reviewed:
+
+| The fix | What it broke |
+|---|---|
+| `trim()` to refuse whitespace answers | deleted the LEADING indentation that IS a mid-token FIM answer |
+| `model_spec` parsing a command line | split `TEMPEST_LOCAL_MODEL`, which has always named a whole program — breaking every launcher whose model path contains a space, which is WHY a wrapper exists |
+| the by-symbol suffix match | used `LIKE`, whose case behaviour is a DIALECT property: case-insensitive on SQLite, so `post` matched a recorded `ledger.POST` |
+| the risk badge's symbol | `prefix + raw completion` is an identifier only for the OFFLINE source; a model answers with code, so the badge went inert for exactly the users who configured one |
+
+**And three claims that were not true**, in a fix wave whose whole subject was untrue claims: a
+test that timed out during the HANDSHAKE and never reached the large write it names;
+`assert 3 + 3 + 7 == 13`, which the interpreter folds before the test runs and would pass with
+`perf_suite` deleted; and a doc describing a `default: never` arm the function deliberately does
+not have.
+
+**A flake shipped and was caught by the gate, not by a reviewer.** `runners.rs`'s tests put the
+env mutex inside `EnvGuard`, serialising the SETTERS while the readers raced — cargo runs tests
+as threads in one process and environment variables are process-global. It failed 2 runs in 6,
+and passed the two full `make verify` runs before that. Every test now takes the lock, including
+those touching no environment today.
+
+**The last defect was found only because an earlier fix worked.** Making the symbol lookup
+correct made the risk indicator able to reach `elevated` for the first time — and the contrast
+gate immediately failed it at 4.25:1. Both non-`unmeasured` states had shipped below the bar
+(`elevated` 4.22:1 light; `high` 4.16:1 light, 3.28:1 dark) because `--unproven` and
+`--divergent` are tuned against `--surface` and nobody had measured them on their own tinted
+chips. `high` still could not appear in a fixture — it needs a recorded HEADLINE divergence — so
+the gate now mounts all three shipped `.cm-risk-*` classes on the editor's own backdrop and
+asserts each is present before measuring. Fixing only the colour would have left the same hole
+for the next change.
+
+**Trap 48 is the general lesson**: *the review of a fix is not optional because the fix was
+careful.* Eighteen of these were in code written specifically to be correct, by an author who
+had just read 37 findings about the same modules.
