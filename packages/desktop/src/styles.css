@@ -872,3 +872,14 @@ main li,
   background: var(--accent);
   color: var(--accent-ink);
 }
+
+/* F11 ghost text (Phase 20.3). It must read as a SUGGESTION and never as content the file
+ * already holds — hence secondary ink and italics rather than the code palette. It is a widget
+ * decoration, so nothing enters the document until Tab: the line cannot reflow on a suggestion
+ * arriving or being dismissed (F11's "without layout thrash"). */
+.editor-host .cm-ghost-text {
+  color: var(--ink-secondary);
+  font-style: italic;
+  opacity: 0.85;
+  pointer-events: none;
+}
