@@ -1797,3 +1797,90 @@ files; CI is measured in a fresh checkout that contains only what is tracked. Pr
 `git cat-file -e HEAD:<repo-relative-path>` at the point of use — and note that this ADR needed
 two passes to get right, because the first fix's own guard (`ls-files`) and its own assertions
 ("of 13") repeated the very shape of the bug they were closing.
+
+## ADR-0045 — The editor reads files in Rust, behind one guard, and what a hard link taught (2026-08-19)
+
+**Status:** accepted (v2, Phase 20.1 / 20.1b) · **Commits:** `f1b3502`, `43fbb25`, `31a40cc`,
+`453075b`, `2a0a998` · CI green on `2a0a998`, all seven jobs.
+
+**Context.** Phase 20 puts a CodeMirror 6 editor in the webview. An editor must open files, and
+every other command in `commands.rs` forwards to the Python sidecar. §5 budgets "open file
+(10k lines)" at a p50 of **40 ms**, and a JSON-RPC round trip through a second process to hand
+back bytes the OS already has spends that budget on nothing. `agent_tools.rs` already declared a
+`read_file` tool whose own docstring says absolute paths, `..` traversal and the credential
+denylist "are rejected by the orchestrator" — an orchestrator that does not exist until Phase 21.
+
+**Decision.** `read_project_file` is a Tauri command that reads directly in Rust, and the safety
+the sidecar boundary would have supplied comes from **one module**, `pathguard`, which Phase 21's
+`read_file` dispatch will use as its second caller. The owner chose this shape explicitly over
+giving the editor its own reader: a rule stated in two implementations is a rule that can
+disagree with itself, which is the reasoning that put the Agent Tool Protocol behind a generated
+contract (ADR-0035). `ProjectFile` is a Tauri-local type, not a Boundary A domain type —
+nothing about opening a file in an editor exists in the Pydantic model, and minting a domain
+shape for a desktop-local capability would put a fiction in the contract (`SidecarStateEvent`
+sets the precedent).
+
+**The guard, and the four things review changed about it.** A path is readable only if it is
+inside a root that is itself a git working tree, contains no `..`, resolves inside that root,
+names no credential, is a regular file with exactly one link, is valid UTF-8, and fits the cap.
+Four of those clauses exist because a thirteen-lens review found them missing:
+
+1. **A hard link defeated the credential denylist entirely.** The module argued that applying the
+   denylist twice — to the requested path and to the resolved one — closed the "innocent name,
+   secret bytes" hole. It closed the *symlink* form of it. A hard link IS the file: no target to
+   follow, and `canonicalize("notes.txt")` answers `"notes.txt"`, so both applications pass. A
+   probe read `SECRET=hunter2` through it, and a verifier reproduced the same bypass for all
+   three denylist mechanisms (`.env` by segment, `.ssh/id_rsa` by segment, `server.pem` by
+   suffix) while the symlink control was correctly refused. **No name-based rule can ever see a
+   hard link**, so the fix is not a better name rule: a file with more than one link is refused,
+   because a file with more than one name cannot be judged by the name it was requested under.
+   Cost, accepted: pnpm hard-links its store into `node_modules`, so those files do not open.
+2. **`.git` was readable under every root the guard accepts** — and the guard *guarantees* `.git`
+   is present, since that is how it recognises a project. `.git/config` carries remote URLs with
+   embedded tokens. Now denied, with `.git-credentials`, `.npmrc`, `.pypirc`, `id_ed25519` and
+   `id_ecdsa` — the list had named only the legacy ssh key and the `$HOME`-shaped secrets, and
+   missed the ones that live in the project it was pointed at.
+3. **The cap gated on metadata and then read to EOF**, so the size limit applied to a number and
+   never to the bytes. The read is now taken through a capped reader and re-checked.
+4. **Resolve-then-reopen was two passes over a name.** `open_within` now opens once and asks the
+   descriptor for its type, size and link count, so what was checked is what is read.
+
+**Trap 45 — a guard's argument is not a proof of the guard.** Every one of those four survived
+because the module's own prose was persuasive: it named the attack it defeated, and the reader
+(its author) stopped there. Coverage was no help — this is trap 43 in a security dress. The
+cheap technique that found it is worth repeating: **write the bypass and run it.** A ten-line
+probe against the real function found in one minute what careful reading had missed for hours.
+For a rule that decides whether bytes escape, the standing states are: symlink · **hard link** ·
+directory symlink · `.git` as a file (a worktree) and as a directory · case-folded spellings ·
+the file growing between stat and read · a name that resolves to a different file than it names.
+
+**Measurement, and the two ways it was wrong.** 20.1b armed the editor budgets, taking the count
+from 3 of 13 to **5 of 13** measurable, with both p95s enforced because the leg emits raw samples.
+The first instrument resolved on `requestAnimationFrame` and reported keystroke p50 8.25 ms
+against an 8 ms budget — a *failing* budget that was 100% instrument, since a rAF median is half
+a 60 Hz frame (8.33 ms). Re-measured to the DOM mutation the real figure is **1.3 ms**. The
+open-file instrument was wrong twice over: the loop alternated two files, so eleven of twelve
+"opens" were react-query cache hits, and the wait polled for "any text", which the *outgoing*
+document also satisfies — it resolved synchronously before React committed. Rebuilt over twelve
+distinct files each waited for by its own marker, the honest number is **15.6 ms** against 40 ms.
+Had either flawed instrument been trusted, the response would have been optimising code that was
+already fast, or relaxing a budget that was being met.
+
+**Claims made true rather than edited away.** Three assertions in the commit messages were false
+and are now enforced instead of softened: the UI branches on every refusal variant behind a
+TypeScript `never` check, so adding a variant really does break the build; a measurement recorded
+against a different commit is now *discarded*, not merely annotated; and the "universal" refusal
+test iterates a list the compiler refuses to let fall behind, having previously covered nine of
+twelve variants — the three it missed being the three most recently added.
+
+**Rejected.** Routing editor reads through the sidecar (spends the 40 ms budget on IPC for bytes
+the OS has). A second file-read implementation for the editor (two implementations of one
+security rule). Mirroring `PathRefusal` into a parallel TS enum (a second copy of the vocabulary
+to keep in step). Sending the `TooLarge` byte counts over the wire (specta widened `f64` to
+`number | null`, a null Rust cannot emit — the numbers already ride in the message).
+
+**Known and NOT addressed here.** `tauri.conf.json` ships `security.csp: null` while
+THREAT-MODEL-V2.md T8 promises a CSP, in the webview that now holds a file-read primitive. And
+**no CI job runs the E2E suite at all**, so all 37 specs — including every editor test written
+for this phase — are Mac-only evidence. Both predate this work; both are recorded in the handoff
+as the next items rather than smuggled into a fix commit.

@@ -1,5 +1,5 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19; Phase 19 steps
-# all landed, phase NOT settled until CI is green — see §1)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19; Phase 19 COMPLETE
+# and CI-confirmed; Phase 20.1 + 20.1b COMPLETE and CI-confirmed; 20.2 next — see §1)
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
 older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
@@ -31,13 +31,17 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 
 ---
 
-## 1. Live state (2026-08-19 — **Phase 19's seven steps have all landed; the phase is NOT
-settled until CI is green on the tip**; Phase 20 next)
+## 1. Live state (2026-08-19 — **Phase 19 complete; Phase 20.1 + 20.1b complete; 20.2 next**)
 
-- **NOT everything is pushed.** Fifteen commits landed in the Phase 19 session
-  (`72dd048`…`5717c41`), then three docs commits (`a44f239`, `037ec90`, `b68f212`), and then
-  the trap-44 fix — which is **unpushed at the time of writing**. Check reality rather than
-  this sentence: `git rev-parse --short HEAD origin/main` and `git log origin/main..HEAD`.
+- **Everything through `2a0a998` is pushed and CI-green** (all seven jobs): Phase 19 including
+  the trap-44 fix (`191c91e`), and Phase 20.1 + 20.1b (`f1b3502`, `43fbb25`, `31a40cc`,
+  `453075b`, `2a0a998`). Check reality rather than this sentence, which ages the moment anything
+  lands: `git rev-parse --short HEAD origin/main` and `git log origin/main..HEAD`.
+- **Phase 20.1 + 20.1b are DONE** (ADR-0045). CodeMirror 6 behind `pathguard` — one enforcement
+  point the Phase 21 orchestrator reuses; the editor is reachable from a proved target; the §5
+  editor budgets are ARMED, so `perf_suite` reports **5 of 13** measurable (open file p50
+  15.6 ms, keystroke p50 1.3 ms, BOTH p95s enforced because the leg emits raw samples). Local
+  `make verify`: `MAKE_EXIT=0`, **1260 passed / 100.00%**, 37 E2E specs.
 - **v1 remains green.** The audit at the v2 kickoff: `make verify` exit 0, 1038 passed /
   100.00%; corpus 30/30 ×20; parity byte-identical; orphan 2.1 s; `bench_guard: PASS`. The suite
   has since grown to **1162+ tests, still 100.00%** on both denominators.
@@ -216,7 +220,22 @@ generation + gates, not discipline. When you touch ANY shape:
    machine, and confirm CI green on `5717c41`.
 1. **Settle the cold-launch perf signal** — `make bench` on an idle machine, then `make
    perf-gate`. Never re-baseline to make it green.
-2. **Phase 20** — the editor surface (CodeMirror 6 + Rust LSP multiplexer + F11). Details in §2.
+2. **Phase 20.2** — the Rust LSP multiplexer (language servers never live in the webview), then
+   **20.3** F11 inline completion. 20.1 (editor surface) and 20.1b (budgets armed) are DONE.
+   The phase exit gate still needs the `completion` budget (20.3 — it takes the count from 5 of
+   13 to 6 of 13) and the **input-storm test** (15 keys/s × 60 s, zero drops), which is NOT built
+   and must not be silently assumed met.
+2a. **Queued by the Phase 20.1 review (ADR-0045) — none done; the first matters most:**
+   - **No CI job runs the E2E suite.** `grep -rn "playwright\|test:e2e" .github/workflows/`
+     returns nothing, so all 37 specs — the editor surface, the contrast gates, the reachability
+     spec — are MAC-ONLY evidence. This session began with a Mac-green that did not travel; the
+     same exposure is still open.
+   - **`tauri.conf.json` ships `security.csp: null`** while THREAT-MODEL-V2.md T8 promises a CSP,
+     in the webview that now holds a file-read primitive.
+   - **The cold-launch baseline** needs one `make bench` on a genuinely quiet machine (every
+     measurement on 19 Aug was taken with ~25–30% background load from a Claude session). The A/B
+     settled the cause: the BASELINE COMMIT ITSELF benches at 0.3316 today — environment drift
+     (+11.7%), not code (+4.3%, inside the bar). Do NOT re-baseline under load.
 2b. **Queued by the trap-44 review (ADR-0044) — none of these are done:**
    - **A repo-wide gate for the trap-44 class.** Today only `test_perf_suite.py` proves the file
      it reads is committed; nothing stops the next test from using bare `Path.is_file()` on a repo
@@ -281,6 +300,7 @@ root) — additive stages need one end-to-end bug only they can find ·
 agent that mutates the shared tree races your commits — reviewers are read-only (§10) ·
 43 100% coverage proves which LINES ran, not which STATES were considered (§11) ·
 44 a test that reads a repo file must assert the file is COMMITTED (in HEAD, not the index), not merely present — local green is measured in a tree full of untracked build output, CI in a fresh checkout (§12) ·
+45 a guard's ARGUMENT is not a proof of the guard — write the bypass and RUN it; a hard link defeated a credential denylist whose own prose explained why it could not (§13) ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -439,3 +459,40 @@ HEAD-based form was checked against a depth-1 shallow clone in detached HEAD, wh
 - **No repo-wide mechanical gate for this class exists.** The fix pins the instance and its own
   file; it does not stop a new test elsewhere from using bare `is_file()`. That gate is queued in
   §4, not built — do not read "the class is pinned" anywhere; it is not.
+
+---
+
+## 13. Trap 45 — a guard's ARGUMENT is not a proof of the guard
+
+`pathguard` decides whether bytes may leave the disk. Its doc comment named the attack it
+defeated — "a symlink named `notes.txt` pointing at `.env` passes every lexical check ever
+written" — and explained that the denylist is therefore applied twice, to the requested path and
+again to the resolved one. The prose was persuasive, correct as far as it went, and stopped the
+reader (its author) from looking further.
+
+A hard link is that attack with the target removed. It IS the file: two directory entries, one
+inode, nothing to follow, and `canonicalize("notes.txt")` answers `"notes.txt"`, so both
+applications of the denylist see an innocent name. A ten-line probe against the real function
+printed
+
+    LEAKED SECRET VIA HARDLINK: "SECRET=hunter2"
+
+and a verifier reproduced it for all three denylist mechanisms (`.env` by segment, `.ssh/id_rsa`
+by segment, `server.pem` by suffix) while the symlink control was correctly refused — proving the
+defence covered symlinks only. Every line of the module had run. This is trap 43 in security
+clothes.
+
+**How to apply.**
+1. **Write the bypass and run it.** For any rule that decides whether data escapes, a probe
+   against the actual function is the cheapest real check there is. It found in one minute what
+   careful reading had missed for hours. Build it in a throwaway dir; delete it after.
+2. **When a rule cannot see a case, change the KIND of rule.** The fix was not a longer denylist:
+   no name-based rule can ever see a hard link. It is a different question — a file with more
+   than one name cannot be judged by the name it was requested under, so it is refused.
+3. **Enumerate states for the MEDIUM, not the feature.** For a filesystem guard the standing list
+   is: symlink · **hard link** · directory symlink · `.git` as a FILE (a worktree — Tempest's own
+   agent shadows are worktrees) and as a directory · case-folded spellings on a case-insensitive
+   filesystem · a file that grows between stat and read · a path resolving to a file other than
+   the one it names.
+4. A doc comment explaining why something is safe is a **claim**, and this project treats claims
+   as deliverables (trap 39). Test it like one.
