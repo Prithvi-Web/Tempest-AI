@@ -1,4 +1,4 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-18, v2 kickoff)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19, Phase 19 complete)
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
 older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
@@ -9,13 +9,24 @@ Phase 19 step ledger),
 foundations adopted from LibreChat **and the rejection table — read the rejections, they are
 load-bearing**), `docs/CRAFT.md` + `docs/POLISH.md` (the craft bar, 150 items),
 `THIRD_PARTY_LICENSES.md`, `docs/HANDOFF-PHASES.md` §2 (the DONE ledger — do not redo anything
-there) and its traps, `docs/DECISIONS.md` (ADR-0001..**0038**).
+there) and its traps, `docs/DECISIONS.md` (ADR-0001..**0043** — 0034–0043 are all v2).
 
-**The owner is a non-coder.** Plain English, copy-paste commands, verify by running the real
-app. **Subagents are FORBIDDEN** (owner, 15 Aug: "just build with one but go all out") —
-single agent, maximum depth. **Stop after every phase** for review; rebuild and reinstall the
-app to /Applications each phase. **The bar: 100% coverage, zero known defects, no red CI,
-ever. Never claim "done" without pasting real gate output.**
+**The owner is a non-coder.** Plain English, copy-paste commands, verify by running the real app.
+
+**Multi-agent workflows are ALLOWED, capped at TEN subagents** (owner, 18 Aug: *"you can start
+using a multi agent workflow to optimize everything and make it completely flawless"*, then
+*"don't use more than 10 subagents but make sure it is errorless"*). This reverses the 15 Aug
+"no subagents" rule. **Use them to REVIEW, not to author**: write each feature single-threaded in
+one coherent voice, then fan out to independent lenses (correctness, security/Laws, test quality)
+whose findings are **adversarially verified before being reported or acted on**. That is not
+ceremony — on Phase 19 it found five real defects in code with 100% coverage and a green
+`make verify` (ADR-0043, trap 43). **Reviewers get read-only instructions explicitly** (trap 42).
+
+**Build one feature at a time**, each landing flawless with its own gate output and a
+plain-English check-in naming the step, so the work survives across sessions.
+
+**The bar: 100% coverage, zero known defects, no red CI, ever. Never claim "done" without
+pasting real gate output** — and never weaken a gate to make it pass (v2 failure mode 2).
 
 ---
 
