@@ -8,6 +8,7 @@ pub mod commands;
 pub mod framing;
 pub mod generated;
 pub mod keychain;
+pub mod pathguard;
 pub mod supervisor;
 pub mod watcher;
 
