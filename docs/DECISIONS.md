@@ -1414,3 +1414,54 @@ Seven traversal shapes and a real symlink escape are pinned as tests.
 **Trap 38 interaction, noted for 19.4+:** these worktrees live under `.tempest`, and corpus mining
 judges skip-dirs relative to the mining root (ADR-0033). Nothing regressed here — mining a shadow
 is not yet wired — but the pin belongs with whatever first proves a shadow.
+
+## ADR-0039 — The agent journal: one record, append-only, ordered undo (2026-08-18, step 19.4)
+
+**Context.** L20 requires one-keystroke undo for any agent change, "journalled, not 'hopefully
+git has it'". That phrasing decides the design: git can only restore what was committed, and the
+state a user most wants back is usually the *uncommitted* one they had five seconds ago. So the
+journal stores **pre-images**, not refs.
+
+**Decision.** `tempest/agent/journal.py` — an append-only JSONL log plus a directory of
+pre-images per entry, with three properties that make undo trustworthy rather than merely present:
+
+1. **Append-only.** Undoing appends an `undo` record; it never rewrites a line already written.
+   The log is therefore a complete account of what happened *including the undos* — the same
+   tamper-evident posture L14 requires of the audit log.
+2. **Durable and stateless.** Every query reads disk, so undo survives a crash, a restart, or a
+   sleep. That is precisely the case an in-memory undo stack fails, and the case P2 (resumable
+   turns) will depend on.
+3. **Ordered.** `undo_last()` reverses the most recent *pending* entry. Out-of-order undo is
+   **refused with a reason**, because if two entries touched the same file, restoring the older
+   pre-image would silently overwrite the newer content. The refusal is pinned by a test that
+   asserts the tree did not move.
+
+**One journal, not two.** `shadow.accept` (19.3) was refactored to write through this journal
+instead of keeping its own pre-image copy. An acceptance is now an ordinary entry, so
+`undo_last()` reverses it exactly as it reverses an edit, and `shadow.revert()` is a thin alias
+for `journal.undo()`. There is one reversal path, which means there is one place for undo to be
+correct. The refactor also **deleted shadow.py's only `# pragma: no cover`** — its defensive
+rollback branch is now the journal's context manager, covered by a real test that raises
+mid-action and asserts the tree is unchanged and nothing lingers in the undo stack.
+
+**Command entries exist before the terminal does.** `KIND_COMMAND` is in the vocabulary now, with
+the same reversal mechanism as an edit, so F14's sandboxed terminal (Phase 23) journals its side
+effects the moment that surface lands rather than having reversibility retrofitted onto it —
+which is how the "terminal side effects Tempest initiated" half of L20 gets honoured.
+
+**The gate, met.** Phase 19's exit criterion is *"undo restores any state"*. That is a property
+test: randomised sequences of writes and deletes across overlapping files, twelve seeds, then
+undo everything and assert the tree matches byte-for-byte where it started. It covers the
+interleaving that breaks naive implementations — an entry deletes a file, a later entry
+recreates it — where LIFO restore is the only order that lands correctly.
+
+**Tolerant reader (trap 37's lesson, applied).** The log is a file on disk and can be
+hand-edited or truncated. Blank lines and non-object JSON records are skipped rather than
+thrown on, because a reader that crashes takes the user's undo away at exactly the moment they
+need it. Pinned by a test that appends junk and then undoes successfully.
+
+**Typing note.** JSON parsing uses `Any` at the boundary and narrows with `isinstance`, matching
+`settings.py`'s existing pattern — no `type: ignore` anywhere in the module.
+
+**Coverage:** `journal.py` 111 statements / 30 branches / **100%**, `shadow.py` 139 / 40 /
+**100%** after the refactor, 67 tests, zero pragmas.

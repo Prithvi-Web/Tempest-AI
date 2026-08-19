@@ -47,8 +47,8 @@ release, so the work survives across sessions. Progress ledger:
 | **19.1** | MIT `LICENSE` + attribution + `license_check` gate | ✅ **DONE** — ADR-0038 amendment |
 | **19.2** | Agent Tool Protocol — the fourth contract boundary (ADR-0035) | ✅ **DONE** |
 | **19.3** | Shadow-worktree manager (L19, ADR-0036) | ✅ **DONE** |
-| 19.4 | Journal + one-keystroke undo (L20) | next |
-| 19.5 | P1 multi-provider model layer, 12+ providers (L18, ADR-0037) | pending |
+| **19.4** | Journal + one-keystroke undo (L20) | ✅ **DONE** |
+| 19.5 | P1 multi-provider model layer, 12+ providers (L18, ADR-0037) | next |
 | 19.6 | P11 cost meter with hard caps at the router (L21) | pending |
 | 19.7 | `perf_suite --enforce-budgets` CI gate (L22) | pending |
 
@@ -73,8 +73,12 @@ release, so the work survives across sessions. Progress ledger:
       a snapshot is a real commit so the v1 engine proves it unchanged; acceptance is
       all-or-nothing with journalled pre-images, so it is reversible from day one. 167 stmts /
       52 branches / **100%**, 38 tests against real repositories, no pragmas.
-- [ ] **19.4 — journal/undo** (L20): generalise the acceptance journal to every agent action and
-      add the one-keystroke surface.
+- [x] **19.4 — journal + one-keystroke undo** (L20, ADR-0039): `tempest/agent/journal.py`.
+      Append-only JSONL + pre-images; durable across restart; `undo_last()` is LIFO and
+      out-of-order undo is refused with a reason. `shadow.accept` refactored to write through
+      it, so there is ONE journal and one reversal path (and shadow.py's last pragma is gone).
+      Gate met: *undo restores any state* as a 12-seed randomised property test. 100% on both
+      modules, 67 tests.
 - [ ] **Model layer** (L18, ADR-0037): keys in OS keychain; llama.cpp local runner; streaming
       with real upstream cancellation; graceful offline (L23).
 - [ ] **P1 multi-provider abstraction** — 12+ providers; adapter layer only, generated from

@@ -26,16 +26,15 @@ Scope: this is the staging substrate. The orchestrator that decides *what* to wr
 Phase 21.
 """
 
-import json
 import shutil
 import subprocess
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from tempest.agent import journal
+
 _AGENT_DIR = Path(".tempest") / "agent"
 _WORKTREES = _AGENT_DIR / "worktrees"
-_JOURNAL = _AGENT_DIR / "journal"
 _BRANCH_PREFIX = "tempest/agent/"
 #: git refuses to operate through these; a staged write must never reach repository internals.
 _FORBIDDEN_TOP = {".git"}
@@ -214,37 +213,22 @@ def accept(shadow: Shadow, *, files: list[str] | None = None) -> Acceptance:
             + ", ".join(sorted(conflicts))
         )
 
-    acceptance_id = uuid.uuid4().hex[:12]
-    journal_dir = shadow.repo / _JOURNAL / acceptance_id
-    (journal_dir / "pre").mkdir(parents=True, exist_ok=True)
-
-    # Phase 2 — journal every pre-image, then write. A failure mid-write rolls back from these.
-    pre_state: dict[str, bool] = {}
-    for rel in selected:
-        user_file = shadow.repo / rel
-        existed = user_file.is_file()
-        pre_state[rel] = existed
-        if existed:
-            dest = journal_dir / "pre" / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(user_file, dest)
-    (journal_dir / "manifest.json").write_text(
-        json.dumps({"id": acceptance_id, "files": selected, "existed": pre_state}, indent=2),
-        encoding="utf-8",
-    )
-
-    written: list[str] = []
-    try:
+    # Phase 2 — write through the agent journal (L20). There is exactly ONE journal: the same
+    # record every other agent action lands in, so `undo_last()` reverses an acceptance as
+    # naturally as it reverses an edit. The context manager captures pre-images before the first
+    # byte moves and rolls the whole changeset back if any copy fails.
+    entries = journal.Journal(shadow.repo)
+    with entries.record(
+        journal.KIND_ACCEPTANCE,
+        f"accepted {len(selected)} file(s) from shadow {shadow.task_id}",
+        selected,
+    ) as entry:
         for rel in selected:
             src, dst = shadow.path / rel, shadow.repo / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
-            written.append(rel)
-    except OSError as err:  # pragma: no cover — defensive; the rollback is pinned by unit test
-        _restore(shadow.repo, journal_dir, written, pre_state)
-        raise ShadowError(f"acceptance failed and was rolled back: {err}") from err
 
-    return Acceptance(id=acceptance_id, repo=shadow.repo, files=selected, journal_dir=journal_dir)
+    return Acceptance(id=entry.id, repo=shadow.repo, files=selected, journal_dir=entry.dir)
 
 
 def _user_moved_since_baseline(shadow: Shadow, rel: str) -> bool:
@@ -261,23 +245,14 @@ def _user_moved_since_baseline(shadow: Shadow, rel: str) -> bool:
     return current.rstrip("\n") != baseline_blob.rstrip("\n")
 
 
-def _restore(repo: Path, journal_dir: Path, files: list[str], existed: dict[str, bool]) -> None:
-    for rel in files:
-        target = repo / rel
-        if existed.get(rel):
-            shutil.copy2(journal_dir / "pre" / rel, target)
-        elif target.exists():
-            target.unlink()
-
-
 def revert(acceptance: Acceptance) -> None:
-    """Undo an acceptance exactly. Idempotent — undo must never become its own failure mode."""
-    manifest_path = acceptance.journal_dir / "manifest.json"
-    if not manifest_path.is_file():
-        return
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    _restore(acceptance.repo, acceptance.journal_dir, manifest["files"], manifest["existed"])
-    manifest_path.unlink()
+    """Undo an acceptance exactly (L20). Idempotent.
+
+    A thin alias for the journal's undo: an acceptance is an ordinary journal entry, so it is
+    also reachable from `undo_last()` alongside every other agent action. Keeping one reversal
+    path means there is one place for undo to be correct.
+    """
+    journal.Journal(acceptance.repo).undo(acceptance.id)
 
 
 def discard(shadow: Shadow) -> None:
