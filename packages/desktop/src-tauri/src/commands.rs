@@ -150,21 +150,47 @@ fn language_for(path: &str) -> Option<&'static str> {
     None
 }
 
-/// The language servers this host will run, from the environment. Absent by default.
-pub fn configured_servers() -> Vec<crate::lsp::ServerSpec> {
-    [("python", "TEMPEST_LSP_PYTHON"), ("typescript", "TEMPEST_LSP_TYPESCRIPT")]
-        .into_iter()
-        .filter_map(|(language, var)| {
-            let raw = std::env::var(var).ok()?;
-            let mut parts = raw.split_whitespace().map(str::to_string);
-            let program = parts.next().filter(|p| !p.is_empty())?;
-            Some(crate::lsp::ServerSpec {
-                language: language.to_string(),
-                program,
-                args: parts.collect(),
-            })
-        })
-        .collect()
+/// The app's data directory, as managed state, so the runner commands need not re-resolve it.
+pub struct DataDir(pub std::path::PathBuf);
+
+/// The editor's two runners as the settings screen sees them (Phase 20.6).
+///
+/// Host-local, like `ProjectFile` and for the same reason: nothing about which binary this host
+/// spawns for a hover exists in the Pydantic model, and minting a domain shape for a
+/// desktop-local capability would put a fiction in the contract.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn get_editor_runners(
+    data_dir: tauri::State<'_, DataDir>,
+) -> Result<crate::runners::EditorRunnersOut, SidecarFailure> {
+    Ok(crate::runners::describe(&data_dir.0))
+}
+
+/// Save both runners, and re-point the multiplexer at the new commands.
+///
+/// The running servers are swept rather than kept: a language server started from the OLD
+/// command must not go on answering hovers after the user has changed it, which would make the
+/// settings screen disagree with the process table — the same "a control that silently disagrees
+/// with reality is a lie" rule the engine settings screen follows. A killed server costs one
+/// relaunch on the next hover.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn update_editor_runners(
+    data_dir: tauri::State<'_, DataDir>,
+    lsp: tauri::State<'_, std::sync::Mutex<crate::lsp::Multiplexer>>,
+    runners: crate::runners::EditorRunners,
+) -> Result<crate::runners::EditorRunnersOut, SidecarFailure> {
+    crate::runners::save(&data_dir.0, &runners).map_err(|err| SidecarFailure {
+        code: -5,
+        message: format!("the editor settings could not be saved — {err}"),
+    })?;
+    let specs = crate::runners::server_specs(&data_dir.0);
+    let mut mux = lsp.lock().map_err(|_| SidecarFailure {
+        code: -5,
+        message: "the language-server multiplexer is unavailable".into(),
+    })?;
+    mux.reconfigure(specs);
+    Ok(crate::runners::describe(&data_dir.0))
 }
 
 /// Ask the user's local model for a completion (Phase 20.3d, F11).
@@ -175,9 +201,10 @@ pub fn configured_servers() -> Vec<crate::lsp::ServerSpec> {
 /// falls back on those too: a completion that misses its deadline is worse than no completion,
 /// because it lands under a cursor that has moved on.
 ///
-/// The model is named by `TEMPEST_LOCAL_MODEL` (and `TEMPEST_LOCAL_MODEL_ARGS`, space-separated)
-/// for now. A settings surface for it is NOT built — stated here rather than implied, because an
-/// undiscoverable feature is one nobody has.
+/// The model is named in Settings (`runners::EditorRunners::local_model`), or forced by
+/// `TEMPEST_LOCAL_MODEL` / `TEMPEST_LOCAL_MODEL_ARGS` for a launcher that sets them. Until
+/// Phase 20.6 the environment was the ONLY way, which made this an undiscoverable feature —
+/// i.e. one nobody has.
 ///
 /// `async` is load-bearing, not decoration. `#[tauri::command]` on its own is
 /// `ExecutionContext::Blocking` in tauri-macros 2.6.3, whose codegen runs the body INLINE in the
@@ -186,16 +213,12 @@ pub fn configured_servers() -> Vec<crate::lsp::ServerSpec> {
 /// the window for exactly as long as `localmodel.rs`'s doc comment says it refuses to.
 #[tauri::command(async)]
 #[specta::specta]
-pub fn local_completion(prompt: String, deadline_ms: u32) -> Option<String> {
-    let program = std::env::var("TEMPEST_LOCAL_MODEL").ok().filter(|p| !p.is_empty());
-    let spec = program.map(|program| crate::localmodel::ModelSpec {
-        program,
-        args: std::env::var("TEMPEST_LOCAL_MODEL_ARGS")
-            .unwrap_or_default()
-            .split_whitespace()
-            .map(str::to_string)
-            .collect(),
-    });
+pub fn local_completion(
+    data_dir: tauri::State<'_, DataDir>,
+    prompt: String,
+    deadline_ms: u32,
+) -> Option<String> {
+    let spec = crate::runners::model_spec(&data_dir.0);
     // The deadline the CALLER chose, clamped: a webview asking for a ten-minute completion would
     // hold a model process open long past any use for its answer.
     let deadline = std::time::Duration::from_millis(u64::from(deadline_ms).min(2_000));

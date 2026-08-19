@@ -1,7 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import type { EnvOverride, SettingsOut_Serialize, SyncReport } from "../generated/bindings";
+import type {
+  EditorRunners,
+  EnvOverride,
+  SettingsOut_Serialize,
+  SyncReport,
+} from "../generated/bindings";
 import {
   clearAiKey,
   exportDiagnostics,
@@ -9,8 +14,10 @@ import {
   setAiKey,
   syncPush,
   testAiKey,
+  updateEditorRunners,
   updateSettings,
   useAiKeyStatus,
+  useEditorRunners,
   useSettings,
 } from "../hooks";
 
@@ -84,6 +91,154 @@ function Toggle({
         </span>
       )}
     </div>
+  );
+}
+
+/** The editor's two runners (Phase 20.6).
+ *
+ * Both were environment-variable-only until now, which made them undiscoverable — and an
+ * undiscoverable feature is one nobody has. This is the whole of what the handoff called item 2
+ * of three: a place to type the command, a statement of whether it can be FOUND, and the same
+ * "forced by the environment" honesty the groups above already keep. */
+function EditorRunnersGroup() {
+  const runners = useEditorRunners();
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<EditorRunners | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const stored = draft ?? runners.data?.stored ?? null;
+  const forcedBy = (field: string): string | null =>
+    runners.data?.forced.find((o) => o.field === field)?.variable ?? null;
+  const statusOf = (field: string) => runners.data?.status.find((s) => s.field === field) ?? null;
+
+  async function save(next: EditorRunners) {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await updateEditorRunners(next);
+      setDraft(null);
+      await queryClient.invalidateQueries({ queryKey: ["editorRunners"] });
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : "the editor settings could not be saved");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const FIELDS: { key: keyof EditorRunners; label: string; hint: string; example: string }[] = [
+    {
+      key: "python_lsp",
+      label: "Python language server",
+      hint: "Powers hover in .py files.",
+      example: "pyright-langserver --stdio",
+    },
+    {
+      key: "typescript_lsp",
+      label: "TypeScript language server",
+      hint: "Powers hover in .ts, .tsx and .js files.",
+      example: "typescript-language-server --stdio",
+    },
+    {
+      key: "local_model",
+      label: "Local completion model",
+      hint: "Powers F11. Without it, F11 still works from the open document.",
+      example: "llama-cli -m /models/qwen.gguf",
+    },
+  ];
+
+  return (
+    <section className="settings-group" aria-labelledby="runners-heading">
+      <h2 id="runners-heading">Editor runners</h2>
+      <p className="group-note">
+        Programs on this machine that Tempest starts for you: a language server for hover, and a
+        local model for F11 completions. Both are optional and neither is bundled — they are
+        yours, they run locally, and nothing here is sent anywhere. Leave a box empty to turn
+        that runner off; the editor keeps working without it.
+      </p>
+
+      {runners.isError && (
+        <p className="yellow" role="alert">
+          {runners.error.message}
+        </p>
+      )}
+      {problem !== null && (
+        <p className="yellow" role="alert">
+          {problem}
+        </p>
+      )}
+
+      {stored !== null &&
+        FIELDS.map(({ key, label, hint, example }) => {
+          const variable = forcedBy(key);
+          const status = statusOf(key);
+          return (
+            <div key={key} className="setting-stack">
+              <label htmlFor={`runner-${key}`} className="setting-label">
+                {label}
+              </label>
+              <input
+                id={`runner-${key}`}
+                data-testid={`runner-${key}`}
+                type="text"
+                spellCheck={false}
+                autoComplete="off"
+                placeholder={example}
+                value={stored[key]}
+                disabled={busy || variable !== null}
+                onChange={(e) => setDraft({ ...stored, [key]: e.target.value })}
+              />
+              <p className="group-note" style={{ marginTop: 4, marginBottom: 0 }}>
+                {hint}{" "}
+                {variable !== null ? (
+                  <span className="forced" role="note">
+                    forced by {variable}
+                  </span>
+                ) : null}
+                {/* Whether the program can be FOUND, stated. "I typed it and nothing happened"
+                    is the failure this surface exists to prevent, and a missing binary looks
+                    exactly like a broken one from the outside. */}
+                {status !== null && status.command.trim() !== "" ? (
+                  <span
+                    data-testid={`runner-status-${key}`}
+                    className={status.found ? "dim" : "yellow"}
+                  >
+                    {" "}
+                    {status.found
+                      ? `found: ${status.command}`
+                      : `not found on this machine: ${status.command}`}
+                  </span>
+                ) : (
+                  <span data-testid={`runner-status-${key}`} className="dim">
+                    {" "}
+                    not configured
+                  </span>
+                )}
+              </p>
+            </div>
+          );
+        })}
+
+      <div className="keyrow" style={{ marginTop: 12 }}>
+        <button
+          data-testid="save-runners"
+          disabled={busy || draft === null}
+          onClick={() => void (draft !== null && save(draft))}
+        >
+          {busy ? "Saving…" : "Save runners"}
+        </button>
+        {draft !== null && (
+          <button disabled={busy} onClick={() => setDraft(null)}>
+            Discard
+          </button>
+        )}
+      </div>
+      <p className="group-note" style={{ marginTop: 10, marginBottom: 0 }}>
+        Saved to <span className="mono">{runners.data?.path ?? "the app data folder"}</span>.
+        Changing a language server stops the one already running, so the next hover starts the
+        one you named rather than the one you replaced.
+      </p>
+    </section>
   );
 }
 
@@ -431,6 +586,8 @@ export function SettingsView() {
           Open data folder
         </button>
       </section>
+
+      <EditorRunnersGroup />
 
       <section className="settings-group" aria-labelledby="privacy-heading">
         <h2 id="privacy-heading">Privacy</h2>

@@ -127,3 +127,34 @@ test("a diagnostic bundle is written locally, described, and revealable by bare 
   await page.getByRole("button", { name: "Open data folder" }).click();
   expect(await page.evaluate(() => window.__E2E__.revealed)).toEqual([revealed[0], null]);
 });
+
+test("the editor's runners have a home, and say whether they can be found", async ({ page }) => {
+  // Phase 20.6. Both runners were environment-variable-only, which the handoff named as one of
+  // three reasons Phase 20 could not be called complete: an undiscoverable feature is one nobody
+  // has, and the owner of this product does not launch apps from a shell with an env prefix.
+  await page.goto("/?view=settings");
+  await expect(page.getByRole("heading", { name: "Editor runners" })).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // A fresh install has none, and says so rather than showing an empty box with no explanation.
+  await expect(page.getByTestId("runner-status-python_lsp")).toHaveText(/not configured/);
+  await expect(page.getByTestId("runner-status-local_model")).toHaveText(/not configured/);
+
+  // Typing a command that does not exist is reported as such — "I typed it and nothing happened"
+  // is exactly the failure this surface exists to prevent.
+  await page.getByTestId("runner-python_lsp").fill("definitely-not-a-real-binary-xyz --stdio");
+  await page.getByTestId("save-runners").click();
+  await expect(page.getByTestId("runner-status-python_lsp")).toHaveText(
+    /not found on this machine/,
+  );
+
+  // ...and one that does exist is reported found.
+  await page.getByTestId("runner-python_lsp").fill("/bin/sh -c true");
+  await page.getByTestId("save-runners").click();
+  await expect(page.getByTestId("runner-status-python_lsp")).toHaveText(/found: \/bin\/sh -c true/);
+
+  // The value survives a reload, because a setting that does not persist is not a setting.
+  await page.reload();
+  await expect(page.getByTestId("runner-python_lsp")).toHaveValue("/bin/sh -c true");
+});

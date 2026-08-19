@@ -11,6 +11,7 @@ pub mod keychain;
 pub mod localmodel;
 pub mod lsp;
 pub mod pathguard;
+pub mod runners;
 pub mod supervisor;
 pub mod watcher;
 
@@ -77,6 +78,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::read_project_file,
             commands::local_completion,
             commands::lsp_hover,
+            commands::get_editor_runners,
+            commands::update_editor_runners,
         ])
         .events(tauri_specta::collect_events![
             commands::SidecarStateEvent,
@@ -97,9 +100,12 @@ pub fn run() {
             // lifetime. Managed state rather than a global so ONE thing owns them — NOT because
             // `Drop` runs at exit, which it does not (see `sweep_on_exit`); that belief is what
             // left language servers orphaned on every quit.
-            app.manage(std::sync::Mutex::new(lsp::Multiplexer::new(
-                commands::configured_servers(),
-            )));
+            app.manage(std::sync::Mutex::new(lsp::Multiplexer::new(runners::server_specs(
+                &data_dir,
+            ))));
+            // The data dir is managed so the runner commands can find the settings file without
+            // re-resolving it, and so a test can point them somewhere else.
+            app.manage(commands::DataDir(data_dir.clone()));
             let supervisor = Supervisor::new(SpawnConfig {
                 program,
                 args: vec![

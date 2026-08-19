@@ -10,6 +10,8 @@ import {
   type DiagnosticBundle,
   type LocalProveRequest,
   type RunCreated,
+  type EditorRunners,
+  type EditorRunnersOut,
   type SettingsIn_Deserialize,
   type SettingsOut_Serialize,
   type ProjectFile,
@@ -197,6 +199,26 @@ export function stopWatch(): Promise<WatchStatus> {
 
 export function startDemoProve(): Promise<RunCreated> {
   return unwrap("startDemoProve", commands.startDemoProve());
+}
+
+/** The editor's two runners (Phase 20.6). Host-local, like `readProjectFile` — there is no
+ * engine behind it, so it does not go through the domain-schema net; its shape is a Tauri-local
+ * type generated from `runners.rs` and checked by tsc. */
+export function useEditorRunners() {
+  return useQuery<EditorRunnersOut, SidecarError>({
+    queryKey: ["editorRunners"],
+    queryFn: async () => {
+      const result = await commands.getEditorRunners();
+      if (result.status === "error") throw new SidecarError(result.error);
+      return result.data;
+    },
+  });
+}
+
+export async function updateEditorRunners(runners: EditorRunners): Promise<EditorRunnersOut> {
+  const result = await commands.updateEditorRunners(runners);
+  if (result.status === "error") throw new SidecarError(result.error);
+  return result.data;
 }
 
 /** A refusal from `pathguard`, carrying the branchable reason as well as the sentence. */

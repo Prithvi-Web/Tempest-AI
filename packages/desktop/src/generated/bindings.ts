@@ -86,9 +86,10 @@ export const commands = {
 	 *  falls back on those too: a completion that misses its deadline is worse than no completion,
 	 *  because it lands under a cursor that has moved on.
 	 * 
-	 *  The model is named by `TEMPEST_LOCAL_MODEL` (and `TEMPEST_LOCAL_MODEL_ARGS`, space-separated)
-	 *  for now. A settings surface for it is NOT built — stated here rather than implied, because an
-	 *  undiscoverable feature is one nobody has.
+	 *  The model is named in Settings (`runners::EditorRunners::local_model`), or forced by
+	 *  `TEMPEST_LOCAL_MODEL` / `TEMPEST_LOCAL_MODEL_ARGS` for a launcher that sets them. Until
+	 *  Phase 20.6 the environment was the ONLY way, which made this an undiscoverable feature —
+	 *  i.e. one nobody has.
 	 * 
 	 *  `async` is load-bearing, not decoration. `#[tauri::command]` on its own is
 	 *  `ExecutionContext::Blocking` in tauri-macros 2.6.3, whose codegen runs the body INLINE in the
@@ -127,6 +128,24 @@ export const commands = {
 	lspHover: (repoPath: string, path: string, text: string, line: number, character: number) => typedError<{
 	contents: string,
 } | null, LspError>(__TAURI_INVOKE("lsp_hover", { repoPath, path, text, line, character })),
+	/**
+	 *  The editor's two runners as the settings screen sees them (Phase 20.6).
+	 * 
+	 *  Host-local, like `ProjectFile` and for the same reason: nothing about which binary this host
+	 *  spawns for a hover exists in the Pydantic model, and minting a domain shape for a
+	 *  desktop-local capability would put a fiction in the contract.
+	 */
+	getEditorRunners: () => typedError<EditorRunnersOut, SidecarFailure>(__TAURI_INVOKE("get_editor_runners")),
+	/**
+	 *  Save both runners, and re-point the multiplexer at the new commands.
+	 * 
+	 *  The running servers are swept rather than kept: a language server started from the OLD
+	 *  command must not go on answering hovers after the user has changed it, which would make the
+	 *  settings screen disagree with the process table — the same "a control that silently disagrees
+	 *  with reality is a lie" rule the engine settings screen follows. A killed server costs one
+	 *  relaunch on the next hover.
+	 */
+	updateEditorRunners: (runners: EditorRunners) => typedError<EditorRunnersOut, SidecarFailure>(__TAURI_INVOKE("update_editor_runners", { runners })),
 };
 
 /** Events */
@@ -812,6 +831,32 @@ export type DivergenceSummary = {
 	minimized_kwargs: string,
 	severity: Severity,
 	target_id: number,
+};
+
+/**
+ *  One runner, as the user typed it: a whole command line, split on whitespace at the point of
+ *  use exactly as the environment variables have always been.
+ */
+export type EditorRunners = {
+	/**  The Python language server command, e.g. `pyright-langserver --stdio`. */
+	python_lsp?: string,
+	/**  The TypeScript language server command, e.g. `typescript-language-server --stdio`. */
+	typescript_lsp?: string,
+	/**  The local completion model command, e.g. `llama-cli -m /models/x.gguf`. */
+	local_model?: string,
+};
+
+/**  Everything the settings screen needs in one round trip. */
+export type EditorRunnersOut = {
+	/**
+	 *  The STORED document — what the text boxes should contain, never the env overlay. Showing
+	 *  the effective value in an editable box would make a forced setting look editable.
+	 */
+	stored: EditorRunners,
+	forced: RunnerOverride[],
+	status: RunnerStatus[],
+	/**  Where the file lives, so "where are my settings" has an answer. */
+	path: string,
 };
 
 /**
@@ -1644,6 +1689,27 @@ export type RunSummary = {
 	status: RunStatus,
 	target_count: number,
 	verdict: Verdict | null,
+};
+
+/**  Which field an environment variable is forcing, and which variable it is. */
+export type RunnerOverride = {
+	/**  The field name as the UI knows it: `python_lsp`, `typescript_lsp`, `local_model`. */
+	field: string,
+	variable: string,
+};
+
+/**
+ *  Whether a configured command can actually be started.
+ * 
+ *  Reported per runner rather than inferred from a failed hover, because the two failures look
+ *  identical from the outside and only one of them is the user's to fix.
+ */
+export type RunnerStatus = {
+	field: string,
+	/**  The command line in EFFECT — the env var if one is forcing, else the stored value. */
+	command: string,
+	/**  True when the program resolves to something executable on this machine. */
+	found: boolean,
 };
 
 /**

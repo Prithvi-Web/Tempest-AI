@@ -24,6 +24,19 @@
   const revealed = []; // every reveal_in_data_dir argument, for the Settings spec to assert
   const hovered = []; // every lsp_hover the webview issues (Phase 20.5 reachability)
   let scriptedHover = null; // a spec may script ONE answer; null = behave as a fresh install
+  // Backed by sessionStorage so a SAVE survives a reload, which is the real command's observable
+  // contract (runners.rs writes a JSON file in the app data dir). The double models persistence
+  // because the app HAS persistence — unlike lsp_hover's old `ok(null)`, which modelled an
+  // answer the host never gives.
+  const RUNNERS_KEY = "__tempest_e2e_runners__";
+  const readRunners = () => {
+    try {
+      return { python_lsp: "", typescript_lsp: "", local_model: "",
+        ...JSON.parse(sessionStorage.getItem(RUNNERS_KEY) ?? "{}") };
+    } catch {
+      return { python_lsp: "", typescript_lsp: "", local_model: "" };
+    }
+  };
 
   window.__TAURI_INTERNALS__ = {
     transformCallback(callback) {
@@ -94,6 +107,27 @@
       // suppressing that would be hiding a real signal rather than fixing it.
       if (cmd === "local_completion") {
         return null;
+      }
+      // Host-side (commands.rs get/update_editor_runners — Phase 20.6): no sidecar behind them.
+      // The store is in-memory here; the REAL rules (env overrides win and are reported, a
+      // missing binary is reported as not found) are pinned in Rust where they live.
+      if (cmd === "get_editor_runners" || cmd === "update_editor_runners") {
+        let runners = readRunners();
+        if (cmd === "update_editor_runners") {
+          runners = { ...runners, ...args.runners };
+          sessionStorage.setItem(RUNNERS_KEY, JSON.stringify(runners));
+        }
+        return {
+          stored: runners,
+          forced: [],
+          status: ["python_lsp", "typescript_lsp", "local_model"].map((field) => ({
+            field,
+            command: runners[field] ?? "",
+            // `/bin/sh` is the one command this harness can honestly call resolvable.
+            found: (runners[field] ?? "").split(/\s+/)[0] === "/bin/sh",
+          })),
+          path: "/tmp/tempest-e2e/editor-runners.json",
+        };
       }
       // Host-side (commands.rs lsp_hover): no sidecar behind it, and no language server is
       // configured in this environment.

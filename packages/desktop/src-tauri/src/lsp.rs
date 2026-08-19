@@ -523,6 +523,17 @@ impl Multiplexer {
         self.running.len()
     }
 
+    /// Point this multiplexer at a new set of server commands (Phase 20.6 settings).
+    ///
+    /// Every running server is swept first. Keeping them would leave processes started from the
+    /// OLD command answering hovers after the user changed it — a settings screen disagreeing
+    /// with the process table, which is the same lie as a toggle that does not take effect. A
+    /// killed server costs exactly one relaunch on the next hover.
+    pub fn reconfigure(&mut self, specs: Vec<ServerSpec>) {
+        self.shutdown_all();
+        self.specs = specs;
+    }
+
     /// Stop every server.
     ///
     /// Called from the `RunEvent::Exit` handler in `lib.rs` — EXPLICITLY, not via `Drop`. On
@@ -1383,6 +1394,30 @@ while True:
         assert!(!is_fatal(&LspError::Unlaunchable { language: "p".into() }));
         assert!(!is_fatal(&LspError::NotAProject));
         assert!(!is_fatal(&LspError::Refused { refusal: PathRefusal::Absolute }));
+    }
+
+    #[test]
+    fn reconfiguring_sweeps_the_servers_started_from_the_old_command() {
+        // Phase 20.6: changing the command in Settings must not leave the previous binary
+        // answering hovers. A settings screen that disagrees with the process table is the same
+        // lie as a toggle that does not take effect.
+        let f = Fixture::new("reconfigure");
+        let mut mux = Multiplexer::new(vec![f.server("python", "ok")]);
+        mux.request("python", &f.root, "x", serde_json::json!({})).expect("the first server");
+        assert_eq!(mux.running_count(), 1);
+
+        mux.reconfigure(vec![]);
+        assert_eq!(mux.running_count(), 0, "the old server is swept, not kept");
+        assert_eq!(
+            mux.request("python", &f.root, "x", serde_json::json!({})),
+            Err(LspError::Unsupported { language: "python".into() }),
+            "and the new configuration is what is in force"
+        );
+
+        mux.reconfigure(vec![f.server("python", "ok")]);
+        mux.request("python", &f.root, "x", serde_json::json!({})).expect("the new server");
+        assert_eq!(mux.running_count(), 1);
+        mux.shutdown_all();
     }
 
     #[test]
