@@ -64,6 +64,20 @@ export const commands = {
 	 *  which is the same module Phase 21's `read_file` dispatch will use.
 	 */
 	readProjectFile: (repoPath: string, path: string, maxBytes: number | null) => typedError<ProjectFile, ProjectFileRefusal>(__TAURI_INVOKE("read_project_file", { repoPath, path, maxBytes })),
+	/**
+	 *  Ask the user's local model for a completion (Phase 20.3d, F11).
+	 * 
+	 *  Returns `null` rather than an error when there is simply no model configured — the expected
+	 *  state on a fresh install, and one the editor answers by falling back to its offline document
+	 *  source. Every other refusal is a real fact about a model that IS configured, and the caller
+	 *  falls back on those too: a completion that misses its deadline is worse than no completion,
+	 *  because it lands under a cursor that has moved on.
+	 * 
+	 *  The model is named by `TEMPEST_LOCAL_MODEL` (and `TEMPEST_LOCAL_MODEL_ARGS`, space-separated)
+	 *  for now. A settings surface for it is NOT built — stated here rather than implied, because an
+	 *  undiscoverable feature is one nobody has.
+	 */
+	localCompletion: (prompt: string, deadlineMs: number) => __TAURI_INVOKE<string | null>("local_completion", { prompt, deadlineMs }),
 };
 
 /** Events */

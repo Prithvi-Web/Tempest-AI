@@ -28,6 +28,7 @@ export default defineConfig({
         "src/router.ts",
         "src/editor/completionPolicy.ts",
         "src/editor/documentSource.ts",
+        "src/editor/modelSource.ts",
       ],
       thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
     },

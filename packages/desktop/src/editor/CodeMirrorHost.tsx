@@ -14,8 +14,8 @@ import { tags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import { useEffect, useRef } from "react";
 
-import { documentCompletionSource } from "./documentSource";
 import { inlineCompletion } from "./inlineCompletion";
+import { modelBackedSource } from "./modelSource";
 
 /**
  * Syntax colours as CSS VARIABLES, not literals.
@@ -68,10 +68,10 @@ export default function CodeMirrorHost({ path, text }: { path: string; text: str
         // naming is the embedder's job. Without this the editor is the only unlabelled control
         // in the app (WCAG 2.2 SC 4.1.2, Level A).
         EditorView.contentAttributes.of({ "aria-label": `Editor: ${path}` }),
-        // F11 inline completion (Phase 20.3). The source is the offline document completer;
-        // 20.3c adds a local model in front of it, and this stays the fallback — a completion
-        // engine that only works when a model is loaded stops working on a plane.
-        inlineCompletion(documentCompletionSource),
+        // F11 inline completion (Phase 20.3): the user's local model first, the offline
+        // document completer whenever it cannot answer in time. The fallback is not a
+        // degraded mode — it is what keeps F11 working on a plane.
+        inlineCompletion(modelBackedSource()),
       ],
     });
     const view = new EditorView({ state, parent: host.current });

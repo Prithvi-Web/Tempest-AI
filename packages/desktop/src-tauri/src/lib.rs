@@ -8,6 +8,7 @@ pub mod commands;
 pub mod framing;
 pub mod generated;
 pub mod keychain;
+pub mod localmodel;
 pub mod lsp;
 pub mod pathguard;
 pub mod supervisor;
@@ -73,6 +74,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::report_ui_error,
             commands::start_demo_prove,
             commands::read_project_file,
+            commands::local_completion,
         ])
         .events(tauri_specta::collect_events![
             commands::SidecarStateEvent,

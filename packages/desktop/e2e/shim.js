@@ -84,6 +84,15 @@
         revealed.push(name);
         return null;
       }
+      // Host-side (commands.rs local_completion): no sidecar behind it, and no local model in
+      // this environment. `null` is what the real command returns when none is configured — the
+      // expected state on a fresh install — so the editor exercises its FALLBACK path here,
+      // which is the one that has to work on a plane. Answering honestly also keeps the console
+      // clean: an unknown-command error from the bridge would fail the zero-issues bar, and
+      // suppressing that would be hiding a real signal rather than fixing it.
+      if (cmd === "local_completion") {
+        return null;
+      }
       // Host-side (commands.rs read_project_file): no sidecar behind it. The bridge does a real
       // read; the guard's rules live in Rust and are pinned there.
       if (cmd === "read_project_file") {

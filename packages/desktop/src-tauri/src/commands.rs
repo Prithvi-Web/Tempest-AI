@@ -87,6 +87,35 @@ impl From<crate::pathguard::PathRefusal> for ProjectFileRefusal {
     }
 }
 
+/// Ask the user's local model for a completion (Phase 20.3d, F11).
+///
+/// Returns `null` rather than an error when there is simply no model configured — the expected
+/// state on a fresh install, and one the editor answers by falling back to its offline document
+/// source. Every other refusal is a real fact about a model that IS configured, and the caller
+/// falls back on those too: a completion that misses its deadline is worse than no completion,
+/// because it lands under a cursor that has moved on.
+///
+/// The model is named by `TEMPEST_LOCAL_MODEL` (and `TEMPEST_LOCAL_MODEL_ARGS`, space-separated)
+/// for now. A settings surface for it is NOT built — stated here rather than implied, because an
+/// undiscoverable feature is one nobody has.
+#[tauri::command]
+#[specta::specta]
+pub fn local_completion(prompt: String, deadline_ms: u32) -> Option<String> {
+    let program = std::env::var("TEMPEST_LOCAL_MODEL").ok().filter(|p| !p.is_empty());
+    let spec = program.map(|program| crate::localmodel::ModelSpec {
+        program,
+        args: std::env::var("TEMPEST_LOCAL_MODEL_ARGS")
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(str::to_string)
+            .collect(),
+    });
+    // The deadline the CALLER chose, clamped: a webview asking for a ten-minute completion would
+    // hold a model process open long past any use for its answer.
+    let deadline = std::time::Duration::from_millis(u64::from(deadline_ms).min(2_000));
+    crate::localmodel::LocalModel::new(spec).complete(&prompt, deadline).ok()
+}
+
 /// Read one text file out of an open project, for the editor surface (Phase 20.1).
 ///
 /// This does NOT go through the sidecar. Every other command here forwards to Python, but §5
