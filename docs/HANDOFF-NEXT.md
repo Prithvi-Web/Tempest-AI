@@ -46,7 +46,7 @@ ever. Never claim "done" without pasting real gate output.**
   it serves** — branching before the Verdict Loop gives you a chat app; after it, a behavioral
   decision tree. Same code, different product.
 
-## 2. WHERE WE ARE: Phase 19 — steps 19.1 and 19.2 done; 19.3 is next
+## 2. WHERE WE ARE: Phase 19 — steps 19.1, 19.2 and 19.3 done; 19.4 is next
 
 **The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
 retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
@@ -59,11 +59,18 @@ licence is **MIT** and copying LibreChat code is authorized with attribution.
 via `export_agent_tools`, and the existing `verify-contract` diff already covers where they
 land — so four boundaries share one gate. **Contract only; dispatch is Phase 21.**
 
-**Step 19.3 is the shadow-worktree manager** (L19, ADR-0036): agent writes staged under
-`.tempest/agent/worktrees/<task-id>/` from the task baseline, never the user's checkout, with
-atomic acceptance into the working tree. **Watch the trap-38 interaction** — skip-dirs are
-judged relative to the mining root and these worktrees live under `.tempest`, so re-pin corpus
-mining when they land. The per-step ledger with states lives in `docs/PLAN-V2.md` Phase 19.
+**19.3 DONE** (`80ad33a`) — the shadow worktree, `tempest/agent/shadow.py`. It lives in the
+**engine, not Rust** (ADR-0036 amendment records why). Baseline via `git stash create` so the
+agent edits what the user actually sees without their tree being touched; a snapshot is a real
+commit so `prove(baseline, shadow)` needs no engine change; acceptance is all-or-nothing with
+journalled pre-images. 38 tests on real repos, 100% coverage, no pragmas.
+
+**Step 19.4 is the journal + one-keystroke undo** (L20): generalise `shadow.accept`'s
+pre-image journal to *every* agent action (including terminal side effects Tempest initiated)
+and add the undo surface. The acceptance journal at `.tempest/agent/journal/<id>/` is the seed —
+extend it, do not build a second one. **Watch the trap-38 interaction** when a shadow is first
+proved: skip-dirs are judged relative to the mining root and these worktrees live under
+`.tempest`. The per-step ledger lives in `docs/PLAN-V2.md` Phase 19.
 
 ### The retag: what the owner does (I have no push credential — trap 13)
 
@@ -109,7 +116,7 @@ generation + gates, not discipline. When you touch ANY shape:
 ## 4. Remaining work, in recommended order
 
 0. **The remote retag** (§2) — the owner's three GitHub steps, then watch `release.yml`.
-1. **Continue Phase 19 at step 19.3** (shadow worktrees). The ledger is in `PLAN-V2.md`.
+1. **Continue Phase 19 at step 19.4** (journal + undo). The ledger is in `PLAN-V2.md`.
 2. **Answer the still-open questions as their phase arrives** (`docs/QUESTIONS.md`). None
    blocks 19.2. The one to settle soonest is **QV1**, because it decides whether an engine
    proof-rate wave precedes Phase 21:
