@@ -12,10 +12,12 @@ endpoint for a symbol name and got nothing back for symbols Tempest had watched 
 """
 
 import re
+from collections.abc import Sequence
 from typing import Annotated
 
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import Row
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tempest.model import DivergenceClass, Severity
@@ -112,6 +114,48 @@ def _final_segment_pattern(symbol: str) -> str:
     return f"%.{escaped}"
 
 
+def _symbol_hits(rows: Sequence[Row[tuple[Divergence, Target]]]) -> list[SymbolDivergence]:
+    """Rows to schema, in a SYNC helper — which is trap 36's remedy, applied literally.
+
+    SQLAlchemy's async layer crosses a greenlet inside `session.execute`, and coverage.py
+    mis-attributes the statement that follows the crossing in the same frame. Written inline
+    after the await — in every arrangement tried, including the exact shape of `_search_fts`
+    above — the mapping reported as never executed while a mutation of it failed seven passing
+    tests. So there is no statement after the crossing: `_by_symbol` folds the await into its
+    own return, and the mapping runs here, in a frame no greenlet ever crossed.
+    """
+    return [
+        SymbolDivergence(
+            divergence_id=divergence.id,
+            target_id=divergence.target_id,
+            run_id=target.run_id,
+            module=target.module,
+            qualname=target.qualname,
+            divergence_class=divergence.divergence_class,
+            severity=divergence.severity,
+            detail=divergence.detail,
+        )
+        for divergence, target in rows
+    ]
+
+
+async def _by_symbol(session: AsyncSession, symbol: str, limit: int) -> list[SymbolDivergence]:
+    """Divergences whose target's qualname IS `symbol`, or ends in `.symbol`."""
+    query = (
+        sa.select(Divergence, Target)
+        .join(Target, Target.id == Divergence.target_id)
+        .where(
+            sa.or_(
+                Target.qualname == symbol,
+                Target.qualname.like(_final_segment_pattern(symbol), escape="\\"),
+            )
+        )
+        .order_by(Divergence.id.asc())
+        .limit(limit)
+    )
+    return _symbol_hits((await session.execute(query)).all())
+
+
 @router.get(
     "/v1/symbols/divergences",
     operation_id="divergencesForSymbol",
@@ -134,36 +178,7 @@ async def divergences_for_symbol(
     """
     if not symbol:
         return SymbolDivergences(symbol=symbol, hits=[])
-    rows = (
-        await session.execute(
-            sa.select(Divergence, Target)
-            .join(Target, Target.id == Divergence.target_id)
-            .where(
-                sa.or_(
-                    Target.qualname == symbol,
-                    Target.qualname.like(_final_segment_pattern(symbol), escape="\\"),
-                )
-            )
-            .order_by(Divergence.id.asc())
-            .limit(limit)
-        )
-    ).all()
-    return SymbolDivergences(
-        symbol=symbol,
-        hits=[
-            SymbolDivergence(
-                divergence_id=divergence.id,
-                target_id=divergence.target_id,
-                run_id=target.run_id,
-                module=target.module,
-                qualname=target.qualname,
-                divergence_class=divergence.divergence_class,
-                severity=divergence.severity,
-                detail=divergence.detail,
-            )
-            for divergence, target in rows
-        ],
-    )
+    return SymbolDivergences(symbol=symbol, hits=await _by_symbol(session, symbol, limit))
 
 
 @router.get(
