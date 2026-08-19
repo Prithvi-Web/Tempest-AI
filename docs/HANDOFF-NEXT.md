@@ -224,6 +224,13 @@ with whether the program can be FOUND stated rather than left to a silent failur
   the only build in which tauri enforces it is a bundled one CI never produces, and the E2E suite
   runs against a vite origin with no CSP header. A build-time assertion that the bundled
   `index.html` carries the policy is the cheap first step.
+- **The orphan gate covers the SIDECAR only.** `tempest.dev.orphan_check` detects survivors with
+  `pgrep -f tempest-server`, so it cannot see a leaked language server — which is exactly why
+  the Phase 20 review's orphan finding went unnoticed by a gate that had been green for months.
+  The language-server sweep is instead proved in Rust, by
+  `killing_a_server_reaps_the_grandchildren_it_spawned` against a real shim subprocess, with
+  `sweep_on_exit` as the production caller. Extending `orphan_check` to configure a fake server
+  and drive one hover before the SIGKILL would close the gap properly; it is not built.
 - **`update_editor_runners` chooses a binary this host later spawns.** Nothing routes model
   output into settings today and the CSP forbids injected script; that is the whole mitigation,
   and it is written down (ADR-0046) rather than assumed.
