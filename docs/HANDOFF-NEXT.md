@@ -1,5 +1,5 @@
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19; Phase 19 COMPLETE
-# and CI-confirmed; Phase 20.1 + 20.1b COMPLETE and CI-confirmed; 20.2 next — see §1)
+# and CI-confirmed; Phase 20 steps 20.1–20.3e ALL LANDED and pushed; see §1 for what is NOT done)
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
 older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
@@ -31,12 +31,21 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 
 ---
 
-## 1. Live state (2026-08-19 — **Phase 19 complete; Phase 20.1 + 20.1b complete; 20.2 next**)
+## 1. Live state (2026-08-19 — **Phase 19 complete; Phase 20's steps all landed; three things
+still open before Phase 20 can be CALLED complete — read §1a**)
 
 - **Everything through `2a0a998` is pushed and CI-green** (all seven jobs): Phase 19 including
   the trap-44 fix (`191c91e`), and Phase 20.1 + 20.1b (`f1b3502`, `43fbb25`, `31a40cc`,
   `453075b`, `2a0a998`). Check reality rather than this sentence, which ages the moment anything
   lands: `git rev-parse --short HEAD origin/main` and `git log origin/main..HEAD`.
+- **Phase 20 steps 20.1 → 20.3e are all landed and pushed** (`origin/main == 05eb5c9`).
+  20.1 editor surface · 20.1b budgets armed · 20.2 LSP multiplexer + handshake + hover dispatch ·
+  20.3a completion policy · 20.3b ghost text + offline source · 20.3c completion budget + input
+  storm · 20.3d local model runner + fallback · 20.3e behavioural risk indicator.
+- **The §5 editor budgets are MET and the count is 6 of 13**: open file p50 15.4 ms (bar 40),
+  keystroke p50 1.3 ms (bar 8), completion p50 4.1 ms (bar 120), all three p95s inside their
+  bars. The input-storm test (900 keys at 15/s, zero drops, order-exact) passes. Those were
+  Phase 20's stated exit gate.
 - **Phase 20.1 + 20.1b are DONE** (ADR-0045). CodeMirror 6 behind `pathguard` — one enforcement
   point the Phase 21 orchestrator reuses; the editor is reachable from a proved target; the §5
   editor budgets are ARMED, so `perf_suite` reports **5 of 13** measurable (open file p50
@@ -119,6 +128,33 @@ confirm with `git log origin/main..HEAD`):
 | 19.6 | Cost meter — caps at the router (`inference/cost.py`) | `076c42d` |
 | 19.7 | §5 budgets as a gate (`dev/perf_suite.py`, `make perf-gate`) | `6cc3acb` |
 | fixes | **5 defects found by the review workflow**, all test-first | `5717c41` |
+
+### 1a. WHAT IS NOT DONE — read this before calling Phase 20 complete
+
+Three things, in priority order. None is hidden in a comment; they are here because a phase
+called complete while any of them stands would be the overstatement ADR-0044 forbids.
+
+1. **`lsp_hover` IS NOT REACHABLE FROM THE UI.** The command exists, is typed, is contract-
+   generated, and is tested in Rust (18 lsp tests) — and **nothing in the webview calls it**.
+   This is the exact defect the Phase 20.1 review found in the editor itself ("the editor surface
+   has no way in"), repeated one layer up. A CodeMirror hover tooltip wired to `commands.lspHover`
+   is the missing piece. Until then the multiplexer is a substrate nobody can use.
+2. **NO SETTINGS SURFACE for either runner.** Language servers come from `TEMPEST_LSP_PYTHON` /
+   `TEMPEST_LSP_TYPESCRIPT`; the local model from `TEMPEST_LOCAL_MODEL` (+ `_ARGS`). Env vars
+   only. An undiscoverable feature is one nobody has.
+3. **THE PHASE 20 REVIEW WAS NEVER RUN.** Every earlier phase ended with a multi-lens
+   adversarially-verified review, and each one found real defects in code that had a green
+   `make verify` — the Phase 20.1 review found a HARD-LINK CREDENTIAL LEAK (trap 45). 20.2's
+   handshake/dispatch, 20.3's policy/ghost-text/model-runner/risk-indicator, and the CSP have had
+   NO such review. Do this before writing an ADR that says Phase 20 is done.
+
+Also still open, carried: **the cold-launch baseline** needs one `make bench` on a machine with
+NO Claude session running (every measurement on 19 Aug carried ~25–30% background load). The A/B
+already settled the cause — the baseline commit itself benches at 0.3316 today, so it is
+environment drift (+11.7%), not code (+4.3%, inside the bar). Do NOT re-baseline under load.
+
+And: **no ADR exists for Phase 20 as a whole.** ADR-0045 covers 20.1/20.1b only. 20.2 and 20.3
+are recorded in commit messages, not in `docs/DECISIONS.md`.
 
 ### FIRST TASK for the next session — verify, then choose
 
