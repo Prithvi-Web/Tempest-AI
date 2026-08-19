@@ -46,7 +46,7 @@ ever. Never claim "done" without pasting real gate output.**
   it serves** — branching before the Verdict Loop gives you a chat app; after it, a behavioral
   decision tree. Same code, different product.
 
-## 2. WHERE WE ARE: Phase 19 — steps 19.1–19.5 done; 19.6 is next
+## 2. WHERE WE ARE: Phase 19 — steps 19.1–19.6 done; 19.7 is next
 
 **The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
 retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
@@ -79,12 +79,19 @@ streaming cancellation (the peer observes a broken pipe, so the connection genui
 `provider_matrix --min-providers 12` is in `make verify`, runs **offline**, and exercises all
 16 request paths against real loopback peers.
 
-**Step 19.6 is P11 — the cost meter** (L21): live token/dollar counters per task/session/day,
-a pre-flight estimate above a user-set threshold, and **hard caps enforced at the ROUTER, not
-the UI** (a UI-enforced cap is not a cap). `inference.Usage` already carries the provider's own
-token counts from both wires — that is the input; the meter is what turns it into dollars,
-budgets, and refusals. Extend P11 with **cost-per-verified-outcome** once F21 exists (a metric
-no competitor can compute). Gate: accurate to ±2% against provider-reported usage.
+**19.6 DONE** (`076c42d`) — the cost meter, `tempest/inference/cost.py` (ADR-0041). Caps are
+checked and the ledger appended **under one lock**, so passing the gate and spending are one act
+(8 threads against a cap admitting 2 → exactly 2 land). Ships **no price list**: tokens measured
+from the provider's own usage, dollars only from a user-supplied rate, and a dollar cap with no
+rate **raises** rather than passing.
+
+**Step 19.7 is the last of Phase 19: the perf gate** (L22) — encode the §5 budget table as
+`tempest.dev.perf_suite --enforce-budgets`, failing on >10% regression. Build on what exists:
+`tempest.dev.bench` already measures cold launch, list-10k, 5 MB observation, idle RSS and idle
+CPU, and `bench_guard --max-regression 15` already compares against a committed per-platform
+baseline (`bench/bench.json`). 19.7 is mostly **widening that to the §5 table and wiring it into
+CI**, not building from scratch. Budgets that cannot yet be measured (editor, agent, debugger —
+those surfaces do not exist) must be reported as **not-yet-measurable rather than passing**.
 
 **Also queued: 19.5b** — migrate `harness/llm.py` and `report/narrative.py` onto
 `tempest/inference/`, dropping the `anthropic` SDK so there is ONE model path. Deliberately not
@@ -134,7 +141,7 @@ generation + gates, not discipline. When you touch ANY shape:
 ## 4. Remaining work, in recommended order
 
 0. **The remote retag** (§2) — the owner's three GitHub steps, then watch `release.yml`.
-1. **Continue Phase 19 at step 19.6** (P11 cost meter). The ledger is in `PLAN-V2.md`.
+1. **Finish Phase 19 at step 19.7** (perf gate). The ledger is in `PLAN-V2.md`.
 2. **Answer the still-open questions as their phase arrives** (`docs/QUESTIONS.md`). None
    blocks 19.2. The one to settle soonest is **QV1**, because it decides whether an engine
    proof-rate wave precedes Phase 21:
@@ -229,3 +236,28 @@ inside the real tree; renamed to `tempest/inference/`.
 **The rehearsal technique is still right** (drafting outside the repo is how these steps stay
 safe during a coverage run) — but it proves *logic*, never *collisions*. Before adopting a new
 top-level module name, check the tree it will live in: `ls packages/engine/src/tempest/`.
+
+---
+
+## 10. Trap 42 — a REVIEW agent that mutates the shared tree races your commits
+
+The Phase-19 review workflow (4 lenses, ADR-0041 era) included a test-quality lens asked to
+determine *"would this test still pass if the behaviour it names were broken?"*. The honest way
+to answer that is mutation testing — so the agent **edited `agent/shadow.py` in the real working
+tree**, moved the conflict check out of pre-validation, ran the tests, and restored the file.
+Correct technique, correct result, and it left no trace.
+
+But it ran **concurrently with the main agent committing 19.6**. For roughly a minute
+`git status` showed a semantic change nobody had authored. Committing with `git add -A` in that
+window would have silently shipped a mutation that contradicts ADR-0036 (validate the whole
+changeset before a byte is written) — and the tests would still have passed, because the
+journal's rollback masks it.
+
+**Rules, learned the cheap way:**
+1. **Review agents get read-only instructions, explicitly** — the verifier prompts said "do NOT
+   edit any file"; the reviewer prompts did not, and that gap is the whole story.
+2. A lens that genuinely needs to mutate code gets `isolation: 'worktree'` so it mutates its own
+   copy.
+3. **Never `git add -A`** while a workflow is running; stage the exact paths you authored
+   (which is what saved this commit).
+4. If `git status` shows a change you did not write, **stop and diff it** before anything else.
