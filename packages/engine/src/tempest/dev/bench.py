@@ -11,6 +11,7 @@ supervises, minus PyInstaller freezing):
 - `idle_cpu_pct`       — CPU over a 5 s idle window
 - `open_file_ms`       — editor: request → document on screen (desktop E2E, Phase 20.1b)
 - `keystroke_ms`       — editor: keydown → the frame that shows it (desktop E2E, Phase 20.1b)
+- `completion_ms`      — editor: F11 → ghost text on screen (desktop E2E, Phase 20.3c)
 
 The last two are WEBVIEW facts and cannot be measured from here: they come from
 `bench/editor-metrics.json`, which the Playwright leg writes (`make bench-editor`). When that
@@ -173,7 +174,7 @@ def _editor_measurements(
 
     metrics: dict[str, float] = {}
     samples: dict[str, list[float]] = {}
-    for name in ("open_file_ms", "keystroke_ms"):
+    for name in ("open_file_ms", "keystroke_ms", "completion_ms"):
         series: Any = raw.get(name)
         if not isinstance(series, list):
             continue

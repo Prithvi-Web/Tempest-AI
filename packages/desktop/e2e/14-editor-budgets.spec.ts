@@ -46,7 +46,14 @@ async function bigProject() {
   await mkdir(join(repo, "src"), { recursive: true });
   for (let n = 0; n < OPENS; n++) {
     const body = Array.from({ length: 10_000 }, (_, i) => `def f_${i}(x):\n    return x + ${i}`);
-    await writeFile(join(repo, "src", `m${n}.py`), `# MARKER_${n}\n${body.join("\n")}`, "utf8");
+    // The trailing partial identifier gives F11 something real to complete: `calc` resolves to
+    // `calculateTotal`, which the body defines. A completion source with nothing to find would
+    // measure the machinery answering "no", not the machinery answering.
+    await writeFile(
+      join(repo, "src", `m${n}.py`),
+      `# MARKER_${n}\ndef calculateTotal(items):\n    return sum(items)\n${body.join("\n")}\ncalc`,
+      "utf8",
+    );
   }
   return repo;
 }
@@ -158,6 +165,59 @@ test("measures the §5 editor budgets and writes them for perf_suite @bench", as
     "every keystroke sample is a positive duration",
   ).toBe(true);
 
+  // ---- inline completion (F11): request → suggestion on screen -----------------------------
+  // §5 budgets this at p50 120 ms / p95 300 ms. Measured IN-PAGE, from the keydown's own
+  // timestamp to the mutation that puts ghost text in the DOM. Driving it from Playwright's side
+  // would time the CDP round trip too, and 120 ms cannot afford the instrument — the same
+  // mistake the keystroke metric made with requestAnimationFrame.
+  //
+  // A fresh document first: the keystroke section above typed 60 characters onto the end of the
+  // file, so the partial identifier the source completes no longer existed. The first version
+  // measured nothing and its guard correctly refused to record a single sample rather than
+  // emitting zeros — which is why this is a real number and not an averaged artefact.
+  await page.goto(url(repo, "src/m0.py"));
+  await expect(page.getByTestId("editor-host").locator(".cm-content")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByTestId("editor-host").locator(".cm-content").click();
+  await page.keyboard.press("ControlOrMeta+End");
+
+  await page.evaluate(() => {
+    const w = window as unknown as { __completions__: number[]; __asked__: number | null };
+    w.__completions__ = [];
+    w.__asked__ = null;
+    const host = document.querySelector('[data-testid="editor-host"]');
+    if (host === null) throw new Error("no editor host");
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "F11") w.__asked__ = event.timeStamp;
+      },
+      true,
+    );
+    new MutationObserver(() => {
+      if (w.__asked__ === null) return;
+      if (document.querySelector('[data-testid="ghost-text"]') === null) return;
+      w.__completions__.push(performance.now() - w.__asked__);
+      w.__asked__ = null;
+    }).observe(host, { childList: true, subtree: true });
+  });
+
+  for (let n = 0; n < 15; n++) {
+    await page.keyboard.press("F11");
+    await expect(page.getByTestId("ghost-text")).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("ghost-text")).toHaveCount(0);
+  }
+  const completionSamples = await page.evaluate(
+    () => (window as unknown as { __completions__: number[] }).__completions__,
+  );
+
+  expect(
+    completionSamples.length,
+    "completions must actually appear to be measurable",
+  ).toBeGreaterThanOrEqual(5);
+
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" })
     .trim();
   mkdirSync(dirname(OUT), { recursive: true });
@@ -167,7 +227,11 @@ test("measures the §5 editor budgets and writes them for perf_suite @bench", as
       {
         commit,
         measured_at: new Date().toISOString(),
-        samples: { open_file_ms: openSamples, keystroke_ms: keySamples },
+        samples: {
+          open_file_ms: openSamples,
+          keystroke_ms: keySamples,
+          completion_ms: completionSamples,
+        },
       },
       null,
       2,

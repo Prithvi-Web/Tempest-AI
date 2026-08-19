@@ -91,7 +91,16 @@ BUDGETS: tuple[PerfBudget, ...] = (
         metric="keystroke_ms",
         phase="measured by the desktop E2E leg: `make bench-editor`",
     ),
-    PerfBudget("completion", "Inline completion (F11)", 120, 300, "ms", phase="Phase 20 (F11)"),
+    # Phase 20.3c armed this: F11 exists, so "no surface measures this yet" stopped being true.
+    PerfBudget(
+        "completion",
+        "Inline completion (F11)",
+        120,
+        300,
+        "ms",
+        metric="completion_ms",
+        phase="measured by the desktop E2E leg: `make bench-editor`",
+    ),
     PerfBudget("search", "Codebase search (F13)", 150, 400, "ms", phase="Phase 22 (F13)"),
     PerfBudget(
         "agent_first_token", "Agent first token", 400, 1000, "ms", phase="Phase 21 (orchestrator)"

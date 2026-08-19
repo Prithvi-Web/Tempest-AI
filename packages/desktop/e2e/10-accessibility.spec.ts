@@ -47,8 +47,14 @@ test("prefers-reduced-motion kills the view transition", async ({ page }) => {
     .locator("main")
     .evaluate((el) => getComputedStyle(el).animationName);
   expect(animation).toBe("none");
-  // The default (no preference) keeps the 180ms view-in — motion exists, it just yields.
-  await page.emulateMedia({ reducedMotion: null });
+  // The no-preference case keeps the 180ms view-in — motion exists, it just yields.
+  //
+  // `reducedMotion: null` was used here and meant "inherit the SYSTEM default", which made the
+  // assertion depend on an OS setting the test does not control. It passed on the author's Mac
+  // and failed the first time it ever ran on a fresh CI runner — found the day the E2E suite was
+  // added to CI, which is the entire reason it was added (trap 44). Naming the state explicitly
+  // is what makes this a test about the stylesheet rather than about the machine.
+  await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   const restored = await page
     .locator("main")

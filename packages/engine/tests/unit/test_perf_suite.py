@@ -80,8 +80,7 @@ class TestUnmeasurableIsNeverPassing:
         report = ps.evaluate(_metrics(), None, None)
         unmeasurable = [r for r in report.rows if r.p50_state == ps.NOT_MEASURABLE]
         assert {r.budget.key for r in unmeasurable} == {
-            "completion",  # Phase 20 (F11) — the next one to arrive
-            "search",  # Phase 22 (F13)
+            "search",  # Phase 22 (F13) — the next one to arrive
             "agent_first_token",  # Phase 21 (orchestrator)
             "incremental_proof",  # Phase 26 (F18)
             "full_proof_10_files",  # needs a 10-file fixture PR harness
@@ -342,3 +341,20 @@ class TestCli:
         over = _metrics(open_file_ms=41.0, keystroke_ms=7.0)
         report = ps.evaluate(over, None, None)
         assert any("open_file" in f for f in report.failures), report.failures
+
+    def test_all_three_editor_budgets_arm_together(self) -> None:
+        """20.3c armed the third. With all three measured the count is 6 of 13.
+
+        The number is the honest definition of Phase 20's progress, which is why it is asserted
+        rather than described: it cannot move because someone edited a comment.
+        """
+        full = _metrics(open_file_ms=15.6, keystroke_ms=1.3, completion_ms=40.0)
+        report = ps.evaluate(full, None, None)
+        assert report.measured == 6
+        assert "6 of 13" in ps.render(report)
+        assert report.failures == [], report.failures
+
+    def test_a_completion_over_budget_fails_like_any_other(self) -> None:
+        over = _metrics(open_file_ms=15.6, keystroke_ms=1.3, completion_ms=121.0)
+        report = ps.evaluate(over, None, None)
+        assert any("completion" in f for f in report.failures), report.failures
