@@ -129,6 +129,26 @@ confirm with `git log origin/main..HEAD`):
 | 19.7 | §5 budgets as a gate (`dev/perf_suite.py`, `make perf-gate`) | `6cc3acb` |
 | fixes | **5 defects found by the review workflow**, all test-first | `5717c41` |
 
+### 1b. The last local `make verify` was RED for an INFRASTRUCTURE reason — re-run it clean
+
+`make verify` on `05eb5c9` ended `MAKE_EXIT=2`, and the reason is not a defect:
+
+```
+1262 passed, 3 warnings in 618.43s
+FAIL Required test coverage of 100.0% not reached. Total coverage: 0.00%
+Couldn't use data file '.../.coverage': no such table: tracer
+```
+
+**Zero tests failed.** The `.coverage` SQLite database was left 0 bytes, so the report could not
+be generated and the gate failed at 0.00% — a corrupt measurement, not a measured failure. The
+empty file was deleted at hand-off (it would have poisoned the next run too), so a fresh
+`make verify` is all that is needed. Do NOT read that 0.00% as a coverage regression, and do not
+"fix" anything on the strength of it: re-run first, then believe the number.
+
+Watch for it recurring. If it does, the cause is worth finding rather than deleting — a coverage
+database that empties itself mid-run is exactly the kind of thing that would eventually report a
+FALSE 100% instead of a false 0%, and only one of those two is self-announcing.
+
 ### 1a. WHAT IS NOT DONE — read this before calling Phase 20 complete
 
 Three things, in priority order. None is hidden in a comment; they are here because a phase
