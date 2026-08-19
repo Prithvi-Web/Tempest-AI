@@ -1,4 +1,4 @@
-import { useGetTarget } from "../hooks";
+import { useGetRun, useGetTarget } from "../hooks";
 import {
   ClassificationChip,
   VerdictChip,
@@ -8,14 +8,19 @@ import {
   severityLabel,
 } from "../vocabulary";
 
-import type { Route } from "../router";
+import { routeHref, type Route } from "../router";
 
 export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) => void }) {
   const target = useGetTarget(id);
+  // The run carries the repository this target was proved in, the target carries the file inside
+  // it. Both are needed to open the source, and no view held them together — which is why the
+  // editor shipped with no way in except a hand-typed URL.
+  const run = useGetRun(target.data?.run_id ?? 0);
 
   if (target.isPending) return <p className="dim">loading target #{id}…</p>;
   if (target.isError) return <p className="yellow">could not load target #{id}</p>;
   const t = target.data;
+  const repo = run.data?.repo;
   // float-over-JSON is number|null in the contract; coverage is always finite in practice
   const pct = Math.round((t.changed_line_coverage ?? 0) * 100);
 
@@ -50,6 +55,19 @@ export function TargetView({ id, navigate }: { id: number; navigate: (r: Route) 
         <VerdictChip verdict={t.verdict} />
         <ClassificationChip classification={t.classification} />
         <span className="chip neutral">{langLabel(t.lang)}</span>
+        {repo !== undefined && (
+          <a
+            className="chip neutral"
+            href={routeHref({ view: "editor", repo, file: t.file_path })}
+            data-testid="open-in-editor"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate({ view: "editor", repo, file: t.file_path });
+            }}
+          >
+            open {t.file_path}
+          </a>
+        )}
       </div>
 
       {t.verdict === "UNPROVEN" && (

@@ -89,3 +89,42 @@ test("CodeMirror is not parsed until a file is opened", async ({ page }) => {
   await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
   expect(editorChunks, "editor chunks loaded before any file was opened").toEqual([]);
 });
+
+test("the editor is reachable from the product, not only by typing a URL", async ({
+  page,
+  bridge,
+}) => {
+  // 20.1 shipped an editor nothing navigated to: no link, no button, no file tree. A surface a
+  // user cannot reach is not a surface. This pins the route into the product.
+  const { fixture } = await bridge.info();
+  await page.goto("/?view=prove");
+  await page.locator("#repo").fill(fixture.repo);
+  await page.locator("#base").fill(fixture.base);
+  await page.locator("#head").fill(fixture.head);
+  await page.getByRole("button", { name: "Prove it" }).click();
+  await expect(page).toHaveURL(/view=run&id=\d+/, { timeout: 30_000 });
+  await expect(page.locator(".statusline .chip").first()).toHaveText(/DIVERGENT|EQUIVALENT/, {
+    timeout: 240_000,
+  });
+
+  await page.locator("tbody tr").first().click();
+  await expect(page).toHaveURL(/view=target&id=\d+/);
+
+  const open = page.getByTestId("open-in-editor");
+  await expect(open, "a target must offer to open its own source").toBeVisible({
+    timeout: 15_000,
+  });
+  await open.click();
+  await expect(page).toHaveURL(/view=editor/);
+
+  // Scope, stated: what this pins is REACHABILITY — that the product navigates to the editor
+  // route carrying a real repo and a real file. Whether that particular file is present in the
+  // fixture's WORKING TREE is a different question: a prove compares base..head inside git
+  // worktrees, so a changed file need not exist in the checked-out tree, and the editor then
+  // says so. Both outcomes are correct product behaviour and the honest assertion covers both.
+  // That the editor mounts for a file that IS present is pinned by the first spec in this file.
+  await expect(
+    page.getByTestId("editor-host").or(page.getByTestId("editor-refusal")),
+    "the editor route must render either the file or a stated reason",
+  ).toBeVisible({ timeout: 15_000 });
+});
