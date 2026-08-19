@@ -46,7 +46,7 @@ ever. Never claim "done" without pasting real gate output.**
   it serves** — branching before the Verdict Loop gives you a chat app; after it, a behavioral
   decision tree. Same code, different product.
 
-## 2. WHERE WE ARE: Phase 19 — steps 19.1–19.4 done; 19.5 is next
+## 2. WHERE WE ARE: Phase 19 — steps 19.1–19.5 done; 19.6 is next
 
 **The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
 retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
@@ -71,16 +71,24 @@ undo refused by reason. `shadow.accept` was refactored to write through it, so t
 journal and one reversal path** (and shadow.py's last `pragma: no cover` is gone). The Phase 19
 gate *"undo restores any state"* is met by a 12-seed randomised property test.
 
-**Step 19.5 is P1 — the multi-provider model layer** (L18, ADR-0037): 12+ providers configurable
-with keys in the OS keychain, streaming with **real upstream cancellation** (not just hiding
-output), and graceful offline (L23). Two things already exist to build on: `keychain.rs` stores
-the Anthropic BYOK key today, and `harness/llm.py` already speaks the Messages API with a
-kill switch and a fake-peer test pattern (ADR-0024) — **reuse that fake-peer harness**, it is
-how these gates stay free and deterministic in CI (QV2/QV10). The gate is
-`provider_matrix --min-providers 12`, and **QV10 is still open**: who pays to test twelve live
-providers. The recommendation on file is adapter correctness against recorded fixtures for all
-twelve, plus a live smoke test only for keys the owner actually holds, reported honestly as
-"N of 12 verified live".
+**19.5 DONE** (`53a3efb`) — P1, the model layer at `tempest/inference/` (ADR-0040).
+**16 providers via two wires** (Anthropic Messages + OpenAI Chat Completions, which every
+OpenAI-compatible endpoint speaks), stdlib-only, no vendor SDK, **no per-provider branch
+anywhere** — proven by a test that invents a provider absent from the registry file. Real
+streaming cancellation (the peer observes a broken pipe, so the connection genuinely dies).
+`provider_matrix --min-providers 12` is in `make verify`, runs **offline**, and exercises all
+16 request paths against real loopback peers.
+
+**Step 19.6 is P11 — the cost meter** (L21): live token/dollar counters per task/session/day,
+a pre-flight estimate above a user-set threshold, and **hard caps enforced at the ROUTER, not
+the UI** (a UI-enforced cap is not a cap). `inference.Usage` already carries the provider's own
+token counts from both wires — that is the input; the meter is what turns it into dollars,
+budgets, and refusals. Extend P11 with **cost-per-verified-outcome** once F21 exists (a metric
+no competitor can compute). Gate: accurate to ±2% against provider-reported usage.
+
+**Also queued: 19.5b** — migrate `harness/llm.py` and `report/narrative.py` onto
+`tempest/inference/`, dropping the `anthropic` SDK so there is ONE model path. Deliberately not
+folded into 19.5: those are proven paths and the frozen sidecar spec references the SDK.
 
 ### The retag: what the owner does (I have no push credential — trap 13)
 
@@ -126,7 +134,7 @@ generation + gates, not discipline. When you touch ANY shape:
 ## 4. Remaining work, in recommended order
 
 0. **The remote retag** (§2) — the owner's three GitHub steps, then watch `release.yml`.
-1. **Continue Phase 19 at step 19.5** (P1 multi-provider). The ledger is in `PLAN-V2.md`.
+1. **Continue Phase 19 at step 19.6** (P11 cost meter). The ledger is in `PLAN-V2.md`.
 2. **Answer the still-open questions as their phase arrives** (`docs/QUESTIONS.md`). None
    blocks 19.2. The one to settle soonest is **QV1**, because it decides whether an engine
    proof-rate wave precedes Phase 21:
@@ -207,3 +215,17 @@ run whose real exit was **2** arrive as "completed (exit code 0)".
 documented "commit before verify" rule, §3.2). But a session that trusts the notification will
 eventually paste a green claim over a red gate, which is the one thing this product exists not
 to do. Prefer a distinctive marker (`MAKE_EXIT=$?`) so the real code is greppable.
+
+---
+
+## 9. Trap 41 — a scratch-package rehearsal cannot prove a NAME is free
+
+19.5's model layer was first written as `tempest/model/`. `tempest/model.py` **already existed**
+(the domain enums: `Verdict`, `ReasonCode`, `Stage`), so the new package silently *shadowed* it
+and broke imports in 25 files. It had passed 33 tests in an isolated scratch package minutes
+earlier — because that package had no `tempest/model.py`. `mypy --strict` found it in one run
+inside the real tree; renamed to `tempest/inference/`.
+
+**The rehearsal technique is still right** (drafting outside the repo is how these steps stay
+safe during a coverage run) — but it proves *logic*, never *collisions*. Before adopting a new
+top-level module name, check the tree it will live in: `ls packages/engine/src/tempest/`.
