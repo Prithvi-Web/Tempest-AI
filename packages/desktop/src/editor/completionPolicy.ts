@@ -49,14 +49,27 @@ export function acceptanceRate(metrics: Metrics): number | null {
 }
 
 /**
- * Nearest-rank percentile, matching `tempest.dev.perf_suite` so the two agree on what "p95"
- * means. A percentile outside 0..100 answers null rather than throwing or clamping silently:
- * it is a caller error, and inventing a value for it would put a fabricated number into a gate.
+ * Nearest-rank percentile — `ceil(pct/100 * n)` clamped into `[1, n]` — matching
+ * `tempest.dev.perf_suite` so the two agree on what "p95" means.
+ *
+ * They did not. This side used `ceil`, the gate used `round(x + 0.5)`, and Python's banker's
+ * rounding made them disagree whenever `pct/100 * n` is an integer; both now use `ceil`, and a
+ * test below pins the exact vector where they differed.
+ *
+ * A percentile outside 0..100 answers null rather than throwing or clamping silently: it is a
+ * caller error, and inventing a value for it would put a fabricated number into a gate. That was
+ * also only half true — `Math.max(1, ...)` floored the rank, so `percentile(xs, -5)` returned
+ * the SMALLEST sample, and the test asserting otherwise asserted the invented value in its own
+ * "rather than inventing one" case.
  */
 export function percentile(samples: number[], pct: number): number | null {
-  if (samples.length === 0) return null;
+  if (pct < 0 || pct > 100) return null;
   const ordered = [...samples].sort((a, b) => a - b);
-  const rank = Math.max(1, Math.ceil((pct / 100) * ordered.length));
+  const rank = Math.min(ordered.length, Math.max(1, Math.ceil((pct / 100) * ordered.length)));
+  // No separate empty-samples guard: over an empty list `rank` clamps to 0 and the index is
+  // out of range, so this `??` IS the empty case rather than an arm nothing can reach. Written
+  // with the guard as well, `noUncheckedIndexedAccess` still demands the `??` and then no input
+  // can reach it — a permanent hole in a 100% gate, defended by a fallback that never runs.
   return ordered[rank - 1] ?? null;
 }
 

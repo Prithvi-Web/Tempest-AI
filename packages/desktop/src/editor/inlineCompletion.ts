@@ -48,11 +48,30 @@ const setRisk = StateEffect.define<Risk | null>();
  */
 export type RiskLookup = (symbol: string) => Promise<DivergenceRecord[] | null>;
 
-/** Shared metrics for the session. Read by the budget harness and the acceptance-rate readout. */
+/**
+ * Shared metrics for the session.
+ *
+ * F11's own acceptance criteria require the acceptance rate to be INSTRUMENTED, and this is the
+ * instrument. Its doc used to say it was "read by the budget harness and the acceptance-rate
+ * readout" — neither existed, and `completionMetrics` had no callers anywhere in the repo, so
+ * nothing would have gone red if `accepted` had stopped incrementing entirely. It is now
+ * published on `window` for the budget harness (which writes it into `bench/editor-metrics.json`
+ * beside the latencies) and asserted by the E2E suite.
+ */
 const sessionMetrics: Metrics = emptyMetrics();
 
 export function completionMetrics(): Metrics {
   return sessionMetrics;
+}
+
+declare global {
+  interface Window {
+    /** The completion instrument, for the budget harness and the E2E specs. Read-only by
+     * convention: writing to it would be writing the measurement. */
+    __TEMPEST_COMPLETION_METRICS__?: () => Metrics;
+    /** Resets it, so a spec measures its own run rather than the whole page's history. */
+    __TEMPEST_RESET_COMPLETION_METRICS__?: () => void;
+  }
 }
 
 const riskField = StateField.define<Risk | null>({
@@ -133,23 +152,45 @@ const policyField = StateField.define<PolicyState>({
   },
 });
 
-const ghostDecorations = EditorView.decorations.compute([policyField, riskField], (state) => {
-  const policy = state.field(policyField);
-  if (policy.phase !== "showing") return Decoration.none;
-  const at = state.selection.main.head;
-  const widgets = [Decoration.widget({ widget: new GhostText(policy.shown.text), side: 1 }).range(at)];
-  const risk = state.field(riskField);
-  if (risk !== null) {
-    widgets.push(Decoration.widget({ widget: new RiskBadge(risk), side: 2 }).range(at));
-  }
-  return Decoration.set(widgets, true) as DecorationSet;
-});
+/**
+ * The suggestion is drawn AT THE CURSOR, so `"selection"` is a dependency of the drawing.
+ *
+ * Without it, CodeMirror's facet only recomputes on `tr.docChanged` or a change to the two
+ * fields, so a selection-only transaction — an arrow key, a click, Home/End — left the widget
+ * rendered at the offset where it was created while the caret moved away, and `Tab` then
+ * inserted the completion at the NEW cursor: `ulateTotal` landing at the top of the file, far
+ * from the ghost text the user was looking at. Listing the dependency stops the widget from
+ * being drawn in a stale place; `dismissOnCursorMove` below is what stops it being drawn at all.
+ */
+const ghostDecorations = EditorView.decorations.compute(
+  [policyField, riskField, "selection"],
+  (state) => {
+    const policy = state.field(policyField);
+    if (policy.phase !== "showing") return Decoration.none;
+    const at = state.selection.main.head;
+    const widgets = [
+      Decoration.widget({ widget: new GhostText(policy.shown.text), side: 1 }).range(at),
+    ];
+    const risk = state.field(riskField);
+    if (risk !== null) {
+      widgets.push(Decoration.widget({ widget: new RiskBadge(risk), side: 2 }).range(at));
+    }
+    return Decoration.set(widgets, true) as DecorationSet;
+  },
+);
 
 /** The extension. `source` is injected so the editor works with any producer — or none. */
 export function inlineCompletion(source: CompletionSource, lookupRisk?: RiskLookup): Extension {
   let generation = 0;
 
   const request = (view: EditorView): boolean => {
+    // One question at a time. Every F11 keydown used to fire another `source()` — and OS key
+    // repeat delivers ~30/s, so holding the key spawned a local-model process per keydown, each
+    // one asked for an answer `onRequest` had already counted stale. The policy knew the older
+    // answer was unwanted at the instant it superseded it; nothing propagated that downward, and
+    // `LocalModel::complete` has no cancellation channel. Refusing to ask twice is the fix that
+    // needs no protocol.
+    if (view.state.field(policyField).phase === "pending") return true;
     generation += 1;
     const mine = generation;
     const { state } = view;
@@ -224,10 +265,45 @@ export function inlineCompletion(source: CompletionSource, lookupRisk?: RiskLook
     return true;
   };
 
+  /**
+   * A caret that moves is a question that changed.
+   *
+   * `completionPolicy.onDismiss` has always documented itself as "Escape, blur, or a cursor
+   * move", and only Escape was wired. So an arrow key left the suggestion showing, and Tab then
+   * inserted it wherever the caret had got to — the completion for one prefix landing after a
+   * different one. `update.selectionSet && !update.docChanged` is exactly a caret move: a
+   * document edit already goes through `onDocumentChanged`, which distinguishes a rejection
+   * from a race, and must keep doing so.
+   */
+  const dismissOnCursorMove = EditorState.transactionExtender.of((tr) => {
+    // A transactionExtender, NOT an updateListener. The first version dispatched a second
+    // transaction from inside `updateListener`, which runs during CodeMirror's own update — and
+    // the 900-key input storm caught it immediately: the document no longer matched what was
+    // typed. Re-entrant dispatch is how an editor loses keystrokes, which is the one defect this
+    // extension must never introduce. An extender ANNOTATES the transaction already being
+    // applied, so the dismissal rides the same update instead of racing it.
+    if (tr.selection === undefined || tr.docChanged) return null;
+    const policy = tr.startState.field(policyField);
+    if (policy.phase === "idle") return null;
+    return { effects: setPolicy.of(onDismiss(policy)) };
+  });
+
   return [
     policyField,
     riskField,
     ghostDecorations,
+    dismissOnCursorMove,
+    // Blur is the third case `onDismiss` names: ghost text left on screen under an unfocused
+    // editor is a suggestion the user cannot see the cursor for.
+    EditorView.domEventHandlers({
+      blur: (_event, view) => {
+        const policy = view.state.field(policyField);
+        if (policy.phase !== "idle") {
+          view.dispatch({ effects: setPolicy.of(onDismiss(policy)) });
+        }
+        return false;
+      },
+    }),
     keymap.of([
       { key: "F11", run: request, preventDefault: true },
       { key: "Tab", run: accept },
@@ -243,5 +319,12 @@ export function __resetCompletionMetricsForTests(): void {
   sessionMetrics.accepted = 0;
   sessionMetrics.stale = 0;
 }
+
+// Published at module load, which is when the editor chunk is first parsed — i.e. exactly when
+// there is something to measure. Not behind `import.meta.env.DEV`: `make bench-editor` runs the
+// production-shaped vite build, and an instrument that disappears in the build being measured is
+// not an instrument.
+window.__TEMPEST_COMPLETION_METRICS__ = completionMetrics;
+window.__TEMPEST_RESET_COMPLETION_METRICS__ = __resetCompletionMetricsForTests;
 
 export { EditorState };

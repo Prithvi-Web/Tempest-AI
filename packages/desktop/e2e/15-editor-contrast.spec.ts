@@ -6,6 +6,20 @@
  * gate, because the editor route was in neither the screenshot pass nor the accessibility spec.
  * A colour that is "obviously fine" is exactly the kind of claim this suite exists to check, so
  * the ratio is computed rather than eyeballed: WCAG 2.2 SC 1.4.3 wants 4.5:1 for body text.
+ *
+ * ## The ruler was wrong, which is worse than a colour being wrong
+ *
+ * Every span was measured against `getComputedStyle(host).backgroundColor` — the editor's own
+ * surface — no matter what the element actually sits on. So the gutter (`--surface-sunken`) and
+ * the risk badge (also `--surface-sunken`) were scored against `--surface`, which is a different
+ * colour, and a badge at a real 4.30:1 measured as a passing 5.07:1. It also enumerated only
+ * `.cm-line span`, so the two widgets F11 draws — ghost text and the risk badge — did not exist
+ * when the probe ran and could never have been measured at all.
+ *
+ * Both are fixed here: the probe walks up from each element to the nearest ancestor with a
+ * non-transparent background and measures against THAT, and it presses F11 first so the widgets
+ * are on screen. A gate that measures the wrong pair of colours is not a weaker gate; it is a
+ * gate that reports green about something it never looked at.
  */
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -39,7 +53,10 @@ for (const scheme of ["light", "dark"] as const) {
     await mkdir(join(repo, ".git"), { recursive: true });
     await writeFile(
       join(repo, "sample.py"),
-      "def greet(name):\n    # a comment\n    count = 42\n    return 'hello ' + name\n",
+      // The trailing `gre` is what gives F11 something to complete (`greet`, defined above), so
+      // the two widgets this spec now measures actually render. Without it the caret sits after
+      // a newline, `prefixAt` returns "", and F11 correctly offers nothing.
+      "def greet(name):\n    # a comment\n    count = 42\n    return 'hello ' + name\n\ngre",
       "utf8",
     );
 
@@ -48,25 +65,99 @@ for (const scheme of ["light", "dark"] as const) {
     const content = page.getByTestId("editor-host").locator(".cm-content");
     await expect(content).toBeVisible({ timeout: 30_000 });
 
+    // Put F11's two widgets on screen. They are the only editor text the old probe could not
+    // see, and one of them is the badge whose whole job is to be read.
+    await content.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("F11");
+    await expect(page.getByTestId("ghost-text")).toBeVisible({ timeout: 10_000 });
+
     const probe = await page.evaluate(() => {
       const host = document.querySelector(".editor-host");
       if (host === null) throw new Error("no editor host");
-      const background = getComputedStyle(host).backgroundColor;
-      const spans: Array<[string, string]> = [];
-      for (const el of Array.from(host.querySelectorAll(".cm-line span"))) {
-        const text = el.textContent?.trim();
-        if (text) spans.push([text.slice(0, 16), getComputedStyle(el).color]);
+      // The colour a pixel of this element is ACTUALLY drawn on.
+      //
+      // Two things the first version got wrong. It measured every span against the editor
+      // host's own background regardless of what the element sits on — so the gutter and the
+      // risk badge, both on `--surface-sunken`, were scored against `--surface`. And a
+      // translucent layer was then treated as if it were opaque: the active line is
+      // `rgba(255,255,255,0.055)`, and stopping there reports the contrast against a colour
+      // that does not exist on screen. Layers are composited, bottom-up, to an opaque base.
+      const parse = (css: string): [number, number, number, number] => {
+        const n = css.match(/[\d.]+/g)?.map(Number) ?? [];
+        const [r = 0, g = 0, b = 0, a = 1] = n;
+        return [r, g, b, a];
+      };
+      const over = (
+        top: [number, number, number, number],
+        bottom: [number, number, number, number],
+      ): [number, number, number, number] => [
+        top[0] * top[3] + bottom[0] * (1 - top[3]),
+        top[1] * top[3] + bottom[1] * (1 - top[3]),
+        top[2] * top[3] + bottom[2] * (1 - top[3]),
+        1,
+      ];
+      const rgb = (c: [number, number, number, number]): string =>
+        `rgb(${Math.round(c[0])}, ${Math.round(c[1])}, ${Math.round(c[2])})`;
+
+      const backdropOf = (el: Element): [number, number, number, number] => {
+        const layers: Array<[number, number, number, number]> = [];
+        for (let node: Element | null = el; node !== null; node = node.parentElement) {
+          const c = parse(getComputedStyle(node).backgroundColor);
+          if (c[3] === 0) continue;
+          layers.push(c);
+          if (c[3] === 1) break;
+        }
+        let base = layers.pop() ?? parse(getComputedStyle(document.body).backgroundColor);
+        if (base[3] < 1) base = over(base, [255, 255, 255, 1]);
+        for (let i = layers.length - 1; i >= 0; i -= 1) {
+          const layer = layers[i];
+          if (layer !== undefined) base = over(layer, base);
+        }
+        return base;
+      };
+      const measured: Array<[string, string, string]> = [];
+      const selectors = [
+        ".cm-line span",
+        ".cm-gutters .cm-lineNumbers .cm-gutterElement",
+        '[data-testid="ghost-text"]',
+        '[data-testid="risk-badge"]',
+      ];
+      for (const selector of selectors) {
+        for (const el of Array.from(host.querySelectorAll(selector))) {
+          const text = el.textContent?.trim();
+          if (!text) continue;
+          const style = getComputedStyle(el);
+          const background = backdropOf(el);
+          // `opacity` and a translucent text colour both multiply into what the eye receives, so
+          // a colour scored without them is not the colour on screen. Ghost text ships at
+          // `opacity: 0.85`, which is a real reduction in contrast, not a decoration.
+          const text_color = parse(style.color);
+          const alpha = Number(style.opacity);
+          const effective = over(
+            [text_color[0], text_color[1], text_color[2], text_color[3] * alpha],
+            background,
+          );
+          const label = `${selector} ${text.slice(0, 14)}${alpha < 1 ? ` @${style.opacity}` : ""}`;
+          measured.push([label, rgb(effective), rgb(background)]);
+        }
       }
-      return { background, spans };
+      return { measured };
     });
 
     // If the highlighter ever stops emitting spans this test must fail loudly rather than pass
     // over an empty list — a vacuous "all colours are fine" is worse than no check.
-    expect(probe.spans.length, "syntax spans are present to measure").toBeGreaterThan(2);
-    for (const [text, color] of probe.spans) {
+    expect(probe.measured.length, "editor text is present to measure").toBeGreaterThan(2);
+    for (const kind of ["ghost-text", "risk-badge", "cm-gutterElement"]) {
       expect(
-        contrast(color, probe.background),
-        `"${text}" at ${color} on ${probe.background} (${scheme})`,
+        probe.measured.some(([label]) => label.includes(kind)),
+        `${kind} must be on screen and measured, not silently absent`,
+      ).toBe(true);
+    }
+    for (const [label, color, background] of probe.measured) {
+      expect(
+        contrast(color, background),
+        `${label} at ${color} on ${background} (${scheme})`,
       ).toBeGreaterThanOrEqual(4.5);
     }
   });

@@ -39,7 +39,15 @@ bench:
 
 # Phase 19.7 (L22): the master prompt's §5 budget table as a gate. Deliberately NOT in
 # `make verify` — it needs a fresh `make bench` and its numbers depend on machine load, and
-# `make verify` must stay deterministic. It belongs to the perf flow and the CI bench job.
+# `make verify` must stay deterministic.
+#
+# WHERE IT RUNS, stated exactly: locally, by hand, after `make bench`. It does NOT run in CI —
+# `grep -rn "perf_suite\|perf-gate" .github/` is empty. This comment used to claim it "belongs
+# to the perf flow and the CI bench job"; the CI bench job runs `make bench` and `bench_guard`,
+# which judge the v1 five metrics, and never invokes this target. Arming it in CI needs two
+# things first: a committed `bench/baseline-linux.json` (without one the regression bar prints
+# PENDING and never binds), and a decision about cold_launch, which is deliberately RED here on
+# environment drift. Queued in HANDOFF-NEXT §4, not silently implied by a Makefile comment.
 perf-gate:
 	uv run python -m tempest.dev.perf_suite --enforce-budgets
 
@@ -73,7 +81,9 @@ verify-desktop: ensure-sidecar
 		packages/desktop/src | grep -v "src/generated/" \
 		|| (echo "handwritten invoke() is banned — use the generated bindings (§9b)"; exit 1)
 	# E2E: the real webview UI against the real engine (vite + stdio sidecar via e2e/bridge.mjs),
-	# console-clean gate enforced. Local leg — CI runners have no cached browsers (yet).
+	# console-clean gate enforced. This ALSO runs in CI since b11d533 (the desktop job installs a
+	# chromium and runs the same `test:e2e` script) — the comment here said the opposite for two
+	# commits after that landed, which is the build file asserting against the workflow file.
 	pnpm --filter @tempest/desktop test:e2e
 
 verify-python:

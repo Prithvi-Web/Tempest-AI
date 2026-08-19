@@ -28,6 +28,7 @@ per-platform baseline — the same mechanism `bench_guard` uses for the v1 five.
 
 import argparse
 import json
+import math
 import statistics
 import sys
 from dataclasses import dataclass, field
@@ -159,11 +160,24 @@ class Report:
 
 
 def percentile(samples: list[float], pct: float) -> float:
-    """Nearest-rank percentile. Explicit because 'p95' must mean one thing across the repo."""
+    """Nearest-rank percentile: ``ceil(pct/100 * n)``, clamped into ``[1, n]``.
+
+    "Explicit because 'p95' must mean one thing across the repo" was the intent, and it was not
+    met: `completionPolicy.percentile` in the webview used `ceil`, this used
+    `round(x + 0.5)`, and those two disagree whenever ``pct/100 * n`` lands exactly on an integer
+    (Python's banker's rounding then pushes the rank up by one). `percentile([40,10,30,20], 25)`
+    answered 10 there and 20 here, under a TS test whose name said "matching perf_suite".
+
+    `ceil` is the textbook nearest-rank definition and is now what both compute. Every existing
+    assertion in this repo is unchanged by the switch — the vectors it pins never hit the
+    disagreeing case, which is exactly why nobody noticed.
+    """
     if not samples:
         raise ValueError("no samples")
+    if not 0.0 <= pct <= 100.0:
+        raise ValueError(f"percentile {pct} is outside 0..100")
     ordered = sorted(samples)
-    rank = max(1, min(len(ordered), round(pct / 100.0 * len(ordered) + 0.5)))
+    rank = max(1, min(len(ordered), math.ceil(pct / 100.0 * len(ordered))))
     return ordered[rank - 1]
 
 
@@ -257,11 +271,24 @@ def render(report: Report) -> str:
         measured = f"{p50:>10} {b.p50:>8g}{b.unit:<1}  {p95:>10} {b.p95:>8g}{b.unit:<1}"
         detail = f"  ({row.detail})" if row.detail else ""
         lines.append(f"{b.label:<34} {measured}  {state}{detail}")
-    measurable = report.measured
     lines.append("")
+    # Three states, counted separately, because collapsing them is how a gate starts flattering
+    # itself. MEASURED means a number exists and was judged. NOT-YET-MEASURED means the surface
+    # exists and nobody ran the measurement — `make bench-editor` for the editor rows. NOT-YET-
+    # MEASURABLE means the feature does not exist yet. The old sentence said "N of 13 budgets are
+    # measurable" while counting MEASURED rows, and then called every other row NOT-YET-
+    # MEASURABLE — which is false the moment an armed budget simply has not been run, and that is
+    # exactly the state of the three editor rows on a machine that has not run bench-editor.
+    # `measured_count`, not `measured`: the loop above binds `measured` to a formatted row
+    # string, and mypy --strict caught the shadow immediately.
+    measured_count = report.measured
+    not_measured = sum(1 for r in report.rows if r.p50_state == NOT_MEASURED)
+    not_measurable = sum(1 for r in report.rows if r.p50_state == NOT_MEASURABLE)
     lines.append(
-        f"perf_suite: {measurable} of {len(BUDGETS)} §5 budgets are measurable today; the rest "
-        f"are NOT-YET-MEASURABLE and are never counted as met."
+        f"perf_suite: {measured_count} of {len(BUDGETS)} §5 budgets MEASURED and judged; "
+        f"{not_measured} armed but NOT-YET-MEASURED (run the measurement); "
+        f"{not_measurable} NOT-YET-MEASURABLE (the feature does not exist yet). "
+        f"Neither of the last two is ever counted as met."
     )
     return "\n".join(lines)
 

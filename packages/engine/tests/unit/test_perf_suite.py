@@ -172,6 +172,29 @@ class TestPercentile:
         with pytest.raises(ValueError, match="no samples"):
             ps.percentile([], 95)
 
+    def test_the_vector_where_this_used_to_disagree_with_the_webview(self) -> None:
+        """`completionPolicy.percentile` computes the SAME number, and did not.
+
+        This side used ``round(pct/100*n + 0.5)`` and the webview used ``ceil``; Python's
+        banker's rounding made them differ whenever ``pct/100 * n`` lands on an integer. The
+        webview's own test for this vector was titled "matching perf_suite" and asserted 10,
+        while this function answered 20. Both are ``ceil`` now, and the same vector is asserted
+        in `completionPolicy.test.ts` so neither can drift alone.
+        """
+        assert ps.percentile([40.0, 10.0, 30.0, 20.0], 25) == 10.0
+        assert ps.percentile([float(n) for n in range(1, 21)], 95) == 19.0
+        assert ps.percentile([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], 50) == 3.0
+
+    def test_a_percentile_outside_the_range_is_refused_not_clamped(self) -> None:
+        # Clamping would answer with the smallest sample, which is a fabricated number in the
+        # one module whose job is feeding a gate.
+        for bad in (-5.0, -0.1, 100.1, 1000.0):
+            with pytest.raises(ValueError, match=r"outside 0\.\.100"):
+                ps.percentile([10.0, 20.0], bad)
+        # 0 and 100 are inside the range and mean the extremes, which is not an invention.
+        assert ps.percentile([10.0, 20.0], 0) == 10.0
+        assert ps.percentile([10.0, 20.0], 100) == 20.0
+
 
 class TestRegressionBar:
     def test_a_regression_beyond_ten_percent_fails(self) -> None:
@@ -293,13 +316,23 @@ class TestCli:
         exit_code = ps.main(["--enforce-budgets", "--bench", str(bench)])
         assert exit_code in (0, 1), "the gate must reach a verdict, not crash"
         out = capsys.readouterr().out
-        # The exact count, not just the phrase: `"of 13 §5 budgets" in out` reads the SAME when
+        # The exact counts, not just the phrase: `"of 13 §5 budgets" in out` reads the SAME when
         # the gate evaluates nothing at all — `ps.evaluate({}, None, None)` renders "0 of 13 §5
         # budgets" and returns 0. The loose form passed while the gate read nothing, which is the
         # failure this case exists to catch. `measured` counts MET and OVER alike, so 3 is pinned
-        # to the metric KEY SET, not to any measured value. Phase 20 turns three editor budgets on
-        # and this becomes 6 — deliberately, visibly, here.
-        assert "3 of 13 §5 budgets are measurable today" in out
+        # to the metric KEY SET, not to any measured value.
+        #
+        # ALL THREE counts are pinned, and they must sum to 13. The summary used to call every
+        # unmeasured row NOT-YET-MEASURABLE, which is false for the three editor budgets: they
+        # are ARMED and simply have no numbers in this artifact, because `make bench-editor`
+        # writes them and nobody ran it. "The surface does not exist" and "nobody measured it"
+        # are the two states this module exists to keep apart, and its own summary collapsed them.
+        assert "3 of 13 §5 budgets MEASURED and judged" in out
+        assert "3 armed but NOT-YET-MEASURED" in out
+        assert "7 NOT-YET-MEASURABLE" in out
+        assert 3 + 3 + 7 == 13, (
+            "the three states must account for every budget, with none double-counted"
+        )
         assert "every measurable budget met" in out
 
     def test_the_committed_check_tells_a_shipped_file_from_a_local_measurement(self) -> None:

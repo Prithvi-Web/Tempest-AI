@@ -137,8 +137,30 @@ describe("instrumentation the §5 gate reads", () => {
   });
 
   it("answers null for a percentile outside 0..100 rather than inventing one", () => {
-    // A caller error must not become a fabricated number inside a §5 gate.
+    // A caller error must not become a fabricated number inside a §5 gate. This test used to
+    // END with `expect(percentile([10, 20], -5)).toBe(10)` — asserting, under this exact title,
+    // the invented value it says is forbidden. `Math.max(1, ...)` floored the rank, so any
+    // non-positive percentile answered with the SMALLEST sample. Both are null now.
     expect(percentile([10, 20], 200)).toBeNull();
-    expect(percentile([10, 20], -5)).toBe(10);
+    expect(percentile([10, 20], 100.1)).toBeNull();
+    expect(percentile([10, 20], -5)).toBeNull();
+    expect(percentile([10, 20], -1000)).toBeNull();
+    // 0 and 100 are INSIDE the range and mean the extremes, which is not an invention.
+    expect(percentile([10, 20], 0)).toBe(10);
+    expect(percentile([10, 20], 100)).toBe(20);
+  });
+
+  it("agrees with perf_suite on the vector where the two used to differ", () => {
+    // This side computed `ceil`, the gate computed `round(x + 0.5)`, and Python's banker's
+    // rounding split them whenever `pct/100 * n` is an integer. The same three vectors are
+    // asserted in test_perf_suite.py, so neither implementation can drift alone.
+    expect(percentile([40, 10, 30, 20], 25)).toBe(10);
+    expect(
+      percentile(
+        Array.from({ length: 20 }, (_, i) => i + 1),
+        95,
+      ),
+    ).toBe(19);
+    expect(percentile([1, 2, 3, 4, 5, 6], 50)).toBe(3);
   });
 });

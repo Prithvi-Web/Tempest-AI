@@ -218,6 +218,28 @@ test("measures the §5 editor budgets and writes them for perf_suite @bench", as
     "completions must actually appear to be measurable",
   ).toBeGreaterThanOrEqual(5);
 
+  // ---- the acceptance rate F11's gate requires to be "instrumented" -------------------------
+  // The instrument existed and nothing read it: `completionMetrics()` had zero callers, so
+  // nothing would have gone red if `accepted` stopped incrementing. Reading it here makes the
+  // claim true, and writing it beside the latencies means a regression in the RATE is visible in
+  // the same artifact perf_suite already consumes. One accept, so the rate is a real fraction of
+  // a real denominator rather than a number over zero.
+  await page.keyboard.press("F11");
+  await expect(page.getByTestId("ghost-text")).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("ghost-text")).toHaveCount(0);
+
+  const completion = await page.evaluate(() => {
+    const read = window.__TEMPEST_COMPLETION_METRICS__;
+    if (read === undefined) throw new Error("the completion instrument is not published");
+    const m = read();
+    return { shown: m.shown, accepted: m.accepted, stale: m.stale };
+  });
+  // Not a tautology: `shown` counts suggestions that became eligible, and the loop above showed
+  // fifteen and dismissed them before this accept.
+  expect(completion.shown, "suggestions were shown").toBeGreaterThan(0);
+  expect(completion.accepted, "and at least one was accepted").toBeGreaterThan(0);
+
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" })
     .trim();
   mkdirSync(dirname(OUT), { recursive: true });
@@ -232,6 +254,8 @@ test("measures the §5 editor budgets and writes them for perf_suite @bench", as
           keystroke_ms: keySamples,
           completion_ms: completionSamples,
         },
+        // F11's "acceptance rate instrumented" criterion, as a number rather than a claim.
+        completion: completion,
       },
       null,
       2,

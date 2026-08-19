@@ -26,6 +26,11 @@
   --hairline-strong: rgba(0, 0, 0, 0.16);
   --ink: #1d1d1f;
   --ink-secondary: #6e6e73;
+  /* Secondary ink that still clears WCAG 4.5:1 on the editor's OTHER surfaces. `--ink-secondary`
+     is tuned against `--surface`/`--bg` and falls to 4.30:1 on `--surface-sunken` (the gutter,
+     the risk badge) and to 3.48:1 under ghost text's old `opacity: 0.85` over the active line.
+     Measured on every surface it lands on: 6.35 / 5.77 / 5.38 in this palette. */
+  --ink-secondary-strong: #5f5f64;
   --accent: #0071e3;
   --accent-ink: #ffffff;
   --sidebar-bg: rgba(246, 246, 248, 0.84);
@@ -65,6 +70,7 @@
     --hairline-strong: rgba(255, 255, 255, 0.2);
     --ink: #f5f5f7;
     --ink-secondary: #98989f;
+    --ink-secondary-strong: #adadb5;
     --accent: #0a84ff;
     --accent-ink: #ffffff;
     --sidebar-bg: rgba(30, 30, 32, 0.8);
@@ -798,7 +804,9 @@ main li,
 
 .editor-host .cm-gutters {
   background: var(--surface-sunken);
-  color: var(--ink-secondary);
+  /* Line numbers, same 4.30:1 pairing — shipped in 20.1 and invisible to the contrast gate,
+     which only enumerated `.cm-line span`. Found by widening the gate rather than by looking. */
+  color: var(--ink-secondary-strong);
   border-right: 1px solid var(--hairline);
 }
 
@@ -878,9 +886,14 @@ main li,
  * decoration, so nothing enters the document until Tab: the line cannot reflow on a suggestion
  * arriving or being dismissed (F11's "without layout thrash"). */
 .editor-host .cm-ghost-text {
-  color: var(--ink-secondary);
+  color: var(--ink-secondary-strong);
+  /* Italic is what marks this as a suggestion rather than document text; the `aria-label` says
+     so for a screen reader. `opacity: 0.85` added nothing a reader could name and multiplied
+     straight into the contrast ratio — composited over the active line it took ghost text to
+     3.48:1 in light and 3.68:1 in dark, under a 4.5:1 bar the sibling spec declares. It is gone
+     rather than compensated for: dimming the one text on screen that a user is deciding whether
+     to accept is the wrong trade even when it passes. */
   font-style: italic;
-  opacity: 0.85;
   pointer-events: none;
 }
 
@@ -909,5 +922,8 @@ main li,
 
 .editor-host .cm-risk-unmeasured {
   background: var(--surface-sunken);
-  color: var(--ink-secondary);
+  /* 11px caption text on the sunken surface: `--ink-secondary` is 4.30:1 there, just under the
+     bar, and the `unmeasured` badge is the ONLY level this indicator can reach until a run has
+     recorded something — so the state it is in almost always was the one that failed. */
+  color: var(--ink-secondary-strong);
 }
