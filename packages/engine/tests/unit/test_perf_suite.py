@@ -70,10 +70,27 @@ class TestTheTableIsTheMasterPromptsTable:
 
 class TestUnmeasurableIsNeverPassing:
     def test_budgets_without_a_surface_report_not_yet_measurable(self) -> None:
+        """Which budgets have no surface — named, not counted.
+
+        This asserted `== 10` until Phase 20.1b built the editor surface and armed two of them.
+        A bare count answers "did the number change" and makes the fix "edit the number"; the
+        set answers "which surface arrived", and arriving is the only reason it may shrink.
+        Every remaining entry names the phase that will build it.
+        """
         report = ps.evaluate(_metrics(), None, None)
         unmeasurable = [r for r in report.rows if r.p50_state == ps.NOT_MEASURABLE]
-        assert len(unmeasurable) == 10
+        assert {r.budget.key for r in unmeasurable} == {
+            "completion",  # Phase 20 (F11) — the next one to arrive
+            "search",  # Phase 22 (F13)
+            "agent_first_token",  # Phase 21 (orchestrator)
+            "incremental_proof",  # Phase 26 (F18)
+            "full_proof_10_files",  # needs a 10-file fixture PR harness
+            "diff_render_500",  # Phase 23 (F12)
+            "debugger_scrub",  # Phase 27 (F19)
+            "ram_8_agents",  # Phase 26 (F17)
+        }
         assert all(r.measured_p50 is None for r in unmeasurable)
+        assert all(r.budget.phase for r in unmeasurable), "a gap with no owner is just a gap"
 
     def test_the_report_states_how_many_budgets_are_actually_covered(self) -> None:
         report = ps.evaluate(_metrics(), None, None)
@@ -302,3 +319,26 @@ class TestCli:
         """
         assert _is_committed(_REPO_ROOT / "bench" / "baseline-darwin.json")
         assert not _is_committed(_REPO_ROOT / "bench" / "bench.json")
+
+    def test_the_editor_budgets_are_armed_but_unmeasured_without_the_e2e_leg(self) -> None:
+        """20.1b changed what silence MEANS for the two editor rows.
+
+        Before, `open_file` and `keystroke` carried no metric at all, so the gate called them
+        NOT-YET-MEASURABLE: there was no surface to measure. The surface exists now, so an absent
+        number is a different statement — nobody ran `make bench-editor` — and it must read as
+        NOT-YET-MEASURED. Neither may ever read as MET, which is the only outcome that would
+        matter to someone trusting the table.
+        """
+        report = ps.evaluate(_metrics(), None, None)
+        rows = {row.budget.key: row for row in report.rows}
+        for key in ("open_file", "keystroke"):
+            assert rows[key].p50_state == ps.NOT_MEASURED, key
+            assert rows[key].p50_state != ps.MET, key
+            assert "bench-editor" in rows[key].budget.phase, key
+
+    def test_the_editor_budgets_bind_once_the_numbers_arrive(self) -> None:
+        measured = _metrics(open_file_ms=39.0, keystroke_ms=7.0)
+        assert ps.evaluate(measured, None, None).measured == 5
+        over = _metrics(open_file_ms=41.0, keystroke_ms=7.0)
+        report = ps.evaluate(over, None, None)
+        assert any("open_file" in f for f in report.failures), report.failures

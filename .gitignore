@@ -42,6 +42,7 @@ packages/desktop/src-tauri/binaries/
 packages/desktop/src-tauri/target/
 .gstack/
 bench/bench.json
+bench/editor-metrics.json
 bench/soak.json
 bench/soak-8h.log
 

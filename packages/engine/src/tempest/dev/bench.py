@@ -9,6 +9,13 @@ supervises, minus PyInstaller freezing):
 - `observation_5mb_ms` — getDivergence carrying a ~5 MB observation payload (median of 3)
 - `idle_rss_mb`        — resident set after the workload, idle
 - `idle_cpu_pct`       — CPU over a 5 s idle window
+- `open_file_ms`       — editor: request → document on screen (desktop E2E, Phase 20.1b)
+- `keystroke_ms`       — editor: keydown → the frame that shows it (desktop E2E, Phase 20.1b)
+
+The last two are WEBVIEW facts and cannot be measured from here: they come from
+`bench/editor-metrics.json`, which the Playwright leg writes (`make bench-editor`). When that
+file is absent the keys are simply omitted, and `perf_suite` reports the budgets as
+NOT-YET-MEASURED. A missing measurement must never read as a met budget.
 
 Webview paint metrics (first paint @60fps, app-level cold launch incl. WebKit) belong to the
 desktop E2E leg — PENDING(desktop-e2e), stated here so the narrowing is loud, not silent.
@@ -142,10 +149,57 @@ def _measure(data_dir: Path, seed: dict[str, Any]) -> dict[str, float]:
     }
 
 
+def _editor_measurements(
+    path: Path,
+) -> tuple[dict[str, float], dict[str, list[float]], dict[str, Any] | None]:
+    """Read the webview measurements the desktop E2E leg wrote, if it has run.
+
+    Returns `({}, {}, None)` when the file is absent or unusable, which leaves the editor budgets
+    NOT-YET-MEASURED rather than met. Silence is the honest answer to "nobody measured it"; a
+    zero, a default, or a skipped row would all read as success (L22).
+    """
+    if not path.is_file():
+        return {}, {}, None
+    try:
+        doc: Any = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}, {}, None
+    if not isinstance(doc, dict):
+        return {}, {}, None
+    raw: Any = doc.get("samples")
+    if not isinstance(raw, dict):
+        return {}, {}, None
+
+    metrics: dict[str, float] = {}
+    samples: dict[str, list[float]] = {}
+    for name in ("open_file_ms", "keystroke_ms"):
+        series: Any = raw.get(name)
+        if not isinstance(series, list):
+            continue
+        numeric = [float(v) for v in series if isinstance(v, (int, float))]
+        # One sample is an anecdote: a p50 over a single reading is that reading, and it would
+        # arm a budget on the strength of one keystroke.
+        if len(numeric) < 5:
+            continue
+        metrics[name] = round(statistics.median(numeric), 3)
+        samples[name] = numeric
+    if not metrics:
+        return {}, {}, None
+    provenance = {
+        "commit": doc.get("commit"),
+        "measured_at": doc.get("measured_at"),
+        "counts": {name: len(series) for name, series in samples.items()},
+    }
+    return metrics, samples, provenance
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", type=int, default=10_000)
     parser.add_argument("--out", type=Path, default=Path("bench") / "bench.json")
+    parser.add_argument(
+        "--editor-metrics", type=Path, default=Path("bench") / "editor-metrics.json"
+    )
     args = parser.parse_args(argv)
 
     with tempfile.TemporaryDirectory(prefix="tempest-bench-") as tmp:
@@ -168,7 +222,10 @@ def main(argv: list[str] | None = None) -> int:
         seed = json.loads(seeded.stdout)
         metrics = _measure(data_dir, seed)
 
-    payload = {
+    editor_metrics, editor_samples, editor_provenance = _editor_measurements(args.editor_metrics)
+    metrics.update(editor_metrics)
+
+    payload: dict[str, Any] = {
         "platform": platform.system().lower(),
         "python": platform.python_version(),
         "cpu_count": os.cpu_count(),
@@ -176,6 +233,17 @@ def main(argv: list[str] | None = None) -> int:
         "metrics": metrics,
         "pending": ["desktop-e2e: webview first-paint + app-level cold launch"],
     }
+    if editor_samples:
+        # Raw samples, not an aggregate: a p95 cannot be derived from a mean, and perf_suite
+        # refuses to invent one (it reports NOT-YET-MEASURED instead).
+        payload["samples"] = editor_samples
+    if editor_provenance is not None:
+        # Where the webview numbers came from, so a stale file cannot pass as this run's work.
+        payload["editor_metrics_from"] = editor_provenance
+    elif not editor_metrics:
+        payload["pending"].append(
+            "editor: run `make bench-editor` — open_file_ms/keystroke_ms are NOT-YET-MEASURED"
+        )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2) + "\n")
     print(json.dumps(payload, indent=2))

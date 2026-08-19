@@ -7,7 +7,7 @@ export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 DESKTOP_MANIFEST := packages/desktop/src-tauri/Cargo.toml
 
 .PHONY: verify verify-python verify-node verify-desktop verify-contract verify-grep-safe \
-	gen-contracts ensure-sidecar sync bench perf-gate
+	gen-contracts ensure-sidecar sync bench bench-editor perf-gate
 
 sync:
 	uv sync --all-packages
@@ -23,7 +23,17 @@ verify-linux-denominator:
 		--deselect "packages/engine/tests/unit/test_fix_exec_kill_discipline.py::TestRunnerKill::test_kill_of_an_exited_unreaped_child_falls_back_to_direct_kill" \
 		--deselect "packages/engine/tests/unit/test_fix_exec_kill_discipline.py::TestCancelKillGroup::test_kill_group_on_an_exited_unreaped_child_falls_back_to_direct_kill"
 
+# Phase 20.1b: the WEBVIEW half of the §5 table — open-file and keystroke→render, measured by
+# the desktop E2E leg against a real CodeMirror instance and written to bench/editor-metrics.json
+# for `make bench` to merge. Deliberately NOT in `make verify`: these are timings, and a
+# correctness suite that fails because a laptop was busy stops being trusted (the same reasoning
+# that keeps perf-gate out). Run it before `make bench` when you want the editor budgets armed.
+bench-editor:
+	cd packages/desktop && TEMPEST_NO_POWER_PAUSE=1 npx playwright test --grep @bench
+
 # Phase 11 perf bench. Gate: make bench && uv run python -m tempest.dev.bench_guard --max-regression 15
+# Merges bench/editor-metrics.json when `make bench-editor` has produced it; when it has not, the
+# editor rows stay NOT-YET-MEASURED rather than quietly reading as met.
 bench:
 	uv run python -m tempest.dev.bench
 

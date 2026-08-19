@@ -70,8 +70,27 @@ BUDGETS: tuple[PerfBudget, ...] = (
         metric="cold_launch_s",
         phase="partially: bench measures spawn → healthy stdio, not webview first paint",
     ),
-    PerfBudget("open_file", "Open file (10k lines)", 40, 100, "ms", phase="Phase 20 (editor)"),
-    PerfBudget("keystroke", "Keystroke → render", 8, 16, "ms", phase="Phase 20 (editor)"),
+    # Phase 20.1b armed these: the editor surface exists, so "no surface measures this yet" is
+    # no longer true. Absent numbers now read as NOT-YET-MEASURED (nobody ran `make bench-editor`)
+    # rather than NOT-YET-MEASURABLE (nothing to run) — a smaller excuse, which is the point.
+    PerfBudget(
+        "open_file",
+        "Open file (10k lines)",
+        40,
+        100,
+        "ms",
+        metric="open_file_ms",
+        phase="measured by the desktop E2E leg: `make bench-editor`",
+    ),
+    PerfBudget(
+        "keystroke",
+        "Keystroke → render",
+        8,
+        16,
+        "ms",
+        metric="keystroke_ms",
+        phase="measured by the desktop E2E leg: `make bench-editor`",
+    ),
     PerfBudget("completion", "Inline completion (F11)", 120, 300, "ms", phase="Phase 20 (F11)"),
     PerfBudget("search", "Codebase search (F13)", 150, 400, "ms", phase="Phase 22 (F13)"),
     PerfBudget(
