@@ -883,3 +883,31 @@ main li,
   opacity: 0.85;
   pointer-events: none;
 }
+
+/* The behavioural risk badge (Phase 20.3e). It uses the verdict vocabulary's colours because it
+ * IS a verdict — measured, not guessed — and `unmeasured` is deliberately neutral: absence of
+ * evidence must not look like a pass. */
+.editor-host .cm-risk-badge {
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font: var(--text-caption);
+  font-style: normal;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.editor-host .cm-risk-high {
+  background: var(--divergent-soft);
+  color: var(--divergent);
+}
+
+.editor-host .cm-risk-elevated {
+  background: var(--unproven-soft);
+  color: var(--unproven);
+}
+
+.editor-host .cm-risk-unmeasured {
+  background: var(--surface-sunken);
+  color: var(--ink-secondary);
+}

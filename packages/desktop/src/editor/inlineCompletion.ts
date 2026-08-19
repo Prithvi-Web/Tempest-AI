@@ -19,6 +19,8 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 
+import { prefixAt } from "./documentSource";
+import { riskFor, riskLabel, type DivergenceRecord, type Risk } from "./risk";
 import {
   emptyMetrics,
   onAccept,
@@ -37,12 +39,58 @@ export type CompletionSource = (context: {
 }) => Promise<string>;
 
 const setPolicy = StateEffect.define<PolicyState>();
+const setRisk = StateEffect.define<Risk | null>();
+
+/**
+ * What Tempest has recorded about a symbol. Injected so the editor works without an engine, and
+ * so a test can force the states that matter — a lookup that FAILS must render "unmeasured",
+ * never nothing, because a silent badge and a safe badge look identical to a reader.
+ */
+export type RiskLookup = (symbol: string) => Promise<DivergenceRecord[] | null>;
 
 /** Shared metrics for the session. Read by the budget harness and the acceptance-rate readout. */
 const sessionMetrics: Metrics = emptyMetrics();
 
 export function completionMetrics(): Metrics {
   return sessionMetrics;
+}
+
+const riskField = StateField.define<Risk | null>({
+  create: () => null,
+  update(value, tr) {
+    let next = value;
+    for (const effect of tr.effects) {
+      if (effect.is(setRisk)) next = effect.value;
+      // A new suggestion invalidates the previous one's risk: showing the old badge beside new
+      // text would attribute one symbol's history to another.
+      if (effect.is(setPolicy)) next = null;
+    }
+    if (tr.docChanged) next = null;
+    return next;
+  },
+});
+
+class RiskBadge extends WidgetType {
+  constructor(private readonly risk: Risk) {
+    super();
+  }
+
+  override eq(other: RiskBadge): boolean {
+    return other.risk.level === this.risk.level && other.risk.reason === this.risk.reason;
+  }
+
+  override toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = `cm-risk-badge cm-risk-${this.risk.level}`;
+    span.textContent = riskLabel(this.risk);
+    span.setAttribute("data-testid", "risk-badge");
+    span.setAttribute("data-risk-level", this.risk.level);
+    return span;
+  }
+
+  override ignoreEvent(): boolean {
+    return true;
+  }
 }
 
 class GhostText extends WidgetType {
@@ -85,18 +133,20 @@ const policyField = StateField.define<PolicyState>({
   },
 });
 
-const ghostDecorations = EditorView.decorations.compute([policyField], (state) => {
+const ghostDecorations = EditorView.decorations.compute([policyField, riskField], (state) => {
   const policy = state.field(policyField);
   if (policy.phase !== "showing") return Decoration.none;
-  const widget = Decoration.widget({
-    widget: new GhostText(policy.shown.text),
-    side: 1,
-  });
-  return Decoration.set([widget.range(state.selection.main.head)]) as DecorationSet;
+  const at = state.selection.main.head;
+  const widgets = [Decoration.widget({ widget: new GhostText(policy.shown.text), side: 1 }).range(at)];
+  const risk = state.field(riskField);
+  if (risk !== null) {
+    widgets.push(Decoration.widget({ widget: new RiskBadge(risk), side: 2 }).range(at));
+  }
+  return Decoration.set(widgets, true) as DecorationSet;
 });
 
 /** The extension. `source` is injected so the editor works with any producer — or none. */
-export function inlineCompletion(source: CompletionSource): Extension {
+export function inlineCompletion(source: CompletionSource, lookupRisk?: RiskLookup): Extension {
   let generation = 0;
 
   const request = (view: EditorView): boolean => {
@@ -126,6 +176,27 @@ export function inlineCompletion(source: CompletionSource): Extension {
           text,
         );
         view.dispatch({ effects: setPolicy.of(next) });
+        if (next.phase !== "showing" || lookupRisk === undefined) return;
+
+        // F11's twist: what has Tempest actually WATCHED this symbol do? The badge is attached
+        // after the suggestion so a slow lookup never delays the completion itself — the §5
+        // budget is about the text appearing, and evidence arriving a moment later is fine.
+        const before = view.state.doc.sliceString(0, view.state.selection.main.head);
+        const symbol = prefixAt(before) + text;
+        void lookupRisk(symbol)
+          .then((records) => {
+            // Only if this suggestion is still the one on screen.
+            const current = view.state.field(policyField);
+            if (current.phase !== "showing" || current.shown.generation !== mine) return;
+            view.dispatch({ effects: setRisk.of(riskFor(symbol, records)) });
+          })
+          .catch(() => {
+            // A failed lookup is "unmeasured", never silence: a missing badge and a safe badge
+            // are indistinguishable to a reader, and this product does not let those blur.
+            const current = view.state.field(policyField);
+            if (current.phase !== "showing" || current.shown.generation !== mine) return;
+            view.dispatch({ effects: setRisk.of(riskFor(symbol, null)) });
+          });
       })
       .catch(() => {
         // A source that fails is not a suggestion. It must not leave the editor pending
@@ -155,6 +226,7 @@ export function inlineCompletion(source: CompletionSource): Extension {
 
   return [
     policyField,
+    riskField,
     ghostDecorations,
     keymap.of([
       { key: "F11", run: request, preventDefault: true },

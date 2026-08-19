@@ -29,6 +29,8 @@ export default defineConfig({
         "src/editor/completionPolicy.ts",
         "src/editor/documentSource.ts",
         "src/editor/modelSource.ts",
+        "src/editor/risk.ts",
+        "src/editor/divergenceLookup.ts",
       ],
       thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
     },

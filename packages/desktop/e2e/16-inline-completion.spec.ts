@@ -38,8 +38,12 @@ async function documentText(page: import("@playwright/test").Page): Promise<stri
     const content = document.querySelector(".cm-content");
     if (content === null) return "";
     const clone = content.cloneNode(true) as HTMLElement;
-    for (const ghost of Array.from(clone.querySelectorAll('[data-testid="ghost-text"]'))) {
-      ghost.remove();
+    // EVERY widget, not an enumerated one. This stripped only the ghost text until the risk
+    // badge arrived, and then the Escape spec failed because `before` contained a badge that
+    // `after` did not — the helper, not the editor. A ruler that has to be updated whenever a
+    // widget is added is a ruler that will silently be wrong the next time one is.
+    for (const widget of Array.from(clone.querySelectorAll("[data-testid]"))) {
+      widget.remove();
     }
     return clone.textContent ?? "";
   });
@@ -108,4 +112,35 @@ test("Escape dismisses without inserting anything", async ({ page }) => {
   await expect(page.getByTestId("ghost-text")).toHaveCount(0);
   const after = await documentText(page);
   expect(after, "Escape must never insert").toBe(before);
+});
+
+test("a suggestion carries what Tempest has MEASURED about the symbol", async ({ page }) => {
+  // F11's twist. In this harness the engine has no divergences recorded for the fixture symbol,
+  // so the honest badge is "unmeasured" — and that is the assertion that matters most: absence
+  // of evidence must render as absence of evidence, never as a clean bill of health.
+  const repo = await projectWith("def calculateTotal(items):\n    return sum(items)\n\ncalc");
+  await page.goto(editorUrl(repo));
+  const content = page.getByTestId("editor-host").locator(".cm-content");
+  await expect(content).toBeVisible({ timeout: 30_000 });
+  await content.click();
+  await page.keyboard.press("ControlOrMeta+End");
+
+  await page.keyboard.press("F11");
+  await expect(page.getByTestId("ghost-text")).toBeVisible({ timeout: 10_000 });
+
+  const badge = page.getByTestId("risk-badge");
+  await expect(badge, "a suggestion must say what is known about the symbol").toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(badge).toHaveAttribute("data-risk-level", "unmeasured");
+  await expect(badge).toContainText("unmeasured");
+  // The words that would turn "we have not measured this" into "this is fine".
+  await expect(badge).not.toContainText("safe");
+  await expect(badge).not.toContainText("proved");
+
+  // The badge is a widget like the ghost text: it must not enter the document on accept.
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("risk-badge")).toHaveCount(0);
+  const doc = await documentText(page);
+  expect(doc).not.toContain("unmeasured");
 });

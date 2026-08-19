@@ -14,6 +14,7 @@ import { tags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 import { useEffect, useRef } from "react";
 
+import { divergenceLookup } from "./divergenceLookup";
 import { inlineCompletion } from "./inlineCompletion";
 import { modelBackedSource } from "./modelSource";
 
@@ -71,7 +72,9 @@ export default function CodeMirrorHost({ path, text }: { path: string; text: str
         // F11 inline completion (Phase 20.3): the user's local model first, the offline
         // document completer whenever it cannot answer in time. The fallback is not a
         // degraded mode — it is what keeps F11 working on a plane.
-        inlineCompletion(modelBackedSource()),
+        // ...and F11's twist: the badge reports what Tempest has RECORDED about the symbol the
+        // completion names. Measured runs, not a heuristic and not a model's opinion.
+        inlineCompletion(modelBackedSource(), divergenceLookup()),
       ],
     });
     const view = new EditorView({ state, parent: host.current });
