@@ -7,7 +7,7 @@ export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 DESKTOP_MANIFEST := packages/desktop/src-tauri/Cargo.toml
 
 .PHONY: verify verify-python verify-node verify-desktop verify-contract verify-grep-safe \
-	gen-contracts ensure-sidecar sync bench
+	gen-contracts ensure-sidecar sync bench perf-gate
 
 sync:
 	uv sync --all-packages
@@ -26,6 +26,12 @@ verify-linux-denominator:
 # Phase 11 perf bench. Gate: make bench && uv run python -m tempest.dev.bench_guard --max-regression 15
 bench:
 	uv run python -m tempest.dev.bench
+
+# Phase 19.7 (L22): the master prompt's §5 budget table as a gate. Deliberately NOT in
+# `make verify` — it needs a fresh `make bench` and its numbers depend on machine load, and
+# `make verify` must stay deterministic. It belongs to the perf flow and the CI bench job.
+perf-gate:
+	uv run python -m tempest.dev.perf_suite --enforce-budgets
 
 verify: verify-python verify-node verify-desktop verify-contract verify-grep-safe
 	@echo "── verify: all live steps green ──"

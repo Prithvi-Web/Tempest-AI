@@ -1582,3 +1582,55 @@ surfaced so users see the saving). Zero would read as "the cache never works"; `
 `docs/METRICS.md` calls the one no competitor can compute — needs F21's proof-ranked outcomes and
 lands with Phase 27, not here. The ledger already records provider, model, and scope keys, which
 is everything that metric will need.
+
+## ADR-0042 — The §5 budgets as a gate that reports its own coverage (2026-08-18, step 19.7)
+
+**Context.** L22 makes the §5 performance table gates, not aspirations. But **ten of its thirteen
+budgets measure surfaces that do not exist yet** — the editor (Phase 20), the agent (21), the
+index (22), the composer (23), the fleet and ambient watch (26), the debugger (27). The tempting
+shape is to enforce the three we can measure and print `perf: PASS`, which a reader takes to mean
+*thirteen budgets met*. That is manufactured confidence, and it is precisely the failure this
+product exists to refuse.
+
+**Decision.** `tempest/dev/perf_suite.py` encodes the **whole table** and reports every row in one
+of four states, then states the coverage explicitly:
+
+* `MET` / `OVER` — measured against real data and enforced.
+* `NOT-YET-MEASURABLE` — the surface does not exist; the row **names the phase that will build
+  it**, so a gap has an owner rather than being merely absent. Never counted as met.
+* `NOT-YET-MEASURED` — the surface exists but this run did not collect what the budget needs.
+
+Every run ends with *"3 of 13 §5 budgets are measurable today; the rest are NOT-YET-MEASURABLE
+and are never counted as met."* A budget written down with an owner is a commitment; a budget
+left out of the file is one nobody will be held to — which is why the ten unbuildable rows are in
+the table from the start.
+
+**Why p95 is usually `NOT-YET-MEASURED`.** `tempest.dev.bench` stores aggregates, and for cold
+launch it stores **`min(samples)`** — the most flattering statistic available. A p95 cannot be
+derived from a minimum, so p95 is enforced only when the bench emits raw `samples`, and reported
+as not-yet-measured otherwise. Comparing a best-case number against a p95 budget would be worse
+than not checking it, because it would *look* like coverage. Having the bench emit its raw
+samples (it already collects them) is the cheap follow-up that turns three p95s on.
+
+**The gate found something on its first run, and it is recorded rather than tuned away:**
+
+```
+PERF-GATE cold_launch: 0.3375s regressed 13.7% over baseline 0.2968s (bar 10%)
+```
+
+The **absolute** budget is met with wide margin (0.34 s against a 0.8 s p50). What trips is §5's
+**10% regression bar** — tighter than the v1 `bench_guard`'s 15%, which is why this is newly
+visible. Two candidate explanations: real drift, or that `bench/bench.json` was captured while
+the machine was busy running an audit. **It is deliberately left failing.** Re-baselining to make
+a gate green is the exact move v2 failure mode 2 warns about, and a 40 ms delta on a metric with
+a 460 ms margin is the kind of thing that must be *decided by a clean measurement*, not by
+adjusting the bar. The action is a re-run of `make bench` on a quiet machine, then either the
+number returns and nothing was wrong, or it does not and there is a real regression to chase.
+
+**Placement.** `make perf-gate`, not `make verify`. It needs a fresh bench run and its numbers
+depend on machine load; `make verify` must stay deterministic. Same reasoning that keeps
+`bench_guard` out of it. The CI perf job is where it becomes a blocking gate on every PR.
+
+**Also recorded:** a budget is a **ceiling, not a strict inequality** — 300 MB is within a 300 MB
+budget — and the percentile is nearest-rank, defined in one place, so "p95" means one thing
+across the repo.
