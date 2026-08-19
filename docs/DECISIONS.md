@@ -1465,3 +1465,70 @@ need it. Pinned by a test that appends junk and then undoes successfully.
 
 **Coverage:** `journal.py` 111 statements / 30 branches / **100%**, `shadow.py` 139 / 40 /
 **100%** after the refactor, 67 tests, zero pragmas.
+
+## ADR-0040 — P1: sixteen providers, two wires, one code path (2026-08-18, step 19.5)
+
+**The observation the whole design rests on.** The master prompt asks for 12+ providers and for
+"adding a provider must not touch feature code". Both fall out of one fact: **two wire protocols
+cover the entire market.** Anthropic speaks its own Messages API; everyone else — OpenAI, Azure,
+Google's compatibility endpoint, groq, Mistral, DeepSeek, OpenRouter, Together, Perplexity, xAI,
+Fireworks, Cerebras, and every local runner (Ollama, LM Studio, llama.cpp) — speaks OpenAI Chat
+Completions.
+
+So breadth costs **two request builders and N rows in a table**, not N integrations. Sixteen
+providers ship in `tempest/inference/providers.py`; `tempest/inference/client.py` contains no
+per-provider branch anywhere. The claim is *checked*, not asserted: a test invents a provider
+that appears nowhere in the registry file and drives a full completion through it.
+
+**Stdlib only, no vendor SDK.** `urllib.request` rather than a per-provider client library. A
+vendor SDK is a per-provider dependency, which is precisely the cost this design exists to
+avoid; it also keeps the frozen sidecar small and keeps the entire egress surface visible in one
+file (L10).
+
+**Cancellation actually cancels (master prompt §7).** `stream()` checks the cancel token between
+chunks and **closes the response**, tearing down the upstream connection so the model stops
+generating — and stops billing. The test proves it from the *server's* side: the peer records a
+broken pipe, which is observable evidence the connection died rather than the client merely
+having stopped displaying tokens. That second behaviour is what most clients ship, and the user
+pays for the pretence.
+
+**No invented model ids.** `default_model` is `None` for every provider whose current model
+naming I cannot assert, and the error says why: *"model ids change faster than a pinned table can
+stay honest."* Anthropic keeps `claude-sonnet-5` because the repo already uses it. When a model
+is rejected, the client surfaces the **provider's own message verbatim** rather than guessing on
+the user's behalf. A registry full of plausible-looking but stale model names would be exactly
+the kind of confident wrongness this product exists to refuse.
+
+**The gate answers QV10 honestly.** `provider_matrix --min-providers 12` runs **entirely
+offline** by default: it checks registry integrity and then *exercises the real request path for
+every one of the sixteen* against a loopback peer speaking that wire. Free, deterministic, and
+runnable in CI on every PR — because a gate needing twelve sets of paid credentials is a gate
+that never runs, and a gate that never runs is a claim (trap 37). `--live` additionally calls
+only the providers whose keys are actually present and reports **"N of M verified live"**. That
+number is deliberately partial: claiming twelve live providers we never called would be unearned.
+
+**L23 becomes concrete, not aspirational.** Three local runners need no key and work with the
+network unplugged. The `Offline` error names them, and states that proof features are unaffected
+because only generative features need a model.
+
+**Placement, stated rather than drifted.** ADR-0037 framed the model layer as Rust. It is
+implemented in the Python engine, for the same reasons recorded in the ADR-0036 amendment: the
+Rust host is a supervisor and typed bridge, the engine already owns the one existing model call
+path and its fake-peer test discipline, and the 100% coverage gate is Python's. The Rust
+orchestrator reaches it over boundary A like everything else.
+
+**Tracked, not silently deferred: `harness/llm.py` and `report/narrative.py` still use the
+Anthropic SDK** for synthesis and narratives. Migrating them onto this client (which would drop
+the `anthropic` dependency entirely and leave exactly one model path) is **step 19.5b** in
+`docs/PLAN-V2.md`, deliberately not folded into this step — those are proven paths, the frozen
+sidecar spec references the SDK, and destabilising them mid-phase to save one commit is a bad
+trade. Two model paths is a wart with a name and a due date, which is the honest form of it.
+
+**Trap 41, paid for during this step: `tempest/model.py` already existed.** The layer was first
+written as `tempest/model/` — a package that silently *shadowed* the existing domain-enum module
+(`Verdict`, `ReasonCode`, `Stage`), breaking imports in 25 files. Nothing in the sandbox caught
+it, because the sandbox had no `tempest/model.py`; `mypy --strict` caught it in one run, in the
+repo. Renamed to **`tempest/inference/`**, which is unambiguous and matches L18's "BYO
+inference" language. The lesson is about the *rehearsal*: proving a module in an isolated
+scratch package is excellent for logic and worthless for collisions — the tree it will actually
+live in is the only place a name can be proven free.

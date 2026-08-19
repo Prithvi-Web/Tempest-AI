@@ -48,8 +48,9 @@ release, so the work survives across sessions. Progress ledger:
 | **19.2** | Agent Tool Protocol — the fourth contract boundary (ADR-0035) | ✅ **DONE** |
 | **19.3** | Shadow-worktree manager (L19, ADR-0036) | ✅ **DONE** |
 | **19.4** | Journal + one-keystroke undo (L20) | ✅ **DONE** |
-| 19.5 | P1 multi-provider model layer, 12+ providers (L18, ADR-0037) | next |
-| 19.6 | P11 cost meter with hard caps at the router (L21) | pending |
+| **19.5** | P1 multi-provider model layer — **16 providers, 2 wires** (ADR-0040) | ✅ **DONE** |
+| 19.5b | Migrate `harness/llm.py` + `report/narrative.py` onto the new client; drop the `anthropic` SDK | pending |
+| 19.6 | P11 cost meter with hard caps at the router (L21) | next |
 | 19.7 | `perf_suite --enforce-budgets` CI gate (L22) | pending |
 
 - [x] Re-run the Phase 8 audit legs on the current tree; paste output.
@@ -81,8 +82,14 @@ release, so the work survives across sessions. Progress ledger:
       modules, 67 tests.
 - [ ] **Model layer** (L18, ADR-0037): keys in OS keychain; llama.cpp local runner; streaming
       with real upstream cancellation; graceful offline (L23).
-- [ ] **P1 multi-provider abstraction** — 12+ providers; adapter layer only, generated from
-      boundary D; adding a provider must not touch feature code.
+- [x] **19.5 — P1 multi-provider abstraction** (ADR-0040): `tempest/inference/`. **16 providers via
+      two wires** (Anthropic Messages + OpenAI Chat Completions), stdlib-only, no vendor SDK, no
+      per-provider branch. Real streaming cancellation (proven by an observed broken pipe on the
+      server side). Three local runners make L23 concrete. Gate `provider_matrix` runs offline
+      by default and exercises all 16 request paths against real loopback peers; `--live`
+      reports "N of M verified live" (QV10, answered honestly).
+- [ ] **19.5b** — migrate `harness/llm.py` + `report/narrative.py` onto the model client so
+      there is ONE model path, and drop the `anthropic` SDK dependency.
 - [ ] **P11 cost meter** (L21): live token/dollar per task/session/day; **hard caps enforced at
       the router, not the UI**; pre-flight estimate above a user-set threshold.
 - [ ] **Perf budgets in CI from day one** (L22).
