@@ -48,8 +48,14 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
   `PLATFORM-V2.md` (P1–P14 **and the rejection table — read the rejections**), `CRAFT.md`,
   `POLISH.md` (150 items), `THREAT-MODEL-V2.md`, `METRICS.md` (six numbers),
   `CLAUDE.md` (L1–**L26** + the four-boundary contract), ADR-0034..**0043**.
-- **Two verifications were still in flight at hand-off** and are the next session's first task:
-  the final local `make verify` on `5717c41`, and CI on the same commit.
+- **The final local `make verify` on `5717c41` came back GREEN after the defect fixes:**
+  `MAKE_EXIT=0` — **1243 passed, 100.00% coverage**, ruff clean, `mypy --strict` clean on 130
+  source files (both platform views), escape suite fully contained, redaction 24/24,
+  `license_check` zero missing notices, `provider_matrix` 16 providers with every request path
+  exercised, vitest 20+27, cargo 25+5, E2E 29 passed, four-boundary contract drift-free.
+- **Still unconfirmed at hand-off: CI on `5717c41`** (it was `in_progress`). Confirm it first —
+  Linux is where the coverage denominator and platform-specific behaviour actually get tested
+  (traps 15/20/21/22).
 
 ## 2. WHERE WE ARE: **Phase 19 is COMPLETE (19.1–19.7 + the review fixes). Phase 20 is next.**
 
@@ -99,8 +105,9 @@ streaming cancellation (the peer observes a broken pipe, so the connection genui
 
 ### FIRST TASK for the next session — verify, then choose
 
-1. **Re-run the gates on a quiet machine** (the previous session's final `make verify` was still
-   in flight at hand-off, and CI on `5717c41` was `in_progress`):
+1. **Confirm CI is green on `5717c41`.** The local `make verify` already came back
+   `MAKE_EXIT=0` (1243 passed / 100.00%) *with the five defect fixes in*, so the local side is
+   settled; Linux CI was still running. If you want a local re-confirmation anyway:
    ```bash
    TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify   # expect MAKE_EXIT=0
    make verify-linux-denominator
