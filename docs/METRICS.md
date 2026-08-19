@@ -226,3 +226,18 @@ Two independent `tempest prove` runs of the same commit pair produce **byte-iden
 `targets.json` and all 31 repro scripts, and manifests identical except `created_at`
 (timestamps are recorded, never compared). Nondeterminism in Tempest itself: **none observed**
 (30/30 ×20 flake hunt, re-run fresh at `2358b97`).
+
+---
+
+## Derived metric (v2, platform) — cost per verified outcome
+
+Not one of the six, but the number a VP of Engineering actually asks for, and one **no
+competitor can compute**: dollars spent per *successfully proven* task, per model. It requires
+both halves — P11's cost tracking and F21's proof-ranked outcomes — so it lands with Phase 27.
+
+**Status: not measurable yet** (needs P11, Phase 19, and F21, Phase 27). Recorded here so it is
+built as a first-class metric rather than reconstructed later from logs.
+
+**Why it matters:** every competitor can report tokens spent. Only a system with a correctness
+oracle can report tokens spent *per correct result* — which is the only form of the number that
+supports a purchasing decision.

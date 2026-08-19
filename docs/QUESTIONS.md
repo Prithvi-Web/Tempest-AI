@@ -40,6 +40,10 @@ code is excluded. (ADR to be appended when the corpus lands in Phase 2.)
 
 # v2.0.0 — genuinely ambiguous points (2026-08-18) — **AWAITING OWNER DECISION**
 
+> **Revised the same day** for the expanded master prompt (LibreChat adoption P1–P14, Laws
+> L15–L26, phases 19–32). QV1–QV7 below are unchanged and still open; QV8–QV12 are new and
+> arise specifically from the adoption.
+
 Unlike v1 (ADR-0002: autonomous, record-a-default-and-proceed), the v2.0.0 master prompt §13
 ends with *"a list of anything genuinely ambiguous — then stop and wait"* and *"do not begin
 Phase 19 until the user has seen the audit."* So these are **open**, not defaulted. Each has a
@@ -95,14 +99,18 @@ comparable, and the UI can still show it at full prominence.
 intact, keeps historical bundles honest, and matches how the number actually behaves (it
 qualifies an equivalence claim; it is not a fifth outcome). Needs an ADR either way.
 
-**QV5. Windows and Linux desktop builds do not exist, but Phase 29 gates 120 polish items on
+**QV5. Windows and Linux desktop builds do not exist, but Phase 31 gates 150 craft items on
 three OSes.** Today's release ships a macOS `.app` only; `tauri-driver` has no macOS/WKWebView
 backend (ADR-0031 §5), so the built-app driver leg is already platform-blocked. Nothing in
-Phases 19–30 schedules Windows/Linux desktop builds.
-→ **Recommendation:** either add an explicit **Windows + Linux desktop phase** before 29 (it
-also unblocks the built-app E2E leg that macOS structurally cannot run), or scope v2 to macOS
-and rewrite POLISH.md's three-OS columns to one. Pretending three OSes are covered when one is
-built is exactly the kind of claim this product exists to refuse.
+Phases 19–32 schedules Windows/Linux desktop builds — and Phase 29 (P10 enterprise auth/LDAP)
+targets exactly the buyers who run Windows. The revised craft bar makes this sharper, not
+softer: `POLISH.md` now has explicitly Windows-only items (Mica, jump lists, NVDA) that no
+amount of macOS work can satisfy.
+→ **Recommendation:** add an explicit **Windows + Linux desktop phase before 29** — it also
+unblocks the built-app E2E leg that macOS structurally cannot run, and it is a prerequisite for
+P10 landing with anyone real. The alternative is to scope v2 to macOS and rewrite POLISH.md's
+three-OS columns to one. **Pretending three OSes are covered when one is built is exactly the
+kind of claim this product exists to refuse.**
 
 **QV6. Is `tempest.dev.dogfood --prove-own-pr` (L24) achievable on this repo, and what rate is
 publishable?** Tempest is a Python+Rust+TS monorepo; its own PRs frequently change Rust and
@@ -118,3 +126,60 @@ threat model (the server exposes `prove` to arbitrary callers).
 → **Recommendation:** ship the MCP server unlicensed and fully local in v2 (it is the best
 distribution move — competitors' agents calling Tempest is the marketing), and defer any
 license split to a post-GA commercial decision.
+
+---
+
+## New with the LibreChat adoption (QV8–QV12)
+
+**QV8. The scope roughly doubled — does the timeline, or does the scope get cut?**
+v2 went from 21 features / 12 phases to 21 features **+ 14 platform foundations** / 14 phases,
+and the craft bar rose from a 120-item checklist to 150 items verified on three OSes (which
+QV5 already notes do not all exist). Nothing in the new prompt removed work; it added two
+phases and a law. Building this at the standard this repo actually holds itself to — 100%
+coverage, zero known defects, real gate output for every claim — is a very long road, and the
+honest failure mode is not "it goes badly", it is "phases 28–32 get quietly compressed because
+everyone is tired by then", which is exactly how craft and hardening die.
+→ **Recommendation:** commit to phases 19–27 as the funded scope and treat 28–32 as a second
+tranche with its own go/no-go. The sequencing rule already protects the ordering; this just
+makes the decision explicit instead of discovering it under pressure. **Alternatively**, cut
+the P-features that serve the fewest proofs (P13 multimodal and P14 i18n are the two whose
+removal costs the thesis least) and keep the phase count at twelve.
+
+**QV9. "So good people would rather use this than any other AI" — which "any other"?**
+The new instruction is to beat *any other AI*, but the master prompt's own §4.5 rejects
+general-purpose assistant framing, image generation, and chat-as-primary-surface — i.e. it
+explicitly refuses to compete with ChatGPT on ChatGPT's terms. **Those two goals point in
+different directions**, and this is worth settling in words before it gets settled by drift.
+→ **Recommendation:** the defensible reading, and the one the rest of the prompt supports, is
+*"the tool a working engineer would rather use than Cursor, Claude Code, or Copilot"* — beating
+general assistants at **verified code change**, not at breadth. If the intent is genuinely a
+general-purpose assistant that also proves code, that is a different product and L25 plus the
+rejection table need rewriting first, not quietly ignoring.
+
+**QV10. P1 says 12+ providers; L18 says BYO keys only. Who pays to *test* 12 providers?**
+This is QV2 (CI token funding) with a multiplier: `provider_matrix --min-providers 12` implies
+credentials for twelve services. Most have free tiers; several do not.
+→ **Recommendation:** the gate asserts **configurability and adapter correctness** against
+recorded fixtures for all twelve (free, deterministic, runs in CI), plus a **live smoke test
+against whichever providers the owner actually holds keys for**, reported honestly as "N of 12
+verified live." A matrix that claims twelve live providers we never called would be exactly the
+kind of unearned claim this project exists to refuse.
+
+**QV11. P10 LDAP requires a directory server to test against.**
+"LDAP against a real directory" is the gate. We have no directory, and standing one up is
+infrastructure the owner would need to provide or fund.
+→ **Recommendation:** gate against a containerized OpenLDAP with a seeded fixture directory
+(real protocol, real bind, hermetic and free) and mark the "against a customer's real AD/LDAP"
+leg as **owner-gated, unverified until a design partner supplies one** — stated in METRICS
+rather than assumed. Note this also collides with QV5: Phase 29 is enterprise reach, but the
+Windows desktop that most LDAP buyers run on still does not exist.
+
+**QV12. Is chat a panel we build, or do we skip it?**
+The rejection table says chat must never be the primary surface, and F13 (execution-grounded
+codebase chat) is the sanctioned conversational surface. But P6 (branching), P3 (skills), and
+P12 (export) are all described in conversational terms, which implies a real chat panel with
+history, forking, and persistence.
+→ **Recommendation:** build **one** conversational surface — F13's — and let P6/P3/P12 operate
+on *agent runs*, not on a separate chat product. One surface, one history model, one export
+format. Two would be the drift L25 warns about, and it would show up first as duplicated state
+and second as a ChatGPT clone nobody asked for.

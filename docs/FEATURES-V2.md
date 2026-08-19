@@ -1,8 +1,13 @@
-# Tempest AI v2 — The 21 Features (master prompt v2.0.0 §4, normative)
+# Tempest AI v2 — The 21 Proof-Native Features (master prompt v2.0.0 §4, normative)
 
-> Source: the v2.0.0 master prompt (2026-08-18). Laws L1–L14 all still bind; L15–L24 are in
+> Source: the v2.0.0 master prompt (2026-08-18). Laws L1–L14 all still bind; L15–L26 are in
 > `CLAUDE.md`. Where v2 conflicts with v1, **v1 wins** unless an ADR says otherwise.
-> Every feature ships only when its gate passes with pasted output. Phase mapping: `PLAN-V2.md`.
+> Every feature ships only when its gate passes with pasted output. Phases 19–32: `PLAN-V2.md`.
+>
+> **These 21 features are why anyone switches.** The 14 adopted platform foundations
+> (`docs/PLATFORM-V2.md`, P1–P14) make Tempest feel complete; they are not the differentiator,
+> and under L25 none of them ships without proof-native wiring. Each F below names the P
+> features that serve it.
 >
 > The strategic frame, in one sentence: **every other coding agent tells you it's done;
 > Tempest shows you the evidence — or tells you it couldn't get any.** A feature a thin
@@ -336,13 +341,44 @@ Leaderboard visible and exportable.
 
 ---
 
+---
+
+## How the platform foundations attach
+
+Each adopted foundation exists to serve a proof feature. Full detail and the rejection table:
+`docs/PLATFORM-V2.md`.
+
+| Serves | Platform foundation | What it adds |
+|---|---|---|
+| F1 Verdict Loop | **P2** resumable streams | a 60 s proof survives sleep, network loss, app restart (L15.5) |
+| F6 Migration | **P9** web search | library docs/changelogs feed the port — retrieved content is hostile input |
+| F7 De-Slop, F17 Fleet | **P4** subagents | each atomic step is an independently-proven subagent with its own worktree and verdict |
+| F15 Rules | **P3** Proof Skills | skills declare contracts, mutation floors, forbidden divergence classes — engine-enforced |
+| F16 MCP | **P5** MCP client | production-grade transport, OAuth, tool-approval UX |
+| F21 Model Arena | **P1** multi-provider | every provider is another competitor in the proof-ranked leaderboard |
+| All (L21) | **P11** cost tracking | cost-per-**verified**-outcome, a metric no competitor can compute |
+| F1 comparison | **P6** run branching | fork a run at any turn, compare branches **by verdict** |
+| Evidence legibility | **P8** behavioral artifacts | call graphs, effect timelines, divergence tables — evidence stops being a wall of JSON |
+| Evidence portability | **P12** export with bundles | the artifact a developer pastes into a PR and an auditor asks for |
+| Proof configuration | **P7** Proof Profiles | model, budget, tolerance, mutation floor, sandbox tier per directory — "strict for `billing/`, fast for `scripts/`" |
+| Bug-report input | **P13** multimodal (narrowed) | screenshot a stack trace or flamegraph → file/line navigation; general vision chat rejected |
+| Verdict legibility | **P14** i18n | a verdict a user cannot read is not evidence — vocabulary and `reason_code` explanations translatable |
+| Team features only | **P10** OAuth2/LDAP/email | gates *sharing*, never local operation — airplane mode stays fully functional (L8) |
+
+---
+
 ## Cross-cutting gates (every feature, no exceptions)
 
 - **L16:** no code path presents agent output as verified without a differential run. No
   `--skip-proof`, no fake fast mode.
 - **L17:** models never write confidence/verdict/risk fields; narration is visually distinct
   from evidence in every view.
-- **L21:** cost visible before spent; hard caps per task/session/day.
-- **L22:** the §5 performance budgets are CI gates from Phase 19 (`python -m tempest.dev.perf_suite --enforce-budgets`).
+- **L21:** cost visible before spent; hard caps enforced at the router, not the UI.
+- **L22:** the §5 performance budgets are CI gates from **Phase 19** (`perf_suite --enforce-budgets`);
+  the dedicated campaign is **Phase 30**.
 - **L24:** Tempest proves its own PRs; the Tempest-on-Tempest proof rate is published in the README.
+- **L25:** every adopted feature is re-implemented in our stack and subordinated to the proof
+  engine. A feature that does not make a proof more likely, more trustworthy, or more legible
+  is rejected — see the rejection table in `docs/PLATFORM-V2.md`.
+- **L26:** craft is a gate — `docs/CRAFT.md` principles, `docs/POLISH.md` 150 items, **Phase 31**.
 - The six numbers (`docs/METRICS.md`) reported in every status update.

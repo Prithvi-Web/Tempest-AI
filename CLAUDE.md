@@ -97,8 +97,10 @@ local log, regardless of whether the customer has enterprise features enabled.
 ### v2-era Laws (v2.0.0 master prompt §2 — additive; L1–L14 all still binding)
 
 > Where v2 conflicts with v1, **v1 wins** unless an ADR says otherwise.
-> Feature detail: `docs/FEATURES-V2.md` · phases: `docs/PLAN-V2.md` · threats:
-> `docs/THREAT-MODEL-V2.md` · polish: `docs/POLISH.md`.
+> Proof features (F1–F21): `docs/FEATURES-V2.md` · adopted platform foundations (P1–P14) and
+> the rejection table: `docs/PLATFORM-V2.md` · phases 19–32: `docs/PLAN-V2.md` · threats:
+> `docs/THREAT-MODEL-V2.md` · craft principles: `docs/CRAFT.md` · the 150-item checklist:
+> `docs/POLISH.md` · attribution: `THIRD_PARTY_LICENSES.md`.
 
 **L15 — The seven zero-properties are gates, not goals.** "Zero errors" is operationalized as:
 1. **Zero unhandled states** — every async operation implements loading, empty, error, partial,
@@ -146,6 +148,23 @@ reason — never a spinner, never a silent failure.
 
 **L24 — Dogfood or don't ship.** Tempest's own repo runs Tempest on every PR. The Tempest-on-Tempest
 proof rate is published in the README and tracked over time.
+
+**L25 — Adoption discipline.** Features adopted from other projects (`docs/PLATFORM-V2.md`) must be
+**re-implemented in Tempest's stack and subordinated to the proof engine**, never bolted on as a
+parallel product. Any adopted feature that does not serve the proof thesis is rejected, no matter
+how impressive it looks in a competitor's feature list. **Breadth that dilutes positioning is a
+loss, not a gain.** The test for any adoption: *does this make a proof more likely, more
+trustworthy, or more legible?* If no, reject it. Rejections are recorded with their reasons
+(`PLATFORM-V2.md`) so a future contributor cannot "helpfully" re-add them; overturning one takes
+an ADR, not a drift. Adopted code carries its attribution at the moment of adoption
+(`THIRD_PARTY_LICENSES.md`), to be gated by `license_check` from Phase 19.
+
+**L26 — Craft is a gate.** The interface quality bar is the one set by the best native desktop
+software, not the one set by web apps. `docs/CRAFT.md` defines it concretely — deference, clarity,
+depth, physicality — and every item in `docs/POLISH.md` (150 items) is CI-enforced or
+checklist-verified on three OSes. **"Looks fine" is not a passing state.** Adopt the principles that
+make great native software feel the way it does; never clone another vendor's chrome, icons, or
+trade dress (v2 failure mode 11).
 
 ---
 

@@ -1208,3 +1208,66 @@ addressable, and L9/L10 stay literally true — provable by the same test that a
 them. Risk: local-model quality varies wildly; F21's Model Arena is the honest answer,
 ranking whatever the user actually has by measured proof outcomes on their own repo rather
 than by vendor claims.
+
+## ADR-0038 — LibreChat adoption scope: fourteen capabilities, six refusals (2026-08-18)
+
+**Date:** 2026-08-18 · **Status:** accepted (v2 §4.5) · **Legal record:** `THIRD_PARTY_LICENSES.md`
+
+**Context.** The owner asked for "all the features" of LibreChat merged into Tempest. Taken
+literally that request makes the product worse, so this ADR records what we adopt, what we
+refuse, and — the part that matters most in twelve months — **why each refusal is a refusal**,
+so a future contributor cannot "helpfully" re-add image generation and call it progress.
+
+LibreChat is MIT-licensed, ~28k stars, Node/Express + React + MongoDB, deployed as a
+**multi-user web service**. Tempest is Rust/Tauri + Python + SQLite, a **local-first desktop
+application**. Their code cannot be vendored into this stack. What they genuinely own is years
+of solved problems in the open: multi-provider abstraction, resumable streaming, and MCP client
+behavior. Reading a battle-tested implementation before writing your own is the highest-leverage
+move available.
+
+**Decision — adopt the capability, re-implement it in our stack, subordinate it to the proof
+engine (L25).** Fourteen foundations, P1–P14, each with an explicit proof-native wiring and its
+own gate (`docs/PLATFORM-V2.md`). The wiring is not decoration on the adoption; it is the
+adoption's justification. Three examples of what that means concretely:
+
+- **P1 multi-provider** is not "support more models." It is the substrate for F21's Model Arena:
+  every provider added is another competitor in a leaderboard ranked by *verified correctness on
+  the user's own repository*. This is the rare case where breadth serves the thesis.
+- **P6 conversation branching** in their product answers "which reply do I prefer." Combined with
+  our shadow worktrees it answers *"branch A is EQUIVALENT_UNDER_BUDGET with a 0.94 mutation
+  score; branch B is DIVERGENT on 2 inputs."* Same feature name, different category of product.
+- **P2 resumable streams** is not a networking nicety here. An agent turn contains a 60-second
+  proof run; the turn journal and the checkpointed proof stage are how L15.5 (zero data loss)
+  becomes real rather than aspirational.
+
+**Refused, with reasons** — this list is as load-bearing as the one above:
+
+| Refused | Reason |
+|---|---|
+| Image generation (DALL·E, Flux, SD, GPT-Image) | Zero proof story, zero relationship to code correctness. The clearest single signal that a product has lost its thesis. |
+| Text-to-speech / audio playback | Nobody listens to code. Speech-to-text *input* is defensible later; TTS output is not. |
+| Agent Marketplace (open bazaar) | For a tool with file-write and shell access, an open marketplace is a supply-chain attack surface aimed at our most security-sensitive customers. Replaced by a signed, curated, org-scoped Proof Skill registry with mandatory review. |
+| Chat as the primary surface | Our primary surface is the editor and the evidence view. Chat is a panel. Inverting that makes a ChatGPT clone with a proof feature. |
+| MongoDB | SQLite local, Postgres server. A third datastore buys nothing. |
+| General-purpose assistant framing | "Do anything" is the opposite of "prove this." Every general capability dilutes the one sentence that sells this product. |
+
+**The standing test for any future adoption:** *does this make a proof more likely, more
+trustworthy, or more legible?* If no, reject — regardless of how good it looks on a comparison
+chart. Overturning any refusal above takes an ADR, not a drift.
+
+**Legal.** MIT permits commercial use, modification, and redistribution with no copyleft. It is
+permissive, **not free of obligation**: any copied or closely-adapted code must preserve the
+copyright notice and license text. `THIRD_PARTY_LICENSES.md` exists as of this ADR, carries the
+verbatim MIT notice, and holds a per-module derivation table that is currently empty —
+**adoption is reference-only today; no LibreChat code has been copied.** Attribution lands in
+the same commit as any future derivation, never later, and `license_check` gates it. Trademarks
+and brand assets are not licensed and appear nowhere. Their RAG API (`danny-avila/rag_api`) is a
+separate repo under its own terms and is reviewed independently if ever adopted.
+
+**Consequences / risk.** The plan grows from twelve phases to fourteen (19–32): platform
+completion lands in Phase 28 and enterprise reach in Phase 29, both *after* the proof features
+they serve, per the sequencing rule that P\* never precedes its F. **The specific risk this ADR
+introduces is failure mode 9: becoming a chat app with a proof feature.** The mitigation is
+structural rather than cultural — chat is a panel, never the primary surface; every P has a
+named F it serves and a gate that tests the wiring, not just the capability; and any P shipping
+without its proof-native wiring is a build failure under L25, not a style disagreement.

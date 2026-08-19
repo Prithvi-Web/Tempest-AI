@@ -1,11 +1,14 @@
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-18, v2 kickoff)
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
-older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–L24
-and the FOUR-boundary contract), `docs/QUESTIONS.md` **v2 section** (seven open questions the
-owner must answer before Phase 19 starts), `docs/PLAN-V2.md` (phases 19–30),
-`docs/FEATURES-V2.md` (the 21 features + gates), `docs/HANDOFF-PHASES.md` §2 (the DONE ledger —
-do not redo anything there) and its traps, `docs/DECISIONS.md` (ADR-0001..0037).
+older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
+and the FOUR-boundary contract), `docs/QUESTIONS.md` **v2 section** (**twelve** open questions the
+owner must answer before Phase 19 starts), `docs/PLAN-V2.md` (phases **19–32**),
+`docs/FEATURES-V2.md` (the 21 proof-native features + gates), `docs/PLATFORM-V2.md` (the 14
+foundations adopted from LibreChat **and the rejection table — read the rejections, they are
+load-bearing**), `docs/CRAFT.md` + `docs/POLISH.md` (the craft bar, 150 items),
+`THIRD_PARTY_LICENSES.md`, `docs/HANDOFF-PHASES.md` §2 (the DONE ledger — do not redo anything
+there) and its traps, `docs/DECISIONS.md` (ADR-0001..**0038**).
 
 **The owner is a non-coder.** Plain English, copy-paste commands, verify by running the real
 app. **Subagents are FORBIDDEN** (owner, 15 Aug: "just build with one but go all out") —
@@ -25,12 +28,20 @@ ever. Never claim "done" without pasting real gate output.**
 - **Everything is pushed.** `git log origin/main..HEAD` is empty. CI green on `main`.
 - **The release shipped**, and it carries **one real defect: the tag is `v1.0.0` while every
   internal version string says `0.2.0`** — see §2, the first task.
-- **v2 planning docs are written and committed** (this session): `PLAN-V2.md`,
-  `FEATURES-V2.md`, `THREAT-MODEL-V2.md`, `POLISH.md`, `METRICS.md` (now six numbers),
-  `CLAUDE.md` (L15–L24 + boundary D), ADR-0034..0037, and the seven open v2 questions.
+- **v2 planning docs are written and committed** (this session, then revised the same day for
+  the expanded master prompt): `PLAN-V2.md` (phases 19–32), `FEATURES-V2.md` (F1–F21),
+  **`PLATFORM-V2.md`** (P1–P14 + the rejection table), **`CRAFT.md`**, `POLISH.md` (150 items),
+  `THREAT-MODEL-V2.md` (now incl. T6 MCP, T7 retrieved web content, T8 adopted-platform
+  surface), `METRICS.md` (six numbers), `CLAUDE.md` (L15–**L26** + boundary D),
+  **`THIRD_PARTY_LICENSES.md`** (LibreChat MIT notice, reference-only, no code copied),
+  ADR-0034..**0038**, and **twelve** open v2 questions.
 - **No v2 code exists.** Phase 19 has not begun and **must not begin** until the owner has
-  seen the audit and answered `docs/QUESTIONS.md` QV1–QV7 (master prompt §13: *"then stop
+  seen the audit and answered `docs/QUESTIONS.md` QV1–QV12 (master prompt §13: *"then stop
   and wait"*).
+- **The scope roughly doubled** with the LibreChat adoption (QV8). Read the sequencing rule in
+  `PLAN-V2.md` before touching anything: **a platform feature never precedes the proof feature
+  it serves** — branching before the Verdict Loop gives you a chat app; after it, a behavioral
+  decision tree. Same code, different product.
 
 ## 2. FIRST TASK: the v1.0.0 / 0.2.0 version mismatch
 
@@ -76,12 +87,19 @@ generation + gates, not discipline. When you touch ANY shape:
 ## 4. Remaining work, in recommended order
 
 0. **The version mismatch** (§2) — owner decision, then execute.
-1. **Answer QV1–QV7** (`docs/QUESTIONS.md` v2 section). QV1 is the load-bearing one: the
-   standing rule says engine work outranks feature work below a 60% real-world proof rate,
-   and the measured rate is **34%**. The recommendation on file is to insert a **Phase 19a
-   engine proof-rate wave** (the 112 plain-class instance-method targets + residual harness
-   synthesis failures) before the agent core, because F1's verdict loop is only as good as
-   the proof rate underneath it.
+1. **Answer QV1–QV12** (`docs/QUESTIONS.md` v2 section). Three are load-bearing:
+   - **QV1 — proof rate vs feature work.** The standing rule says engine work outranks feature
+     work below a 60% real-world proof rate, and the measured rate is **34%**. The
+     recommendation on file is a **Phase 19a engine proof-rate wave** (the 112 plain-class
+     instance-method targets + residual harness-synthesis failures) before the agent core,
+     because F1's verdict loop is only as good as the proof rate underneath it.
+   - **QV8 — the scope roughly doubled.** 21 features + 14 foundations, 14 phases, 150 polish
+     items on 3 OSes. Recommendation: fund 19–27, treat 28–32 as a second tranche with its own
+     go/no-go, so craft and hardening are never the phases that get quietly compressed.
+   - **QV9 — "better than any other AI" vs the rejection table.** The master prompt refuses to
+     compete with general assistants on their terms. The defensible reading is *"the tool an
+     engineer would rather use than Cursor, Claude Code, or Copilot"* — beating them at
+     verified code change, not at breadth. Settle this in words or it gets settled by drift.
 2. **Phase 19** (v2 foundations) — only after 0 and 1. Gates in `docs/PLAN-V2.md`.
 3. **Carried over from v1, still open:** Sigstore signing + a README demo GIF (ADR-0021 said
    signing "can be added later at zero cost" — it is still later); TS wave 2 (JS cassettes,
