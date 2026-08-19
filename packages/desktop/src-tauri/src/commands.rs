@@ -94,11 +94,25 @@ impl From<crate::pathguard::PathRefusal> for ProjectFileRefusal {
 /// a string the renderer chose. That matters because the renderer is where hostile model output
 /// is displayed, and a language server is an arbitrary binary reading the user's source.
 ///
-/// The language is inferred from the extension here rather than accepted from the caller, for
-/// the same reason. Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are
-/// absent by default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
-/// There is no settings surface for them yet; that is stated, not implied.
-#[tauri::command]
+/// The language is inferred from the RESOLVED path here rather than accepted from the caller,
+/// for the same reason — and from the resolved one rather than the requested one because a
+/// symlink named `notes.txt` pointing at `main.py` is a Python file, and the server that reads
+/// it should be the one that understands what it will find.
+///
+/// **`pathguard` decides whether this file may be named at all**, exactly as it does for
+/// `read_project_file`. The first version re-implemented containment inline as three lexical
+/// checks under a comment claiming parity with a guard that also canonicalises, re-applies the
+/// credential denylist to the RESOLVED path, and refuses hard links — so `src/notes.py`
+/// symlinked to `~/.ssh/id_rsa` was refused by the editor and accepted here (trap 45, again).
+/// One guard, one vocabulary: `PathRefusal` crosses into `LspError::Refused` unchanged.
+///
+/// `async` is not decoration. A bare `#[tauri::command]` is `ExecutionContext::Blocking` in
+/// tauri-macros, which runs the body INLINE on the IPC handler — the main thread on macOS. This
+/// command can wait ten seconds for a language server; the window must not.
+///
+/// Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are absent by
+/// default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
+#[tauri::command(async)]
 #[specta::specta]
 pub fn lsp_hover(
     state: tauri::State<'_, std::sync::Mutex<crate::lsp::Multiplexer>>,
@@ -108,14 +122,17 @@ pub fn lsp_hover(
     line: u32,
     character: u32,
 ) -> Result<Option<crate::lsp::HoverInfo>, crate::lsp::LspError> {
-    let Some(language) = language_for(&path) else {
+    let root = std::path::Path::new(&repo_path);
+    // The same guard the editor read the file through, applied before a single byte of the path
+    // reaches an arbitrary user-configured binary.
+    let resolved = crate::pathguard::resolve_within(root, &path, MAX_READ_BYTES)?;
+    let Some(language) = language_for(&resolved.to_string_lossy()) else {
         return Err(crate::lsp::LspError::Unsupported { language: "unknown".into() });
     };
-    let root = std::path::Path::new(&repo_path);
     let mut mux = state.lock().map_err(|_| crate::lsp::LspError::ServerGone {
         language: language.to_string(),
     })?;
-    let result = mux.hover(language, root, &path, &text, line, character)?;
+    let result = mux.hover(language, root, &resolved, &text, line, character)?;
     // `None` means the server had nothing to say — a real answer, and different from an error.
     Ok(crate::lsp::hover_text(&result).map(|contents| crate::lsp::HoverInfo { contents }))
 }
@@ -161,7 +178,13 @@ pub fn configured_servers() -> Vec<crate::lsp::ServerSpec> {
 /// The model is named by `TEMPEST_LOCAL_MODEL` (and `TEMPEST_LOCAL_MODEL_ARGS`, space-separated)
 /// for now. A settings surface for it is NOT built — stated here rather than implied, because an
 /// undiscoverable feature is one nobody has.
-#[tauri::command]
+///
+/// `async` is load-bearing, not decoration. `#[tauri::command]` on its own is
+/// `ExecutionContext::Blocking` in tauri-macros 2.6.3, whose codegen runs the body INLINE in the
+/// IPC handler — on macOS, the WKWebView script-message callback on the app's main thread. This
+/// function spawns a process and waits up to the deadline for it, so as a sync command it froze
+/// the window for exactly as long as `localmodel.rs`'s doc comment says it refuses to.
+#[tauri::command(async)]
 #[specta::specta]
 pub fn local_completion(prompt: String, deadline_ms: u32) -> Option<String> {
     let program = std::env::var("TEMPEST_LOCAL_MODEL").ok().filter(|p| !p.is_empty());
@@ -186,7 +209,11 @@ pub fn local_completion(prompt: String, deadline_ms: u32) -> Option<String> {
 /// separate process to hand back bytes the OS already has is latency spent for nothing. The
 /// safety that the sidecar boundary would have provided is provided instead by `pathguard`,
 /// which is the same module Phase 21's `read_file` dispatch will use.
-#[tauri::command]
+///
+/// `async` for the same reason as the other two host commands: canonicalising a path and reading
+/// up to 2 MiB through a UTF-8 validation is real work, and a sync tauri command does it on the
+/// main thread.
+#[tauri::command(async)]
 #[specta::specta]
 pub fn read_project_file(
     repo_path: String,

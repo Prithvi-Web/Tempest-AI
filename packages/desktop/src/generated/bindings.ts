@@ -62,6 +62,10 @@ export const commands = {
 	 *  separate process to hand back bytes the OS already has is latency spent for nothing. The
 	 *  safety that the sidecar boundary would have provided is provided instead by `pathguard`,
 	 *  which is the same module Phase 21's `read_file` dispatch will use.
+	 * 
+	 *  `async` for the same reason as the other two host commands: canonicalising a path and reading
+	 *  up to 2 MiB through a UTF-8 validation is real work, and a sync tauri command does it on the
+	 *  main thread.
 	 */
 	readProjectFile: (repoPath: string, path: string, maxBytes: number | null) => typedError<ProjectFile, ProjectFileRefusal>(__TAURI_INVOKE("read_project_file", { repoPath, path, maxBytes })),
 	/**
@@ -76,6 +80,12 @@ export const commands = {
 	 *  The model is named by `TEMPEST_LOCAL_MODEL` (and `TEMPEST_LOCAL_MODEL_ARGS`, space-separated)
 	 *  for now. A settings surface for it is NOT built — stated here rather than implied, because an
 	 *  undiscoverable feature is one nobody has.
+	 * 
+	 *  `async` is load-bearing, not decoration. `#[tauri::command]` on its own is
+	 *  `ExecutionContext::Blocking` in tauri-macros 2.6.3, whose codegen runs the body INLINE in the
+	 *  IPC handler — on macOS, the WKWebView script-message callback on the app's main thread. This
+	 *  function spawns a process and waits up to the deadline for it, so as a sync command it froze
+	 *  the window for exactly as long as `localmodel.rs`'s doc comment says it refuses to.
 	 */
 	localCompletion: (prompt: string, deadlineMs: number) => __TAURI_INVOKE<string | null>("local_completion", { prompt, deadlineMs }),
 	/**
@@ -86,10 +96,24 @@ export const commands = {
 	 *  a string the renderer chose. That matters because the renderer is where hostile model output
 	 *  is displayed, and a language server is an arbitrary binary reading the user's source.
 	 * 
-	 *  The language is inferred from the extension here rather than accepted from the caller, for
-	 *  the same reason. Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are
-	 *  absent by default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
-	 *  There is no settings surface for them yet; that is stated, not implied.
+	 *  The language is inferred from the RESOLVED path here rather than accepted from the caller,
+	 *  for the same reason — and from the resolved one rather than the requested one because a
+	 *  symlink named `notes.txt` pointing at `main.py` is a Python file, and the server that reads
+	 *  it should be the one that understands what it will find.
+	 * 
+	 *  **`pathguard` decides whether this file may be named at all**, exactly as it does for
+	 *  `read_project_file`. The first version re-implemented containment inline as three lexical
+	 *  checks under a comment claiming parity with a guard that also canonicalises, re-applies the
+	 *  credential denylist to the RESOLVED path, and refuses hard links — so `src/notes.py`
+	 *  symlinked to `~/.ssh/id_rsa` was refused by the editor and accepted here (trap 45, again).
+	 *  One guard, one vocabulary: `PathRefusal` crosses into `LspError::Refused` unchanged.
+	 * 
+	 *  `async` is not decoration. A bare `#[tauri::command]` is `ExecutionContext::Blocking` in
+	 *  tauri-macros, which runs the body INLINE on the IPC handler — the main thread on macOS. This
+	 *  command can wait ten seconds for a language server; the window must not.
+	 * 
+	 *  Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are absent by
+	 *  default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
 	 */
 	lspHover: (repoPath: string, path: string, text: string, line: number, character: number) => typedError<{
 	contents: string,
@@ -1010,12 +1034,32 @@ export type LspError =
 { kind: "unlaunchable"; language: string } | 
 /**  The root is not a project (same rule as `pathguard`: containment needs a real root). */
 { kind: "not_a_project" } | 
+/**
+ *  The file was refused by `pathguard` — the SAME guard and the same vocabulary that decides
+ *  whether the editor may read it. A second implementation of containment is a second thing
+ *  that can disagree, and the first version of this module was exactly that: three lexical
+ *  checks under a comment claiming parity with a guard that also canonicalises, re-applies
+ *  the credential denylist to the resolved path, and refuses hard links.
+ */
+{ kind: "refused"; refusal: PathRefusal } | 
 /**  The server exited, or its stream ended, while we were talking to it. */
 { kind: "server_gone"; language: string } | 
 /**  The server is running but did not answer inside the timeout. */
 { kind: "timeout"; language: string } | 
 /**  The server answered with something that is not a JSON-RPC response. */
-{ kind: "protocol"; detail: string };
+{ kind: "protocol"; detail: string } | 
+/**
+ *  The server answered with a JSON-RPC ERROR — which is a correct answer, not a broken
+ *  stream. Kept distinct from `Protocol` because the two demand opposite reactions: a
+ *  desynchronised stream must cost the server its life, and `MethodNotFound` must not.
+ * 
+ *  `i32`, not `i64`: JSON-RPC 2.0 defines `code` as an integer in the int32 range, specta
+ *  forbids BigInt-style types across this boundary, and the alternative — widening and
+ *  clamping — would put a number on the wire that no server ever sent. A code that does not
+ *  fit is a server breaking protocol, and is reported as exactly that. (`PathRefusal::
+ *  TooLarge` learned the same lesson one module over.)
+ */
+{ kind: "server_error"; code: number; message: string };
 
 /**
  * `Message`

@@ -341,24 +341,24 @@ fn spawn_child(config: &SpawnConfig) -> Result<Live, RpcError> {
 }
 
 #[cfg(unix)]
-fn terminate_group(pgid: i32) {
+pub(crate) fn terminate_group(pgid: i32) {
     unsafe {
         libc::killpg(pgid, libc::SIGTERM);
     }
 }
 
 #[cfg(unix)]
-fn kill_group(pgid: i32) {
+pub(crate) fn kill_group(pgid: i32) {
     unsafe {
         libc::killpg(pgid, libc::SIGKILL);
     }
 }
 
 #[cfg(not(unix))]
-fn terminate_group(_pgid: i32) {}
+pub(crate) fn terminate_group(_pgid: i32) {}
 
 #[cfg(not(unix))]
-fn kill_group(_pgid: i32) {}
+pub(crate) fn kill_group(_pgid: i32) {}
 
 /// True while any process of the group is alive (used by tests to prove the sweep worked).
 #[cfg(unix)]

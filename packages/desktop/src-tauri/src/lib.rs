@@ -157,9 +157,28 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app, event| {
             if let RunEvent::Exit = event {
-                app.state::<Arc<watcher::RunWatcher>>().shutdown();
-                // Blocking sweep: after this, no sidecar or runner process exists (L11).
-                app.state::<Arc<Supervisor>>().shutdown();
+                sweep_on_exit(app);
             }
         });
+}
+
+/// Everything this app owns a process for, stopped before the process ends (L11).
+///
+/// **`Drop` is not a shutdown mechanism here, and believing it was cost a real defect.** On macOS
+/// `tao`'s event loop ends in `process::exit`, and tauri's own `App::run` documents that it
+/// "never returns... the process is exited directly using `std::process::exit`" — which runs no
+/// destructors, so no `Drop` of any managed state ever executes. The sidecar sweep was always
+/// explicit here for that reason; the LSP multiplexer was not, and rested its entire no-orphans
+/// argument on `impl Drop`. A `pgrep` after quitting found the language server still running.
+///
+/// Taken as a named function rather than written inline so it can be exercised: the closure above
+/// is one call, and `sweep_on_exit` is what a test can hand a live multiplexer to.
+fn sweep_on_exit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    app.state::<Arc<watcher::RunWatcher>>().shutdown();
+    // Blocking sweep: after this, no sidecar or runner process exists (L11).
+    app.state::<Arc<Supervisor>>().shutdown();
+    // ...and no language server, which is a process this app started and therefore owns.
+    if let Ok(mut mux) = app.state::<std::sync::Mutex<lsp::Multiplexer>>().lock() {
+        mux.shutdown_all();
+    }
 }
