@@ -114,15 +114,35 @@ python -m tempest.dev.perf_suite --enforce-budgets
 # cost meter accurate to ±2% against provider-reported usage
 ```
 
-## Phase 20 — Editor surface
+## Phase 20 — Editor surface ✅ COMPLETE 2026-08-19 (ADR-0045, ADR-0046)
 
-- [ ] CodeMirror 6 editor surface (ADR-0034 — Monaco measured out: 8.1× larger minified).
-- [ ] LSP client multiplexer in Rust; language servers never live in the webview.
-- [ ] **F11** inline completion + next-edit prediction, local-model capable, behavioral risk
-      indicator wired to measured divergence/proof-rate data.
+- [x] CodeMirror 6 editor surface (ADR-0034 — Monaco measured out: 8.1× larger minified).
+      20.1 + 20.1b, behind `pathguard`; ADR-0045, and the review that found a hard-link
+      credential leak in it (trap 45).
+- [x] LSP client multiplexer in Rust; language servers never live in the webview. 20.2, hardened
+      by the Phase 20 review in 20.4a: own process group + `killpg` sweep (a probe showed
+      `child.kill()` leaving a shim's grandchild alive, and a surviving grandchild kept `kill`'s
+      `join()` blocked forever); responses distinguished from server-initiated requests; a
+      JSON-RPC error treated as an answer rather than a broken stream; `didChange`; percent-
+      encoded URIs; `pathguard` as the ONE containment rule. **20.5 made it reachable** — a
+      CodeMirror hover tooltip, which 20.2 shipped without.
+- [x] **F11** inline completion + next-edit prediction, local-model capable, behavioral risk
+      indicator wired to measured divergence/proof-rate data. 20.3a–e, then 20.4b–d: the local
+      model runner swept by process group and refusing whitespace; the risk indicator given a
+      real `divergencesForSymbol` lookup and a compiler-enforced severity table, because it could
+      previously never leave `unmeasured`; cursor-move dismissal; an in-flight guard.
+- [x] **20.6** — a settings surface for both runners, which were environment-variable-only and
+      therefore undiscoverable.
 
-**Exit gate:** all §5 editor budgets met (open file p50 40 ms; keystroke→render p50 8 ms;
-completion p50 120 ms / p95 300 ms); input-storm test (15 keys/s × 60 s, zero drops).
+**Exit gate:** all §5 editor budgets met (open file p50 15.4 ms / 40 ms; keystroke→render p50
+1.3 ms / 8 ms; completion p50 4.1 ms / 120 ms, p95 6.1 ms / 300 ms) — MET; input-storm test
+(15 keys/s × 60 s, zero drops) — PASSES, and since 20.4d it presses F11 during the storm and
+asserts a suggestion appeared, because it previously ran with the completion machinery idle.
+
+**Read before trusting those numbers:** they come from `bench/editor-metrics.json`, which is
+gitignored and written only by a Mac-local `make bench-editor`, and the E2E harness has no Rust
+host — so the open-file and completion spans exclude `pathguard` and Tauri IPC. Stated in
+ADR-0046 §"still open" rather than implied by a green table.
 
 ## Phase 21 — Agent orchestrator + F1, F2, F3 + P2 ⭐ THE CORE
 

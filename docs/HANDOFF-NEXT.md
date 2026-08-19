@@ -1,5 +1,6 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19; Phase 19 COMPLETE
-# and CI-confirmed; Phase 20 steps 20.1–20.3e ALL LANDED and pushed; see §1 for what is NOT done)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19 after the Phase 20
+# review; Phase 19 COMPLETE and CI-confirmed; **PHASE 20 IS COMPLETE** — 20.1–20.6, its review
+# ran, and §1a now lists what is carried rather than what is missing. Phase 21 is next.)
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
 older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
@@ -38,10 +39,15 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   the trap-44 fix (`191c91e`), and Phase 20.1 + 20.1b (`f1b3502`, `43fbb25`, `31a40cc`,
   `453075b`, `2a0a998`). Check reality rather than this sentence, which ages the moment anything
   lands: `git rev-parse --short HEAD origin/main` and `git log origin/main..HEAD`.
-- **Phase 20 steps 20.1 → 20.3e are all landed and pushed** (`origin/main == 05eb5c9`).
-  20.1 editor surface · 20.1b budgets armed · 20.2 LSP multiplexer + handshake + hover dispatch ·
-  20.3a completion policy · 20.3b ghost text + offline source · 20.3c completion budget + input
-  storm · 20.3d local model runner + fallback · 20.3e behavioural risk indicator.
+- **Phase 20 is COMPLETE (2026-08-19, ADR-0046).** 20.1 editor surface · 20.1b budgets armed ·
+  20.2 LSP multiplexer + handshake + hover dispatch · 20.3a completion policy · 20.3b ghost text
+  + offline source · 20.3c completion budget + input storm · 20.3d local model runner + fallback
+  · 20.3e behavioural risk indicator · **20.4a–d the review's confirmed fixes** · **20.5 the
+  hover tooltip that makes `lsp_hover` reachable** · **20.6 the runners' settings surface**.
+  Everything through `30f970a` was pushed and CI-green (7/7 on `6b417c4`, `05eb5c9`, `30f970a`);
+  the six commits after it are LOCAL and awaiting the owner's push (trap 13).
+- **Test counts after Phase 20**: pytest 1270+ at 100.00% · cargo 109 (was 84) · vitest 81
+  desktop + 27 ts-sidecar · Playwright 48 specs (was 42).
 - **The §5 editor budgets are MET and the count is 6 of 13**: open file p50 15.4 ms (bar 40),
   keystroke p50 1.3 ms (bar 8), completion p50 4.1 ms (bar 120), all three p95s inside their
   bars. The input-storm test (900 keys at 15/s, zero drops, order-exact) passes. Those were
@@ -81,8 +87,14 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   `git ls-files`, which answers about the index). Exactly one instance of this defect; the
   gitignored artifacts other tests read are all produced by an explicit CI step.
 
-## 2. WHERE WE ARE: **19.1–19.7 + the review fixes have all landed. The phase closes when a
-fresh-checkout CI run is green — not before (ADR-0044). Phase 20 is next.**
+## 2. WHERE WE ARE: **Phase 19 and Phase 20 are both COMPLETE. Phase 21 (the agent
+orchestrator) is next — but answer QV1 first (§4.4).**
+
+Phase 20 closed on 2026-08-19 with ADR-0046: 20.1 editor surface · 20.1b budgets armed ·
+20.2 LSP multiplexer · 20.3a–e F11 · **20.4a–d the review fixes** · **20.5 hover reachable** ·
+**20.6 the runners' settings surface**. The phase's own exit gate (every §5 editor budget met
+plus the input-storm test) was already met at hand-off; what was missing was the review, the way
+in, and a way to configure it. All three are done. Read §1a for what is CARRIED.
 
 **The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
 retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
@@ -149,53 +161,83 @@ Watch for it recurring. If it does, the cause is worth finding rather than delet
 database that empties itself mid-run is exactly the kind of thing that would eventually report a
 FALSE 100% instead of a false 0%, and only one of those two is self-announcing.
 
-### 1a. WHAT IS NOT DONE — read this before calling Phase 20 complete
+### 1a. PHASE 20 IS COMPLETE — what closed it, and what is CARRIED (not missing)
 
-Three things, in priority order. None is hidden in a comment; they are here because a phase
-called complete while any of them stands would be the overstatement ADR-0044 forbids.
+The three things this section used to list as blocking are done. Read the carried items before
+assuming anything about measurement.
 
-1. **`lsp_hover` IS NOT REACHABLE FROM THE UI.** The command exists, is typed, is contract-
-   generated, and is tested in Rust (18 lsp tests) — and **nothing in the webview calls it**.
-   This is the exact defect the Phase 20.1 review found in the editor itself ("the editor surface
-   has no way in"), repeated one layer up. A CodeMirror hover tooltip wired to `commands.lspHover`
-   is the missing piece. Until then the multiplexer is a substrate nobody can use.
-2. **NO SETTINGS SURFACE for either runner.** Language servers come from `TEMPEST_LSP_PYTHON` /
-   `TEMPEST_LSP_TYPESCRIPT`; the local model from `TEMPEST_LOCAL_MODEL` (+ `_ARGS`). Env vars
-   only. An undiscoverable feature is one nobody has.
-3. **THE PHASE 20 REVIEW WAS NEVER RUN.** Every earlier phase ended with a multi-lens
-   adversarially-verified review, and each one found real defects in code that had a green
-   `make verify` — the Phase 20.1 review found a HARD-LINK CREDENTIAL LEAK (trap 45). 20.2's
-   handshake/dispatch, 20.3's policy/ghost-text/model-runner/risk-indicator, and the CSP have had
-   NO such review. Do this before writing an ADR that says Phase 20 is done.
+**1. The Phase 20 review RAN** (ADR-0046). Eleven read-only lenses over 20.2/20.3, every finding
+adversarially verified by two refute-by-default verifiers: **138 agents, 63 findings judged, 126
+verdicts, 37 confirmed unanimously.** It found, among others, that language servers were orphaned
+on every quit (`tao` exits via `process::exit`, so no `Drop` of managed state ever runs, and
+`shutdown_all` had zero production callers); that `Running::kill` could block forever on a
+`join()` whose EOF never came, holding the multiplexer's mutex on the Tauri command thread; that
+a server-initiated JSON-RPC request bearing our id was returned as our answer; that a legal
+`-32601` killed the server while bring-up probed with `workspace/symbol`; that `lsp_hover`'s
+containment was three lexical checks under a comment claiming parity with `pathguard`; that
+`local_completion` and `lsp_hover` ran on the MAIN THREAD; and that the behavioural risk
+indicator could never fire, in two independent ways that both rendered as the honest answer.
+All fixed. Two of them were settled by running a probe rather than by reading.
 
-Also still open, carried: **the cold-launch baseline** needs one `make bench` on a machine with
-NO Claude session running (every measurement on 19 Aug carried ~25–30% background load). The A/B
-already settled the cause — the baseline commit itself benches at 0.3316 today, so it is
-environment drift (+11.7%), not code (+4.3%, inside the bar). Do NOT re-baseline under load.
+**2. `lsp_hover` IS REACHABLE** (`d72c66d`). A CodeMirror hover tooltip calls it; the decision of
+which outcomes are ordinary is a separate 100%-covered module; contents render as text, never
+markup. Five E2E specs, the first of which asserts only that the command is issued at all.
 
-And: **no ADR exists for Phase 20 as a whole.** ADR-0045 covers 20.1/20.1b only. 20.2 and 20.3
-are recorded in commit messages, not in `docs/DECISIONS.md`.
+**3. BOTH RUNNERS HAVE A SETTINGS SURFACE** (`af58163`, `runners.rs`). Language servers and the
+local model are configured in Settings, with the environment still winning and saying so, and
+with whether the program can be FOUND stated rather than left to a silent failure.
 
-### FIRST TASK for the next session — verify, then choose
+#### CARRIED — true today, and none of it is a defect being hidden
 
-1. **Confirm CI is green on the tip.** CI was **RED** on `5717c41` and on both docs commits it
-   ran (`037ec90`, `b68f212`; the third, `a44f239`, never got its own run) — one test, fixed in the commit that added ADR-0044 and trap 44 (§12). Phase 19
-   is not settled until a fresh-checkout run agrees with the local one:
+- **The cold-launch baseline still needs one `make bench` on an idle machine.** It could not be
+  taken in the Phase 20 session because that session WAS the load. `make perf-gate` is RED on
+  `cold_launch` only: `0.3309s regressed 11.5% over baseline 0.2968s (bar 10%)`, while the
+  ABSOLUTE budget is met with wide margin (0.33 s against a 0.8 s p50). **Never re-baseline under
+  load** (v2 failure mode 2).
+- **`perf-gate` runs in NO CI job.** The Makefile used to claim it "belongs to the perf flow and
+  the CI bench job"; `grep -rn "perf_suite\|perf-gate" .github/` is empty and the comment now
+  says so. Arming it in CI needs a committed `bench/baseline-linux.json` (without one the
+  regression bar prints PENDING and never binds) and a decision about cold_launch above.
+- **The §5 editor numbers are a claim about ONE laptop.** They come from
+  `bench/editor-metrics.json`, which is gitignored and written only by `make bench-editor`
+  (tagged `@bench`, grep-inverted out of `test:e2e`). `perf_suite` now counts three states
+  separately — MEASURED / armed-but-NOT-YET-MEASURED / NOT-YET-MEASURABLE — instead of calling
+  every unmeasured row "not measurable", which was false for the three armed editor rows.
+- **The E2E harness has no Rust host.** The open-file and completion spans therefore EXCLUDE
+  `pathguard` and Tauri IPC and INCLUDE an HTTP hop to a node bridge. Confirmed by the review and
+  stated in the spec; closing it needs a harness that drives a real bundled app.
+- **Nothing GATES the CSP.** It ships (`b11d533`) and is correct for what the app does today, but
+  the only build in which tauri enforces it is a bundled one CI never produces, and the E2E suite
+  runs against a vite origin with no CSP header. A build-time assertion that the bundled
+  `index.html` carries the policy is the cheap first step.
+- **`update_editor_runners` chooses a binary this host later spawns.** Nothing routes model
+  output into settings today and the CSP forbids injected script; that is the whole mitigation,
+  and it is written down (ADR-0046) rather than assumed.
+
+### FIRST TASK for the next session — confirm CI on the pushed tip, then start Phase 21
+
+1. **Confirm CI is green on the Phase 20 tip once the owner has pushed it.** Six commits
+   (`da171eb` … `af58163`) are LOCAL at the time of writing; everything through `30f970a` is
+   pushed and was 7/7 green. A local `make verify` is evidence about one machine, and "Phase 20
+   is complete" is a claim about the repository (trap 44) — so the phase is settled by a
+   fresh-checkout run, not by this document.
    ```bash
    TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/verify.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/verify.log
    grep -E "^MAKE_EXIT=" /tmp/verify.log
    make verify-linux-denominator
    ```
-   **Read the logged exit line, never the task notification (trap 40).** Then read the CI
-   conclusion itself — the check-run annotations carry the failing line without admin rights:
-   `curl -s .../check-runs/<id>/annotations`.
-2. **Settle the one deliberately-failing gate** (below), then start Phase 20.
+   **Read the logged exit line, never the task notification (trap 40)** — that trap fired again
+   during Phase 20: a run whose real exit was 2 arrived as "completed (exit code 0)". Then read
+   the CI conclusion itself; the check-run annotations carry the failing line without admin
+   rights: `curl -s .../check-runs/<id>/annotations`.
+2. **Read §1a's CARRIED list before measuring anything**, then take the cold-launch bench on an
+   idle machine and start Phase 21 (answer QV1 first — §4.4).
 
 ### The one thing deliberately left RED — do not "fix" it by re-baselining
 
-`make perf-gate` currently fails:
+`make perf-gate` still fails, on cold launch alone (re-measured 2026-08-19 after Phase 20):
 ```
-PERF-GATE cold_launch: 0.3375s regressed 13.7% over baseline 0.2968s (bar 10%)
+PERF-GATE cold_launch: 0.3309s regressed 11.5% over baseline 0.2968s (bar 10%)
 ```
 The **absolute** budget is met with wide margin (0.34 s against a 0.8 s p50); what trips is §5's
 10% regression bar. `bench/bench.json` was captured while the machine was busy running an audit,
@@ -272,26 +314,40 @@ generation + gates, not discipline. When you touch ANY shape:
 
 ## 4. Remaining work, in recommended order
 
-0. **Verify** (§2 first task): `make verify` + `make verify-linux-denominator` on a quiet
-   machine, and confirm CI green on `5717c41`.
-1. **Settle the cold-launch perf signal** — `make bench` on an idle machine, then `make
-   perf-gate`. Never re-baseline to make it green.
-2. **Phase 20.2** — the Rust LSP multiplexer (language servers never live in the webview), then
-   **20.3** F11 inline completion. 20.1 (editor surface) and 20.1b (budgets armed) are DONE.
-   The phase exit gate still needs the `completion` budget (20.3 — it takes the count from 5 of
-   13 to 6 of 13) and the **input-storm test** (15 keys/s × 60 s, zero drops), which is NOT built
-   and must not be silently assumed met.
-2a. **Queued by the Phase 20.1 review (ADR-0045) — none done; the first matters most:**
-   - **No CI job runs the E2E suite.** `grep -rn "playwright\|test:e2e" .github/workflows/`
-     returns nothing, so all 37 specs — the editor surface, the contrast gates, the reachability
-     spec — are MAC-ONLY evidence. This session began with a Mac-green that did not travel; the
-     same exposure is still open.
-   - **`tauri.conf.json` ships `security.csp: null`** while THREAT-MODEL-V2.md T8 promises a CSP,
-     in the webview that now holds a file-read primitive.
+0. **Confirm CI is green on the Phase 20 tip**, which the owner pushes. The local evidence is
+   in ADR-0046; a local green is evidence about one machine and "Phase 20 is complete" is a claim
+   about the repository (trap 44).
+1. **Settle the cold-launch perf signal** — `make bench` on an idle machine (NO Claude session
+   running; that is why it is still open), then `make perf-gate`. Never re-baseline to make it
+   green. Then consider arming `perf-gate` in CI, which needs a committed
+   `bench/baseline-linux.json` first.
+2. **Gate the CSP.** It ships and is correct for what the app does, and nothing executes under
+   it: `grep -rni csp` over the app, the specs and the workflows returns zero hits, and tauri
+   applies the policy only in a bundled build CI never produces. A build-time assertion that the
+   bundled `index.html` carries it is the cheap first step; running one smoke spec against a
+   built app is the real one.
+2a. **Queued by the Phase 20.1 review (ADR-0045) — the first two are DONE; read the correction:**
+   - ~~No CI job runs the E2E suite.~~ **DONE in `b11d533`**: the CI desktop job installs a
+     chromium and runs the same `test:e2e` script `make verify` does, with `set -o pipefail`
+     before the `tee` (trap 18). This bullet still said the opposite two commits after that
+     landed, and the Phase 20 review confirmed it as a live documentation defect — the handoff
+     that is the project's own answer to "is this done?" answered no about work that was done.
+     Corrected 2026-08-19.
+   - ~~`tauri.conf.json` ships `security.csp: null`.~~ **DONE in `b11d533`**: it ships a full
+     policy (`default-src 'self'` … `frame-ancestors 'none'`). Same correction, same date.
+     **What is still true and is NOT done:** nothing GATES the CSP. `grep -rni csp` over
+     `packages/desktop/src`, `e2e`, `.github` and every test returns zero hits; the E2E suite runs
+     against the vite dev server, which sends no CSP header, in Chromium — while the app ships on
+     WKWebView, and tauri applies `security.csp` only for the `tauri://localhost` protocol, i.e.
+     only in a bundled build that CI never produces. So the policy is a config file nobody has
+     executed under. That is the real open item; see §4.
    - **The cold-launch baseline** needs one `make bench` on a genuinely quiet machine (every
      measurement on 19 Aug was taken with ~25–30% background load from a Claude session). The A/B
      settled the cause: the BASELINE COMMIT ITSELF benches at 0.3316 today — environment drift
-     (+11.7%), not code (+4.3%, inside the bar). Do NOT re-baseline under load.
+     (+11.7%), not code (+4.3%, inside the bar). Do NOT re-baseline under load. **Still open on
+     2026-08-19 after Phase 20: it could not be taken, because that session WAS the load.**
+     `make perf-gate` reports `cold_launch 0.3309s regressed 11.5% over baseline 0.2968s`; the
+     absolute budget is met with wide margin (0.33 s against a 0.8 s p50).
 2b. **Queued by the trap-44 review (ADR-0044) — none of these are done:**
    - **A repo-wide gate for the trap-44 class.** Today only `test_perf_suite.py` proves the file
      it reads is committed; nothing stops the next test from using bare `Path.is_file()` on a repo
@@ -357,6 +413,10 @@ agent that mutates the shared tree races your commits — reviewers are read-onl
 43 100% coverage proves which LINES ran, not which STATES were considered (§11) ·
 44 a test that reads a repo file must assert the file is COMMITTED (in HEAD, not the index), not merely present — local green is measured in a tree full of untracked build output, CI in a fresh checkout (§12) ·
 45 a guard's ARGUMENT is not a proof of the guard — write the bypass and RUN it; a hard link defeated a credential denylist whose own prose explained why it could not (§13) ·
+**46 a REVIEW agent that reads the tree AFTER you have fixed it judges the FIX, not the defect —
+verification and repair must not overlap on the same file (§14) ·
+47 a GATE can measure the wrong thing and report green about something it never looked at; when a
+corrected ruler goes red, the ruler was the bug (§15)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -552,3 +612,53 @@ clothes.
    the one it names.
 4. A doc comment explaining why something is safe is a **claim**, and this project treats claims
    as deliverables (trap 39). Test it like one.
+
+
+---
+
+## 14. Trap 46 — a verifier that reads the tree after the fix judges the FIX, not the defect
+
+The Phase 20 review ran 138 agents over ~75 minutes. Repairs on `lsp.rs` began before the
+verification pass finished, and several verifiers then read the ALREADY-FIXED module and refuted
+findings on that basis. One wrote, in good faith and in detail, that the finding "reviews a
+superseded revision, not the shipped code" and attributed the fix to `05eb5c9` — a commit that
+does not contain it, because the fix was uncommitted in the working tree at that moment.
+
+The tell is in the tally: `Multiplexer::drop never runs at app exit` appears in the CONFIRMED
+column (2/2 from one lens) *and* in the REFUTED column (from another lens whose verifiers ran
+later). So do the pathguard-parity, `didChange`, whitespace and unbounded-servers findings —
+every item that had been repaired in between.
+
+**How to apply.**
+1. **Do not edit a file while a verifier is still reading it.** Verification and repair are two
+   phases, not one; overlapping them destroys the signal you paid for.
+2. If they do overlap, the FINDER's verdict is the authoritative one — finders all ran against a
+   pristine `origin/main`. Re-check any refutation against `git show HEAD:<file>` before
+   accepting it.
+3. A refutation that describes code you just wrote is evidence your fix is complete, which is
+   worth having — but it is NOT evidence the defect was imaginary. Record both readings.
+
+---
+
+## 15. Trap 47 — a gate can be measuring the wrong thing entirely
+
+Three of Phase 20's gates reported green about something they never looked at:
+
+- **The contrast gate** scored every span against `getComputedStyle(host).backgroundColor`, no
+  matter what surface the element actually sits on. The gutter and the risk badge live on
+  `--surface-sunken` and were judged against `--surface`; a badge at a real **4.30:1** measured
+  as a passing **5.07:1**. It also enumerated `.cm-line span` only, so F11's ghost text and risk
+  badge did not exist when the probe ran.
+- **The input storm** typed 900 keys "with inline completion live" and never pressed F11, the
+  extension's only trigger, so `policyField` stayed idle for the whole run.
+- **`perf_suite`'s summary** called MEASURED rows "measurable" and every other row
+  NOT-YET-MEASURABLE, collapsing the two states the module exists to keep apart.
+
+Each was fixed by correcting the RULER, and two of them then went red on real defects — ghost
+text at 3.48:1, and a storm whose document tail read "…no recorded runs name this symbol"
+because its own text extraction counted a widget as typed text.
+
+**How to apply.** When a gate is green, ask what it would have to see to go red, and then check
+that it can see it. A cheap version: break the thing on purpose and confirm the gate notices. If
+correcting a gate makes it fail, the gate was the defect and the failure is the first honest
+measurement you have had.

@@ -1884,3 +1884,145 @@ THREAT-MODEL-V2.md T8 promises a CSP, in the webview that now holds a file-read 
 **no CI job runs the E2E suite at all**, so all 37 specs — including every editor test written
 for this phase — are Mac-only evidence. Both predate this work; both are recorded in the handoff
 as the next items rather than smuggled into a fix commit.
+
+## ADR-0046 — Phase 20 as a whole: an editor that can be reached, and eleven lenses over what 20.2/20.3 claimed (2026-08-19)
+
+**Status:** accepted (v2, Phase 20 complete) · **Commits:** `da171eb`, `d63e968`, `2cc1810`,
+`93c726e`, `d72c66d`, `af58163`, on top of the landed 20.1–20.3e set. ADR-0045 covers 20.1/20.1b
+only; this covers the phase.
+
+**Context.** 20.1–20.3e all landed and were pushed, `make verify` was green, coverage was 100%,
+and CI was green on all seven jobs for `6b417c4`, `05eb5c9` and `30f970a` (re-confirmed at the
+start of this session, along with a local `make verify` — `MAKE_EXIT=0`, 1262 passed, 100.00% —
+and `make verify-linux-denominator` — `MAKE_EXIT=0`, 1256 passed, 100.00%). None of that was
+evidence about 20.2 or 20.3, because **the Phase 20 review had never been run**, and every
+earlier phase's review found real defects in code with exactly those numbers. The handoff said so
+in §1a and listed three things that had to happen before the phase could be called complete.
+
+**Decision — run the review first, then fix, then finish.** Eleven read-only lenses (handshake
+ordering · JSON-RPC and framing conformance · process lifecycle and orphans · the completion race
+· the local model runner · risk-indicator honesty · the CSP · E2E harness fidelity · a
+commit-message claims audit · the Boundary-B security surface · test quality) over 20.2 and 20.3,
+each finding adversarially verified by **two** refute-by-default verifiers. 138 agents, 63
+findings judged, 126 verdicts, **37 confirmed unanimously**.
+
+**Reviewers were read-only, explicitly** (trap 42), and were told so in the prompt rather than by
+convention — a `make verify` coverage run was in flight and a mutating reviewer would have
+corrupted it.
+
+### What the review found, and what it teaches
+
+**Two claims were false in ways a ten-line probe settled in a minute.** 05eb5c9 said the
+multiplexer's "Drop runs with the app and no language server is orphaned". `tao`'s macOS event
+loop ends in `process::exit` (tao-0.35.3 `event_loop.rs:202`) and tauri's own `App::run` is
+documented "the process is exited directly using `std::process::exit`" — which runs no
+destructors. `shutdown_all` had **zero production callers**; `lib.rs` had always swept the
+sidecar explicitly for exactly this reason and the multiplexer was left out; and `orphan_check`
+could never have caught it, because it greps for `tempest-server`. The probes:
+
+    child.kill() only (SHIPPED): direct child alive=false | GRANDCHILD alive=true
+    process_group(0) + killpg:   direct child alive=false | GRANDCHILD alive=false
+
+    reader thread STILL BLOCKED after 3s -> join() would HANG FOREVER
+
+The second is the sharper one: a pipe reports EOF when the LAST write end closes, so a shim's
+surviving grandchild kept `read_frame` blocked, and `Running::kill`'s `join()` never returned —
+on the Tauri command thread, holding the multiplexer's mutex, for the life of the process. **Trap
+45 generalises: a guard's argument is not a proof of the guard, and neither is a lifecycle
+argument a proof of a lifecycle.** Both were fixed by using the process-group sweep
+`supervisor.rs` has always used — the same two functions, not a second copy.
+
+**A feature can be inert in two independent ways and look honest in both.** The behavioural risk
+indicator — the only part of F11 that is Tempest's rather than everyone's — could never leave
+`unmeasured`. Its escalation set named `{"HIGH","CRITICAL"}` while the wire carries
+`LOW | NORMAL | HEADLINE`, and its lookup asked `searchDivergences`, whose FTS index covers
+`detail`, `base_summary` and `head_summary` and has never contained `qualname`. Every `detail`
+string the comparator writes is value-shaped ("return values differ"), so a search for
+`calculateTotal` could only hit by accident. **Both failures rendered as "unmeasured", which is
+the honest answer — so no test and no gate could tell the feature apart from a working one.**
+
+The fixes are structural, not textual. A real `divergencesForSymbol` endpoint queries
+`targets.qualname` (whole qualname and final segment, LIKE-escaped so `a_b` cannot match `axb`),
+and severity crosses as the GENERATED union rather than through `String()`, behind a
+`Record<Severity, boolean>` — so the bug that shipped no longer compiles, proved both ways:
+
+    error TS2353: 'HIGH' does not exist in type 'Record<Severity, boolean>'
+    error TS2741: Property 'HEADLINE' is missing ... but required
+
+**Three gates were measuring the wrong thing, and two of them only admitted it once corrected.**
+The contrast gate scored every span against the editor host's background regardless of what the
+element sits on, so the gutter and the risk badge — both on `--surface-sunken` — were judged
+against `--surface`, and a badge at a real 4.30:1 measured as a passing 5.07:1; it also
+enumerated `.cm-line span` only, so F11's two widgets did not exist when it ran. Given a correct
+ruler (compositing the real backdrop bottom-up to an opaque base, folding in `opacity` and the
+text colour's own alpha) it went red on real colours: ghost text at **3.48:1 light / 3.68:1
+dark**. The input storm claimed to run "with inline completion live" and never pressed F11 — the
+extension's only trigger — so 900 keystrokes exercised an idle extension; made to press it, the
+run failed with the document's tail reading "…no recorded runs name this symbol", because its
+ruler stripped only `[data-testid="ghost-text"]` and the badge counted as typed text. **A gate
+that measures the wrong thing is not a weaker gate; it is a gate that reports green about
+something it never looked at.**
+
+**`percentile` had two definitions and a test that asserted the invented value.** This repo's
+webview computed `ceil`; `perf_suite` computed `round(x + 0.5)`, and Python's banker's rounding
+split them whenever `pct/100 * n` is an integer — under a TS test named "matching perf_suite"
+asserting the number perf_suite does not produce. And `percentile(xs, -5)` returned the smallest
+sample while its own test, titled "answers null … rather than inventing one", asserted exactly
+that. Both are `ceil` now, both refuse a percentile outside 0..100, and the same three vectors
+are asserted in both languages so neither can drift alone.
+
+**Coverage lied about a line, and the answer was to restructure rather than to pragma.**
+`make verify` came back `MAKE_EXIT=2` with 1270 passing and 99.99% coverage, naming one line in
+the new by-symbol lookup. A mutation settled it: raising there failed 7 of 8 tests, so the line
+runs. That is **trap 36** — SQLAlchemy's async layer crosses a greenlet inside `session.execute`
+and coverage.py mis-attributes the statement that follows the crossing. Four arrangements were
+measured, including the exact shape of the already-covered `_search_fts`, and all reported the
+line missing; folding the await INTO the return so no statement follows the crossing, with the
+mapping in a sync helper, reports 100%. **No pragma was added**: one would have silenced a gate
+that was measuring correctly-executed code and left the next reader believing the line is
+unreachable.
+
+### The three things §1a said had to happen
+
+1. **`lsp_hover` is reachable.** A CodeMirror hover tooltip calls it. The DECISION half —
+   which outcomes are ordinary and which the user must be told about — is a separate, pure,
+   100%-covered module, because an E2E harness can only reach the outcome its environment
+   happens to produce. `Unsupported` is silence (the state of every fresh install); `ok(null)` is
+   silence and is a real answer; **everything else is a sentence**, because rendering a
+   timed-out server as "nothing to say" is the confusion between no-evidence and
+   evidence-of-nothing that this product exists to refuse. Contents render as `textContent`,
+   never markup — a language server is an arbitrary binary and this is the renderer.
+2. **Both runners have a settings surface** (`runners.rs`), desktop-local by the same reasoning
+   as `ProjectFile`, with the environment still winning and saying so, and with whether the
+   program can be FOUND stated rather than left to a silent failure.
+3. **The review ran.** This ADR is its record.
+
+### Rejected
+
+- **Making the badge honest by rewording it** rather than giving it a real by-symbol lookup. The
+  words were already honest; the feature was not.
+- **A `# pragma: no cover` on the greenlet-shadowed line.** It would have made a true gate lie.
+- **Adding `perf-gate` to CI** to make the Makefile's claim true. Arming it needs a committed
+  `bench/baseline-linux.json` and a decision about cold_launch (deliberately RED on environment
+  drift); adding an untested gate to close a documentation defect would risk red CI to fix a
+  comment. The comment now states where it actually runs, and the work is queued.
+- **`continue-on-error` anywhere.** Weakening a gate to make it pass is v2 failure mode 2.
+- **Trusting the verification pass over lsp.rs after the fixes landed.** Several verifiers read
+  already-fixed code and refuted findings on that basis — one even mis-attributed the fix to
+  `05eb5c9`. The finder lenses all ran against pristine `origin/main`, so the findings stand;
+  this is recorded as trap 46 rather than quietly resolved in the fixes' favour.
+
+### What is still open, stated rather than implied
+
+- **The cold-launch baseline** still needs one `make bench` on a machine with no Claude session
+  running. It could not be taken here: this session IS the load. `make perf-gate` remains RED on
+  `cold_launch` (11.5% over a 10% bar, absolute budget met with wide margin at 0.33s against
+  0.8s), and re-baselining under load is forbidden.
+- **`perf-gate` runs in no CI job**, and the §5 editor numbers come from
+  `bench/editor-metrics.json`, which is gitignored and written only by a Mac-local
+  `make bench-editor`. "6 of 13 measured" is a claim about this laptop and is now phrased that
+  way, with all three states counted separately.
+- **The E2E harness has no Rust host**, so the §5 open-file and completion spans exclude
+  `pathguard` and Tauri IPC and include an HTTP hop to a node bridge. Stated in the spec.
+- **`update_editor_runners` chooses a binary this host later spawns.** Nothing routes model
+  output into settings and the CSP forbids injected script; that is the whole mitigation.
