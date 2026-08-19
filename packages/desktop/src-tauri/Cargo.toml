@@ -25,6 +25,9 @@ specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 chrono = { version = "0.4", features = ["serde"] }
 regress = "0.10"
+# Boundary D (ADR-0035): the Agent Tool Protocol's argument schemas are derived here, so the
+# schema a model receives and the type the orchestrator dispatches cannot disagree.
+schemars = "0.8"
 
 # macOS Keychain for the BYOK Anthropic key (keychain.rs) — the key's ONLY storage (L9).
 [target.'cfg(target_os = "macos")'.dependencies]

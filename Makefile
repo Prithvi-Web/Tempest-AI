@@ -39,6 +39,9 @@ gen-contracts:
 		--additional-derive specta::Type \
 		-o packages/desktop/src-tauri/src/generated/domain.rs
 	cargo run -q --manifest-path $(DESKTOP_MANIFEST) -p tempest-desktop-devtools --bin export_bindings
+	# Boundary D (§9c, ADR-0035): the Agent Tool Protocol. Its artifacts land inside the paths
+	# verify-contract already diffs, so the fourth boundary is drift-gated by the same command.
+	cargo run -q --manifest-path $(DESKTOP_MANIFEST) -p tempest-desktop-devtools --bin export_agent_tools
 
 # tauri-build refuses to compile without the externalBin staged, and the sidecar binary never
 # enters git — a clean clone must build it before any cargo step can run.

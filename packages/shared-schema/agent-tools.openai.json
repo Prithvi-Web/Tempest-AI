@@ -1,0 +1,202 @@
+[
+  {
+    "function": {
+      "description": "Read a repository-relative file. Returns its contents, truncated to max_bytes. Credential files are refused by the host, not by you.",
+      "name": "read_file",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Arguments for `read_file`.",
+        "properties": {
+          "max_bytes": {
+            "description": "Truncate after this many bytes. Unbounded reads are a budget violation (L15.4).",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "path": {
+            "description": "Repository-relative path. Absolute paths, `..` traversal, and the credential denylist (`.env`, `~/.ssh`, keychains) are rejected by the orchestrator, not by the model.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ReadFileArgs",
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "List the entries of a repository-relative directory.",
+      "name": "list_dir",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Arguments for `list_dir`.",
+        "properties": {
+          "path": {
+            "description": "Repository-relative directory.",
+            "type": "string"
+          },
+          "recursive": {
+            "description": "Walk subdirectories. Depth and entry count are budgeted regardless (L15.4).",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "ListDirArgs",
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Search the repository for a pattern and return matching lines with their locations.",
+      "name": "search_text",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Arguments for `search_text`.",
+        "properties": {
+          "max_results": {
+            "description": "Cap on returned matches.",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "path": {
+            "description": "Restrict to a repository-relative subtree.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pattern": {
+            "description": "Literal or regular-expression pattern.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "title": "SearchTextArgs",
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Write a file in the shadow worktree. This never touches the user's working tree; the change is staged for review and is undoable in one keystroke.",
+      "name": "write_file",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Arguments for `write_file`.",
+        "properties": {
+          "contents": {
+            "description": "Full replacement contents.",
+            "type": "string"
+          },
+          "path": {
+            "description": "Repository-relative path **inside the shadow worktree**. The user's checkout is not reachable from this tool by construction (L19).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contents",
+          "path"
+        ],
+        "title": "WriteFileArgs",
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Run a build, test, or script inside the sandbox, with the shadow worktree as the working directory. Output is streamed and capped.",
+      "name": "run_command",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Arguments for `run_command`.",
+        "properties": {
+          "argv": {
+            "description": "Argv, already split. A single shell string would invite quoting bugs and make the allowlist unanalysable.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "timeout_seconds": {
+            "description": "Wall-clock budget in seconds. Every command is bounded (L15.4).",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "argv"
+        ],
+        "title": "RunCommandArgs",
+        "type": "object"
+      }
+    },
+    "type": "function"
+  },
+  {
+    "function": {
+      "description": "Run a differential behavioural proof of the current shadow worktree against the baseline and return the verdict with its evidence. The verdict is computed by the engine; you may explain it, never author it.",
+      "name": "prove",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Arguments for `prove` — the tool that makes this an agent nobody else can build.",
+        "properties": {
+          "base": {
+            "description": "Baseline revision. Defaults to the task's pre-edit baseline when omitted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_inputs": {
+            "description": "Per-target input budget. The verdict always states what was and was not exercised (L2).",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "symbols": {
+            "description": "Restrict proving to these fully-qualified symbols; omit to prove the changed set.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "title": "ProveArgs",
+        "type": "object"
+      }
+    },
+    "type": "function"
+  }
+]

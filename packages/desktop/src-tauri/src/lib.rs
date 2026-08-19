@@ -3,6 +3,7 @@
 //! no TCP socket ever listens (CLAUDE.md §9b Boundary A). The webview reaches the sidecar
 //! only through typed Tauri commands (Boundary B).
 
+pub mod agent_tools;
 pub mod commands;
 pub mod framing;
 pub mod generated;

@@ -3408,6 +3408,7 @@ dependencies = [
  "chrono",
  "libc",
  "regress",
+ "schemars 0.8.22",
  "security-framework",
  "serde",
  "serde_json",
@@ -3422,6 +3423,7 @@ dependencies = [
 name = "tempest-desktop-devtools"
 version = "0.1.0"
 dependencies = [
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "specta-typescript",

@@ -1323,3 +1323,42 @@ actual file headers, not the plan.
 platform layer is **based on LibreChat**, with no affiliation or endorsement implied and no use
 of their marks. Attribution is now enforced at the same moment as adoption, which is what L25
 asks for and what a procurement reviewer will check.
+
+## ADR-0035 implementation note — boundary D is live (2026-08-18, step 19.2)
+
+**Status: implemented.** `packages/desktop/src-tauri/src/agent_tools.rs` is the root of truth;
+`make gen-contracts` emits four committed artifacts (canonical manifest, Anthropic envelope,
+OpenAI envelope, and the webview's typed view). Six tools are declared — `read_file`,
+`list_dir`, `search_text`, `write_file`, `run_command`, `prove`.
+
+**The drift gate needed no change.** Boundary D's artifacts land inside
+`packages/shared-schema` and `packages/desktop/src/generated`, which `verify-contract` already
+diffs — so the fourth boundary is gated by the same one-line command as the first three. Four
+boundaries, one truth, one gate.
+
+**Proven in both directions, because a gate that cannot fail is decoration.** Mutating one tool
+description and regenerating turned `git diff --exit-code` red (exit 1); restoring it returned
+exit 0. That experiment is the evidence the gate works, and it is the reason the artifacts are
+committed rather than computed at runtime.
+
+**Two invariants moved out of reviewer vigilance and into the type system.** `WriteScope` has no
+variant for the user's working tree, so a tool cannot *express* a write to the user's checkout —
+L19 holds by construction rather than by discipline, and an unrepresentable state cannot be
+reached by a bug. And `ToolSpec::invariants_hold` rejects any networked or destructive tool
+declared `Approval::Auto`, and any destructive tool that is not `AlwaysPrompt` — §8 requires
+those to be approval-gated *regardless of policy, always*. Both are pinned by tests that
+construct violating specs and assert the rejection, so the checks are proven to bite on a
+careless future declaration rather than merely to pass today.
+
+**Deliberately the contract and not the runtime.** There is no `execute` and no dispatch;
+the orchestrator arrives in Phase 21 and will implement dispatch against these exact
+declarations. Shipping the schema first means every later change to the agent's capabilities is
+guarded from the start, instead of the tool surface growing unguarded and being retrofitted.
+
+**Dialect recorded rather than assumed:** `schemars` 0.8 emits **draft-07**, not 2020-12. Both
+provider envelopes accept it. The first draft of this module claimed 2020-12 in a doc comment;
+the generated output falsified it, and the comment was corrected — the same "verify, don't
+assert" habit the product sells.
+
+**Cost of the dependency:** `schemars` added **two lines** to `Cargo.lock` (it was already
+present transitively), so the fourth boundary costs essentially no new supply-chain surface.
