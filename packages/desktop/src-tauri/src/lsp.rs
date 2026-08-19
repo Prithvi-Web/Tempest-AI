@@ -11,7 +11,7 @@
 //! this product where hostile model output is rendered — the thing deciding what gets sent to
 //! that binary. The webview names a language and a file; the host decides everything else.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -58,6 +58,47 @@ impl std::fmt::Display for LspError {
     }
 }
 
+/// What the editor receives for a hover.
+///
+/// A TYPED result, not raw JSON. `serde_json::Value` cannot cross this boundary — it is
+/// recursive, and specta overflows its stack trying to describe it — but the deeper reason is
+/// that handing the webview an arbitrary LSP payload would make the renderer parse a protocol
+/// it should never have to know. The host speaks LSP; the webview receives text.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
+pub struct HoverInfo {
+    pub contents: String,
+}
+
+/// Flatten an LSP hover result into text.
+///
+/// `contents` is one of three shapes across protocol versions: a bare string, a
+/// `{kind, value}` MarkupContent, or an ARRAY of either. Handling only the modern one would
+/// silently show nothing against older servers — a blank hover reads as "nothing to say here"
+/// rather than "this client did not understand the answer".
+pub fn hover_text(result: &serde_json::Value) -> Option<String> {
+    fn one(value: &serde_json::Value) -> Option<String> {
+        if let Some(text) = value.as_str() {
+            return Some(text.to_string());
+        }
+        value.get("value").and_then(serde_json::Value::as_str).map(str::to_string)
+    }
+    let contents = result.get("contents")?;
+    let text = match contents {
+        serde_json::Value::Array(items) => {
+            let parts: Vec<String> = items.iter().filter_map(one).collect();
+            parts.join("\n")
+        }
+        other => one(other)?,
+    };
+    let trimmed = text.trim().to_string();
+    // An empty hover is not a hover: showing an empty popover would claim the server answered.
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
 /// How to launch one language's server.
 #[derive(Debug, Clone)]
 pub struct ServerSpec {
@@ -87,6 +128,9 @@ struct Running {
     incoming: Receiver<Incoming>,
     reader: Option<JoinHandle<()>>,
     next_id: i64,
+    /// Documents this server has already been told about. `didOpen` twice for one file is a
+    /// protocol violation, and the second one silently replaces the server's model of the file.
+    opened: HashSet<String>,
 }
 
 /// Identity of a server: one per language PER PROJECT. Two projects must not share a server —
@@ -133,7 +177,14 @@ impl Multiplexer {
         }
         let key = ServerKey { language: language.to_string(), root: root.to_path_buf() };
         if !self.running.contains_key(&key) {
-            let running = self.launch(language, root)?;
+            let mut running = self.launch(language, root)?;
+            // LSP is not request/response from byte one. A server asked anything before
+            // `initialize` is entitled to refuse, and one that fails the handshake is not kept:
+            // the alternative is a half-live server answering later questions unpredictably.
+            if let Err(err) = running.handshake(language, root, self.timeout) {
+                running.kill();
+                return Err(err);
+            }
             self.running.insert(key.clone(), running);
         }
 
@@ -194,7 +245,89 @@ impl Multiplexer {
                 }
             }
         });
-        Ok(Running { child, stdin, incoming: rx, reader: Some(reader), next_id: 1 })
+        Ok(Running {
+            child,
+            stdin,
+            incoming: rx,
+            reader: Some(reader),
+            next_id: 1,
+            opened: HashSet::new(),
+        })
+    }
+
+    /// Hover at a position, for the editor. The webview names a FEATURE and a file — never a
+    /// protocol method — so the set of things it can ask a language server stays a list the host
+    /// wrote, not a string the renderer chose.
+    pub fn hover(
+        &mut self,
+        language: &str,
+        root: &Path,
+        relative_path: &str,
+        text: &str,
+        line: u32,
+        character: u32,
+    ) -> Result<serde_json::Value, LspError> {
+        // The same containment rule pathguard enforces. Naming a file outside the project must
+        // not send its path to a language server, whatever the server would do with it.
+        if relative_path.is_empty()
+            || Path::new(relative_path).is_absolute()
+            || Path::new(relative_path)
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            return Err(LspError::NotAProject);
+        }
+        let uri = format!("file://{}", root.join(relative_path).to_string_lossy());
+        self.ensure_open(language, root, &uri, relative_path, text)?;
+        self.request(
+            language,
+            root,
+            "textDocument/hover",
+            serde_json::json!({
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character },
+            }),
+        )
+    }
+
+    /// Tell the server about a document once, and only once.
+    fn ensure_open(
+        &mut self,
+        language: &str,
+        root: &Path,
+        uri: &str,
+        relative_path: &str,
+        text: &str,
+    ) -> Result<(), LspError> {
+        // Starting the server (and its handshake) has to happen before any notification, so an
+        // ordinary request is used to bring it up rather than duplicating the launch logic.
+        if !self.running.contains_key(&ServerKey {
+            language: language.to_string(),
+            root: root.to_path_buf(),
+        }) {
+            self.request(language, root, "workspace/symbol", serde_json::json!({"query": ""}))?;
+        }
+        let key = ServerKey { language: language.to_string(), root: root.to_path_buf() };
+        let Some(server) = self.running.get_mut(&key) else {
+            return Err(LspError::ServerGone { language: language.to_string() });
+        };
+        if !server.opened.insert(uri.to_string()) {
+            return Ok(());
+        }
+        server.notify(
+            language,
+            "textDocument/didOpen",
+            serde_json::json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": language,
+                    "version": 1,
+                    "text": text,
+                },
+            }),
+        )?;
+        let _ = relative_path;
+        Ok(())
     }
 
     /// How many servers are running. The webview never sees this; tests and shutdown do.
@@ -279,6 +412,40 @@ impl Running {
         }
     }
 
+    /// `initialize` → result → `initialized`, exactly as the protocol requires.
+    fn handshake(&mut self, language: &str, root: &Path, timeout: Duration) -> Result<(), LspError> {
+        let params = serde_json::json!({
+            "processId": std::process::id(),
+            "rootUri": format!("file://{}", root.to_string_lossy()),
+            "capabilities": {
+                "textDocument": { "hover": { "contentFormat": ["plaintext"] } },
+            },
+            "clientInfo": { "name": "Tempest" },
+        });
+        self.exchange(language, "initialize", params, timeout)?;
+        // A notification, not a request: waiting for a reply to `initialized` would hang here
+        // forever against a correct server.
+        self.notify(language, "initialized", serde_json::json!({}))
+    }
+
+    /// Send a notification — no id, and therefore no answer to wait for.
+    fn notify(
+        &mut self,
+        language: &str,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<(), LspError> {
+        let message = serde_json::json!({"jsonrpc": "2.0", "method": method, "params": params});
+        let body = serde_json::to_vec(&message).map_err(|err| LspError::Protocol {
+            detail: format!("could not encode the notification: {err}"),
+        })?;
+        write_frame(&mut self.stdin, &body)
+            .map_err(|_| LspError::ServerGone { language: language.to_string() })?;
+        self.stdin
+            .flush()
+            .map_err(|_| LspError::ServerGone { language: language.to_string() })
+    }
+
     fn kill(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -354,12 +521,31 @@ def write_frame(obj):
     sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
     sys.stdout.buffer.flush()
 
+seen = []
+
 while True:
     request = read_frame()
     if request is None:
         break
+    method = request.get("method", "")
+    seen.append(method)
     if BEHAVIOUR == "exit":
         sys.exit(3)
+    if BEHAVIOUR == "no_initialize" and method == "initialize":
+        write_frame({"jsonrpc": "2.0", "id": request["id"],
+                     "error": {"code": -32603, "message": "refusing to initialize"}})
+        continue
+    if method == "initialize":
+        write_frame({"jsonrpc": "2.0", "id": request["id"],
+                     "result": {"capabilities": {"hoverProvider": True}}})
+        continue
+    if request.get("id") is None:
+        # A notification. No reply, by protocol.
+        continue
+    if method == "textDocument/hover":
+        write_frame({"jsonrpc": "2.0", "id": request["id"],
+                     "result": {"contents": "seen: " + ",".join(seen)}})
+        continue
     if BEHAVIOUR == "silent":
         time.sleep(60)
         continue
@@ -382,10 +568,13 @@ while True:
     fn a_request_reaches_a_real_server_and_the_answer_comes_back() {
         let f = Fixture::new("ok");
         let mut mux = Multiplexer::new(vec![f.server("python", "ok")]);
+        // Deliberately NOT hover: the fake answers that one specially (it reports the methods it
+        // has seen, which is how the handshake test gets its evidence). This case is about the
+        // plain request path, so it uses a method the fake merely echoes.
         let out = mux
-            .request("python", &f.root, "textDocument/hover", serde_json::json!({"x": 1}))
+            .request("python", &f.root, "textDocument/definition", serde_json::json!({"x": 1}))
             .expect("a running server answers");
-        assert_eq!(out["echo"], "textDocument/hover");
+        assert_eq!(out["echo"], "textDocument/definition");
         assert_eq!(out["params"]["x"], 1);
         mux.shutdown_all();
     }
@@ -511,6 +700,90 @@ while True:
         );
         assert!(started.elapsed() < Duration::from_secs(5), "the deadline must actually bind");
         mux.shutdown_all();
+    }
+
+    #[test]
+    fn a_server_is_initialized_before_it_is_asked_anything() {
+        // LSP is not request/response from byte one: a server that is asked before `initialize`
+        // is entitled to refuse or misbehave. The fake reports every method it saw, so the
+        // ANSWER is the evidence — the handshake cannot be asserted by the thing that performs
+        // it without becoming a test of itself.
+        let f = Fixture::new("handshake");
+        let mut mux = Multiplexer::new(vec![f.server("python", "ok")]);
+        let hover = mux
+            .hover("python", &f.root, "main.py", "x = 1\n", 0, 0)
+            .expect("a hover");
+        let contents = hover["contents"].as_str().expect("contents");
+        assert!(contents.starts_with("seen: initialize,initialized,"), "{contents}");
+        assert!(contents.contains("textDocument/didOpen"), "{contents}");
+        mux.shutdown_all();
+    }
+
+    #[test]
+    fn a_server_that_refuses_to_initialize_is_reported_not_used() {
+        let f = Fixture::new("no-init");
+        let mut mux = Multiplexer::new(vec![f.server("python", "no_initialize")]);
+        match mux.hover("python", &f.root, "main.py", "x\n", 0, 0) {
+            Err(LspError::Protocol { .. }) => {}
+            other => panic!("expected a protocol error from a refused handshake, got {other:?}"),
+        }
+        assert_eq!(mux.running_count(), 0, "a server that never initialized is not kept");
+    }
+
+    #[test]
+    fn a_document_is_opened_once_not_once_per_request() {
+        // didOpen twice for one document is a protocol violation, and the second one silently
+        // replaces the server's model of the file with whatever the editor last sent.
+        let f = Fixture::new("didopen-once");
+        let mut mux = Multiplexer::new(vec![f.server("python", "ok")]);
+        mux.hover("python", &f.root, "a.py", "x\n", 0, 0).expect("first");
+        let second = mux.hover("python", &f.root, "a.py", "x\n", 0, 0).expect("second");
+        let contents = second["contents"].as_str().expect("contents");
+        assert_eq!(contents.matches("textDocument/didOpen").count(), 1, "{contents}");
+        mux.shutdown_all();
+    }
+
+    #[test]
+    fn two_documents_are_opened_separately() {
+        let f = Fixture::new("didopen-two");
+        let mut mux = Multiplexer::new(vec![f.server("python", "ok")]);
+        mux.hover("python", &f.root, "a.py", "x\n", 0, 0).expect("a");
+        let second = mux.hover("python", &f.root, "b.py", "y\n", 0, 0).expect("b");
+        let contents = second["contents"].as_str().expect("contents");
+        assert_eq!(contents.matches("textDocument/didOpen").count(), 2, "{contents}");
+        mux.shutdown_all();
+    }
+
+    #[test]
+    fn hover_refuses_a_path_that_escapes_the_project() {
+        // The same rule pathguard enforces: the webview names a file, and naming one outside the
+        // project must not send its path to a language server.
+        let f = Fixture::new("hover-escape");
+        let mut mux = Multiplexer::new(vec![f.server("python", "ok")]);
+        assert_eq!(
+            mux.hover("python", &f.root, "../secrets.env", "x\n", 0, 0),
+            Err(LspError::NotAProject)
+        );
+    }
+
+    #[test]
+    fn hover_text_reads_every_shape_the_protocol_allows() {
+        use serde_json::json;
+        // A bare string (LSP 2.x), MarkupContent (3.x), and an array of either.
+        assert_eq!(hover_text(&json!({"contents": "plain"})), Some("plain".into()));
+        assert_eq!(
+            hover_text(&json!({"contents": {"kind": "markdown", "value": "marked"}})),
+            Some("marked".into())
+        );
+        assert_eq!(
+            hover_text(&json!({"contents": ["one", {"kind": "plaintext", "value": "two"}]})),
+            Some("one\ntwo".into())
+        );
+        // Nothing to say, said honestly.
+        assert_eq!(hover_text(&json!({})), None);
+        assert_eq!(hover_text(&json!({"contents": "   "})), None);
+        assert_eq!(hover_text(&json!({"contents": []})), None);
+        assert_eq!(hover_text(&json!({"contents": 42})), None);
     }
 
     #[test]

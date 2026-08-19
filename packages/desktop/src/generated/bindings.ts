@@ -78,6 +78,22 @@ export const commands = {
 	 *  undiscoverable feature is one nobody has.
 	 */
 	localCompletion: (prompt: string, deadlineMs: number) => __TAURI_INVOKE<string | null>("local_completion", { prompt, deadlineMs }),
+	/**
+	 *  Hover information from a language server (Phase 20.2 dispatch).
+	 * 
+	 *  The webview names a FILE and a POSITION. It never names a protocol method, a server, or a
+	 *  command line: the set of things a language server can be asked is a list this host wrote, not
+	 *  a string the renderer chose. That matters because the renderer is where hostile model output
+	 *  is displayed, and a language server is an arbitrary binary reading the user's source.
+	 * 
+	 *  The language is inferred from the extension here rather than accepted from the caller, for
+	 *  the same reason. Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are
+	 *  absent by default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
+	 *  There is no settings surface for them yet; that is stated, not implied.
+	 */
+	lspHover: (repoPath: string, path: string, text: string, line: number, character: number) => typedError<{
+	contents: string,
+} | null, LspError>(__TAURI_INVOKE("lsp_hover", { repoPath, path, text, line, character })),
 };
 
 /** Events */
@@ -858,6 +874,18 @@ export type HealthResponse = {
 };
 
 /**
+ *  What the editor receives for a hover.
+ * 
+ *  A TYPED result, not raw JSON. `serde_json::Value` cannot cross this boundary — it is
+ *  recursive, and specta overflows its stack trying to describe it — but the deeper reason is
+ *  that handing the webview an arbitrary LSP payload would make the renderer parse a protocol
+ *  it should never have to know. The host speaks LSP; the webview receives text.
+ */
+export type HoverInfo = {
+	contents: string,
+};
+
+/**
  * `Lang`
  * 
  *  <details><summary>JSON schema</summary>
@@ -970,6 +998,24 @@ export type LogRecordOut = {
 	message: string,
 	ts: string,
 };
+
+/**
+ *  Why an LSP operation could not be completed. Every variant names a decision or an observed
+ *  fact, never a guess — a language server that is merely slow must not be reported as crashed.
+ */
+export type LspError = 
+/**  No server is configured for this language. Not an error the user caused. */
+{ kind: "unsupported"; language: string } | 
+/**  The server binary could not be launched — usually "not installed". */
+{ kind: "unlaunchable"; language: string } | 
+/**  The root is not a project (same rule as `pathguard`: containment needs a real root). */
+{ kind: "not_a_project" } | 
+/**  The server exited, or its stream ended, while we were talking to it. */
+{ kind: "server_gone"; language: string } | 
+/**  The server is running but did not answer inside the timeout. */
+{ kind: "timeout"; language: string } | 
+/**  The server answered with something that is not a JSON-RPC response. */
+{ kind: "protocol"; detail: string };
 
 /**
  * `Message`

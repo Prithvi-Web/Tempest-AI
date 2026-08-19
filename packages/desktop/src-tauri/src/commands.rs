@@ -87,6 +87,69 @@ impl From<crate::pathguard::PathRefusal> for ProjectFileRefusal {
     }
 }
 
+/// Hover information from a language server (Phase 20.2 dispatch).
+///
+/// The webview names a FILE and a POSITION. It never names a protocol method, a server, or a
+/// command line: the set of things a language server can be asked is a list this host wrote, not
+/// a string the renderer chose. That matters because the renderer is where hostile model output
+/// is displayed, and a language server is an arbitrary binary reading the user's source.
+///
+/// The language is inferred from the extension here rather than accepted from the caller, for
+/// the same reason. Servers are named by `TEMPEST_LSP_PYTHON` / `TEMPEST_LSP_TYPESCRIPT` and are
+/// absent by default, so `Unsupported` is the ordinary answer on a fresh install — not an error.
+/// There is no settings surface for them yet; that is stated, not implied.
+#[tauri::command]
+#[specta::specta]
+pub fn lsp_hover(
+    state: tauri::State<'_, std::sync::Mutex<crate::lsp::Multiplexer>>,
+    repo_path: String,
+    path: String,
+    text: String,
+    line: u32,
+    character: u32,
+) -> Result<Option<crate::lsp::HoverInfo>, crate::lsp::LspError> {
+    let Some(language) = language_for(&path) else {
+        return Err(crate::lsp::LspError::Unsupported { language: "unknown".into() });
+    };
+    let root = std::path::Path::new(&repo_path);
+    let mut mux = state.lock().map_err(|_| crate::lsp::LspError::ServerGone {
+        language: language.to_string(),
+    })?;
+    let result = mux.hover(language, root, &path, &text, line, character)?;
+    // `None` means the server had nothing to say — a real answer, and different from an error.
+    Ok(crate::lsp::hover_text(&result).map(|contents| crate::lsp::HoverInfo { contents }))
+}
+
+/// Which language server, from the file's extension. Unknown extensions get none rather than a
+/// guess — starting the wrong server is worse than starting none.
+fn language_for(path: &str) -> Option<&'static str> {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".py") || lower.ends_with(".pyi") {
+        return Some("python");
+    }
+    if lower.ends_with(".ts") || lower.ends_with(".tsx") || lower.ends_with(".js") {
+        return Some("typescript");
+    }
+    None
+}
+
+/// The language servers this host will run, from the environment. Absent by default.
+pub fn configured_servers() -> Vec<crate::lsp::ServerSpec> {
+    [("python", "TEMPEST_LSP_PYTHON"), ("typescript", "TEMPEST_LSP_TYPESCRIPT")]
+        .into_iter()
+        .filter_map(|(language, var)| {
+            let raw = std::env::var(var).ok()?;
+            let mut parts = raw.split_whitespace().map(str::to_string);
+            let program = parts.next().filter(|p| !p.is_empty())?;
+            Some(crate::lsp::ServerSpec {
+                language: language.to_string(),
+                program,
+                args: parts.collect(),
+            })
+        })
+        .collect()
+}
+
 /// Ask the user's local model for a completion (Phase 20.3d, F11).
 ///
 /// Returns `null` rather than an error when there is simply no model configured — the expected

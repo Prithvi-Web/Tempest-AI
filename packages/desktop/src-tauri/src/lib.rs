@@ -75,6 +75,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::start_demo_prove,
             commands::read_project_file,
             commands::local_completion,
+            commands::lsp_hover,
         ])
         .events(tauri_specta::collect_events![
             commands::SidecarStateEvent,
@@ -91,6 +92,11 @@ pub fn run() {
             let data_dir = app.path().app_data_dir().expect("app data dir must resolve");
             std::fs::create_dir_all(&data_dir)?;
             let program = sidecar_program().map_err(std::io::Error::other)?;
+            // Phase 20.2: the multiplexer owns every language-server process for the app's
+            // lifetime. Managed state rather than a global so its Drop runs with the app.
+            app.manage(std::sync::Mutex::new(lsp::Multiplexer::new(
+                commands::configured_servers(),
+            )));
             let supervisor = Supervisor::new(SpawnConfig {
                 program,
                 args: vec![

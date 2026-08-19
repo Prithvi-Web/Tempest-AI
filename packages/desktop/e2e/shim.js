@@ -93,6 +93,12 @@
       if (cmd === "local_completion") {
         return null;
       }
+      // Host-side (commands.rs lsp_hover): no sidecar behind it, and no language server is
+      // configured in this environment. `null` is exactly what the real command returns when a
+      // server has nothing to say, so the UI exercises its no-hover path rather than an error.
+      if (cmd === "lsp_hover") {
+        return null;
+      }
       // Host-side (commands.rs read_project_file): no sidecar behind it. The bridge does a real
       // read; the guard's rules live in Rust and are pinned there.
       if (cmd === "read_project_file") {
