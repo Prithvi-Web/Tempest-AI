@@ -19,34 +19,28 @@ ever. Never claim "done" without pasting real gate output.**
 
 ---
 
-## 1. Live state (2026-08-18 — v1 green; **Phase 19 STARTED**, steps 19.1–19.2 landed)
+## 1. Live state (2026-08-19 — **Phase 19 COMPLETE and pushed**; Phase 20 next)
 
-- **v1 is green and released.** The full audit was re-run on `6debcec` at the v2 kickoff:
-  `make verify` exit 0 — **1038 passed, 100.00% coverage** (5905 statements / 1678 branches,
-  zero misses), 30/30 determinism corpus, escape suite fully contained, 24/24 planted secrets
-  contained, four-boundary contract drift-free, 29 E2E passed (1 skipped = the opt-in
-  `SCREENSHOTS=1` doc generator, not a behavior test). Raw output: the v2-kickoff check-in.
-- **Everything is pushed.** `git log origin/main..HEAD` is empty. CI green on `main`.
-- **The release shipped** under the wrong tag (`v1.0.0` carrying `0.2.0` artifacts). The
-  owner chose **retag to `v0.2.0`**; done locally, remote steps in §2.
-- **v2 planning docs are written and committed** (this session, then revised the same day for
-  the expanded master prompt): `PLAN-V2.md` (phases 19–32), `FEATURES-V2.md` (F1–F21),
-  **`PLATFORM-V2.md`** (P1–P14 + the rejection table), **`CRAFT.md`**, `POLISH.md` (150 items),
-  `THREAT-MODEL-V2.md` (now incl. T6 MCP, T7 retrieved web content, T8 adopted-platform
-  surface), `METRICS.md` (six numbers), `CLAUDE.md` (L15–**L26** + boundary D),
-  **`THIRD_PARTY_LICENSES.md`**, ADR-0034..**0038** + the 0038 amendment.
-- **Phase 19 has STARTED; steps 19.1 and 19.2 have landed** — the first v2 code in the repo:
-  `tempest/dev/license_check.py` (+18 unit pins) and `src-tauri/src/agent_tools.rs` (+13 Rust
-  tests) with its four generated, drift-gated artifacts. Two commits, `2a88d91` and `37e9027`,
-  **both unpushed** (the owner pushes — trap 13).
-- **Licence: MIT.** The audit found the repo had **no LICENSE file at all** — published
-  publicly, which means all-rights-reserved by default. Fixed in 19.1.
-- **The scope roughly doubled** with the LibreChat adoption (QV8). Read the sequencing rule in
-  `PLAN-V2.md` before touching anything: **a platform feature never precedes the proof feature
-  it serves** — branching before the Verdict Loop gives you a chat app; after it, a behavioral
-  decision tree. Same code, different product.
+- **Everything is pushed.** `origin/main == HEAD == 5717c41`. Fifteen commits landed this
+  session (`72dd048`…`5717c41`).
+- **v1 remains green.** The audit at the v2 kickoff: `make verify` exit 0, 1038 passed /
+  100.00%; corpus 30/30 ×20; parity byte-identical; orphan 2.1 s; `bench_guard: PASS`. The suite
+  has since grown to **1162+ tests, still 100.00%** on both denominators.
+- **The release is correct.** Tag `v0.2.0` (the old mis-named `v1.0.0` is gone), shipping
+  `tempest_engine-0.2.0` artifacts — tag, artifacts, `tempest version`, About and health pill all
+  agree. Trap 39 recorded the lesson: a tag is a claim too.
+- **Licence: MIT.** The repo previously had **no LICENSE file at all** (published = all rights
+  reserved by default). Fixed in 19.1, with `license_check` in `make verify` so attribution is
+  mechanical rather than remembered. Copying LibreChat code is authorised; Tempest credits it in
+  the README and `THIRD_PARTY_LICENSES.md`.
+- **v2 planning docs are complete**: `PLAN-V2.md` (phases 19–32), `FEATURES-V2.md` (F1–F21),
+  `PLATFORM-V2.md` (P1–P14 **and the rejection table — read the rejections**), `CRAFT.md`,
+  `POLISH.md` (150 items), `THREAT-MODEL-V2.md`, `METRICS.md` (six numbers),
+  `CLAUDE.md` (L1–**L26** + the four-boundary contract), ADR-0034..**0043**.
+- **Two verifications were still in flight at hand-off** and are the next session's first task:
+  the final local `make verify` on `5717c41`, and CI on the same commit.
 
-## 2. WHERE WE ARE: Phase 19 — steps 19.1–19.6 done; 19.7 is next
+## 2. WHERE WE ARE: **Phase 19 is COMPLETE (19.1–19.7 + the review fixes). Phase 20 is next.**
 
 **The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
 retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
@@ -79,23 +73,69 @@ streaming cancellation (the peer observes a broken pipe, so the connection genui
 `provider_matrix --min-providers 12` is in `make verify`, runs **offline**, and exercises all
 16 request paths against real loopback peers.
 
-**19.6 DONE** (`076c42d`) — the cost meter, `tempest/inference/cost.py` (ADR-0041). Caps are
-checked and the ledger appended **under one lock**, so passing the gate and spending are one act
-(8 threads against a cap admitting 2 → exactly 2 land). Ships **no price list**: tokens measured
-from the provider's own usage, dollars only from a user-supplied rate, and a dollar cap with no
-rate **raises** rather than passing.
+**All seven steps landed and are PUSHED** (`origin/main == 5717c41`):
 
-**Step 19.7 is the last of Phase 19: the perf gate** (L22) — encode the §5 budget table as
-`tempest.dev.perf_suite --enforce-budgets`, failing on >10% regression. Build on what exists:
-`tempest.dev.bench` already measures cold launch, list-10k, 5 MB observation, idle RSS and idle
-CPU, and `bench_guard --max-regression 15` already compares against a committed per-platform
-baseline (`bench/bench.json`). 19.7 is mostly **widening that to the §5 table and wiring it into
-CI**, not building from scratch. Budgets that cannot yet be measured (editor, agent, debugger —
-those surfaces do not exist) must be reported as **not-yet-measurable rather than passing**.
+| Step | What | Commit |
+|---|---|---|
+| 19.1 | MIT `LICENSE` + `license_check` gate (the repo had **no licence at all**) | `2a88d91` |
+| 19.2 | Boundary D — the Agent Tool Protocol, drift-gated | `37e9027` |
+| 19.3 | Shadow worktree (L19) | `80ad33a` |
+| 19.4 | Agent journal + one-keystroke undo (L20) | `6301d66` |
+| 19.5 | P1 — 16 providers, two wires (`tempest/inference/`) | `53a3efb` |
+| 19.6 | Cost meter — caps at the router (`inference/cost.py`) | `076c42d` |
+| 19.7 | §5 budgets as a gate (`dev/perf_suite.py`, `make perf-gate`) | `6cc3acb` |
+| fixes | **5 defects found by the review workflow**, all test-first | `5717c41` |
 
-**Also queued: 19.5b** — migrate `harness/llm.py` and `report/narrative.py` onto
-`tempest/inference/`, dropping the `anthropic` SDK so there is ONE model path. Deliberately not
-folded into 19.5: those are proven paths and the frozen sidecar spec references the SDK.
+### FIRST TASK for the next session — verify, then choose
+
+1. **Re-run the gates on a quiet machine** (the previous session's final `make verify` was still
+   in flight at hand-off, and CI on `5717c41` was `in_progress`):
+   ```bash
+   TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify   # expect MAKE_EXIT=0
+   make verify-linux-denominator
+   ```
+   **Read the logged exit line, never the task notification (trap 40).**
+2. **Confirm CI is green on `5717c41`** — that run contains the five defect fixes and had not
+   finished at hand-off.
+3. **Settle the one deliberately-failing gate** (below), then start Phase 20.
+
+### The one thing deliberately left RED — do not "fix" it by re-baselining
+
+`make perf-gate` currently fails:
+```
+PERF-GATE cold_launch: 0.3375s regressed 13.7% over baseline 0.2968s (bar 10%)
+```
+The **absolute** budget is met with wide margin (0.34 s against a 0.8 s p50); what trips is §5's
+10% regression bar. `bench/bench.json` was captured while the machine was busy running an audit,
+so this is probably load, not drift — but that is a hypothesis, and the way to settle it is
+`make bench` on an idle machine, then either the number returns (nothing was wrong) or it does
+not (a real regression to chase). **Re-baselining to make it green is v2 failure mode 2** and is
+forbidden.
+
+### Phase 20 — the editor surface (the actual next feature work)
+
+- CodeMirror 6 editor in the webview (**ADR-0034 already measured Monaco out**: CM6 with JS+Python
+  is 545 KB minified / 181 KB gzipped vs Monaco's 4.43 MB / 1.09 MB — 8.1× and 6.2× smaller).
+- **LSP multiplexer in Rust** — language servers never live in the webview.
+- **F11** inline completion + next-edit prediction, local-model capable, with the behavioural
+  risk indicator wired to measured divergence/proof-rate data.
+- Exit gate: every §5 editor budget met (open file p50 40 ms, keystroke→render p50 8 ms,
+  completion p50 120 ms / p95 300 ms) + the input-storm test (15 keys/s × 60 s, zero drops).
+- **`perf_suite` already encodes those budgets** as `NOT-YET-MEASURABLE (Phase 20)`; Phase 20
+  turns them on, which is the honest definition of its exit gate.
+
+### Also queued, with names
+
+- **19.5b** — migrate `harness/llm.py` + `report/narrative.py` onto `tempest/inference/`, dropping
+  the `anthropic` SDK so there is ONE model path. Deliberately deferred: proven paths, and the
+  frozen sidecar spec references the SDK.
+- **Bench samples** — `tempest.dev.bench` already collects raw samples but stores only
+  aggregates (and `min()` for cold launch). Emitting `samples` turns three p95 budgets from
+  `NOT-YET-MEASURED` into enforced. Cheap, additive, high value.
+- **Open questions** (`docs/QUESTIONS.md`): QV1 (34% proof rate vs the 60% engine-first rule —
+  decide before Phase 21), QV2/QV10 (who funds live model gates), QV4 (`WEAK_EVIDENCE` as a fifth
+  verdict or an attribute — recommend attribute), QV5 (**no Windows/Linux desktop exists** but
+  Phase 31 gates 150 craft items on three OSes), QV6, QV7, QV11, QV12.
 
 ### The retag: what the owner does (I have no push credential — trap 13)
 
@@ -140,19 +180,20 @@ generation + gates, not discipline. When you touch ANY shape:
 
 ## 4. Remaining work, in recommended order
 
-0. **The remote retag** (§2) — the owner's three GitHub steps, then watch `release.yml`.
-1. **Finish Phase 19 at step 19.7** (perf gate). The ledger is in `PLAN-V2.md`.
-2. **Answer the still-open questions as their phase arrives** (`docs/QUESTIONS.md`). None
-   blocks 19.2. The one to settle soonest is **QV1**, because it decides whether an engine
-   proof-rate wave precedes Phase 21:
-   - **QV1 — proof rate vs feature work.** The standing rule says engine work outranks feature
-     work below a 60% real-world proof rate, and the measured rate is **34%**. The
-     recommendation on file is a **Phase 19a engine proof-rate wave** (the 112 plain-class
-     instance-method targets + residual harness-synthesis failures) before the agent core,
-     because F1's verdict loop is only as good as the proof rate underneath it.
-   *(QV8 scope and QV9 positioning are ANSWERED — 19–27 funded, feature-by-feature with a
-   mini release each. QV3 is answered by the tree: `packages/web` has zero tracked files, so
-   the desktop app is the sole surface.)*
+0. **Verify** (§2 first task): `make verify` + `make verify-linux-denominator` on a quiet
+   machine, and confirm CI green on `5717c41`.
+1. **Settle the cold-launch perf signal** — `make bench` on an idle machine, then `make
+   perf-gate`. Never re-baseline to make it green.
+2. **Phase 20** — the editor surface (CodeMirror 6 + Rust LSP multiplexer + F11). Details in §2.
+3. **19.5b** — one model path: migrate `harness/llm.py` + `report/narrative.py` onto
+   `tempest/inference/` and drop the `anthropic` SDK.
+4. **Answer QV1 before Phase 21** — the standing rule says engine work outranks feature work
+   below a 60% real-world proof rate, and the measured rate is **34%**. At 34%, F1's agent
+   honestly reports UNPROVEN on ~2/3 of what it changes. The recommendation on file is a
+   **Phase 19a engine proof-rate wave** (the 112 plain-class instance-method targets, key-gated,
+   plus residual harness-synthesis failures) before the agent core.
+5. **Carried from v1**: Sigstore signing + a README demo GIF; TS wave 2 (JS cassettes, methods,
+   ddmin for JS, node in the T1 image, `.tsx`); owner-key real-model measurements.
 
 ## 5. The per-phase loop that produced 33 green ADRs (do not improvise a new one)
 
@@ -193,7 +234,11 @@ mis-attributed by coverage — restructure into a sync helper, never pragma the 
 37 a schema stamp is a claim, not a fact — every open verifies the live schema and repairs or
 refuses loudly · 38 a stage can be green and dead (mining skipped its own `.tempest` worktree
 root) — additive stages need one end-to-end bug only they can find ·
-**39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
+**40 a task notification's exit code is the WRAPPER's, not make's — read the logged exit line
+(§8) · 41 a scratch-package rehearsal proves LOGIC, never a NAME collision (§9) · 42 a REVIEW
+agent that mutates the shared tree races your commits — reviewers are read-only (§10) ·
+43 100% coverage proves which LINES ran, not which STATES were considered (§11) ·
+39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
 
@@ -202,12 +247,28 @@ release job itself.
 ```bash
 cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-git log origin/main..HEAD --oneline          # anything unpushed?
-TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify
-make verify-linux-denominator
+
+git log origin/main..HEAD --oneline          # expect empty (all pushed at 5717c41)
+
+# Run detached with a GREPPABLE exit marker — a task notification reports the WRAPPER's
+# status, not make's, so never trust it (trap 40).
+TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/verify.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/verify.log
+grep -E "^MAKE_EXIT=" /tmp/verify.log        # 0 = green
+
+make verify-linux-denominator                # the Linux coverage denominator (traps 15/21/22)
 uv run python -m tempest.dev.parity --cli-vs-desktop
 uv run python -m tempest.dev.orphan_check    # needs the app installed
+
+# The Phase 19 gates, individually:
+uv run python -m tempest.dev.license_check --third-party-notices
+uv run python -m tempest.dev.provider_matrix --min-providers 12
+make bench && make perf-gate                 # perf-gate is currently RED on cold launch (§2)
 ```
+
+**Never edit a `.py` file while a coverage run is in flight** — an unimported new module counts
+as 0% and the run reports a false total. Draft new modules in a scratch directory and move them
+in afterwards (that technique is how 19.4–19.6 were built safely), but remember it cannot prove
+a module NAME is free (trap 41).
 
 ---
 
