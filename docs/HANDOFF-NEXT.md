@@ -19,7 +19,7 @@ ever. Never claim "done" without pasting real gate output.**
 
 ---
 
-## 1. Live state (2026-08-18 — v1 green; **Phase 19 STARTED**, step 19.1 landed)
+## 1. Live state (2026-08-18 — v1 green; **Phase 19 STARTED**, steps 19.1–19.2 landed)
 
 - **v1 is green and released.** The full audit was re-run on `6debcec` at the v2 kickoff:
   `make verify` exit 0 — **1038 passed, 100.00% coverage** (5905 statements / 1678 branches,
@@ -35,10 +35,10 @@ ever. Never claim "done" without pasting real gate output.**
   `THREAT-MODEL-V2.md` (now incl. T6 MCP, T7 retrieved web content, T8 adopted-platform
   surface), `METRICS.md` (six numbers), `CLAUDE.md` (L15–**L26** + boundary D),
   **`THIRD_PARTY_LICENSES.md`**, ADR-0034..**0038** + the 0038 amendment.
-- **Phase 19 has STARTED and step 19.1 has landed** — the first v2 code in the repo:
-  `packages/engine/src/tempest/dev/license_check.py` (+ 18 unit pins), the MIT `LICENSE`,
-  licence metadata in every package, and README Licence/Credits. `make verify` green with the
-  new gate inside it.
+- **Phase 19 has STARTED; steps 19.1 and 19.2 have landed** — the first v2 code in the repo:
+  `tempest/dev/license_check.py` (+18 unit pins) and `src-tauri/src/agent_tools.rs` (+13 Rust
+  tests) with its four generated, drift-gated artifacts. Two commits, `2a88d91` and `37e9027`,
+  **both unpushed** (the owner pushes — trap 13).
 - **Licence: MIT.** The audit found the repo had **no LICENSE file at all** — published
   publicly, which means all-rights-reserved by default. Fixed in 19.1.
 - **The scope roughly doubled** with the LibreChat adoption (QV8). Read the sequencing rule in
@@ -46,19 +46,24 @@ ever. Never claim "done" without pasting real gate output.**
   it serves** — branching before the Verdict Loop gives you a chat app; after it, a behavioral
   decision tree. Same code, different product.
 
-## 2. WHERE WE ARE: Phase 19, step 19.1 done — 19.2 is next
+## 2. WHERE WE ARE: Phase 19 — steps 19.1 and 19.2 done; 19.3 is next
 
 **The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
 retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
 each landing flawless with a **mini release** and a plain-English report naming the step;
 licence is **MIT** and copying LibreChat code is authorized with attribution.
 
-**Step 19.1 is DONE** (`license_check` gate + MIT LICENSE + LibreChat credits — ADR-0038
-amendment). **Step 19.2 is the Agent Tool Protocol**, the fourth contract boundary (ADR-0035).
-Scouting already done for it: boundary B uses `specta`/`tauri-specta`
-(`packages/desktop/src-tauri/devtools/src/bin/export_bindings.rs`), boundary A uses `typify`;
-boundary D adds `schemars`, which is **not yet a Cargo dependency**. The per-step ledger with
-states lives in `docs/PLAN-V2.md` Phase 19.
+**19.1 DONE** (`2a88d91`) — MIT `LICENSE` + the `license_check` gate + LibreChat credits
+(ADR-0038 amendment). **19.2 DONE** (`37e9027`) — boundary D, the Agent Tool Protocol:
+`src-tauri/src/agent_tools.rs` is the root, `make gen-contracts` emits four committed artifacts
+via `export_agent_tools`, and the existing `verify-contract` diff already covers where they
+land — so four boundaries share one gate. **Contract only; dispatch is Phase 21.**
+
+**Step 19.3 is the shadow-worktree manager** (L19, ADR-0036): agent writes staged under
+`.tempest/agent/worktrees/<task-id>/` from the task baseline, never the user's checkout, with
+atomic acceptance into the working tree. **Watch the trap-38 interaction** — skip-dirs are
+judged relative to the mining root and these worktrees live under `.tempest`, so re-pin corpus
+mining when they land. The per-step ledger with states lives in `docs/PLAN-V2.md` Phase 19.
 
 ### The retag: what the owner does (I have no push credential — trap 13)
 
@@ -104,7 +109,7 @@ generation + gates, not discipline. When you touch ANY shape:
 ## 4. Remaining work, in recommended order
 
 0. **The remote retag** (§2) — the owner's three GitHub steps, then watch `release.yml`.
-1. **Continue Phase 19 at step 19.2** (Agent Tool Protocol). The ledger is in `PLAN-V2.md`.
+1. **Continue Phase 19 at step 19.3** (shadow worktrees). The ledger is in `PLAN-V2.md`.
 2. **Answer the still-open questions as their phase arrives** (`docs/QUESTIONS.md`). None
    blocks 19.2. The one to settle soonest is **QV1**, because it decides whether an engine
    proof-rate wave precedes Phase 21:
@@ -171,3 +176,17 @@ make verify-linux-denominator
 uv run python -m tempest.dev.parity --cli-vs-desktop
 uv run python -m tempest.dev.orphan_check    # needs the app installed
 ```
+
+---
+
+## 8. Trap 40 — a task notification's exit code is the WRAPPER's, not the command's
+
+Backgrounded gate runs here end with `; echo "EXIT CODE: $?" >> log`. The harness reports the
+**wrapper's** status, which is the `echo`'s — always 0. On 2026-08-18 that made a `make verify`
+run whose real exit was **2** arrive as "completed (exit code 0)".
+
+**Always read the logged exit line, never the notification.** That time the failure was benign
+(`verify-contract` diffs the COMMITTED tree and a licence edit was still uncommitted — the
+documented "commit before verify" rule, §3.2). But a session that trusts the notification will
+eventually paste a green claim over a red gate, which is the one thing this product exists not
+to do. Prefer a distinctive marker (`MAKE_EXIT=$?`) so the real code is greppable.
