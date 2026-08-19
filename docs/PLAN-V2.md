@@ -50,8 +50,8 @@ release, so the work survives across sessions. Progress ledger:
 | **19.4** | Journal + one-keystroke undo (L20) | ✅ **DONE** |
 | **19.5** | P1 multi-provider model layer — **16 providers, 2 wires** (ADR-0040) | ✅ **DONE** |
 | 19.5b | Migrate `harness/llm.py` + `report/narrative.py` onto the new client; drop the `anthropic` SDK | pending |
-| 19.6 | P11 cost meter with hard caps at the router (L21) | next |
-| 19.7 | `perf_suite --enforce-budgets` CI gate (L22) | pending |
+| **19.6** | P11 cost meter — caps at the router, dollars never guessed (ADR-0041) | ✅ **DONE** |
+| 19.7 | `perf_suite --enforce-budgets` CI gate (L22) | next |
 
 - [x] Re-run the Phase 8 audit legs on the current tree; paste output.
       *(2026-08-18: `make verify` exit 0 — 1038 passed / 100.00%; linux denominator 1032 /
@@ -90,8 +90,12 @@ release, so the work survives across sessions. Progress ledger:
       reports "N of M verified live" (QV10, answered honestly).
 - [ ] **19.5b** — migrate `harness/llm.py` + `report/narrative.py` onto the model client so
       there is ONE model path, and drop the `anthropic` SDK dependency.
-- [ ] **P11 cost meter** (L21): live token/dollar per task/session/day; **hard caps enforced at
-      the router, not the UI**; pre-flight estimate above a user-set threshold.
+- [x] **19.6 — P11 cost meter** (L21, ADR-0041): `tempest/inference/cost.py`. Caps checked and
+      the ledger appended **under one lock**, so passing the gate and spending are one act (a
+      test starts 8 threads against a cap admitting 2 and gets exactly 2). Ships **no price
+      list**: tokens are measured from the provider's own usage, dollars only from a rate the
+      user supplies, and a dollar cap with no rate **raises** rather than passing. Durable
+      append-only JSONL ledger; cache hit rate reported as `None` (not 0.0) when nothing is spent.
 - [ ] **Perf budgets in CI from day one** (L22).
 - [x] `THIRD_PARTY_LICENSES.md` wired into `license_check` *(19.1)*.
 

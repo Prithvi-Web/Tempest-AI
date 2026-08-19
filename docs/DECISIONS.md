@@ -1532,3 +1532,53 @@ repo. Renamed to **`tempest/inference/`**, which is unambiguous and matches L18'
 inference" language. The lesson is about the *rehearsal*: proving a module in an isolated
 scratch package is excellent for logic and worthless for collisions — the tree it will actually
 live in is the only place a name can be proven free.
+
+## ADR-0041 — The cost meter: caps at the router, dollars never guessed (2026-08-18, step 19.6)
+
+**Context.** L21 says cost is visible before it is spent: estimates above a threshold, a running
+meter, hard caps per task/session/day, never a surprise bill. Each clause decided a detail.
+
+**Caps live where the spending happens.** `Meter.spend()` checks every budget and appends the
+ledger record **under one lock**, so passing the gate and spending are the same act. A cap
+enforced in a UI is not a cap — any caller that skips the UI skips the limit — which is why the
+master prompt says "hard caps enforced at the router, not the UI" and why the enforcement sits
+next to the request rather than next to the button. `preflight()` answers "may I, and what will
+this cost" *before* a request is built, so an operation that is not allowed to finish never
+starts.
+
+**The concurrency case is real, not theoretical.** F17 dispatches a fleet that spends in
+parallel. Without the lock, two turns each read a total below the cap and both proceed, so a
+"hard" cap admits N charges instead of one. A test starts eight threads against a cap that
+admits exactly two and asserts exactly two land.
+
+**Tokens are measured; dollars are computed from a rate the user supplies.** Token counts come
+from the provider's own `usage` field via `inference.Usage`. Prices do not: they are absent from
+the response, they change, they differ per contract, and a hardcoded price table goes stale
+**silently** — the worst failure mode available, because it produces a confident wrong number on
+a billing screen. So **this module ships no price list.** With no rate configured the meter still
+counts tokens exactly and reports `dollars = None`, which a UI renders as "not priced" rather
+than as `$0.00`. A partial total also carries `unpriced_charges`, so a figure that is incomplete
+says so instead of quietly under-reporting.
+
+This is the same discipline as ADR-0040's refusal to invent model ids, applied to money, where
+the cost of being confidently wrong is higher.
+
+**An unevaluable limit never passes.** A dollar cap with no configured rate raises
+`RateUnknown` rather than allowing the spend. *"I could not check your limit"* must never be
+indistinguishable from *"you are within your limit"* — that is the L15.3 rule (no silent
+failures) applied to the one subsystem where a silent pass costs the user money. Token caps work
+with or without rates, so a user who has configured no prices still gets real hard caps.
+
+**Durable, append-only, tolerant.** The ledger is JSONL beside the agent journal: totals survive
+a crash and a restart, because an in-memory counter loses exactly the history a user asks about
+after something goes wrong. Blank and non-object lines are skipped rather than thrown on (trap
+37's lesson again — a hand-edited ledger must not take the meter down).
+
+**Cache hit rate reports `None`, not `0.0`, when nothing has been spent** (§7 asks for it to be
+surfaced so users see the saving). Zero would read as "the cache never works"; `None` reads as
+"nothing to report yet".
+
+**Deferred with a name:** cost-per-verified-outcome — dollars per *proven* task, the metric
+`docs/METRICS.md` calls the one no competitor can compute — needs F21's proof-ranked outcomes and
+lands with Phase 27, not here. The ledger already records provider, model, and scope keys, which
+is everything that metric will need.
