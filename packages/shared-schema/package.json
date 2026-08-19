@@ -1,5 +1,6 @@
 {
   "name": "@tempest/shared-schema",
+  "license": "MIT",
   "version": "0.2.0",
   "private": true,
   "description": "Generated OpenAPI spec + TS types. Build output, committed. Never hand-edited.",

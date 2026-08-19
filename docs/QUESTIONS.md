@@ -38,16 +38,29 @@ code is excluded. (ADR to be appended when the corpus lands in Phase 2.)
 
 ---
 
-# v2.0.0 — genuinely ambiguous points (2026-08-18) — **AWAITING OWNER DECISION**
+# v2.0.0 — the owner's decisions, and what is still open
 
-> **Revised the same day** for the expanded master prompt (LibreChat adoption P1–P14, Laws
-> L15–L26, phases 19–32). QV1–QV7 below are unchanged and still open; QV8–QV12 are new and
-> arise specifically from the adoption.
+## ANSWERED 2026-08-18 (owner) — these are now binding, not proposals
 
-Unlike v1 (ADR-0002: autonomous, record-a-default-and-proceed), the v2.0.0 master prompt §13
-ends with *"a list of anything genuinely ambiguous — then stop and wait"* and *"do not begin
-Phase 19 until the user has seen the audit."* So these are **open**, not defaulted. Each has a
-recommendation; none is acted on until the owner answers.
+| # | Question | Owner's decision |
+|---|---|---|
+| — | The `v1.0.0` tag shipping `0.2.0` artifacts | **Retag as `v0.2.0`.** Done locally (annotated, on `6debcec`); the remote tag + release deletion needs the owner (no push credential — trap 13). |
+| **QV8** | Scope doubled: fund all 14 phases or cut? | **Fund phases 19–27.** 28–32 are a later decision. |
+| **QV9** | "Better than any other AI" vs the rejection table | **Build every feature in the master prompt, one at a time**, each landing flawless with a mini release. The rejection table stands — breadth comes from F1–F21 + P1–P14, not from becoming a general assistant. |
+| — | Licence | **MIT, open source.** Copying LibreChat code is authorized (it is MIT too), with a section stating Tempest is based on LibreChat. Implemented in 19.1 + ADR-0038 amendment. |
+| **QV3** | Is `packages/web` still a shipping product? | **Answered by the tree, not by opinion:** `git ls-files packages/web` returns **zero files** and `pnpm-workspace.yaml` lists only shared-schema, ts-sidecar, and desktop. The web app is already gone; only stale `node_modules` remain on disk. Desktop is the sole surface. `CLAUDE.md` §5's Next.js/Postgres rows are v1-era history. |
+
+**Working agreement for the build-out:** one feature at a time; after each, a mini release and a
+plain-English report naming the step we are on, so the work survives across sessions.
+
+---
+
+## STILL OPEN — needed before the phase that depends on them
+
+
+QV3, QV8 and QV9 are answered above and removed from this list. The rest remain genuinely open,
+each with a recommendation. **None of them blocks the current work** — each is needed only by
+the phase named in it, so the build proceeds and these get answered as their phase approaches.
 
 **QV1. The 60% proof-rate bar vs starting 21 features of feature work. (THE BIG ONE.)**
 The v1 rule, recorded in `docs/METRICS.md`, is: *below ~60% real-world proof rate, ENGINE work
@@ -77,16 +90,6 @@ pattern for ADR-0024).
 → **Recommendation: (c) + (a)** — machinery gated in CI against the fake peer on every PR
 (free, deterministic, catches regressions), plus a scheduled owner-run real-model measurement
 whose numbers land in `METRICS.md`. Never let a keyless CI run *report* a real-model number.
-
-**QV3. Does v2 apply to the desktop app only — is `packages/web` (Next.js + FastAPI + Postgres)
-still a shipping product?**
-`CLAUDE.md` §5 pins Next.js 15 / PostgreSQL 16 / Redis / S3; v2 §3's architecture diagram has
-only the Tauri host + a React SPA webview, and §5's budgets are all desktop budgets (idle RAM,
-cold launch). Building F12/F13/F18's UI twice would roughly double Phases 20–27.
-→ **Recommendation:** declare the **desktop app the sole v2 surface**, put `packages/web` and
-the API into maintenance (they still serve the sync server of Phase 13 and the live-PR gate),
-and record it as an ADR. If the owner instead wants the web product to keep pace, Phases 20–27
-each need a second UI budget and the timeline roughly doubles — that should be a conscious choice.
 
 **QV4. `WEAK_EVIDENCE` breaks L2's closed verdict vocabulary — verdict, or modifier?**
 F9 adds `WEAK_EVIDENCE`, but L2 enumerates exactly four verdicts and v2 says v1 wins absent an
@@ -130,31 +133,6 @@ license split to a post-GA commercial decision.
 ---
 
 ## New with the LibreChat adoption (QV8–QV12)
-
-**QV8. The scope roughly doubled — does the timeline, or does the scope get cut?**
-v2 went from 21 features / 12 phases to 21 features **+ 14 platform foundations** / 14 phases,
-and the craft bar rose from a 120-item checklist to 150 items verified on three OSes (which
-QV5 already notes do not all exist). Nothing in the new prompt removed work; it added two
-phases and a law. Building this at the standard this repo actually holds itself to — 100%
-coverage, zero known defects, real gate output for every claim — is a very long road, and the
-honest failure mode is not "it goes badly", it is "phases 28–32 get quietly compressed because
-everyone is tired by then", which is exactly how craft and hardening die.
-→ **Recommendation:** commit to phases 19–27 as the funded scope and treat 28–32 as a second
-tranche with its own go/no-go. The sequencing rule already protects the ordering; this just
-makes the decision explicit instead of discovering it under pressure. **Alternatively**, cut
-the P-features that serve the fewest proofs (P13 multimodal and P14 i18n are the two whose
-removal costs the thesis least) and keep the phase count at twelve.
-
-**QV9. "So good people would rather use this than any other AI" — which "any other"?**
-The new instruction is to beat *any other AI*, but the master prompt's own §4.5 rejects
-general-purpose assistant framing, image generation, and chat-as-primary-surface — i.e. it
-explicitly refuses to compete with ChatGPT on ChatGPT's terms. **Those two goals point in
-different directions**, and this is worth settling in words before it gets settled by drift.
-→ **Recommendation:** the defensible reading, and the one the rest of the prompt supports, is
-*"the tool a working engineer would rather use than Cursor, Claude Code, or Copilot"* — beating
-general assistants at **verified code change**, not at breadth. If the intent is genuinely a
-general-purpose assistant that also proves code, that is a different product and L25 plus the
-rejection table need rewriting first, not quietly ignoring.
 
 **QV10. P1 says 12+ providers; L18 says BYO keys only. Who pays to *test* 12 providers?**
 This is QV2 (CI token funding) with a multiplier: `provider_matrix --min-providers 12` implies

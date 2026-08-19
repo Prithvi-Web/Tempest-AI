@@ -170,6 +170,16 @@ trade dress (v2 failure mode 11).
 
 ## 5. Stack (fixed — deviations require an ADR in docs/DECISIONS.md)
 
+> **v2 reality check (2026-08-18).** The table below is the v1 stack as specified. Two rows are
+> now history rather than plan, verified against the tree rather than assumed:
+> **the Next.js web app no longer exists** — `git ls-files packages/web` returns zero files and
+> `pnpm-workspace.yaml` lists only `shared-schema`, `ts-sidecar`, and `desktop` (only stale
+> `node_modules` remain on disk) — and **PostgreSQL/Redis/S3/MinIO are server-era components**,
+> while the shipping product is local-first on SQLite. **The Tauri desktop app is the sole v2
+> surface** (QV3, answered by the tree). `packages/api` survives as the desktop's stdio sidecar
+> and the Phase 13 sync server, not as a deployed web backend. Licence: **MIT** (`LICENSE`,
+> ADR-0038 amendment).
+
 **Monorepo**: pnpm workspaces + uv workspace.
 
 | Layer | Choice |

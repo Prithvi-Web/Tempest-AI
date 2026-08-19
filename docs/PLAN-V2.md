@@ -38,7 +38,29 @@ uv run python -m tempest.dev.orphan_check              # app installed to /Appli
 
 ## Phase 19 — v1 re-audit + v2 foundations + P1, P11
 
-- [ ] Re-run the Phase 8 audit legs on the current tree; paste output.
+**Owner decision 2026-08-18: phases 19–27 are funded; 28–32 are a later call (QV8).**
+Phase 19 is built **one feature at a time**, each landing green with its own gate and a mini
+release, so the work survives across sessions. Progress ledger:
+
+| Step | Feature | State |
+|---|---|---|
+| **19.1** | MIT `LICENSE` + attribution + `license_check` gate | ✅ **DONE** — ADR-0038 amendment |
+| 19.2 | Agent Tool Protocol — the fourth contract boundary (ADR-0035) | next |
+| 19.3 | Shadow-worktree manager (L19, ADR-0036) | pending |
+| 19.4 | Journal + one-keystroke undo (L20) | pending |
+| 19.5 | P1 multi-provider model layer, 12+ providers (L18, ADR-0037) | pending |
+| 19.6 | P11 cost meter with hard caps at the router (L21) | pending |
+| 19.7 | `perf_suite --enforce-budgets` CI gate (L22) | pending |
+
+- [x] Re-run the Phase 8 audit legs on the current tree; paste output.
+      *(2026-08-18: `make verify` exit 0 — 1038 passed / 100.00%; linux denominator 1032 /
+      100.00%; corpus 30/30 ×20; parity byte-identical; orphan 2.1 s; `bench_guard: PASS`.)*
+- [x] **19.1 — Tempest is MIT, and attribution is mechanical.** The audit found the repo had
+      **no LICENSE file at all** (published = all-rights-reserved by default). Added MIT
+      `LICENSE` + `license = "MIT"` in both pyprojects and all four package.json files, the
+      README Licence/Credits sections crediting LibreChat, and
+      `tempest.dev.license_check --third-party-notices` wired into `make verify` with 18 unit
+      pins that each prove a *failure* on a violating tree.
 - [ ] **Agent Tool Protocol = fourth contract boundary** (ADR-0035): Rust trait +
       `schemars`-derived JSON Schema → generated TS bindings + model-facing tool defs;
       `make gen-contracts` + drift gate extended to boundary D.
@@ -50,13 +72,13 @@ uv run python -m tempest.dev.orphan_check              # app installed to /Appli
 - [ ] **P11 cost meter** (L21): live token/dollar per task/session/day; **hard caps enforced at
       the router, not the UI**; pre-flight estimate above a user-set threshold.
 - [ ] **Perf budgets in CI from day one** (L22).
-- [ ] `THIRD_PARTY_LICENSES.md` wired into `license_check`.
+- [x] `THIRD_PARTY_LICENSES.md` wired into `license_check` *(19.1)*.
 
 **Exit gate:**
 ```bash
 make gen-contracts && git diff --exit-code                    # FOUR boundaries green
 python -m tempest.dev.provider_matrix --min-providers 12
-python -m tempest.dev.license_check --third-party-notices
+python -m tempest.dev.license_check --third-party-notices   # LIVE as of 19.1
 python -m tempest.dev.perf_suite --enforce-budgets
 # undo restores any state (property test over randomized agent action sequences)
 # cost meter accurate to ±2% against provider-reported usage

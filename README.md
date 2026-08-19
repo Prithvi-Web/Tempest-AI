@@ -77,3 +77,22 @@ make verify   # every gate step live for the completed phases (see docs/PLAN.md)
 
 Honest status lives in `docs/PLAN.md` — a phase is complete only when its gate commands ran with
 real output attached.
+
+## Licence
+
+Tempest AI is open source under the [MIT Licence](LICENSE).
+
+## Credits
+
+Tempest's platform layer is **based on [LibreChat](https://github.com/danny-avila/LibreChat)**
+(MIT), an excellent open-source multi-user chat platform. LibreChat solved several problems in
+the open that would otherwise have taken us a year to get right — multi-provider endpoint
+abstraction, resumable streaming, and production-grade MCP client behaviour — and Tempest adopts
+those capabilities under the MIT licence, re-implemented for a local-first Rust/Tauri + Python
+desktop application and wired into the proof engine.
+
+Tempest is **not affiliated with or endorsed by LibreChat**, and uses none of its trademarks,
+logos, or brand assets. Full attribution, the licence text, and a per-module derivation table
+live in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the adoption scope — including
+what we deliberately did **not** adopt, and why — is recorded in `docs/DECISIONS.md` (ADR-0038)
+and `docs/PLATFORM-V2.md`.

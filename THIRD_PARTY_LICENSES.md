@@ -4,12 +4,11 @@ Every third-party work Tempest copies, adapts, or derives from is recorded here 
 of adoption**, not at release. Missing attribution is an avoidable legal problem discovered at
 the worst possible time — enterprise procurement diligence (v2 failure mode 10).
 
-> **Gate status, stated honestly:** `python -m tempest.dev.license_check --third-party-notices`
-> — which will enforce this file's presence and its coverage of every adoption entry in
-> `docs/DECISIONS.md` — **is built in Phase 19 and does not exist yet.** Until it does, this
-> file is maintained by discipline alone, which is precisely the weaker guarantee that the gate
-> exists to replace. Until Phase 19 lands, treat any adoption commit as incomplete without a
-> matching entry here.
+> **Enforced, not merely intended:** `python -m tempest.dev.license_check --third-party-notices`
+> runs inside `make verify` and in CI. It fails the build if Tempest's own MIT LICENSE is
+> missing or lacks a copyright holder, if package metadata omits the licence, if a project
+> named here does not reproduce its licence text, if a section marked `CODE DERIVED` names
+> no derived module, or if a named project is not credited in the README.
 
 **Scope note.** Reading a project to learn how it solved a problem creates no obligation.
 Copying or closely adapting its code does. This file lists both categories explicitly, so a
@@ -21,26 +20,35 @@ reviewer can tell which is which without reading git history.
 
 - **Upstream:** https://github.com/danny-avila/LibreChat
 - **License:** MIT
-- **Adoption status:** **REFERENCE ONLY — no code copied as of 2026-08-18.**
-- **Adoption decision record:** `docs/DECISIONS.md` ADR-0038; capabilities and their
-  proof-native wiring in `docs/PLATFORM-V2.md` (P1–P14).
+- **Adoption status:** **COPYING AUTHORIZED** (owner decision, 2026-08-18) — currently
+  **no code copied**; the derivation table below is empty and says so.
+- **Adoption decision record:** `docs/DECISIONS.md` ADR-0038 and its amendment; capabilities
+  and their proof-native wiring in `docs/PLATFORM-V2.md` (P1–P14).
 
-**What this means today.** Tempest is Rust/Tauri + Python + SQLite, local-first. LibreChat is
-Node/Express + React + MongoDB, deployed as a multi-user web service. Their code cannot be
-vendored into this stack and will not be. P1–P14 adopt *capabilities* — the problems they have
-already solved well (multi-provider abstraction, resumable streaming, MCP client behavior) are
-studied as a reference implementation, then re-implemented in Tempest's stack and subordinated
-to the proof engine (L25).
+**What this means.** LibreChat is MIT, so copying and adapting its code is permitted — for
+commercial use, with modification, and with no copyleft obligation. The owner has authorized
+doing so. **MIT is permissive, not obligation-free:** any copied or closely-adapted code must
+carry the copyright notice and licence text with it. The mechanics, which are not optional:
 
-**If that ever changes** — if any Tempest module is copied or closely adapted from LibreChat
-source — then at that moment: (1) the module is named in the table below with its upstream
-path and commit, (2) the MIT notice below is preserved in the derived file's header, and
-(3) an ADR records the derivation. `license_check` fails if an ADR marks a module as derived
-and this file does not list it.
+1. The derived Tempest module is added to the table below with its **upstream path and commit**.
+2. The derived file carries a header comment naming LibreChat, the upstream path, and MIT.
+3. The MIT notice reproduced at the end of this section stays intact.
+4. `license_check` fails the build if this section is marked `CODE DERIVED` and the table names
+   no module — the status line is a claim, the table is the fact behind it.
+
+**The practical reality, stated so nobody plans around a fantasy.** LibreChat is
+Node/Express + React + MongoDB, deployed as a multi-user web service; Tempest is
+Rust/Tauri + Python + SQLite, local-first. Whole-file vendoring mostly does not typecheck across
+that gap — a JavaScript Express route handler is not a Rust Tauri command. So in practice the
+adoption is: **copy what ports (schemas, config shapes, protocol handling, prompt/tool
+formats, algorithms), re-implement what doesn't, and attribute either way.** The React webview
+is the one place where near-verbatim reuse is genuinely likely, and it is the place to be most
+careful about notices. L25 still governs: whatever arrives must be subordinated to the proof
+engine, never bolted on as a parallel product.
 
 | Tempest module | Derived from (upstream path @ commit) | Notes |
 |---|---|---|
-| *(none)* | — | Reference-only as of 2026-08-18 |
+| *(none yet)* | — | copying authorized 2026-08-18; nothing derived so far |
 
 **Trademarks are not licensed.** The MIT grant covers code, not brand. No LibreChat name, mark,
 logo, or visual identity appears anywhere in Tempest, and nothing implies endorsement or
@@ -87,7 +95,7 @@ line, this reproduction is refreshed and the change noted here.)*
 Copy this block for every new third-party work. An entry lands in the same commit as the code
 that adopts it — never later.
 
-```markdown
+````markdown
 ## <Project>
 
 - **Upstream:** <url>
@@ -104,15 +112,22 @@ that adopts it — never later.
 ```
 <verbatim license text>
 ```
-```
+````
 
 ---
 
-## Vendored corpus code (pre-existing, v1)
+## The corpus is NOT vendored code (correcting a plausible assumption)
 
-`corpus/impure/` vendors small permissively-licensed (MIT/BSD/Apache) functions from real
-open-source repositories so the determinism gate is hermetic and offline. **Each vendored file
-carries its own attribution header** naming the source repository, commit, and license; GPL and
-other copyleft code is excluded by policy. See `docs/QUESTIONS.md` Q5. Those per-file headers
-are the authoritative attribution for that directory and are checked by `license_check`
-alongside this file.
+`docs/QUESTIONS.md` Q5 planned to vendor permissively-licensed functions into `corpus/impure/`
+with per-file attribution headers. **That plan was overridden by ADR-0010 and never happened.**
+The 30 corpus functions are **hand-written faithful replicas of named real-world idioms** — each
+docstring cites the pattern it replicates (k8s health probes, retry-after-404, REST pagination,
+docker-secrets env-or-file, lockfile checksums, backoff jitter) — not copies of third-party
+source. Vendoring would have dragged licence files and dead logic into the repo when the
+corpus's whole value is its IO *shape*.
+
+So there is **no third-party copyright in `corpus/impure/`** and nothing to attribute there. This
+section exists because "corpus drawn from real open-source repos" reads like vendoring, and a
+future reviewer should be able to settle the question here instead of guessing. If the corpus
+ever does grow by real-repo extracts under permissive licences (ADR-0010 leaves that door open),
+each extract gets an attribution header **and** a section in this file, in the same commit.

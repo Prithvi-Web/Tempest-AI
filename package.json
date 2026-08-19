@@ -1,5 +1,6 @@
 {
   "name": "tempest-monorepo",
+  "license": "MIT",
   "private": true,
   "packageManager": "pnpm@11.21.0",
   "engines": {

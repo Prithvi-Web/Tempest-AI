@@ -3,6 +3,7 @@ name = "tempest-api"
 version = "0.2.0"
 description = "Tempest AI — bundle ingestion and dashboard API"
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = [
     "aiosqlite>=0.22.1",
     "alembic>=1.19.1",

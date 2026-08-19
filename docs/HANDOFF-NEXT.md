@@ -2,8 +2,9 @@
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
 older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
-and the FOUR-boundary contract), `docs/QUESTIONS.md` **v2 section** (**twelve** open questions the
-owner must answer before Phase 19 starts), `docs/PLAN-V2.md` (phases **19–32**),
+and the FOUR-boundary contract), `docs/QUESTIONS.md` **v2 section** (the owner's binding
+decisions first, then the questions still open), `docs/PLAN-V2.md` (phases **19–32**, with the
+Phase 19 step ledger),
 `docs/FEATURES-V2.md` (the 21 proof-native features + gates), `docs/PLATFORM-V2.md` (the 14
 foundations adopted from LibreChat **and the rejection table — read the rejections, they are
 load-bearing**), `docs/CRAFT.md` + `docs/POLISH.md` (the craft bar, 150 items),
@@ -18,7 +19,7 @@ ever. Never claim "done" without pasting real gate output.**
 
 ---
 
-## 1. Live state (2026-08-18, v1 audited green, v2 planned but NOT started)
+## 1. Live state (2026-08-18 — v1 green; **Phase 19 STARTED**, step 19.1 landed)
 
 - **v1 is green and released.** The full audit was re-run on `6debcec` at the v2 kickoff:
   `make verify` exit 0 — **1038 passed, 100.00% coverage** (5905 statements / 1678 branches,
@@ -26,40 +27,56 @@ ever. Never claim "done" without pasting real gate output.**
   contained, four-boundary contract drift-free, 29 E2E passed (1 skipped = the opt-in
   `SCREENSHOTS=1` doc generator, not a behavior test). Raw output: the v2-kickoff check-in.
 - **Everything is pushed.** `git log origin/main..HEAD` is empty. CI green on `main`.
-- **The release shipped**, and it carries **one real defect: the tag is `v1.0.0` while every
-  internal version string says `0.2.0`** — see §2, the first task.
+- **The release shipped** under the wrong tag (`v1.0.0` carrying `0.2.0` artifacts). The
+  owner chose **retag to `v0.2.0`**; done locally, remote steps in §2.
 - **v2 planning docs are written and committed** (this session, then revised the same day for
   the expanded master prompt): `PLAN-V2.md` (phases 19–32), `FEATURES-V2.md` (F1–F21),
   **`PLATFORM-V2.md`** (P1–P14 + the rejection table), **`CRAFT.md`**, `POLISH.md` (150 items),
   `THREAT-MODEL-V2.md` (now incl. T6 MCP, T7 retrieved web content, T8 adopted-platform
   surface), `METRICS.md` (six numbers), `CLAUDE.md` (L15–**L26** + boundary D),
-  **`THIRD_PARTY_LICENSES.md`** (LibreChat MIT notice, reference-only, no code copied),
-  ADR-0034..**0038**, and **twelve** open v2 questions.
-- **No v2 code exists.** Phase 19 has not begun and **must not begin** until the owner has
-  seen the audit and answered `docs/QUESTIONS.md` QV1–QV12 (master prompt §13: *"then stop
-  and wait"*).
+  **`THIRD_PARTY_LICENSES.md`**, ADR-0034..**0038** + the 0038 amendment.
+- **Phase 19 has STARTED and step 19.1 has landed** — the first v2 code in the repo:
+  `packages/engine/src/tempest/dev/license_check.py` (+ 18 unit pins), the MIT `LICENSE`,
+  licence metadata in every package, and README Licence/Credits. `make verify` green with the
+  new gate inside it.
+- **Licence: MIT.** The audit found the repo had **no LICENSE file at all** — published
+  publicly, which means all-rights-reserved by default. Fixed in 19.1.
 - **The scope roughly doubled** with the LibreChat adoption (QV8). Read the sequencing rule in
   `PLAN-V2.md` before touching anything: **a platform feature never precedes the proof feature
   it serves** — branching before the Verdict Loop gives you a chat app; after it, a behavioral
   decision tree. Same code, different product.
 
-## 2. FIRST TASK: the v1.0.0 / 0.2.0 version mismatch
+## 2. WHERE WE ARE: Phase 19, step 19.1 done — 19.2 is next
 
-The published release is tagged **`v1.0.0`** ("v1.0.0 — versions unified") but ships
-`tempest_engine-**0.2.0**-py3-none-any.whl`, and a user who installs it gets a binary whose
-`tempest version` prints `0.2.0`. That is precisely the disagreement the ADR-0021 amendment
-existed to eliminate ("the release tag, `tempest version`, the app's About, and the health
-pill all now agree"). It is also a positioning claim: `v1.0.0` reads as GA, and GA is Phase 30.
+**The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
+retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
+each landing flawless with a **mini release** and a plain-English report naming the step;
+licence is **MIT** and copying LibreChat code is authorized with attribution.
 
-**Do not "fix" this by editing anything until the owner chooses**, because the two repairs
-are opposite:
-- **(a) The tag was a slip** → delete the `v1.0.0` tag and release, re-tag `v0.2.0`. Cleanest
-  truth, but rewrites a public release (fine — it has no known downloads yet).
-- **(b) The owner meant 1.0** → bump every internal version string to `1.0.0`, regenerate the
-  openapi contract (it embeds the version), rehearse every release job locally again
-  (ADR-0021 amendment discipline), and re-cut the release.
+**Step 19.1 is DONE** (`license_check` gate + MIT LICENSE + LibreChat credits — ADR-0038
+amendment). **Step 19.2 is the Agent Tool Protocol**, the fourth contract boundary (ADR-0035).
+Scouting already done for it: boundary B uses `specta`/`tauri-specta`
+(`packages/desktop/src-tauri/devtools/src/bin/export_bindings.rs`), boundary A uses `typify`;
+boundary D adds `schemars`, which is **not yet a Cargo dependency**. The per-step ledger with
+states lives in `docs/PLAN-V2.md` Phase 19.
 
-Either way the gate is the same: tag, `tempest version`, About, and the health pill agree.
+### The retag: what the owner does (I have no push credential — trap 13)
+
+The local tag is already correct: **annotated `v0.2.0` on `6debcec`**, and local `v1.0.0` is
+deleted. The remote still carries the wrong one, and deleting a published release needs the web
+UI. In order:
+
+1. **Delete the release**: github.com/Prithvi-Web/Tempest-AI → Releases → `v1.0.0` → Delete.
+2. **Delete the remote tag**: on the same Releases page the tag survives deletion of the release
+   — Tags → `v1.0.0` → Delete. (Or in GitHub Desktop: History → the tag → Delete Tag → Push.)
+3. **Push the new tag**: GitHub Desktop → Push origin (tags ride along), or from a terminal
+   where you are authenticated: `git push origin v0.2.0`.
+4. `release.yml` fires on the new tag and rebuilds the same 0.2.0 artifacts under the right
+   name. **Watch that run** — it is the first release run since the package-name fix.
+
+**Trap 39 stands as the lesson:** a tag is a claim too. The rehearsal proved the *jobs* and
+never the *name*. When `release.yml` is next touched, assert `tag == __version__` inside the
+workflow so this cannot recur.
 
 ## 3. Frontend ↔ backend: what is guaranteed, and the ONE way to keep it
 
@@ -86,29 +103,19 @@ generation + gates, not discipline. When you touch ANY shape:
 
 ## 4. Remaining work, in recommended order
 
-0. **The version mismatch** (§2) — owner decision, then execute.
-1. **Answer QV1–QV12** (`docs/QUESTIONS.md` v2 section). Three are load-bearing:
+0. **The remote retag** (§2) — the owner's three GitHub steps, then watch `release.yml`.
+1. **Continue Phase 19 at step 19.2** (Agent Tool Protocol). The ledger is in `PLAN-V2.md`.
+2. **Answer the still-open questions as their phase arrives** (`docs/QUESTIONS.md`). None
+   blocks 19.2. The one to settle soonest is **QV1**, because it decides whether an engine
+   proof-rate wave precedes Phase 21:
    - **QV1 — proof rate vs feature work.** The standing rule says engine work outranks feature
      work below a 60% real-world proof rate, and the measured rate is **34%**. The
      recommendation on file is a **Phase 19a engine proof-rate wave** (the 112 plain-class
      instance-method targets + residual harness-synthesis failures) before the agent core,
      because F1's verdict loop is only as good as the proof rate underneath it.
-   - **QV8 — the scope roughly doubled.** 21 features + 14 foundations, 14 phases, 150 polish
-     items on 3 OSes. Recommendation: fund 19–27, treat 28–32 as a second tranche with its own
-     go/no-go, so craft and hardening are never the phases that get quietly compressed.
-   - **QV9 — "better than any other AI" vs the rejection table.** The master prompt refuses to
-     compete with general assistants on their terms. The defensible reading is *"the tool an
-     engineer would rather use than Cursor, Claude Code, or Copilot"* — beating them at
-     verified code change, not at breadth. Settle this in words or it gets settled by drift.
-2. **Phase 19** (v2 foundations) — only after 0 and 1. Gates in `docs/PLAN-V2.md`.
-3. **Carried over from v1, still open:** Sigstore signing + a README demo GIF (ADR-0021 said
-   signing "can be added later at zero cost" — it is still later); TS wave 2 (JS cassettes,
-   constructor synthesis, ddmin for JS, node in the T1 Docker image, `.tsx`); the
-   owner-gated real-model measurements (real synthesis + narrative quality with the owner's
-   Anthropic key; rerun `tempest.dev.real_world`); motion polish beyond view transitions.
-4. **Backlog (smaller):** `more-itertools`-class generators (materialization semantics),
-   VALUE_UNSERIALIZABLE comparison-layer work, Linux T2 bubblewrap backend, parallel target
-   proving, Phase 13 docker legs (compose/Postgres/Helm).
+   *(QV8 scope and QV9 positioning are ANSWERED — 19–27 funded, feature-by-feature with a
+   mini release each. QV3 is answered by the tree: `packages/web` has zero tracked files, so
+   the desktop app is the sole surface.)*
 
 ## 5. The per-phase loop that produced 33 green ADRs (do not improvise a new one)
 

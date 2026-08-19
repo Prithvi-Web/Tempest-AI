@@ -1271,3 +1271,55 @@ introduces is failure mode 9: becoming a chat app with a proof feature.** The mi
 structural rather than cultural — chat is a panel, never the primary surface; every P has a
 named F it serves and a gate that tests the wiring, not just the capability; and any P shipping
 without its proof-native wiring is a build failure under L25, not a style disagreement.
+
+## ADR-0038 amendment — Tempest is MIT; copying LibreChat code is authorized (2026-08-18)
+
+**Two owner decisions, and one defect the first one exposed.**
+
+**1. Tempest AI is released under the MIT Licence.** The audit for this change found that the
+repository had **no `LICENSE` file at all** — and a repository published publicly with no
+licence is *all rights reserved by default*, which is the exact opposite of the open-source
+intent. Every visitor since publication has technically had no grant to use, copy, or modify
+anything. Fixed: `LICENSE` (MIT, `Copyright (c) 2026 Prithvi Vinay`) plus `license = "MIT"` in
+both pyprojects and all four `package.json` files, so a built wheel or npm package carries the
+grant instead of leaving it behind in the repo.
+
+**2. Copying LibreChat code is authorized** (superseding "reference-only" in ADR-0038). MIT
+permits it for commercial use, with modification, no copyleft. The obligation that remains is
+attribution, and it is now mechanical rather than cultural — see gate below. The practical
+shape of the adoption is unchanged by the permission: LibreChat is Node/Express + React +
+MongoDB and Tempest is Rust/Tauri + Python + SQLite, so whole-file vendoring mostly does not
+typecheck across that gap. **Copy what ports** (schemas, config shapes, protocol handling,
+tool/prompt formats, algorithms), **re-implement what doesn't, attribute either way.** The
+React webview is where near-verbatim reuse is genuinely likely and where notices matter most.
+L25 still governs: whatever arrives is subordinated to the proof engine.
+
+**The gate (Phase 19.1, built with this ADR — not deferred).**
+`python -m tempest.dev.license_check --third-party-notices`, live inside `make verify`. It fails
+the build on any of: a missing/non-MIT `LICENSE`, a licence with no copyright holder, package
+metadata omitting MIT, a third-party project named without its licence text reproduced, a
+section marked `CODE DERIVED` whose derivation table names no module, or a named project absent
+from the README. 18 unit pins, each proving a *failure* on a violating tree — a gate that cannot
+fail is decoration.
+
+**Two things the gate caught in its own first run, both worth recording.** It flagged
+`THIRD_PARTY_LICENSES.md` as code-derived because the prose *discussing* the string
+`CODE DERIVED` matched a substring search — **trap 25's class exactly** (a grep that matches the
+discussion of a thing rather than the thing). And it read the stub template's
+`- **Upstream:** <url>` as a real adoption, because a naive fence toggle mis-tracks nested code
+fences. Both fixed structurally: sections are identified by the **structured `- **Upstream:**`
+field outside fences**, fence nesting follows CommonMark (a fence of N backticks closes only on
+a fence of ≥ N), and fenced content is excluded from field lookup entirely.
+
+**Also corrected: a false attribution claim I had written.** The first draft of
+`THIRD_PARTY_LICENSES.md` stated that `corpus/impure/` vendors third-party functions with
+per-file attribution headers. It does not. `docs/QUESTIONS.md` Q5 *planned* that; **ADR-0010
+overrode it** — the 30 corpus functions are hand-written replicas of named idioms, with no
+third-party copyright to attribute. The lesson is small and sharp: a QUESTIONS default is a
+proposal, an ADR is the decision, and when they disagree the ADR wins. Verified against the
+actual file headers, not the plan.
+
+**Consequences.** `README.md` gains Licence and Credits sections stating plainly that Tempest's
+platform layer is **based on LibreChat**, with no affiliation or endorsement implied and no use
+of their marks. Attribution is now enforced at the same moment as adoption, which is what L25
+asks for and what a procurement reviewer will check.

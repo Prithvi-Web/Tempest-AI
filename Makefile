@@ -68,6 +68,7 @@ verify-python:
 	TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.corpus_check --min-pass 24 --repeats 5
 	TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.escape_suite --tier T2   # Phase 10 containment (macOS T2)
 	uv run python -m tempest.dev.redaction_check --planted-secrets   # Phase 17 (L9 proven)
+	uv run python -m tempest.dev.license_check --third-party-notices  # Phase 19.1 (L25 attribution)
 
 verify-node:
 	pnpm -r typecheck
