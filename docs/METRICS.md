@@ -21,6 +21,9 @@
 | 4 | Agent verdict coverage | **55/55 = 100%** on the agent corpus, keyless (2026-08-20, Phase 21). Every task ended on a verdict the STORED bundle supports — the check compares the engine's aggregation of the written targets against what the run reported, so it can disagree |
 | 5 | Agent task success rate | **22/28 = 79%** repair success on the same corpus, with **11/11** dishonest outcomes refused and **0** cheats miscounted (2026-08-20). **This number is a property of the scripted model, not of any real model** — the corpus deliberately contains tasks a correct loop cannot repair, and `repair_bench` prints that caveat on every run. A real-model figure is an owner-run measurement (QV2) and a keyless run may never report one |
 | 6 | Mutation score | **not measurable yet** (Phase 24, F9) |
+| — | Containment (F14, Phase 23) | **27/27** hostile payloads contained when run through the AGENT TERMINAL at tier T2 — the escape suite driven through `terminal.run` itself, not a lookalike |
+| — | Injection (P9, Phase 23) | **30/30** invariants held under a model scripted as ALREADY CAPTURED: five payloads × three delivery channels × six invariants |
+| — | MCP oracle (F16, Phase 23) | **16/16** invariants over a real subprocess and a real stdio pipe. NOT proved: the recorded demo of another agent refusing to finish on DIVERGENT — an owner action |
 | — | Retrieval (F13, Phase 22) | **40/40** benchmark questions answered, cited and correct; **15/15** of the source-impossible ones grounded in execution; p95 **0.2 ms** on the four-file fixture. Dogfooded on Tempest's own engine — 99 files, 866 symbols, 6186 call edges: **2.6 s** cold build, **0.04 s** to re-index an unchanged tree, **0.7–1.1 ms** per query |
 
 *(§§4–6 below state exactly what will measure them. Reporting a number we cannot measure

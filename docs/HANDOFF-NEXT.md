@@ -1,91 +1,56 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20;
-# **19, 19a, 20 and 21 COMPLETE — all four Phase 21 gates green, wired into `make verify`.
-# §0 is the only thing to read before touching anything**)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;
+# **19, 19a, 20, 21 and 22 COMPLETE · 23 PART ONE · 24 and 25 NOT STARTED** — §0 is the only
+# thing to read before touching anything)
 
-## 0a. Tree state at hand-off (2026-08-20, second session)
+## 0. START HERE — what is true right now
 
-* **The previous session's two commits were LOST from the branch and recovered from the working
-  tree.** `git reflog` shows `72faec5` (Phase 19a + 21) and `dff9f5a` (its handoff note) landing
-  at 10:33, and `HEAD` back at `62cc180` afterwards with every one of their changes sitting
-  uncommitted. Nothing was lost — `git diff dff9f5a` shows no deletions, only this session's
-  additions — but the handoff that said *"`72faec5` is committed and UNPUSHED. Working tree
-  clean"* was describing a branch state that no longer existed. **Check `git status` before
-  believing any sentence about what is committed**, including this one.
-* **The owner pushes via GitHub Desktop (trap 13).** If a push seems to have "not happened", look
-  at the reflog before re-doing work: this is what a reset looks like from the inside.
-* **`main` moved once, mid-session, with no reflog entry to explain it** — from `62cc180` (where
-  it sat when this session started) back to `dff9f5a`, while the working tree stayed exactly as it
-  was. GitHub Desktop is open on this repository and is the likeliest author. The outcome was the
-  one wanted, and every changed file was still one this session had authored (`git diff
-  --name-only` checked), but **read `git rev-parse HEAD` before reasoning about what is committed
-  rather than trusting a note like this one.** A branch can move underneath you here.
+**Everything below was measured, not remembered.** Check `git log --oneline origin/main..HEAD`
+before believing any sentence about what is committed: this repository's branch moved underneath
+a session once already today (§0a).
 
----
+### The phases
 
-## 0. START HERE — Phase 21 is COMPLETE. The §0 defect is fixed and all four gates are green
+| Phase | State |
+|---|---|
+| 19, 19a | COMPLETE. Proof rate 34% → 43% (ADR-0048) |
+| 20 | COMPLETE (ADR-0045/0046) |
+| **21** | **COMPLETE** — F1, F2, F3, P2, all four gates green and in `make verify` (ADR-0051/0052/0053) |
+| **22** | **COMPLETE** — the hybrid index, F13 and F4, `retrieval_bench` green (ADR-0054) |
+| **23** | **PART ONE ONLY** — F14, F15/P3, P9 and F16's SERVER half (ADR-0055/0056). F12, P4, P5 and the MCP client are NOT started |
+| 24, 25 | **NOT STARTED** |
 
-**`python -m tempest.dev.repair_bench` exits 0.** The cheat it used to miscount is refused, and
-`collateral-damage-repaired` — the false positive the reverted-symbol excuse exists to prevent —
-is still green.
-
-```
-repair_bench: 22/28 genuine repairs succeeded (79%; required 60%)
-repair_bench: 11/11 dishonest outcomes correctly refused (cheats miscounted as success: 0)
-```
-
-**What the fix was, and why that one** (ADR-0051). Option (1) from the three that were on the
-table: **a repair is only a repair if the changed code still loads**, checked by executing the
-import in the engine's sandbox. No static rule can separate `import math` from
-`import no_such_module_xyz`; both parse. Option (3) would have re-broken
-`collateral-damage-repaired`; option (2) would not have fixed F3 on its own, because the new
-module-level target would be UNPROVEN, which carries no divergence, so `judge` would still have
-seen a clean bundle.
-
-The probe is **differential**, which it was not in its first version: a module that fails to
-import at head is only evidence against the agent if it imported at the BASELINE. A repository
-with an unfetched dependency or an already-broken file would otherwise have produced a cheat
-accusation for something the agent never touched. That correction came from the review, not from
-the author.
-
-**The half of the problem the old §0 did not mention.** The RATE was red too — 4/7 = 57% against
-a 60% bar — and with the 15-task corpus it could never have gone green, because three of the seven
-rate rows were tasks designed to fail. 4/7 was the ceiling. The corpus is now **55 tasks**, which
-`agent_bench --tasks 50` required anyway.
-
-### The four Phase 21 gates, and where they run
+### The gates, and how to run every one of them
 
 ```bash
 cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-./scripts/agent-gates.sh          # all four; also wired into `make verify` as `verify-agent`
+
+TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/verify.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/verify.log
+grep -E "^MAKE_EXIT=" /tmp/verify.log      # read THIS line, never the task notification (trap 40)
+
+./scripts/agent-gates.sh                   # the eight benchmark gates on their own, ~8 minutes
 ```
 
-`agent_bench --tasks 50` · `intent_bench` · `repair_bench` · `resume_test --kill-mid-proof
---sleep-mid-stream`. The first three share one corpus and run concurrently; `resume_test` runs
-alone afterwards because both of its claims are about wall-clock.
+`verify-agent` now runs **eight** gates: `agent_bench --tasks 50` · `intent_bench` ·
+`repair_bench` · `resume_test --kill-mid-proof --sleep-mid-stream` · `retrieval_bench` ·
+`escape_suite --surface agent-terminal` · `redteam --injection` · `mcp_check`.
 
-### What P2 does now
+### Two open items, deliberately, and neither is hidden
 
-`run_task` consumes `plan_resume`. A restarted process re-attaches to the SAME shadow worktree at
-the SAME baseline, replays the recorded conversation instead of paying the model again, re-proves,
-and REFUSES to silently redo a task that already finished. `resume_test` proves it by `SIGKILL`ing
-a real child the moment the durable log says it entered the proof.
+1. **`preflight` is not wired into the turn loop.** L21 says *"cost is visible BEFORE it is
+   spent"*. The meter implements it; the loop charges AFTER each turn and enforces the caps, which
+   is the other half. Showing an estimate needs a surface the agent does not have (ADR-0057).
+2. **Nothing serialises two processes resuming the same task id.** One engine sidecar runs today
+   so it cannot happen; the agent fleet (F17/P4) is when it can, and that is when it must close.
 
-**That gate found a real defect on its first run** (ADR-0052): `envrepro.materialize` reused a
-cached git worktree whenever the DIRECTORY existed, so a killed process poisoned the cache
-permanently and every later run in that repository died on a file that was not there.
+### What the APP gained, and what it did not
 
-### Two things this phase deliberately left OPEN, and they are not hidden
-
-1. **`run_command` is refused.** It used to call `subprocess.run(argv, cwd=shadow)` — the user's
-   uid, environment, network and whole filesystem, with only the working directory set — while
-   the tool manifest declared `writes: shadow_worktree` and `touches_network: false`. That is a
-   Law violation (L19) and a false claim in a contract. It now refuses, naming the law and F14.
-   **Phase 23's F14 (the sandboxed agent terminal, with the escape suite extended to cover it) is
-   what re-enables it.** Do not re-enable it any other way.
-2. **Nothing serialises two processes resuming the same task id.** They would attach the same
-   shadow and interleave. One engine sidecar runs today so it cannot currently happen; the agent
-   fleet (F17, Phase 26) is when it can, and that is when it must be closed.
+The app was rebuilt and reinstalled from this work (`/Applications/Tempest.app`, 0.2.0, orphan
+check green). **None of Phase 21, 22 or 23 is wired to a Tauri command or the webview** — there is
+no agent surface, no chat panel, no index UI. What the app actually gained is the Phase 19a engine
+change (more instance methods proved) and the ADR-0052 worktree-cache fix, which stops a killed
+proof poisoning `.tempest/cache/` permanently. Say that plainly to the owner rather than implying
+the agent shipped.
 
 ---
 
@@ -175,76 +140,31 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 
 ---
 
-## 1. Live state (2026-08-19 — **Phase 19 complete; Phase 20's steps all landed; three things
-still open before Phase 20 can be CALLED complete — read §1a**)
+## 1. Live state — measured 2026-08-20 (second session)
 
-- **Everything through `2a0a998` is pushed and CI-green** (all seven jobs): Phase 19 including
-  the trap-44 fix (`191c91e`), and Phase 20.1 + 20.1b (`f1b3502`, `43fbb25`, `31a40cc`,
-  `453075b`, `2a0a998`). Check reality rather than this sentence, which ages the moment anything
-  lands: `git rev-parse --short HEAD origin/main` and `git log origin/main..HEAD`.
-- **Phase 20 is COMPLETE (2026-08-19, ADR-0046).** 20.1 editor surface · 20.1b budgets armed ·
-  20.2 LSP multiplexer + handshake + hover dispatch · 20.3a completion policy · 20.3b ghost text
-  + offline source · 20.3c completion budget + input storm · 20.3d local model runner + fallback
-  · 20.3e behavioural risk indicator · **20.4a–d the review's confirmed fixes** · **20.5 the
-  hover tooltip that makes `lsp_hover` reachable** · **20.6 the runners' settings surface**.
-  **All twelve Phase 20 commits are PUSHED, and the phase is CI-CONFIRMED.** Everything through
-  `30f970a` was CI-green 7/7; `070f046` came back 6/7 with `desktop` red; and `3860c23` — whose
-  non-`docs` tree object is the *same hash* as `070f046`'s — came back **7/7 green** on a fresh
-  runner (run `32317420375`). §0 has the full reasoning; the item is closed, not deferred.
-- **Test counts after the ADR-0047 bench-conditions work (2026-08-20)**: pytest **1329** at
-  100.00% (`MAKE_EXIT=0`, "all live steps green") · Linux denominator **1323**, 6 deselected,
-  100.00% (`LINUX_EXIT=0`) · cargo **115** in the workspace + **5** devtools (untouched — no
-  `.rs` changed this session) · vitest **86** desktop + **27** ts-sidecar · Playwright
-  **48 passed** · `parity --cli-vs-desktop` byte-identical · `ruff format --check` clean
-  repo-wide (281 files) · `mypy --strict` clean on 130 files, both platform views.
-  Phase 20 handed off at pytest **1273**; the delta is this session's tests.
-  **`make perf-gate`: `PERF_GATE_EXIT=0` — green for the first time (ADR-0047).**
-- **The §5 editor budgets were MET when last measured**: open file p50 15.4 ms (bar 40),
-  keystroke p50 1.3 ms (bar 8), completion p50 4.1 ms (bar 120), all three p95s inside their
-  bars. The input-storm test (900 keys at 15/s, zero drops, order-exact) passes. Those were
-  Phase 20's stated exit gate.
-  **The live count is now 3 of 13, not 6, and nothing regressed.** `bench/editor-metrics.json`
-  predates HEAD, so the staleness guard discarded it exactly as designed and the three editor rows
-  read NOT-YET-MEASURED — the honest state for "the surface exists and nobody re-ran the
-  measurement". `make bench-editor` restores them, after which the count returns to 6 of 13. Do
-  **not** read the drop as a regression, and do not quote "6 of 13" without re-running the
-  measurement that earns it.
-- **Phase 20.1 + 20.1b are DONE** (ADR-0045). CodeMirror 6 behind `pathguard` — one enforcement
-  point the Phase 21 orchestrator reuses; the editor is reachable from a proved target; the §5
-  editor budgets are ARMED, so `perf_suite` reports **5 of 13** measurable (open file p50
-  15.6 ms, keystroke p50 1.3 ms, BOTH p95s enforced because the leg emits raw samples). Local
-  `make verify`: `MAKE_EXIT=0`, **1260 passed / 100.00%**, 37 E2E specs.
-- **v1 remains green.** The audit at the v2 kickoff: `make verify` exit 0, 1038 passed /
-  100.00%; corpus 30/30 ×20; parity byte-identical; orphan 2.1 s; `bench_guard: PASS`. The suite
-  has since grown to **1162+ tests, still 100.00%** on both denominators.
-- **The release is correct.** Tag `v0.2.0` (the old mis-named `v1.0.0` is gone), shipping
-  `tempest_engine-0.2.0` artifacts — tag, artifacts, `tempest version`, About and health pill all
-  agree. Trap 39 recorded the lesson: a tag is a claim too.
-- **Licence: MIT.** The repo previously had **no LICENSE file at all** (published = all rights
-  reserved by default). Fixed in 19.1, with `license_check` in `make verify` so attribution is
-  mechanical rather than remembered. Copying LibreChat code is authorised; Tempest credits it in
-  the README and `THIRD_PARTY_LICENSES.md`.
-- **v2 planning docs are complete**: `PLAN-V2.md` (phases 19–32), `FEATURES-V2.md` (F1–F21),
-  `PLATFORM-V2.md` (P1–P14 **and the rejection table — read the rejections**), `CRAFT.md`,
-  `POLISH.md` (150 items), `THREAT-MODEL-V2.md`, `METRICS.md` (six numbers),
-  `CLAUDE.md` (L1–**L26** + the four-boundary contract), ADR-0034..**0044**.
-- **The final local `make verify` on `5717c41` came back GREEN after the defect fixes:**
-  `MAKE_EXIT=0` — **1243 passed, 100.00% coverage**, ruff clean, `mypy --strict` clean on 130
-  source files (both platform views), escape suite fully contained, redaction 24/24,
-  `license_check` zero missing notices, `provider_matrix` 16 providers with every request path
-  exercised, vitest 20+27, cargo 25+5, E2E 29 passed, four-boundary contract drift-free.
-- **CI on `5717c41` came back RED, and the local green did not travel** (ADR-0044, trap 44).
-  One test failed on the fresh checkout — `test_perf_suite.py::TestCli::
-  test_the_real_repo_bench_file_is_evaluated`, `AssertionError: the repo ships a committed
-  bench.json` — while the *same run* reported 100.00% coverage and 1235 other tests passing.
-  The repo does **not** ship `bench/bench.json`: it is gitignored machine-local measurement
-  output, and the test passed on the author's Mac only because a generated copy sat in the tree.
-  **Fixed** by pointing the test at `bench/baseline-darwin.json` (which the repo does ship) and
-  asserting the path is *in the committed tree* (`git cat-file -e HEAD:<path>` — NOT
-  `git ls-files`, which answers about the index). Exactly one instance of this defect; the
-  gitignored artifacts other tests read are all produced by an explicit CI step.
+```
+MAKE_EXIT=0 — "verify: all live steps green"
+pytest      1753 passed · TOTAL 8137 stmts 0 miss, 2352 branch 0 partial — 100.00%
+agent_bench 55/55 · intent_bench 54/54, 0 false INTENDED
+repair_bench 22/28 (79%), 11/11 cheats refused, 0 miscounted
+resume_test 15/15 · retrieval_bench 40/40, 15/15 grounded, p95 0.2 ms
+escape_suite --surface agent-terminal 27/27 · redteam 30/30 · mcp_check 16/16
+vitest 86 + 27 · Playwright 48 · contract drift-free · mypy --strict clean on both platform views
+```
 
-## 2. WHERE WE ARE: **19, 19a, 20, 21 and 22 are COMPLETE.** Phase 23 is the next feature work.
+*(The pytest and coverage figures above are from the `make verify` on `0c64a0c`. The three gates
+added after it — escape-suite-on-the-terminal, redteam, mcp_check — were each run and recorded at
+the commit that added them; the run in flight at hand-off covers all of it together.)*
+
+- **`make perf-gate` is GREEN** (ADR-0047), and the cold-launch caveat in §1a still stands: it
+  passed by 0.57 points against a baseline that records no conditions of its own. **Never
+  re-baseline under load** (v2 failure mode 2).
+- **The app is rebuilt and installed** — `/Applications/Tempest.app`, `CFBundleShortVersionString
+  0.2.0`, parity byte-identical, `orphan_check` 2.1 s against a 15 s bar.
+- **v1 remains green** and the corpus is unchanged: 30/30 ×20 replays.
+- **Licence MIT**, `license_check` in `make verify`, LibreChat credited.
+
+## 2. WHERE WE ARE: **19, 19a, 20, 21, 22 COMPLETE · 23 PART ONE · 24 and 25 NOT STARTED**
 
 ### Phase 22 in one paragraph (ADR-0054)
 
@@ -600,79 +520,57 @@ generation + gates, not discipline. When you touch ANY shape:
 
 ## 4. Remaining work, in recommended order
 
-0. ~~**Confirm CI is green on the Phase 20 tip.**~~ **DONE 2026-08-20** — run `32317420375` on
-   `3860c23`, **7/7 green**, on a tree whose non-`docs` object hash is identical to `070f046`'s.
-   Trap 44 is satisfied the way it demands: by a fresh-checkout run of the repository, not by a
-   local green. See §0.
+### The next feature work: finish Phase 23
+
+1. **P4 — subagents.** The gate: *8 nested subagents with independent verdicts, correct budget
+   accounting, and full cancellation propagation.* Every piece it needs now exists: `run_task`
+   gives each child its own shadow and its own verdict, `cost.Meter` is wired and its scopes
+   already bound a session across tasks (ADR-0057), and `execute/cancel.CancelScope` is the
+   propagation primitive. This is the cheapest remaining item and it unblocks F17 and F7.
+2. **F16's client half + P5.** Consuming other MCP servers. The server half landed (ADR-0056);
+   the transport in `mcp/protocol.py` is the same one a client needs, read from the other end.
+3. **F12 — the composer.** Desktop UI work, and the first thing that would put ANY of Phases
+   21–23 in front of the user. Nothing is wired to a Tauri command yet.
+
+### Then Phase 24, and read this before starting it
+
+`WEAK_EVIDENCE` is *"a new verdict value, added to the enums in all four languages"* — Python,
+TypeScript, Rust and the JSON schema — which is boundary A, B, C and D at once, and QUESTIONS.md
+QV4 records a standing recommendation to make it an **attribute rather than a fifth verdict**.
+**Settle QV4 with the owner before writing code**: adding a verdict variant deliberately breaks
+every exhaustive match in three languages, and doing that twice would be the expensive mistake.
+
+`mutation_bench` is the gate, and F9's mutation score is the thing the MCP server deliberately
+does not yet advertise (ADR-0056) — adding `mutation_score` to `mcp/server.py` the day it exists
+is one dict entry, and `test_mcp_server.py` asserts its absence so the addition is deliberate.
+
+### Then Phase 25
+
+F7 de-slop, F8 proven dead-code elimination, F6 the migration agent and its published canonical
+value protocol. F8's gate — *20 dynamically-reached symbols static analysis calls dead, and a zero
+false-deletion rate* — is the one to build the corpus for first: it is the feature that deletes
+code, and a single mistake ends its credibility.
+
+### Carried, unchanged, and none of it is hidden
+
 0a. **The Node 20 deprecation.** `actions/setup-node@v4`, `actions/upload-artifact@v4` and
-   `astral-sh/setup-uv@v6` target Node 20 and are *"being forced to run on Node.js 24"*. Nothing
-   is red today because the runner absorbs it; when it stops, the affected jobs go red for a
-   reason that has nothing to do with this code. **Counted, not estimated** (an earlier draft of
-   this bullet said "every job" and "three `uses:` lines"; both were false and a review caught
-   them):
-   ```bash
-   awk '/^  [a-zA-Z0-9_-]+:$/{j=$1} /uses:/{print j, $NF}' .github/workflows/ci.yml
-   grep -cE 'uses: (actions/setup-node@v4|actions/upload-artifact@v4|astral-sh/setup-uv@v6)' .github/workflows/ci.yml
-   ```
-   **5 of the 7 jobs** are affected — `desktop` uses all three, `python` / `bench` /
-   `contract-check` two each, `node` one — and `forbidden-verdict-grep` and `compose-validate`
-   use only `actions/checkout@v5`, which is already Node 24, so they cannot carry the warning and
-   cannot go red from it. The bump is **10 `uses:` lines in `ci.yml`, 16 across all workflows**
-   (`release.yml` holds the other 6). A session that changes three lines will believe it closed
-   this and the next run will still warn.
-   A workflow edit is **only verifiable by a CI run**, so it must be made by a session that can
-   then watch the run it caused, and must not be bundled into a push whose other content it could
-   mask. Do it as its own commit, first thing, and watch it.
-1. **Settle the cold-launch perf signal** — `make bench` on an idle machine (NO Claude session
-   running; that is why it is still open), then `make perf-gate`. Never re-baseline to make it
-   green. Then consider arming `perf-gate` in CI, which needs a committed
-   `bench/baseline-linux.json` first.
-2. **Gate the CSP.** It ships and is correct for what the app does, and nothing executes under
-   it: `grep -rni csp` over the app, the specs and the workflows returns zero hits, and tauri
-   applies the policy only in a bundled build CI never produces. A build-time assertion that the
-   bundled `index.html` carries it is the cheap first step; running one smoke spec against a
-   built app is the real one.
-2a. **Queued by the Phase 20.1 review (ADR-0045) — the first two are DONE; read the correction:**
-   - ~~No CI job runs the E2E suite.~~ **DONE in `b11d533`**: the CI desktop job installs a
-     chromium and runs the same `test:e2e` script `make verify` does, with `set -o pipefail`
-     before the `tee` (trap 18). This bullet still said the opposite two commits after that
-     landed, and the Phase 20 review confirmed it as a live documentation defect — the handoff
-     that is the project's own answer to "is this done?" answered no about work that was done.
-     Corrected 2026-08-19.
-   - ~~`tauri.conf.json` ships `security.csp: null`.~~ **DONE in `b11d533`**: it ships a full
-     policy (`default-src 'self'` … `frame-ancestors 'none'`). Same correction, same date.
-     **What is still true and is NOT done:** nothing GATES the CSP. `grep -rni csp` over
-     `packages/desktop/src`, `e2e`, `.github` and every test returns zero hits; the E2E suite runs
-     against the vite dev server, which sends no CSP header, in Chromium — while the app ships on
-     WKWebView, and tauri applies `security.csp` only for the `tauri://localhost` protocol, i.e.
-     only in a bundled build that CI never produces. So the policy is a config file nobody has
-     executed under. That is the real open item; see §4.
-   - **The cold-launch baseline** needs one `make bench` on a genuinely quiet machine (every
-     measurement on 19 Aug was taken with ~25–30% background load from a Claude session). The A/B
-     settled the cause: the BASELINE COMMIT ITSELF benches at 0.3316 today — environment drift
-     (+11.7%), not code (+4.3%, inside the bar). Do NOT re-baseline under load. **Still open on
-     2026-08-19 after Phase 20: it could not be taken, because that session WAS the load.**
-     `make perf-gate` reports `cold_launch 0.3309s regressed 11.5% over baseline 0.2968s`; the
-     absolute budget is met with wide margin (0.33 s against a 0.8 s p50).
-2b. **Queued by the trap-44 review (ADR-0044) — none of these are done:**
-   - **A repo-wide gate for the trap-44 class.** Today only `test_perf_suite.py` proves the file
-     it reads is committed; nothing stops the next test from using bare `Path.is_file()` on a repo
-     path. A mechanical check (every non-`tmp_path` repo path a test reads must be in HEAD, or be
-     produced by a named CI step) would gate the class instead of the instance.
-   - **`test_prove_scope.py:41-52`** gates *which assertion runs* on gitignored
-     `node_modules/ts-morph`: `DIVERGENT` when present, `UNPROVEN` when not. It never fails, it
-     silently downgrades — the strong assertion can evaporate with nothing turning red.
-   - **`tempest.dev.bench` emits only aggregates.** Emitting raw `samples` turns three p95 budgets
-     from NOT-YET-MEASURED into enforced (also listed in §2).
-3. **19.5b** — one model path: migrate `harness/llm.py` + `report/narrative.py` onto
+   `astral-sh/setup-uv@v6` are being forced onto Node 24. **5 of the 7 jobs**, **10 `uses:` lines
+   in `ci.yml` and 16 across all workflows** — counted, not estimated. A workflow edit is only
+   verifiable by a CI run, so it must be its own commit, made by a session that then watches it.
+1. **Settle the cold-launch perf signal** — `make bench` on a machine with no Claude session
+   running. It has never been possible on this Mac (§1a); `perf-gate` is green anyway by the
+   one-sided rule, by 0.57 points.
+2. **Gate the CSP.** It ships and nothing executes under it: tauri applies `security.csp` only in
+   a bundled build CI never produces, and the E2E suite runs against a vite origin with no CSP
+   header. A build-time assertion that the bundled `index.html` carries the policy is the cheap
+   first step.
+2b. **A repo-wide gate for the trap-44 class** (a test that reads a repo file must assert it is
+   COMMITTED), and `test_prove_scope.py:41-52`, which silently downgrades its assertion when
+   `node_modules/ts-morph` is absent rather than failing.
+3. **19.5b** — one model path: migrate `harness/llm.py` and `report/narrative.py` onto
    `tempest/inference/` and drop the `anthropic` SDK.
-4. **Answer QV1 before Phase 21** — the standing rule says engine work outranks feature work
-   below a 60% real-world proof rate, and the measured rate is **34%**. At 34%, F1's agent
-   honestly reports UNPROVEN on ~2/3 of what it changes. The recommendation on file is a
-   **Phase 19a engine proof-rate wave** (the 112 plain-class instance-method targets, key-gated,
-   plus residual harness-synthesis failures) before the agent core.
-5. **Carried from v1**: Sigstore signing + a README demo GIF; TS wave 2 (JS cassettes, methods,
-   ddmin for JS, node in the T1 image, `.tsx`); owner-key real-model measurements.
+5. **Carried from v1**: Sigstore signing, a README demo GIF, TS wave 2, owner-key real-model
+   measurements.
 
 ## 5. The per-phase loop that produced 33 green ADRs (do not improvise a new one)
 
@@ -740,34 +638,50 @@ creating something and recording that it exists, and both left a directory `crea
 overwrite and `attach` would not adopt (§20) ·
 53 A COMMITTED CONTRACT CAN CLAIM CONTAINMENT THE CODE DOES NOT PROVIDE — `run_command`'s manifest
 declared `writes: shadow_worktree, touches_network: false` over a bare `subprocess.run`, and 51
-passing tests all asserted that it WORKED (§21)** ·
+passing tests all asserted that it WORKED (§21) ·
+54 A DIFFERENTIAL CHECK MUST ASK BOTH SIDES UNDER THE SAME CONDITIONS — the load probe compared a
+deps-attached baseline against a deps-less shadow, so every changed file with a third-party import
+was a "cheat"; being differential is not enough if the two worlds differ (§22) ·
+55 A DOCSTRING CAN PROMISE A PARAMETER THAT DOES NOT EXIST — "bounded … when a `Meter` is supplied"
+sat above a `TaskSpec` with no meter field for a whole phase, through two multi-agent reviews and
+every gate, because nothing reads a docstring against the type beside it (§23)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
 
-## 6b. The Phase 21 gates — how to run them, and what each currently says
+## 6b. Every gate, what it asks, and what it deliberately does not
 
-```bash
-cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+All eight run inside `make verify` as `verify-agent` (`./scripts/agent-gates.sh`). The three
+corpus gates run concurrently — they share 55 real repositories and nothing else; `resume_test`
+runs alone afterwards because both of its claims are about wall-clock.
 
-TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.agent_bench   # EXIT 0
-TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.intent_bench  # EXIT 0
-TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.repair_bench  # EXIT 1 — §0
-```
+| gate | asks | measured |
+|---|---|---|
+| `agent_bench --tasks 50` | did every task end on a verdict the STORED bundle supports? | 55/55 |
+| `intent_bench` | was every divergence classified as the corpus says, with zero false INTENDED? | 54/54 |
+| `repair_bench` | did repairs succeed honestly, and was every cheat refused? | 22/28, 11/11 |
+| `resume_test` | does a SIGKILL mid-proof lose nothing and cost nothing twice? | 15/15 |
+| `retrieval_bench` | is every answer cited, correct, and — for the 15 — grounded in execution? | 40/40, 15/15 |
+| `escape_suite --surface agent-terminal` | is a command run by the AGENT contained by its tier? | 27/27 |
+| `redteam --injection` | under a fully captured model, did anything move? | 30/30 |
+| `mcp_check` | does the server speak the protocol, and answer honestly over a real pipe? | 16/16 |
 
-Each takes 1-3 minutes: every task is a real git repo, a real shadow worktree and a real
-differential proof. The only fake is the MODEL — a loopback peer scripted to make a fixed
-sequence of edits, including the misbehaving ones a real model cannot be asked to perform
-reliably (L4: the fake is the model, never the execution).
+**`--tasks N` is a FLOOR, not a slice**: it asserts the corpus holds at least N and then runs all
+of it. Slicing would silently exclude every task added after the Nth.
 
-The corpus is `tempest/dev/_agent_corpus.py`, 15 tasks. Its composition is a choice and is stated
-in the module: repairable and deliberately-unrepairable tasks are both present, so the keyless
-repair RATE is a property of those scripts rather than of any model. A real-model number is an
-owner-run measurement (QV2) and a keyless run may never report one.
+**Two things these gates deliberately do NOT prove, and say so in their own output:**
 
-**`--tasks N` is a REQUIREMENT, not a target.** Asking for more tasks than the corpus holds exits
-2 with the shortfall named, rather than quietly reporting a rate over a smaller set (trap 44).
+* `retrieval_bench`'s p95 is measured on a **four-file fixture**. §5's bar is a 500k-LOC
+  repository. That number has not been taken and is not claimed.
+* `mcp_check` cannot record F16's demo of another agent refusing to finish on DIVERGENT. That
+  needs a second product and a person to watch it: it is an **owner action**.
+
+**And one number that is a property of the corpus, not of any model.** `repair_bench`'s 79% comes
+from a scripted peer making a fixed sequence of edits — including the misbehaving ones a real
+model cannot be asked to perform reliably. It measures the MACHINERY: that a verdict always has
+evidence, that the four cheats are always refused, that the loop converges when its edits do.
+Quoting it as "Tempest repairs 79% of bugs" would be exactly the claim this product exists to
+make impossible. A real-model number is an owner-run measurement (QV2).
 
 ## 7. Resume commands
 
@@ -775,29 +689,29 @@ owner-run measurement (QV2) and a keyless run may never report one.
 cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
-git log origin/main..HEAD --oneline          # what is NOT yet pushed (do not assume empty)
+git rev-parse --short HEAD                   # believe THIS, not a sentence in a doc (§0a)
+git log --oneline origin/main..HEAD          # what is NOT yet pushed
 
-# Run detached with a GREPPABLE exit marker — a task notification reports the WRAPPER's
-# status, not make's, so never trust it (trap 40).
+# Detached, with a GREPPABLE exit marker — a task notification reports the WRAPPER's status,
+# never make's (trap 40).
 TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/verify.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/verify.log
 grep -E "^MAKE_EXIT=" /tmp/verify.log        # 0 = green
 
+./scripts/agent-gates.sh                     # the eight benchmark gates alone (~8 min)
 make verify-linux-denominator                # the Linux coverage denominator (traps 15/21/22)
 uv run python -m tempest.dev.parity --cli-vs-desktop
 uv run python -m tempest.dev.orphan_check    # needs the app installed
+make bench && make perf-gate                 # never re-baseline under load
 
-# The Phase 19 gates, individually:
-uv run python -m tempest.dev.license_check --third-party-notices
-uv run python -m tempest.dev.provider_matrix --min-providers 12
-make bench && make perf-gate                 # perf-gate is currently RED on cold launch (§2)
+# The app chain, after any engine change the owner should be able to run:
+./packages/desktop/build-server.sh && (cd packages/desktop && pnpm tauri build)
+rm -rf /Applications/Tempest.app && ditto packages/desktop/src-tauri/target/release/bundle/macos/Tempest.app /Applications/Tempest.app
 ```
 
-**Never edit a `.py` file while a coverage run is in flight** — an unimported new module counts
-as 0% and the run reports a false total. Draft new modules in a scratch directory and move them
-in afterwards (that technique is how 19.4–19.6 were built safely), but remember it cannot prove
-a module NAME is free (trap 41).
-
----
+**Never edit a `.py` file under `packages/*/src` while a coverage run is in flight** (trap 50): a
+module created mid-run is measured at 0% and its tests are never collected, so the run fails for a
+reason that is an artifact of the edit. Docs are fine. Draft new modules in a scratch directory
+and move them in afterwards — but remember that proves LOGIC, never a name collision (trap 41).
 
 ## 8. Trap 40 — a task notification's exit code is the WRAPPER's, not the command's
 
@@ -1284,3 +1198,59 @@ because a draft that has not run is not work:
 the highest-leverage feature in the whole plan, since the server makes Tempest the verification
 oracle for every other coding agent), subagents with their own shadow and verdict (P4), and the
 composer surface (F12), which is desktop UI work.
+
+
+---
+
+## 22. Trap 54 — a differential check must ask both sides under the same conditions
+
+The load probe was made differential to fix a real false positive: a module that fails to import
+is only evidence against the agent if it imported at the BASELINE. That reasoning was right, the
+fix was written carefully, and it was still wrong — because the two probes ran in different
+worlds.
+
+The baseline side is a `materialize`d worktree, the very one the proof just used, which
+`attach_deps` has already given a `.tempest-deps` symlink. The shadow never got one: `shadow.create`
+deliberately carries no `.tempest*` path across. So in **any repository with a third-party
+dependency**, a changed file importing it failed at head, loaded at baseline, and was reported as
+a cheat the agent committed.
+
+Two independent verifiers reproduced it. Neither the author nor the first review saw it, because
+both were looking at the comparison and the defect was in its operands.
+
+**How to apply.**
+1. **"Differential" is a property of the COMPARISON, and a comparison has two operands.** When you
+   make a check differential, write down what each side runs inside — interpreter, `sys.path`,
+   environment, working directory, dependency state — and check the two lists are the same list.
+2. Reuse of a cached artifact is where asymmetry hides. The baseline worktree was correct, warm
+   and already prepared; the shadow was correct and bare. Nothing about either was wrong on its
+   own.
+3. The test that closes it is not a unit test of the comparison. It is a fixture with a real
+   dependency: plant a module reachable only through the deps directory, and assert the change is
+   not called broken.
+
+---
+
+## 23. Trap 55 — a docstring can promise a parameter that does not exist
+
+`orchestrator.py` opened with:
+
+> **Everything is bounded (L15.4).** Turns, tool calls per turn, bytes, wall-clock, and — when a
+> `Meter` is supplied — money (L21).
+
+`TaskSpec` had no `meter` field. Nothing could supply one. Money was the only budget in that
+sentence that nothing enforced, and it survived a 138-agent review, a 132-agent review, 1753 tests
+at 100% coverage, and every gate in `make verify`.
+
+It survived because **no gate compares a docstring to the type beside it**, and because the
+sentence is exactly the sentence a careful engineer writes — a conditional, hedged, obviously
+true-sounding claim. It was found by accident, reading the cost meter for another reason.
+
+**How to apply.**
+1. **A conditional claim names a mechanism. Go and find the mechanism.** "when X is supplied"
+   means something must be able to supply X — grep for the parameter before believing the
+   sentence.
+2. Docstrings that enumerate guarantees (*"turns, calls, bytes, wall-clock, and money"*) are worth
+   auditing item by item, because a list is where an item hides. Four of those five were real.
+3. This is trap 45's sibling. Trap 45 is a guard whose ARGUMENT is not a proof of the guard; this
+   is a guard that does not exist at all, described in the present tense.
