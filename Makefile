@@ -104,7 +104,8 @@ verify-python:
 # coverage, F2's classification accuracy, F3's repair rate and refused cheats, P2's survival of a
 # SIGKILL mid-proof, F13's retrieval — 40 questions, 15 of which source text cannot answer — and
 # F14's containment (the escape suite run through the agent terminal itself), and P9's injection
-# suite — five payloads against a model scripted as already captured.
+# suite — five payloads against a model scripted as already captured — and F16's MCP server,
+# driven over a real stdio pipe.
 # Real benchmarks over real repositories; the script runs the three corpus gates concurrently and
 # prints every gate in a fixed order.
 verify-agent:

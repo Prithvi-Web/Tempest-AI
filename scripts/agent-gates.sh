@@ -59,8 +59,14 @@ run escape_suite --tier T2 --surface agent-terminal
 # model resist?" — it is "did anything move?".
 run redteam --injection
 
+# F16's server half (Phase 23): the MCP server driven over a REAL stdio pipe by a real JSON-RPC
+# client. What it cannot prove is the recorded demo of another agent refusing to finish on
+# DIVERGENT — that needs a second product and a person to watch it, and the gate says so itself.
+run mcp_check --server
+
 failed=0
-for name in agent_bench intent_bench repair_bench resume_test retrieval_bench escape_suite redteam; do
+for name in agent_bench intent_bench repair_bench resume_test retrieval_bench escape_suite \
+            redteam mcp_check; do
     echo "── $name ──"
     cat "$LOGS/$name.log" 2>/dev/null || echo "(this gate produced no output at all)"
     code="$(exit_code_of "$name")"

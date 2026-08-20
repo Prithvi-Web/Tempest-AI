@@ -3031,3 +3031,59 @@ UNCLASSIFIED and the check still passed. It asserts the contract's own decision 
 the server makes Tempest the verification oracle for every other coding agent. **P4 subagents**
 with their own shadow and verdict. **P5** production MCP client. **F12** the composer surface,
 which is desktop UI work. None of these are started, and the phase is not complete.
+
+---
+
+## ADR-0056 — F16's server half: Tempest as an oracle any agent can call (2026-08-20)
+
+**Status:** accepted for the SERVER · the MCP **client** (P5) is not built · Phase 23 remains
+incomplete
+
+### Why the server half matters more than the client half
+
+As an MCP client Tempest gets ecosystem parity — useful, and available to anyone. As an MCP
+**server** it becomes the thing every other coding agent asks before claiming a task is done,
+including the ones it competes with. Every agent shipping today can say *"tests pass"* and hope;
+none can say what changed behaviourally, because none executes two revisions and compares. This
+exposes exactly that, over a transport all of them already speak.
+
+### The tool list is short on purpose
+
+`prove` (the oracle), `explain_behavior` (F4's spec, with an observation id behind every
+sentence), `minimize_repro` (the smallest input that still fails, from a stored bundle), and
+`check_intent_contract` (how a bundle's divergences classify against a stated intent).
+
+**`mutation_score` is named in the spec and is deliberately absent**, because F9 (Phase 24) has
+not been built. Declaring a tool that always refuses would spend a caller's turn to tell them so —
+and a model that sees a tool in a list reasonably assumes it works. The gate asserts its absence,
+so the day F9 lands, adding it is a deliberate act.
+
+The advertised list and the implemented set are asserted equal **in both directions**, the same
+rule boundary D holds the agent tools to: advertised-and-unimplemented wastes a turn,
+implemented-and-unadvertised is invisible.
+
+### Nothing here authors a verdict
+
+Every value a tool returns is an engine output or a transformation of one (L17). The model on the
+other end of the wire is a caller, not a source — which is what makes it safe to hand this to an
+agent whose behaviour Tempest does not control.
+
+### What the gate proves, and what it explicitly does not
+
+F16's stated gate is a recorded demo of Claude Code refusing to finish a refactor when Tempest
+answers DIVERGENT. That needs a second product and a person to watch it: **it is an owner action
+and the gate says so in its own output** rather than quietly implying it was done.
+
+What a keyless run proves is everything underneath it — 16 invariants over a real subprocess and a
+real pipe: the handshake, the two-directional tool-set equality, a real behaviour change coming
+back DIVERGENT with the input that shows it, a real no-op refactor coming back
+EQUIVALENT_UNDER_BUDGET (an oracle that called every edit a change would be ignored within a day),
+an unknown tool and a malformed message becoming error objects rather than a dead connection, an
+unexpected exception inside a tool doing the same, and **nothing but JSON-RPC ever reaching
+stdout**.
+
+That last one was written vacuously first — a hardcoded `True` with a note claiming a stray print
+"would have failed a read above". It would have failed the NEXT read, which is a different claim,
+and a gate should not make that claim on its own behalf. It drains the leftover stream and checks
+every line now, and a `print()` planted in the server fails it. The mutation that found the
+missing "unexpected exception" check survived the first version of the gate entirely.

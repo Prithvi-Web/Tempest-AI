@@ -213,7 +213,10 @@ are not.
 - [x] **P9** retrieved content as hostile input — `redteam --injection`, 30/30 invariants held
       under a model scripted as ALREADY CAPTURED.
 - [ ] **F12** composer with proof preview (desktop UI).
-- [ ] **F16** MCP client + server — the highest-leverage item in the plan.
+- [x] **F16 SERVER** — `python -m tempest.mcp`: `prove`, `explain_behavior`, `minimize_repro`,
+      `check_intent_contract` over stdio JSON-RPC. Gate: `mcp_check`, 16/16 invariants over a real
+      pipe. The recorded Claude-Code demo is an OWNER action and the gate says so.
+- [ ] **F16 CLIENT** — consuming other MCP servers (with P5).
 - [ ] **P4** subagents with their own shadow worktree and verdict.
 - [ ] **P5** production-grade MCP client.
 

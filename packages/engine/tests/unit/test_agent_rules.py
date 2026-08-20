@@ -148,3 +148,45 @@ class TestApplying:
     def test_no_rules_says_so_rather_than_printing_an_empty_heading(self, tmp_path: Path) -> None:
         applied = rules_mod.apply_to(None, [], files=("app.py",))
         assert applied.explain() == "no behavioural rules applied to this task"
+
+
+class TestTheShapesAFileCanTakeAndShouldNot:
+    def test_a_rule_list_of_non_tables_is_refused(self, tmp_path: Path) -> None:
+        """`rule = ["billing"]` parses as TOML and is not a rule. Reading it as one would drop
+        every key and produce a wall with nothing behind it."""
+        _write(tmp_path, ".tempest/rules/x.toml", 'rule = ["billing"]\n')
+        with pytest.raises(rules_mod.RuleError, match="must be a table"):
+            rules_mod.load(tmp_path)
+
+    def test_a_rules_file_inside_the_rules_directory_is_not_read_twice(
+        self, tmp_path: Path
+    ) -> None:
+        """`.tempest/rules/rules.toml` is matched by both passes — the glob over the rules
+        directory and the walk for directory-local files. Reading it twice would double every
+        clause it declares and give it a `.tempest/rules` scope, which governs nothing."""
+        _write(tmp_path, ".tempest/rules/rules.toml", '[[rule]]\nmust_not_change = ["charge"]\n')
+        loaded = rules_mod.load(tmp_path)
+        assert len(loaded) == 1
+        assert loaded[0].scope == "", "read as a ROOT rule, which is where it lives"
+
+    def test_a_rule_with_no_stated_reason_still_reads_cleanly(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            ".tempest/rules/x.toml",
+            '[[rule]]\nname = "frozen"\nmust_not_change = ["charge"]\n',
+        )
+        applied = rules_mod.apply_to(None, rules_mod.load(tmp_path), files=("app.py",))
+        text = applied.explain()
+        assert "frozen" in text and "must not change: charge" in text
+        assert "because:" not in text
+
+    def test_a_rule_that_forbids_nothing_says_so_rather_than_printing_an_empty_clause(
+        self, tmp_path: Path
+    ) -> None:
+        _write(tmp_path, ".tempest/rules/x.toml", '[[rule]]\nname = "documentation only"\n')
+        applied = rules_mod.apply_to(
+            contracts_mod.IntentContract(intent="do a thing"),
+            rules_mod.load(tmp_path),
+            files=("app.py",),
+        )
+        assert "must not change: (nothing)" in applied.explain()

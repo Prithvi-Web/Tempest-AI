@@ -120,3 +120,41 @@ class TestRendering:
         containment the command ran under, because it decides what the command could do."""
         got = terminal.run(["echo", "hi"], root=root, sandbox=SANDBOX, timeout=10, max_bytes=4096)
         assert "tier=T2" in got.render(tier="T2")
+
+
+class TestTheScratchTheCallerSupplies:
+    def test_a_supplied_directory_is_used_and_left_alone(self, root: Path, tmp_path: Path) -> None:
+        """The escape suite is the caller this exists for: proving containment means running a
+        hostile payload and then INSPECTING the space it was allowed to touch."""
+        mine = tmp_path / "mine"
+        mine.mkdir()
+        got = terminal.run(
+            ["sh", "-c", 'echo written > "$TMPDIR/proof"'],
+            root=root,
+            sandbox=SANDBOX,
+            timeout=10,
+            max_bytes=4096,
+            scratch=mine,
+        )
+        assert got.exit_status == 0
+        assert (mine / "proof").read_text().strip() == "written"
+        assert mine.is_dir(), "the caller's directory is the caller's to remove"
+
+
+class TestTheKillGuard:
+    def test_a_process_that_has_already_been_reaped_is_not_signalled_again(
+        self, root: Path
+    ) -> None:
+        """`returncode` is set only by the wait that reaps OUR child, and the kernel cannot
+        recycle a pgid before its owner reaps it. Once it is set, the pgid may already belong to
+        a stranger and must never be signalled again — the runner's TOCTOU rule, for the runner's
+        reason."""
+        import subprocess
+
+        proc = SANDBOX.popen(
+            ["true"], cwd=root, env={"PATH": "/usr/bin:/bin"}, scratch=root, capture_stderr=True
+        )
+        proc.communicate()
+        assert proc.returncode is not None
+        terminal._kill_group(proc)  # must be a no-op, not a signal to whoever owns that pgid now
+        assert isinstance(proc, subprocess.Popen)
