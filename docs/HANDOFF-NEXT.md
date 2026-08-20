@@ -2,6 +2,25 @@
 # **19, 19a and 20 COMPLETE; Phase 21 is 4/5 built with ONE KNOWN DEFECT and ONE RED GATE — §0
 # is the only thing to read before touching anything**)
 
+## 0a. Tree state at hand-off (2026-08-20)
+
+* **`72faec5` is committed and UNPUSHED.** Working tree clean. The owner pushes via GitHub
+  Desktop (trap 13) — one commit is waiting.
+* **`make verify`: `MAKE_EXIT=0`** — 1536 passed, **100.00%** coverage, "all live steps green",
+  `ruff` + `ruff format` + `mypy --strict` clean.
+* **`agent_bench` EXIT 0** (15/15 verdict coverage) · **`intent_bench` EXIT 0** (16/16, zero
+  false INTENDED) · **`repair_bench` EXIT 1** — the known defect in §0, left red on purpose.
+* **CI has not seen this commit.** Everything above is one machine (trap 44). Confirm the run
+  after the push:
+  `curl -s 'https://api.github.com/repos/Prithvi-Web/Tempest-AI/actions/runs?per_page=5'`
+  (quote the URL — `?` is a zsh glob; see trap 49).
+* **The app has NOT been rebuilt.** Deliberate: rebuilding while a known-defective agent sits in
+  the tree would ship something that has to be corrected. What the app gains from this work is
+  the Phase 19a engine change — more instance methods proved — and NOT an agent surface, because
+  none of Phase 21 is wired to a Tauri command or the webview yet.
+
+---
+
 ## 0. START HERE — one known defect, precisely diagnosed, not yet fixed
 
 **`python -m tempest.dev.repair_bench` exits 1. That is correct and deliberate: it is pointing at
