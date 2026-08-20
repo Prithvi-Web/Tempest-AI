@@ -35,7 +35,10 @@ _APP = (
     "    return parse_amount(text)\n\n\n"
     "def never_touched(reason):\n"
     '    """Nothing calls this."""\n'
-    "    return str(reason)\n"
+    "    return str(reason)\n\n\n"
+    "def constant():\n"
+    '    """Calls nothing, and nothing calls it."""\n'
+    "    return 1\n"
 )
 
 
@@ -189,3 +192,60 @@ class TestSubjectExtraction:
         """ "who calls charge" must not retrieve every function whose docstring says "calls"."""
         assert query._subject("who calls charge?") == "charge"
         assert query._subject("what exceptions does parse_amount actually raise?") == "parse amount"
+
+
+class TestTheAnswersThatAreRefusals:
+    """Every route has a state where it has nothing to say, and each says so differently. A
+    planner that fell through to prose here would be inventing an answer, which is the failure
+    the citation rule exists to make impossible."""
+
+    def test_a_citation_prints_as_kind_and_reference(self) -> None:
+        assert str(query.Citation(kind="observation", reference="7")) == "observation:7"
+
+    def test_when_everything_has_run_the_absence_question_says_so(self, repo: Path) -> None:
+        with index_for(repo) as conn:
+            build_index(conn, repo, observe=True, max_inputs=8, select=_fixture_selection)
+            answer = query.answer(conn, "which functions have never been exercised?")
+            assert not answer.statements
+            assert "every indexed symbol has at least one recorded behaviour" in answer.unanswered
+
+    def test_callers_of_something_that_is_not_indexed(self, built: sqlite3.Connection) -> None:
+        answer = query.answer(built, "who calls zzzqqq?")
+        assert not answer.statements and "zzzqqq" in answer.unanswered
+
+    def test_a_symbol_nothing_calls_says_nothing_calls_it(self, built: sqlite3.Connection) -> None:
+        answer = query.answer(built, "who calls never_touched?")
+        assert not answer.statements
+        assert "no indexed symbol calls never_touched" in answer.unanswered
+
+    def test_callees_of_something_that_is_not_indexed(self, built: sqlite3.Connection) -> None:
+        answer = query.answer(built, "what does zzzqqq call?")
+        assert not answer.statements and "zzzqqq" in answer.unanswered
+
+    def test_a_symbol_that_calls_nothing_says_so(self, built: sqlite3.Connection) -> None:
+        answer = query.answer(built, "what does constant call?")
+        assert not answer.statements
+        assert "calls nothing the index can see" in answer.unanswered
+
+    def test_asking_what_raised_when_nothing_did(self, repo: Path) -> None:
+        with index_for(repo) as conn:
+            build_index(conn, repo, observe=False)
+            answer = query.answer(conn, "what exceptions does parse_amount actually raise?")
+            assert not answer.statements
+            assert "no recorded execution of a matching symbol raised anything" in answer.unanswered
+
+    def test_a_behaviour_class_whose_examples_are_gone_supports_nothing(
+        self, built: sqlite3.Connection
+    ) -> None:
+        """Defensive, and reachable: the representatives are what a citation points at, so a
+        class without them can carry no statement. Deleting them is the only way to construct
+        the state, and it is worth constructing — the alternative is a claim with a dangling
+        citation, which reads as evidence and is not."""
+        built.execute("DELETE FROM observations")
+        for question in (
+            "what exceptions does parse_amount actually raise?",
+            "what does parse_amount actually return?",
+        ):
+            answer = query.answer(built, question)
+            assert not answer.statements, question
+            assert answer.unanswered

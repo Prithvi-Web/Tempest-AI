@@ -267,6 +267,15 @@ retrieval_bench: retrieval p50 0.1 ms, p95 0.2 ms (bar 400 ms)
 **The latency figure is on a FOUR-FILE fixture and the gate says so itself.** §5's bar is a
 500k-LOC repository. That measurement has not been taken and is not claimed.
 
+**Dogfooded on Tempest's own engine** (METRICS.md): 99 files, 866 symbols, 6186 call edges, 2.63 s
+cold, **0.04 s to re-index an unchanged tree**, 0.7–1.1 ms per query. **The measurement changed the
+code**: "where is the shadow worktree created?" missed `shadow.create` because "shadow" is only in
+its MODULE and "created" is not "create". Modules now count (twice; the name still counts three
+times) and a crude one-suffix stemmer runs at a lower weight than an exact match. `shadow.create`
+is now the top answer. Retrieval by NAME is strong; by DESCRIPTION it ranks by term overlap, which
+is what a lexical space does — and a learned embedding is the upgrade that would earn the word
+"semantic" (ADR-0054 says why one cannot ship offline today).
+
 **QV1 is ANSWERED (owner, 2026-08-20): ENGINE FIRST.** Phase 19a followed immediately and the
 proof rate is **re-measured at 43%**, up from 34% (ADR-0048, METRICS.md). Still under the 60% bar,
 so the standing rule still puts engine work ahead of feature work — the remaining

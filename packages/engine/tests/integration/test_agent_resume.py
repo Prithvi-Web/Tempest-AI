@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+from tempest.agent import orchestrator as orchestrator_mod
 from tempest.agent import shadow as shadow_mod
 from tempest.agent import turnlog as turnlog_mod
 from tempest.agent.orchestrator import TaskAlreadyFinished, TaskSpec, run_task
@@ -29,6 +30,10 @@ from ..helpers_fake_anthropic import FakeAnthropic, fake_anthropic_server
 
 _BASE = "def total(xs):\n    return sum(xs)\n"
 _CHANGED = "def total(xs):\n    return sum(xs) + 1\n"
+#: Still forbidden, differently — an attempt that does not fix it.
+_STILL_WRONG = "def total(xs):\n    return sum(xs) + 2\n"
+#: Behaviourally identical to the baseline, written differently: the shape of a real repair.
+_REPAIRED = "def total(xs):\n    result = sum(xs)\n    return result\n"
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -400,6 +405,78 @@ class TestACrashInsideARepairAttempt:
         ]
         assert len(rows) == 1
         assert rows[0].payload["proven"] == {"total": "DIVERGENT"}
+
+    def test_a_restart_reuses_the_recorded_baseline_and_carries_on_repairing(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ordinary resumed repair: an attempt ran, did not fix it, and the process died.
+        The restart must NOT write a second baseline row — the first one is what the cheat
+        checks are measured against — and must spend the attempt it has left."""
+        self._forbid(repo, "t")
+
+        proofs = {"n": 0}
+        real_prove = orchestrator_mod.run_prove
+
+        def die_on_the_second_proof(cfg: Any) -> Any:
+            proofs["n"] += 1
+            if proofs["n"] == 2:
+                raise KeyboardInterrupt("killed after a failed attempt")
+            return real_prove(cfg)
+
+        fake = FakeAnthropic()
+        script = _Script(fake, [_write(_CHANGED), _write(_STILL_WRONG), _write(_REPAIRED), None])
+        monkeypatch.setattr("tempest.agent.orchestrator.run_prove", die_on_the_second_proof)
+        with fake_anthropic_server(fake) as url, pytest.raises(KeyboardInterrupt):
+            run_task(
+                _spec(repo, max_turns=1, max_repair_attempts=2), env=_env(url), on_event=script
+            )
+        monkeypatch.undo()
+
+        fresh = FakeAnthropic()
+        resumed = _Script(fresh, [_write(_REPAIRED), None])
+        with fake_anthropic_server(fresh) as url:
+            run = run_task(
+                _spec(repo, max_turns=1, max_repair_attempts=2),
+                env=_env(url),
+                on_event=resumed,
+            )
+
+        baselines = [
+            c
+            for c in turnlog_mod.TurnLog(repo).history("t")
+            if c.stage == turnlog_mod.REPAIR_ATTEMPT and c.payload.get("phase") == "baseline"
+        ]
+        assert len(baselines) == 1, "the baseline is recorded once, not once per restart"
+        assert run.repair is not None
+        assert run.repair.succeeded, run.repair.reason
+        assert [a.number for a in run.repair.attempts] == [2], "it spent the attempt it had left"
+
+    def test_a_budget_already_spent_by_earlier_processes_is_not_refilled(self, repo: Path) -> None:
+        """Attempts are a bound on MONEY. A bound that resets when the process dies is not a
+        bound: a task killed four times would spend four full budgets and the record would show
+        one."""
+        self._forbid(repo, "t")
+        log = turnlog_mod.TurnLog(repo)
+        shadow = shadow_mod.create(repo, "t")
+        shadow_mod.write(shadow, "app.py", _CHANGED)
+        log.checkpoint("t", turnlog_mod.STARTED, prompt="p", baseline=shadow.baseline)
+        log.checkpoint("t", turnlog_mod.TURNS_DONE, turns=1, stopped="done")
+        for number in (1, 2):
+            log.checkpoint("t", turnlog_mod.REPAIR_ATTEMPT, number=number, symbol="total")
+
+        fake = FakeAnthropic()
+        with fake_anthropic_server(fake) as url:
+            run = run_task(
+                _spec(repo, max_turns=1, max_repair_attempts=2),
+                env=_env(url),
+                on_event=_OneEdit(fake),
+            )
+
+        assert run.repair is not None
+        assert not run.repair.succeeded
+        assert "already spent" in run.repair.reason
+        assert run.repair.attempts == (), "no attempt was made, so none is reported"
+        assert fake.requests == [], "and no model turn was paid for"
 
     def test_a_deletion_by_a_killed_attempt_is_still_caught_after_the_restart(
         self, repo: Path, monkeypatch: pytest.MonkeyPatch

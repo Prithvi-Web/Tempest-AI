@@ -21,6 +21,7 @@
 | 4 | Agent verdict coverage | **55/55 = 100%** on the agent corpus, keyless (2026-08-20, Phase 21). Every task ended on a verdict the STORED bundle supports — the check compares the engine's aggregation of the written targets against what the run reported, so it can disagree |
 | 5 | Agent task success rate | **22/28 = 79%** repair success on the same corpus, with **11/11** dishonest outcomes refused and **0** cheats miscounted (2026-08-20). **This number is a property of the scripted model, not of any real model** — the corpus deliberately contains tasks a correct loop cannot repair, and `repair_bench` prints that caveat on every run. A real-model figure is an owner-run measurement (QV2) and a keyless run may never report one |
 | 6 | Mutation score | **not measurable yet** (Phase 24, F9) |
+| — | Retrieval (F13, Phase 22) | **40/40** benchmark questions answered, cited and correct; **15/15** of the source-impossible ones grounded in execution; p95 **0.2 ms** on the four-file fixture. Dogfooded on Tempest's own engine — 99 files, 866 symbols, 6186 call edges: **2.6 s** cold build, **0.04 s** to re-index an unchanged tree, **0.7–1.1 ms** per query |
 
 *(§§4–6 below state exactly what will measure them. Reporting a number we cannot measure
 would violate L1 — evidence or silence — so they read "not measured", never "0" or "n/a".)*
@@ -285,3 +286,35 @@ built as a first-class metric rather than reconstructed later from logs.
 **Why it matters:** every competitor can report tokens spent. Only a system with a correctness
 oracle can report tokens spent *per correct result* — which is the only form of the number that
 supports a purchasing decision.
+
+
+## Retrieval quality, dogfooded (2026-08-20, Phase 22)
+
+The benchmark measures whether an answer is cited, correct and grounded. It does not measure
+whether retrieval finds the *best* symbol for a loosely-worded question, so that was measured
+separately, by asking Tempest's own engine three questions and reading the answers.
+
+Index over `packages/engine/src`: **99 files, 866 symbols, 6186 call edges, built in 2.63 s**;
+re-indexing an unchanged tree took **0.04 s and re-parsed nothing**, which is the incrementality
+claim holding at repository scale.
+
+| question | top answer, before | top answer, after | verdict |
+|---|---|---|---|
+| who calls `run_prove`? | `_prove_and_classify` | `_prove_and_classify` | **correct** |
+| where is the shadow worktree created? | `ToolPolicy.writes_shadow` | **`shadow.create`** | **fixed** |
+| where is the intent contract loaded? | — | `IntentContract.__post_init__` | near |
+| find the function that decides whether a repair cheated | `RepairOutcome.cheated` | `RepairOutcome.cheated` | near |
+
+**The measurement changed the code.** `shadow.create` is the right answer to the second question,
+and the word "shadow" appears only in its MODULE — not in its qualname, signature, docstring or
+body, the four places `document_terms` read. And "created" is not "create", so nothing stemmed.
+Both are fixed: a symbol's module counts (twice; the name still counts three times), and a crude
+one-suffix stemmer runs at a lower weight than an exact match. `shadow.create` is now the top
+answer.
+
+**What is still true.** Retrieval by NAME is strong; retrieval by DESCRIPTION ranks by term
+overlap, which is what a lexical space does — "where is the intent contract loaded?" still ranks
+`IntentContract`'s methods above `contracts.load`, because the question says "intent contract"
+and that is what it matches. Calling this semantic search would be the kind of claim this file
+exists to prevent. A learned embedding is the upgrade that would earn the word, and ADR-0054
+records why one cannot ship offline today.

@@ -87,7 +87,7 @@ def materialize(repo: Path, ref: str, cache: Path) -> MaterializedEnv:
     # a half-finished removal — is the same lie in the other direction: it claims a checkout that
     # is not there, and a caller handed that path dies on a file that does not exist. Found by
     # the review of the fix that introduced the marker (trap 48).
-    if not (ready.is_file() and worktree.is_dir()):
+    if not _is_complete(worktree, ready):
         worktree.parent.mkdir(parents=True, exist_ok=True)
         _rebuild(repo, worktree, ready, sha)
     return MaterializedEnv(
@@ -115,7 +115,7 @@ def _rebuild(repo: Path, worktree: Path, ready: Path, sha: str) -> None:
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
-            if ready.is_file() and worktree.is_dir():
+            if _is_complete(worktree, ready):
                 return  # the holder finished while we waited; its tree is the answer
             if _lock_is_stale(lock) or time.monotonic() > deadline:
                 lock.unlink(missing_ok=True)
@@ -127,7 +127,7 @@ def _rebuild(repo: Path, worktree: Path, ready: Path, sha: str) -> None:
         finally:
             os.close(fd)
         try:
-            if ready.is_file() and worktree.is_dir():
+            if _is_complete(worktree, ready):
                 return  # somebody finished between our check and our lock
             if worktree.exists() or ready.exists():
                 _discard_incomplete(repo, worktree)
@@ -138,6 +138,17 @@ def _rebuild(repo: Path, worktree: Path, ready: Path, sha: str) -> None:
         finally:
             lock.unlink(missing_ok=True)
         return
+
+
+def _is_complete(worktree: Path, ready: Path) -> bool:
+    """A cache entry is usable only when BOTH halves are there.
+
+    One function rather than three copies of the same conjunction, because it is asked at three
+    moments that must agree: before taking the lock, while waiting for someone else's, and again
+    after acquiring it. The last is not redundant — the holder may have finished in between, and
+    tearing down a tree that is now complete is exactly the race the lock exists to close.
+    """
+    return ready.is_file() and worktree.is_dir()
 
 
 def _lock_is_stale(lock: Path) -> bool:

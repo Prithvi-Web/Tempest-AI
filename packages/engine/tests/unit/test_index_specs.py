@@ -137,3 +137,79 @@ class TestRendering:
     ) -> None:
         rendered = specs.synthesize(built, "parse").render()
         assert "not of what the source says" in rendered
+
+
+class TestTheOtherKindsOfClaim:
+    """A behaviour is more than a return value: what it PRINTED and what it TOUCHED are part of
+    what the function does, and a spec that omitted them would describe a smaller function than
+    the one that ran."""
+
+    def _one_class(self, conn: sqlite3.Connection, **kw: object) -> None:
+        """Insert a single behaviour class by hand. The shapes below — a crash, an effect
+        ledger, output on stdout — are real observations that the fixture's own functions do not
+        produce, and constructing them directly is more honest than contriving a fixture that
+        crashes on purpose to reach a formatting branch."""
+        conn.execute("INSERT INTO files (path, digest, lines, indexed) VALUES ('h.py','d',2,0)")
+        file_id = conn.execute("SELECT id FROM files WHERE path = 'h.py'").fetchone()[0]
+        conn.execute(
+            "INSERT INTO symbols (file_id, module, qualname, kind, line_start, line_end, "
+            "signature, doc) VALUES (?, 'h', 'handmade', 'function', 1, 2, '(x)', '')",
+            (file_id,),
+        )
+        symbol_id = conn.execute("SELECT id FROM symbols WHERE qualname = 'handmade'").fetchone()[0]
+        run_id = conn.execute(
+            "INSERT INTO runs (revision, started, source) VALUES ('r', 0, 'test')"
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO behaviours (run_id, symbol_id, outcome, return_kind, raised_type, "
+            "effects, inputs) VALUES (?, ?, ?, ?, ?, ?, 1)",
+            (
+                run_id,
+                symbol_id,
+                kw.get("outcome", "COMPLETED"),
+                kw.get("return_kind", "int"),
+                kw.get("raised_type", ""),
+                kw.get("effects", ""),
+            ),
+        )
+        behaviour_id = conn.execute("SELECT MAX(id) FROM behaviours").fetchone()[0]
+        if kw.get("with_example", True):
+            conn.execute(
+                "INSERT INTO observations (behaviour_id, args_literal, kwargs_literal, "
+                "return_repr, raised_message, stdout, wall_ns) VALUES (?, '(1,)', '{}', '1', '', "
+                "?, 1)",
+                (behaviour_id, kw.get("stdout", "")),
+            )
+
+    def test_a_crash_is_described_as_what_it_was(self, built: sqlite3.Connection) -> None:
+        self._one_class(built, outcome="CRASHED", return_kind="")
+        claims = specs.synthesize(built, "handmade").claims
+        assert any("ended as CRASHED" in c.text for c in claims)
+
+    def test_the_surfaces_a_function_touched_are_a_claim(self, built: sqlite3.Connection) -> None:
+        self._one_class(built, effects="fs:open,net:connect")
+        claims = specs.synthesize(built, "handmade").claims
+        assert any("touched these surfaces" in c.text and "fs:open" in c.text for c in claims)
+
+    def test_what_it_printed_is_a_claim(self, built: sqlite3.Connection) -> None:
+        self._one_class(built, stdout="hello from the function\n")
+        claims = specs.synthesize(built, "handmade").claims
+        assert any("wrote to standard output" in c.text for c in claims)
+
+    def test_a_class_with_no_example_supports_no_claim_at_all(
+        self, built: sqlite3.Connection
+    ) -> None:
+        """And the spec says why, rather than reading as "this function does nothing"."""
+        self._one_class(built, with_example=False)
+        spec = specs.synthesize(built, "handmade")
+        assert not spec.claims
+        assert "kept no example inputs" in spec.unobserved
+
+    def test_a_dangling_citation_fails_the_gate(self, built: sqlite3.Connection) -> None:
+        """The check F4's gate names is a LOOKUP, not a non-empty test. A citation naming an
+        observation the store does not have is worse than no citation: it reads as evidence."""
+        spec = specs.synthesize(built, "parse")
+        assert spec.claims
+        built.execute("DELETE FROM observations")
+        ok, detail = specs.every_claim_is_backed(built, spec)
+        assert not ok and "not stored" in detail

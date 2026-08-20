@@ -509,6 +509,21 @@ class TestAttach:
         assert rebuilt.path == made.path
         assert sw.attach(repo, "task-1") is not None
 
+    def test_a_directory_git_never_registered_is_also_reclaimed(self, repo: Path) -> None:
+        """`git worktree remove` refuses a path it does not know about, so the fallback that
+        deletes the directory outright is the arm that runs — and it has to, or `git worktree
+        add` fails on a non-empty target and the task id stays wedged."""
+        slug = sw._slug("task-1")
+        squatter = repo / sw._WORKTREES / slug
+        squatter.mkdir(parents=True)
+        (squatter / "left-over.txt").write_text("wreckage\n", encoding="utf-8")
+        assert sw.attach(repo, "task-1") is None
+
+        made = sw.create(repo, "task-1")
+        assert made.path == squatter
+        assert not (made.path / "left-over.txt").exists()
+        assert sw.attach(repo, "task-1") is not None
+
     def test_a_meta_file_with_no_baseline_answers_none(self, repo: Path) -> None:
         sw.create(repo, "task-1")
         sw._meta_path(repo, sw._slug("task-1")).write_text(

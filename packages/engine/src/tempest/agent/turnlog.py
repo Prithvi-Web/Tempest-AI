@@ -230,10 +230,17 @@ def plan_resume(log: TurnLog, task_id: str) -> ResumePlan:
     # rather than of the last row: a task interrupted twice has a RESUMED row on top and its
     # turns are no less finished for that.
     turns_done = any(c.stage == TURNS_DONE for c in history)
-    # `phase="baseline"` is the row that records what the loop is judging AGAINST, not an
-    # attempt. Counting it would charge the budget for bookkeeping.
-    spent = sum(
-        1 for c in history if c.stage == REPAIR_ATTEMPT and c.payload.get("phase") != "baseline"
+    # Distinct attempt NUMBERS, not rows. One attempt writes two rows — one before the model is
+    # asked, so an attempt that died mid-conversation still counts against the budget, and one
+    # after, carrying the transcript. Counting rows charged every attempt twice and a task with a
+    # budget of two was refused before its second attempt. And `phase="baseline"` is neither: it
+    # records what the loop is judging AGAINST, so it is excluded outright.
+    spent = len(
+        {
+            c.payload.get("number")
+            for c in history
+            if c.stage == REPAIR_ATTEMPT and c.payload.get("phase") != "baseline"
+        }
     )
     if last.stage == PROVING:
         return ResumePlan(

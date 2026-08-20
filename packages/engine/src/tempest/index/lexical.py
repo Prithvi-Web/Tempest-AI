@@ -37,6 +37,10 @@ _B = 0.75
 #: benchmark is the thing that would go red if this were wrong.
 _TRIGRAM_WEIGHT = 0.35
 
+#: A stem match is real evidence and weaker than an exact one: "created" finding `create` is
+#: worth something, and worth less than "create" finding it.
+_STEM_WEIGHT = 0.6
+
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _CAMEL = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
@@ -65,6 +69,29 @@ def words(text: str) -> list[str]:
     return out
 
 
+def stems(tokens: list[str]) -> list[str]:
+    """Crude, deliberate, and prefixed so exact matches still win.
+
+    Dogfooding found the gap this closes: *"where is the shadow worktree created?"* could not
+    reach `shadow.create`, and *"where is the intent contract loaded?"* could not reach
+    `contracts.load`, because "created" and "create" are different strings and nothing here
+    stemmed. This is not a Porter stemmer and does not pretend to be — it strips one verb ending
+    and a trailing `e`, which is enough for the -ed / -ing / -s / plural family that questions
+    about code actually use, and small enough that its mistakes are predictable.
+    """
+    out: list[str] = []
+    for token in tokens:
+        stem = token
+        for suffix in ("ing", "ed", "es", "s"):
+            if len(stem) > len(suffix) + 2 and stem.endswith(suffix):
+                stem = stem[: -len(suffix)]
+                break
+        if len(stem) > 3 and stem.endswith("e"):
+            stem = stem[:-1]
+        out.append(f"s:{stem}")
+    return out
+
+
 def trigrams(text: str) -> list[str]:
     """Character trigrams over the identifier text, prefixed so they share the inverted index."""
     flat = "".join(ch.lower() if ch.isalnum() else " " for ch in text)
@@ -75,20 +102,36 @@ def trigrams(text: str) -> list[str]:
     return out
 
 
-def document_terms(*, qualname: str, signature: str, doc: str, text: str) -> Counter[str]:
+def document_terms(
+    *, qualname: str, signature: str, doc: str, text: str, module: str = ""
+) -> Counter[str]:
     """The term counts for one symbol.
 
     The name is counted three times over. That is not a hack: a symbol's name is the single
     strongest statement about what it is for, a docstring is the second, and the body is a long
     tail of things it happens to mention. Weighting them equally makes a 200-line function that
     says `refund` once outrank the function actually named `refund`.
+
+    **The MODULE counts too, twice.** Dogfooding found the gap: "where is the shadow worktree
+    created?" missed `shadow.create`, because the word "shadow" is in the module path and nowhere
+    in the qualname, signature, docstring or body. A symbol's module is the second-strongest
+    statement about what it is for — it is the noun the author filed it under — and leaving it out
+    made every question phrased by SUBJECT rather than by name worse than it needed to be. Twice,
+    not three times: `create` in `shadow.py` should rank under a function actually named
+    `create_shadow`, if one existed.
     """
     counts: Counter[str] = Counter()
-    counts.update(words(qualname) * 3)
+    name_words = words(qualname)
+    module_words = words(module)
+    counts.update(name_words * 3)
+    counts.update(module_words * 2)
     counts.update(words(signature))
     counts.update(words(doc))
     counts.update(words(text))
     counts.update(trigrams(qualname))
+    counts.update(trigrams(module))
+    counts.update(stems(name_words) * 3)
+    counts.update(stems(module_words) * 2)
     return counts
 
 
@@ -123,6 +166,7 @@ def search(conn: sqlite3.Connection, question: str, *, limit: int = 10) -> list[
     # a question with no content retrieving something is worse than retrieving nothing.
     kept = words(question)
     query = Counter(kept)
+    query.update(stems(kept))
     query.update(trigrams(" ".join(kept)))
     if not query:
         return []
@@ -141,7 +185,12 @@ def search(conn: sqlite3.Connection, question: str, *, limit: int = 10) -> list[
             continue
         df = len(rows)
         idf = math.log(1.0 + (total_docs - df + 0.5) / (df + 0.5))
-        weight = _TRIGRAM_WEIGHT if term.startswith("3:") else 1.0
+        if term.startswith("3:"):
+            weight = _TRIGRAM_WEIGHT
+        elif term.startswith("s:"):
+            weight = _STEM_WEIGHT
+        else:
+            weight = 1.0
         for symbol_id, count in rows:
             length = lengths.get(int(symbol_id), 1) or 1
             tf = float(count)

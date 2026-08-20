@@ -87,6 +87,7 @@ def build_index(
             symbol_id,
             lexical.document_terms(
                 qualname=parsed.qualname,
+                module=parsed.module,
                 signature=parsed.signature,
                 doc=parsed.doc,
                 text=parsed.text,

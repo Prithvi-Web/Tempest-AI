@@ -105,3 +105,36 @@ class TestWhenNothingMayExecute:
             assert "no execution recorded" in report.render()
             assert report.structural.symbols == 3
             assert execution.latest_run(conn) is None
+
+
+class TestTheReportSaysWhatItCouldNotDo:
+    def test_a_file_it_could_not_read_is_named(self, repo: Path) -> None:
+        """A symbol silently missing from the index makes every "never exercised" answer quietly
+        wrong, so the file is reported rather than skipped."""
+        (repo / "bad.py").write_bytes(b"\xff\xfe\x00 def f():")
+        with index_for(repo) as conn:
+            text = build_index(conn, repo, observe=False).render()
+            assert "could not read bad.py" in text
+            assert "NOT in the index" in text
+
+    def test_a_symbol_that_could_not_be_observed_is_named(self, repo: Path) -> None:
+        with index_for(repo) as conn:
+            build_index(conn, repo, observe=False)
+            report = build_index(
+                conn,
+                repo,
+                observe=True,
+                only=frozenset({"seen"}),
+                max_inputs=0,
+                select=_fixture_selection,
+            )
+            assert "seen not observed" in report.render()
+            assert "no inputs could be generated" in report.render()
+
+    def test_without_a_narrowing_set_every_function_is_a_target(self, repo: Path) -> None:
+        """`only=None` is the F4 sweep: synthesising a spec for a repository means running
+        everything in it, which is a different job from recording what a run touched."""
+        with index_for(repo) as conn:
+            report = build_index(conn, repo, observe=True, max_inputs=6, select=_fixture_selection)
+            assert report.executed is not None
+            assert report.executed.symbols_attempted == 3

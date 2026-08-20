@@ -25,7 +25,6 @@ evidence, and the vocabulary keeps it that way: this module never writes the wor
 
 from __future__ import annotations
 
-import json
 import sqlite3
 import time
 from dataclasses import dataclass
@@ -270,7 +269,3 @@ def behaviours_of(conn: sqlite3.Connection, symbol_id: int) -> list[dict[str, ob
             }
         )
     return out
-
-
-def as_json(value: object) -> str:
-    return json.dumps(value, sort_keys=True)

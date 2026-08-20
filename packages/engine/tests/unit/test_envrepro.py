@@ -1,5 +1,6 @@
 """Stage 2: git-worktree materialization with normalized environments (Law L3 groundwork)."""
 
+import time
 from pathlib import Path
 
 import pytest
@@ -241,3 +242,70 @@ class TestOnlyOneProcessRebuildsAnEntry:
 
         rebuilt = materialize(repo, "head", cache)
         assert (rebuilt.worktree / "m.py").read_text() == "x = 2\n"
+
+
+class TestTheThreeMomentsCompletenessIsAsked:
+    """The lock's correctness is three checks that have to agree, and each has its own state.
+
+    Before taking the lock (is there anything to do?), while waiting for someone else's (did they
+    finish?), and again after acquiring it (did they finish while we were acquiring?). The last is
+    not redundant: tearing down a tree that is now complete is precisely the race the lock exists
+    to close.
+    """
+
+    def _incomplete_entry(self, tmp_path: Path) -> tuple[Path, Path, Path]:
+        repo = make_repo(tmp_path, {"m.py": "x = 1\n"})
+        commit_head(repo, {"m.py": "x = 2\n"})
+        cache = tmp_path / "cache"
+        env = materialize(repo, "head", cache)
+        env.worktree.with_name(env.worktree.name + ".ready").unlink()
+        return repo, cache, env.worktree
+
+    def test_a_waiter_adopts_the_tree_the_holder_finished(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The lock is held and the entry becomes complete while we wait. The waiter must adopt
+        it, not queue behind a lock nobody will release."""
+        repo, cache, worktree = self._incomplete_entry(tmp_path)
+        lock = worktree.with_name(worktree.name + ".lock")
+        lock.write_text("999999", encoding="utf-8")
+
+        answers = iter([False, True])
+        monkeypatch.setattr(worktree_mod, "_is_complete", lambda _w, _r: next(answers, True))
+        env = materialize(repo, "head", cache)
+        assert env.worktree == worktree
+        assert lock.is_file(), "somebody else's lock is not ours to remove"
+        lock.unlink()
+
+    def test_the_check_after_acquiring_the_lock_is_not_redundant(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nobody holds the lock, but the entry completes between our first look and our own
+        acquisition. Rebuilding anyway would destroy a finished tree."""
+        repo, cache, worktree = self._incomplete_entry(tmp_path)
+        answers = iter([False, True])
+        monkeypatch.setattr(worktree_mod, "_is_complete", lambda _w, _r: next(answers, True))
+        env = materialize(repo, "head", cache)
+        assert env.worktree == worktree
+        assert not worktree.with_name(worktree.name + ".lock").exists(), "the lock was released"
+
+    def test_a_waiter_retries_until_the_holder_releases(self, tmp_path: Path) -> None:
+        """A real second thread holds the lock briefly. The waiter polls — it does not fail, and
+        it does not tear the holder's work down."""
+        import threading
+
+        repo, cache, worktree = self._incomplete_entry(tmp_path)
+        lock = worktree.with_name(worktree.name + ".lock")
+        lock.write_text("999999", encoding="utf-8")
+
+        def release_soon() -> None:
+            time.sleep(0.2)
+            lock.unlink(missing_ok=True)
+
+        holder = threading.Thread(target=release_soon)
+        holder.start()
+        try:
+            env = materialize(repo, "head", cache)
+        finally:
+            holder.join()
+        assert (env.worktree / "m.py").read_text() == "x = 2\n"

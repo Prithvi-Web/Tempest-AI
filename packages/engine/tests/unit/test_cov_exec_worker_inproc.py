@@ -547,6 +547,62 @@ class TestMainDispatch:
         assert payload["ok"] is True
         assert [p["name"] for p in payload["params"]] == ["a", "b"]
 
+    def test_main_import_reports_the_file_that_answered(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """F3's load probe (ADR-0051). The answer carries the resolved `__file__`, because "the
+        name imported" and "the file imported" are different facts and the caller's question is
+        about a FILE."""
+        proj = _project(tmp_path, "wcov_import_ok", "VALUE = 1\n", monkeypatch)
+        job = {
+            "mode": "import",
+            "module": "wcov_import_ok",
+            "qualname": "",
+            "sys_path": [str(proj)],
+            "scratch": str(_scratch(tmp_path)),
+        }
+        self._isolate_paths(monkeypatch, self._write_job(tmp_path, job))
+        _worker.main()
+        boot, payload = _emitted(capsys)
+        assert boot == {"boot": True}
+        assert payload["ok"] is True
+        assert payload["file"] == str(proj / "wcov_import_ok.py")
+
+    def test_main_import_reports_a_failure_with_its_traceback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        proj = _project(tmp_path, "wcov_import_bad", "import no_such_module_xyz\n", monkeypatch)
+        job = {
+            "mode": "import",
+            "module": "wcov_import_bad",
+            "qualname": "",
+            "sys_path": [str(proj)],
+            "scratch": str(_scratch(tmp_path)),
+        }
+        self._isolate_paths(monkeypatch, self._write_job(tmp_path, job))
+        _worker.main()
+        _boot, payload = _emitted(capsys)
+        assert payload["ok"] is False
+        assert "no_such_module_xyz" in payload["error"]
+
+    def test_main_import_treats_a_module_level_exit_as_a_failure(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`SystemExit` inherits from BaseException. A narrower `except Exception` would report
+        the single most destructive import-time statement as a successful load."""
+        proj = _project(tmp_path, "wcov_import_exit", "import sys\nsys.exit(3)\n", monkeypatch)
+        job = {
+            "mode": "import",
+            "module": "wcov_import_exit",
+            "qualname": "",
+            "sys_path": [str(proj)],
+            "scratch": str(_scratch(tmp_path)),
+        }
+        self._isolate_paths(monkeypatch, self._write_job(tmp_path, job))
+        _worker.main()
+        _boot, payload = _emitted(capsys)
+        assert payload["ok"] is False and "SystemExit" in payload["error"]
+
     def test_main_serve_shutdown(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:

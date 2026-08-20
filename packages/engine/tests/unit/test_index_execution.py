@@ -189,3 +189,47 @@ class TestObservingForReal:
             second = execution.record_run(conn, "b", "test")
             assert first != second
             assert execution.latest_run(conn) == second
+
+
+class TestWhatCannotBeObserved:
+    """ "Nothing was observed" and "nothing COULD be observed" are different answers, and the
+    second one is the honest half of "which functions have never been exercised?"."""
+
+    def test_a_symbol_with_no_generated_inputs_is_reported(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path, **{"m.py": "def f(x):\n    return x\n"})
+        with index_for(root) as conn:
+            structure.build(conn, root)
+            rows = {r.qualname: r for r in symbol_rows(conn)}
+            stats = execution.observe(
+                conn,
+                root,
+                [execution.SymbolTarget(rows["f"].id, "m", "f")],
+                SANDBOX,
+                revision="rev",
+                max_inputs=0,
+            )
+            assert stats.symbols_observed == 0
+            assert stats.unreachable == (("f", "no inputs could be generated for it"),)
+
+    def test_a_symbol_whose_every_result_is_unrepresentable_is_reported(
+        self, tmp_path: Path
+    ) -> None:
+        """A value the comparison layer cannot represent supports no claim: there is nothing to
+        show a reader, and a citation nobody can read is not evidence."""
+        root = _repo(tmp_path, **{"m.py": "def f(x):\n    return object()\n"})
+        with index_for(root) as conn:
+            structure.build(conn, root)
+            rows = {r.qualname: r for r in symbol_rows(conn)}
+            stats = execution.observe(
+                conn,
+                root,
+                [execution.SymbolTarget(rows["f"].id, "m", "f")],
+                SANDBOX,
+                revision="rev",
+                max_inputs=6,
+            )
+            assert stats.symbols_observed == 0
+            assert (
+                stats.unreachable[0][1]
+                == "every generated input produced an unrepresentable result"
+            )

@@ -64,6 +64,15 @@ class TestParsing:
         assert [p.qualname for p in parsed] == ["outer"]
         assert "helper" in {name for name, _line in parsed[0].calls}
 
+    def test_a_call_with_no_name_at_all_is_not_recorded(self) -> None:
+        """`handlers["x"]()` and `(lambda: 1)()` have no name to record, and inventing one would
+        put an edge in the graph pointing at something that does not exist."""
+        source = (
+            "def go(handlers):\n    handlers['x']()\n    (lambda: 1)()\n    return real_call()\n"
+        )
+        parsed = structure.parse_symbols(source, "m")
+        assert [name for name, _line in parsed[0].calls] == ["real_call"]
+
     def test_a_file_that_does_not_parse_yields_nothing_rather_than_raising(self) -> None:
         assert structure.parse_symbols("def broken(:\n", "m") == []
 

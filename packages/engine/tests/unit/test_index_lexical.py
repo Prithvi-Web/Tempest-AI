@@ -144,3 +144,71 @@ class TestDocumentTerms:
         )
         for term in ("charge", "amount", "bills", "customer", "bill"):
             assert counts[term] >= 1
+
+
+class TestWhatTheDogfoodFound:
+    """Two gaps found by asking Tempest's own engine questions, and closed here (METRICS.md).
+
+    Both were the same shape: a question phrased by SUBJECT rather than by name could not reach
+    the right symbol, because the words it used were not in any of the four places
+    `document_terms` read.
+    """
+
+    def test_the_module_a_symbol_lives_in_is_part_of_what_it_is_for(self, tmp_path: Path) -> None:
+        """`shadow.create` is the answer to "where is the shadow worktree created?", and the word
+        "shadow" is in its MODULE and nowhere else."""
+        with index_for(tmp_path) as conn:
+            ids = _symbols(conn, ("create", ""), ("audit_log", ""))
+            _index(
+                conn,
+                ids["create"],
+                qualname="create",
+                module="tempest.agent.shadow",
+                signature="(repo, task_id)",
+                doc="",
+                text="",
+            )
+            _index(
+                conn,
+                ids["audit_log"],
+                qualname="audit_log",
+                module="tempest.audit",
+                signature="(event)",
+                doc="",
+                text="",
+            )
+            top = lexical.search(conn, "shadow")
+            assert top[0].symbol_id == ids["create"]
+
+    def test_a_question_in_the_past_tense_still_finds_the_verb(self, tmp_path: Path) -> None:
+        """ "created" and "create" are different strings, and nothing stemmed. The stemmer is
+        crude on purpose — one verb ending and a trailing `e` — and this is the family of words
+        questions about code actually use."""
+        with index_for(tmp_path) as conn:
+            ids = _symbols(conn, ("create", ""))
+            _index(
+                conn,
+                ids["create"],
+                qualname="create",
+                module="tempest.agent.shadow",
+                signature="()",
+                doc="",
+                text="",
+            )
+            assert [s.symbol_id for s in lexical.search(conn, "created")] == [ids["create"]]
+            assert [s.symbol_id for s in lexical.search(conn, "loading")] == []
+
+    def test_an_exact_match_still_outranks_a_stem_match(self, tmp_path: Path) -> None:
+        """A stem match is real evidence and weaker than an exact one; if it were not weaker,
+        "load" would rank `loader`, `loaded` and `loads` indistinguishably."""
+        with index_for(tmp_path) as conn:
+            ids = _symbols(conn, ("load", ""), ("loader", ""))
+            for name in ids:
+                _index(conn, ids[name], qualname=name, module="m", signature="()", doc="", text="")
+            top = lexical.search(conn, "load")
+            assert top[0].symbol_id == ids["load"]
+
+    def test_stems_are_prefixed_so_they_cannot_collide_with_a_real_word(self) -> None:
+        assert lexical.stems(["created"]) == ["s:creat"]
+        assert lexical.stems(["load"]) == ["s:load"]
+        assert lexical.stems(["is"]) == ["s:is"], "too short to strip; left alone"

@@ -236,3 +236,45 @@ class TestWhatTheRestartMaySkip:
         entry = log.checkpoint("t1", turnlog.RESUMED, reason="why", redo_turns=False)
         assert entry.stage == turnlog.RESUMED
         assert log.history("t1")[-1].payload["redo_turns"] is False
+
+
+class TestCountingRepairAttempts:
+    """One attempt writes TWO rows and must be charged once.
+
+    The row before the model is asked exists so an attempt that dies mid-conversation still
+    counts; the row after it carries the transcript. Counting rows charged every attempt twice,
+    and a task with a budget of two was refused before its second attempt — found by the test
+    that resumed an ordinary failed attempt rather than a crashed one.
+    """
+
+    def test_two_rows_for_one_attempt_are_one_attempt(self, repo: Path) -> None:
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        log.checkpoint("t1", turnlog.TURNS_DONE, turns=1, stopped="done")
+        log.checkpoint("t1", turnlog.REPAIR_ATTEMPT, number=1, symbol="total")
+        log.checkpoint("t1", turnlog.REPAIR_ATTEMPT, number=1, phase="conversed")
+        assert plan_resume(log, "t1").repair_attempts_spent == 1
+
+    def test_two_attempts_are_two(self, repo: Path) -> None:
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        for number in (1, 2):
+            log.checkpoint("t1", turnlog.REPAIR_ATTEMPT, number=number, symbol="total")
+            log.checkpoint("t1", turnlog.REPAIR_ATTEMPT, number=number, phase="conversed")
+        assert plan_resume(log, "t1").repair_attempts_spent == 2
+
+    def test_the_baseline_row_is_not_an_attempt(self, repo: Path) -> None:
+        """It records what the loop is judging AGAINST. Charging the budget for bookkeeping
+        would cost the user an attempt for every task the loop engaged on."""
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        log.checkpoint("t1", turnlog.REPAIR_ATTEMPT, number=0, phase="baseline", proven={})
+        assert plan_resume(log, "t1").repair_attempts_spent == 0
+
+    def test_an_attempt_that_died_mid_conversation_still_counts(self, repo: Path) -> None:
+        """The whole reason the first row is written before the model is asked: those turns were
+        paid for whether or not anyone lived to judge them."""
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        log.checkpoint("t1", turnlog.REPAIR_ATTEMPT, number=1, symbol="total")
+        assert plan_resume(log, "t1").repair_attempts_spent == 1
