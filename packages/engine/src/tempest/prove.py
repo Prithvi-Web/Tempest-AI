@@ -107,7 +107,7 @@ class ProveResult:
     sandbox_assurance: str = "unknown"
 
 
-def _select_sandbox(repo: Path) -> SandboxSelection:
+def select_sandbox_for_repo(repo: Path) -> SandboxSelection:
     """Pick the isolation backend and record its tier (ADR-0003/0008/0015):
     first-party fixtures → trusted ProcessSandbox; user repos → the tier ladder
     (T1 Docker → T2 Seatbelt → UNPROVEN). Never silently unsandboxed."""
@@ -169,7 +169,7 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
     for env in (base_env, head_env):
         attach_deps(env.worktree, cache, fetch=fetch)
     diffs = changed_files(repo, cfg.base, cfg.head, patterns=("*.py", "*.ts", "*.tsx"))
-    selection = _select_sandbox(repo)
+    selection = select_sandbox_for_repo(repo)
     sandbox = selection.sandbox
     sandbox_kind, sandbox_reason = selection.kind, selection.reason
     compare_cfg = CompareConfig(float_rel_tol=cfg.float_rel_tol)

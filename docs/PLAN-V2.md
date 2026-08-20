@@ -144,21 +144,30 @@ gitignored and written only by a Mac-local `make bench-editor`, and the E2E harn
 host — so the open-file and completion spans exclude `pathguard` and Tauri IPC. Stated in
 ADR-0046 §"still open" rather than implied by a green table.
 
-## Phase 21 — Agent orchestrator + F1, F2, F3 + P2 ⭐ THE CORE
+## Phase 21 — Agent orchestrator + F1, F2, F3 + P2 ⭐ THE CORE ✅ COMPLETE 2026-08-20 (ADR-0049..0053)
 
-- [ ] Agent Orchestrator in Rust: turn loop, tool dispatch, budget enforcement, model router.
-- [ ] **F1** Verdict Loop; **F2** Intent Contracts; **F3** Proof-Guided Repair.
-- [ ] **P2 resumable/durable turns** — durable turn journal in SQLite, **proof stage
-      checkpointed**, resumable from any interruption.
-- [ ] L16 enforced by construction: DB constraint + adversarial forge test.
+- [x] Agent Orchestrator **in the engine, not Rust** — ADR-0049 records why: the turn loop's
+      terminating condition is a proof, the prover is Python, and a Rust loop would have had to
+      call into it for every turn. Turn loop, tool dispatch, budget enforcement, model router.
+- [x] **F1** Verdict Loop; **F2** Intent Contracts; **F3** Proof-Guided Repair (the §0 defect
+      closed by an execution load probe, ADR-0051).
+- [x] **P2 resumable/durable turns** — SQLite turn log, proof stage checkpointed, and `run_task`
+      CONSUMES the resume plan: same shadow, same baseline, replayed conversation, re-prove only.
+- [x] L16 enforced by construction: `ProvenChange` has no constructor without a bundle id, one
+      construction site, and two adversarial forge tests. `agent_bench` additionally re-reads
+      every bundle from disk and compares the engine's aggregation with the reported verdict.
+- [x] `run_command` REFUSED until F14 (Phase 23) can contain it — L19 was being violated and the
+      committed tool manifest was claiming containment that did not exist (trap 53).
 
-**Exit gate:**
+**Exit gate — MET 2026-08-20, all four green, and wired into `make verify` as `verify-agent`:**
 ```bash
-python -m tempest.dev.agent_bench  --tasks 50 --require-verdict-coverage 1.0
-python -m tempest.dev.intent_bench --min-accuracy 0.90 --max-false-intended 0
-python -m tempest.dev.repair_bench --min-success 0.60 --check-cheats
-python -m tempest.dev.resume_test  --kill-mid-proof --sleep-mid-stream
+./scripts/agent-gates.sh    # runs all four; the three corpus gates concurrently
+python -m tempest.dev.agent_bench  --tasks 50 --require-verdict-coverage 1.0   # 55/55
+python -m tempest.dev.intent_bench --min-accuracy 0.90 --max-false-intended 0  # 54/54, 0 false
+python -m tempest.dev.repair_bench --min-success 0.60 --check-cheats           # 22/28, 11/11
+python -m tempest.dev.resume_test  --kill-mid-proof --sleep-mid-stream         # 15/15
 ```
+`--tasks N` is a FLOOR: it asserts the corpus holds at least N and then runs all 55.
 
 ## Phase 22 — Index service + F13; F4
 

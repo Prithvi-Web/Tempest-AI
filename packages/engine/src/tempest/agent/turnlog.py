@@ -15,8 +15,16 @@ but "what had definitely finished". `PROVING` and `PROVED` are separate stages p
 the gap between them is the expensive one: a process killed in that gap has done the model work
 and not the proof, and resuming must redo exactly the second.
 
-**A checkpoint records what HAPPENED, never what is expected to happen.** Nothing here is written
-in advance. That is what makes the log safe to trust after a crash: every row is a fact.
+**A checkpoint records what HAPPENED, never what is expected to happen.** Every row is written
+after the thing it describes, which is what makes the log safe to trust after a crash.
+
+One row needs the distinction spelled out, because a review read it as a counter-example and was
+right to look: `RESUMED` carries `redo_turns`, which is about the future. What has happened at
+that point is the DECISION — the plan was computed from the log and this is what it said — and the
+row is written after computing it, not after acting on it. That matters for reading the log back:
+a `RESUMED` row means "a restart decided this", not "a restart did this", and a task that died
+immediately afterwards will show the decision and none of its consequences. Which is correct, and
+is why the flag is recorded rather than inferred later from what did or did not follow.
 """
 
 from __future__ import annotations
@@ -36,11 +44,12 @@ TURNS_DONE = "turns_done"
 PROVING = "proving"
 PROVED = "proved"
 REPAIR_ATTEMPT = "repair_attempt"
+RESUMED = "resumed"
 FINISHED = "finished"
 
 #: The closed set. A stage outside it is a bug in a caller, and is refused rather than stored —
 #: an unrecognised stage in the log would make resumption guess.
-STAGES = (STARTED, TURNS_DONE, PROVING, PROVED, REPAIR_ATTEMPT, FINISHED)
+STAGES = (STARTED, TURNS_DONE, PROVING, PROVED, REPAIR_ATTEMPT, RESUMED, FINISHED)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_log (
@@ -67,6 +76,30 @@ class Checkpoint:
     recorded: float
 
 
+def _shield_state_dir(repo: Path) -> None:
+    """Make `.tempest/` un-committable in the user's repository.
+
+    The log holds the agent's whole conversation — prompts, model text, and the CONTENT of every
+    file it read, because that is what a tool result is. All of that is ordinary local state, in
+    the same category as the bundle store, and nothing sends it anywhere. But a user running
+    `git add -A` in their own project would commit it, and a transcript in a repository's history
+    is a different thing from a transcript in a working directory.
+
+    So the directory ships its own `.gitignore`, written once and never overwritten: a user who
+    deliberately edits it has said something, and this should not argue.
+    """
+    marker = repo / ".tempest" / ".gitignore"
+    if marker.exists():
+        return
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(
+        "# Tempest's local state: bundles, shadow worktrees, agent turn logs, caches.\n"
+        "# None of it belongs in a repository's history.\n"
+        "*\n",
+        encoding="utf-8",
+    )
+
+
 class TurnLog:
     """Append-only, durable, per-repository.
 
@@ -79,6 +112,7 @@ class TurnLog:
         self.repo = Path(repo)
         self.path = self.repo / TURNLOG_PATH
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        _shield_state_dir(self.repo)
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
 
@@ -142,6 +176,27 @@ class ResumePlan:
     #: a pure function of (baseline, head, budget, seed), so redoing it cannot change the answer.
     reprove: bool
     reason: str
+    #: True when the model conversation has to happen again. This is the expensive-and-UNSAFE
+    #: one: model turns cost money, they are not a pure function of anything, and the edits they
+    #: produced are already on disk in the shadow worktree. It is False for every interruption
+    #: after `TURNS_DONE` was recorded, which is the whole point of recording it.
+    redo_turns: bool = True
+    #: The baseline the task started from, as recorded at `STARTED`. A resumed task must prove
+    #: against THIS commit; deriving a fresh one from the user's tree would re-point the proof at
+    #: a different starting state.
+    baseline: str = ""
+    #: True when there is history at all. Distinguishes "resume decided to redo everything" from
+    #: "there was nothing to resume", which look identical in the flags and are not the same fact.
+    resuming: bool = False
+    #: Repair attempts already recorded for this task, across every restart. The attempt budget
+    #: is a bound on MONEY (L15.4), and a bound that resets when the process dies is not a bound:
+    #: a task killed four times would spend four full budgets and the record would show one.
+    repair_attempts_spent: int = 0
+    #: True when the log was actually read. False only for a caller that asked for a fresh run
+    #: without consulting it — which is a different state from "the log was read and was empty",
+    #: and the difference decides whether an existing shadow is an orphan to adopt or a tree the
+    #: caller is deliberately declining to reuse.
+    consulted_the_log: bool = True
 
 
 def plan_resume(log: TurnLog, task_id: str) -> ResumePlan:
@@ -156,15 +211,26 @@ def plan_resume(log: TurnLog, task_id: str) -> ResumePlan:
       recompute a result already on disk, and (worse) would create a second shadow worktree for a
       task that already has one.
     """
-    last = log.last(task_id)
-    if last is None:
+    history = log.history(task_id)
+    if not history:
         return ResumePlan(finished=False, reprove=False, reason="no history: this is a fresh task")
+    last = history[-1]
+    baseline = _recorded_baseline(history)
     if last.stage == FINISHED:
         return ResumePlan(
             finished=True,
             reprove=False,
             reason="the task already finished; its verdict is recorded",
+            redo_turns=False,
+            baseline=baseline,
+            resuming=True,
         )
+    # The model work is done exactly when TURNS_DONE was written. Everything after it — PROVING,
+    # PROVED, REPAIR_ATTEMPT, RESUMED — implies it, so the question is asked of the WHOLE history
+    # rather than of the last row: a task interrupted twice has a RESUMED row on top and its
+    # turns are no less finished for that.
+    turns_done = any(c.stage == TURNS_DONE for c in history)
+    spent = sum(1 for c in history if c.stage == REPAIR_ATTEMPT)
     if last.stage == PROVING:
         return ResumePlan(
             finished=False,
@@ -173,9 +239,32 @@ def plan_resume(log: TurnLog, task_id: str) -> ResumePlan:
                 "interrupted inside the proof — the model work is recorded, the verdict is not, "
                 "and a proof is a pure function of its inputs so re-running it is safe"
             ),
+            redo_turns=not turns_done,
+            baseline=baseline,
+            resuming=True,
+            repair_attempts_spent=spent,
         )
     return ResumePlan(
         finished=False,
         reprove=False,
-        reason=f"interrupted after {last.stage}; the remaining stages have not run",
+        reason=(
+            f"interrupted after {last.stage}; the remaining stages have not run"
+            + ("" if turns_done else " and the model turns never completed")
+        ),
+        redo_turns=not turns_done,
+        baseline=baseline,
+        resuming=True,
+        repair_attempts_spent=spent,
     )
+
+
+def _recorded_baseline(history: list[Checkpoint]) -> str:
+    """The baseline from the FIRST `STARTED` row.
+
+    The first, not the last: a task resumed twice has one baseline and several attempts at it,
+    and reading the newest row would let the answer drift with each restart.
+    """
+    for entry in history:
+        if entry.stage == STARTED and entry.payload.get("baseline"):
+            return str(entry.payload["baseline"])
+    return ""

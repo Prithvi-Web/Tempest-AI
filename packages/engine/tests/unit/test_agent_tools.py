@@ -206,12 +206,6 @@ class TestBudgets:
         got = _d(shadow).call("search_text", {"pattern": "hit"})
         assert got.ok and "ok.py" in got.content
 
-    def test_a_command_that_overruns_its_budget_is_killed_and_named(self, shadow: Path) -> None:
-        got = _d(shadow, grants=frozenset({"run_command"})).call(
-            "run_command", {"argv": ["sleep", "5"], "timeout_seconds": 1}
-        )
-        assert not got.ok and "budget" in got.content
-
     def test_the_number_of_calls_in_a_turn_is_bounded(self, shadow: Path) -> None:
         """An agent that can call tools forever is an unbounded operation (L15.4), and no
         per-call budget bounds it."""
@@ -238,26 +232,35 @@ class TestApproval:
         got = _d(shadow).call("run_command", {"argv": ["echo", "hi"]})
         assert not got.ok and "requires approval" in got.content
 
-    def test_the_same_tool_runs_once_granted(self, shadow: Path) -> None:
+    def test_a_granted_command_is_still_refused_because_nothing_can_contain_it_yet(
+        self, shadow: Path
+    ) -> None:
+        """L19, enforced rather than assumed. This handler used to call `subprocess.run` with the
+        user's own uid, environment, network and filesystem, confined only by a working
+        directory — while the tool contract declared `writes: shadow_worktree` and
+        `touches_network: false`. The refusal is the honest state until F14 (Phase 23) provides a
+        tier a shadow worktree can execute inside.
+        """
         got = _d(shadow, grants=frozenset({"run_command"})).call(
             "run_command", {"argv": ["echo", "hi"]}
         )
-        assert got.ok and "hi" in got.content and "exit=0" in got.content
+        assert not got.ok
+        assert "L19" in got.content and "F14" in got.content
 
-    def test_a_command_runs_with_the_shadow_as_its_working_directory(self, shadow: Path) -> None:
+    def test_the_refusal_is_not_a_silent_success(self, shadow: Path) -> None:
+        """The one thing that would be worse than refusing: returning `ok` with empty output, so
+        a model believes the command ran and reasons from nothing."""
         got = _d(shadow, grants=frozenset({"run_command"})).call("run_command", {"argv": ["ls"]})
-        assert got.ok and "README.md" in got.content
+        assert not got.ok and got.content.strip()
 
-    def test_a_missing_binary_is_a_refusal_not_a_crash(self, shadow: Path) -> None:
-        got = _d(shadow, grants=frozenset({"run_command"})).call(
-            "run_command", {"argv": ["definitely-not-a-real-binary-xyz"]}
-        )
-        assert not got.ok and "command not found" in got.content
-
-    def test_argv_must_be_a_split_list(self, shadow: Path) -> None:
-        """A single shell string would invite quoting bugs and make an allowlist unanalysable —
-        the reason `RunCommandArgs` takes argv in the first place."""
+    def test_argv_is_validated_BEFORE_the_refusal(self, shadow: Path) -> None:
+        """A model that hands this tool a shell string should learn that now rather than after
+        the capability arrives — and argv-not-a-string is what makes an allowlist analysable."""
         got = _d(shadow, grants=frozenset({"run_command"})).call("run_command", {"argv": "echo hi"})
+        assert not got.ok and "already-split" in got.content
+
+    def test_an_empty_argv_is_refused_for_its_own_reason(self, shadow: Path) -> None:
+        got = _d(shadow, grants=frozenset({"run_command"})).call("run_command", {"argv": []})
         assert not got.ok and "already-split" in got.content
 
 

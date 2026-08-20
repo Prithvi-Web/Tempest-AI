@@ -16,8 +16,9 @@ from pathlib import Path
 import pytest
 
 from tempest.config import TempestConfig, TempestConfigError
+from tempest.execute.runner import module_name_for
 from tempest.model import Verdict
-from tempest.prove import ProveConfig, _module_name, run_prove
+from tempest.prove import ProveConfig, run_prove
 
 
 class TestRootsConfig:
@@ -56,25 +57,25 @@ class TestRootsConfig:
 
 class TestModuleNameWithRoots:
     def test_configured_root_is_stripped(self) -> None:
-        got = _module_name(
+        got = module_name_for(
             "packages/engine/src/tempest/model.py", source_roots=("packages/engine/src",)
         )
         assert got == "tempest.model"
 
     def test_non_matching_path_keeps_the_bare_src_fallback(self) -> None:
-        assert _module_name("src/foo.py", source_roots=("packages/engine/src",)) == "foo"
+        assert module_name_for("src/foo.py", source_roots=("packages/engine/src",)) == "foo"
 
     def test_longest_root_wins(self) -> None:
-        got = _module_name("a/b/src/m.py", source_roots=("a", "a/b/src"))
+        got = module_name_for("a/b/src/m.py", source_roots=("a", "a/b/src"))
         assert got == "m"
 
     def test_root_matches_whole_path_segments_only(self) -> None:
         # "pack" must not swallow the "packages/" prefix.
-        assert _module_name("packages/x.py", source_roots=("pack",)) == "packages.x"
+        assert module_name_for("packages/x.py", source_roots=("pack",)) == "packages.x"
 
     def test_a_file_exactly_at_a_root_path_is_not_swallowed(self) -> None:
         # `a/b.py` with root `a/b`: stripping would leave an empty module name.
-        assert _module_name("a/b.py", source_roots=("a/b",)) == "a.b"
+        assert module_name_for("a/b.py", source_roots=("a/b",)) == "a.b"
 
 
 class TestWorktreeSelfDescription:

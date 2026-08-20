@@ -37,7 +37,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -335,32 +334,39 @@ class Dispatcher:
         return ToolResult(ok=True, content=f"wrote {len(contents)} bytes to {args['path']}")
 
     def _run_command(self, args: Mapping[str, Any]) -> ToolResult:
+        """**Refused, deliberately, until F14 lands (Phase 23).**
+
+        L19 is not "the agent's commands run in the shadow directory". It is: *agent terminal
+        commands run at the same isolation tier as differential runners.* This handler used to
+        call `subprocess.run(argv, cwd=self.root)` — the user's own uid, the user's environment,
+        the user's network, the user's whole filesystem, with only the working directory set to
+        the shadow. A `curl`, an `rm -rf ~`, a read of `~/.ssh/id_rsa` piped anywhere: all of it
+        was one granted tool call away.
+
+        The manifest, meanwhile, declares `writes: shadow_worktree` and `touches_network: false`.
+        Neither was true, and in this project a contract that says something false is the defect,
+        not the documentation of one.
+
+        The argument shape is still validated before the refusal, because a model that hands this
+        tool a shell string should learn that now rather than after the capability arrives — and
+        because argv-not-a-string is the property that makes an allowlist analysable at all.
+
+        **What closes this** is F14: a PTY at the same tier ladder the runners use, with the
+        escape suite extended to cover it on every tier and OS. That is Phase 23's exit gate, and
+        it is the only thing that would let this return an exit code honestly. Found by the
+        Phase 21 review; recorded in ADR-0053.
+        """
         argv_raw = args.get("argv")
         if not isinstance(argv_raw, Sequence) or isinstance(argv_raw, str) or not argv_raw:
             raise ToolError("argv must be a non-empty list of already-split arguments")
-        argv = [str(a) for a in argv_raw]
-        timeout = self.budgets.max_command_seconds
-        requested = args.get("timeout_seconds")
-        if isinstance(requested, int) and not isinstance(requested, bool) and requested > 0:
-            timeout = min(timeout, requested)
-        try:
-            done = subprocess.run(
-                argv,
-                cwd=self.root,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                check=False,
-            )
-        except FileNotFoundError as exc:
-            raise ToolError(f"command not found: {argv[0]!r}") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise ToolError(f"command exceeded its {timeout}s budget") from exc
-        body = (
-            f"exit={done.returncode}\n--- stdout ---\n{done.stdout}\n--- stderr ---\n{done.stderr}"
+        raise ToolError(
+            "running commands is not available yet: L19 requires an agent command to execute at "
+            "the same isolation tier as a differential runner, and Tempest cannot do that for a "
+            "shadow worktree until F14 (the sandboxed agent terminal, Phase 23) ships. Running "
+            "it unsandboxed would give this tool the whole machine while the tool contract "
+            "claims it only writes the shadow. Read, search, and write files instead; the proof "
+            "runs when your turn ends either way."
         )
-        cap = self.budgets.max_read_bytes
-        return ToolResult(ok=True, content=body[:cap], truncated=len(body) > cap)
 
     def _prove(self, args: Mapping[str, Any]) -> ToolResult:
         """Dispatch exists so the manifest and the handler set cannot disagree; the ACTUAL proof

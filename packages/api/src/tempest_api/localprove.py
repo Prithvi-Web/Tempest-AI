@@ -4,7 +4,7 @@ background thread. `POST /v1/local/prove` answers 202 immediately; the desktop p
 
 The engine writes its bundle under the app data dir, and the worker ingests that zip through
 the exact upload code path (`ingest_zip_bytes`) — one fan-out, one integrity gate, zero
-duplicated ingestion logic. Sandbox selection stays the engine's own (`_select_sandbox`,
+duplicated ingestion logic. Sandbox selection stays the engine's own (`select_sandbox_for_repo`,
 ADR-0003/ADR-0008): a repo it cannot sandbox yields an honest all-UNPROVEN run, which is a
 *result*, not an error. Verdict ERROR is reserved for Tempest itself failing (Law L2), and the
 ledger then carries the traceback for the UI.

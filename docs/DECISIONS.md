@@ -2552,3 +2552,238 @@ engine cannot help — with no changed symbol there is nothing to target, so not
 
 It is left red on purpose. Three candidate fixes are written out in HANDOFF-NEXT §0; choosing
 between them is a design decision, and the wrong time to make one is at the end of a long session.
+
+---
+
+## ADR-0051 — A repair is only a repair if the code still loads (2026-08-20)
+
+**Status:** accepted · closes HANDOFF-NEXT §0 · supersedes the open item in ADR-0050
+
+**The defect, exactly.** `repair_bench` counted `model-breaks-the-import` as a successful repair.
+The task: the agent makes a forbidden change, then "repairs" by restoring the function
+**byte-for-byte** while adding `import no_such_module_xyz` at the top of the file. Every static
+signal said repaired:
+
+* `total`'s source is identical to the baseline, so `repair.reverted_symbols` excuses it as a
+  revert — correctly, at the question that function is asked;
+* a bundle carries only CHANGED symbols, so with `total` put back there is nothing left in it;
+* the contract is untouched;
+* and the engine cannot see it either: with no changed symbol there is no target, so nothing goes
+  UNPROVEN and no divergence is reported.
+
+The module is broken anyway, by a statement that belongs to no symbol.
+
+**The design decision.** Three fixes were on the table (HANDOFF-NEXT §0). The one taken is **(1),
+require the changed files to still import**, implemented as a real execution probe.
+
+* **(3), narrow `reverted_symbols` to require the whole FILE be unchanged**, was the cheapest and
+  is wrong. It reintroduces the `collateral-damage-repaired` false positive — reverting `biggest`
+  in a file whose `total` is still legitimately changed is the *correct* repair — and a middle
+  version ("the module-level statements must be unchanged") fails the same way one step later, on
+  an ordinary repair that needs `import math`. A test now pins that case
+  (`test_a_repair_that_adds_a_working_import_is_not_punished_for_it`): same shape as the cheat,
+  opposite verdict, and the only thing that separates them is whether the file runs.
+* **(2), treat a module-level change with no changed symbol as its own target**, is a bigger and
+  arguably better idea, and it does not fix F3 on its own: the new target would be UNPROVEN, which
+  has no divergence, so `judge` would still see a clean bundle. It would need F3 to also reject
+  newly-unproven targets. It stays on the list as an ENGINE honesty item — a file that changed and
+  produced no target is a file the proof says nothing about — and is not what this ADR does.
+* **(1) is the one that matches what the product is.** No static rule can tell `import math` from
+  `import no_such_module_xyz`; both parse. Running the import can. This is a differential
+  *execution* engine, and the answer to "did the code stop working" is available by executing it.
+
+**What was built.**
+
+* `execute/_worker.py` gains an `import` mode: `importlib.import_module(name)`, `BaseException`
+  caught deliberately — a module-level `sys.exit()` is a load failure exactly like an
+  `ImportError`, and `except Exception` would report the most destructive one as a pass.
+* `execute/runner.py` gains `module_loads(root, module, sandbox)` returning a `LoadProbe`. A
+  worker that produces no answer at all — killed, timed out, `os._exit()` — is a load FAILURE,
+  because a module nobody could load is not evidence that the module is fine.
+* `prove._module_name` moved to `runner.module_name_for` and became public, with
+  `module_for_path` reading the layout from the worktree the file lives in. Two callers now need
+  that rule and a second copy would be a second answer to "which module is this file".
+* `repair.judge` gains a `broken` condition, ranked above lost targets (a broken import usually
+  *causes* the lost target, and naming the import is the actionable half).
+* `orchestrator._modules_that_stopped_loading` probes only the files the change TOUCHES. A
+  repository with an unrelated broken module is not the agent's doing, and a loop that refused to
+  finish until the whole tree imported would be judging the user's project rather than the
+  attempt. With **no sandbox tier available it fails closed** and says so: an unchecked module is
+  reported as broken, because a repair that passes *because* the machine could not look is the
+  exact false claim this gate exists to prevent.
+
+**A second defect fixed on the way.** The orchestrator decided whether an attempt was a cheat by
+testing `"remain" in reason` — the wording of a message, load-bearing, one word away from
+silently reclassifying a cheat as an ordinary miss. `judge` now returns a `Judgement` carrying an
+explicit `cheat` flag decided by WHICH check failed. That distinction is not cosmetic: a cheat
+ends the loop, an ordinary miss earns another attempt.
+
+**Evidence.** `repair_bench` before: `cheats miscounted as success: 1`. After: `0`, with
+`collateral-damage-repaired` still green — the false positive the reverted-symbol excuse exists to
+fix. Six mutations were run against the fix and all six were caught, including narrowing the
+worker's `except BaseException` to `except Exception` and believing a silent worker.
+
+---
+
+## ADR-0052 — A cache entry nobody finished writing (2026-08-20)
+
+**Status:** accepted · found by `resume_test --kill-mid-proof` on its first run
+
+`envrepro.materialize` reused a cached worktree when the directory existed:
+
+```python
+if not worktree.exists():
+    _git(repo, "worktree", "add", "--detach", "--force", str(worktree), sha)
+```
+
+`git worktree add` creates the directory and *then* checks files out into it. A process killed
+part-way through leaves a real directory holding a partial tree — and the rule above adopts it,
+forever. Every later run in that repository then dies on a source file that is simply not there:
+
+```
+FileNotFoundError: .../.tempest/cache/worktrees/98e9ccb13c87/app.py
+```
+
+This is not a hypothetical. P2's new gate `SIGKILL`s a child process the moment the durable log
+says it entered the proof — and the restart it exists to test crashed on the wreckage the kill had
+left. **The gate found a defect in the first thing it touched, which is what a gate that measures
+a new kind of interruption is for.**
+
+**The fix is a completion marker, written after the checkout returns and never before.** A
+`<sha>.ready` file beside the worktree is the only thing that makes a cached tree reusable; a
+directory with no marker is discarded (git remove → rmtree → prune, each best-effort, because this
+runs on the wreckage of a crash and the only outcome that matters is that the path ends up free)
+and rebuilt. `remove()` deletes the marker with the tree, so a marker can never outlive what it
+claims.
+
+**Why not an atomic rename.** Building into a temp path and renaming is the usual answer and does
+not work here: a git worktree records its own path in `.git/worktrees/<name>/gitdir`, so a rename
+behind git's back breaks the linkage. The marker is the smaller true statement.
+
+**Related to trap 37** — a schema stamp is a claim, not a fact — with the difference that decides
+it: this stamp is written by the line *after* the one that finishes the work, so it records
+something that has already happened. That is the property that makes a marker trustworthy, and it
+is worth stating because the failing version of this pattern writes the stamp first.
+
+---
+
+## ADR-0053 — Phase 21 complete: P2 consumed, the corpus grown to 55, four gates wired in, and what eight lenses found in the work that got there (2026-08-20)
+
+**Status:** accepted · Phase 21's exit gate (PLAN-V2 §21) is met · supersedes ADR-0050's open items
+
+### What landed
+
+* **The §0 defect is fixed** (ADR-0051) and the fix is differential — see below.
+* **P2 is consumed.** `run_task` reads `plan_resume` and does what it says: re-attach to the SAME
+  shadow at the SAME baseline, replay the recorded conversation rather than pay for it again,
+  re-prove, and REFUSE to silently redo a task that already finished. The transcript, the model's
+  narration and every tool call are serialised into the SQLite log, so "nothing already
+  established is forgotten" is a property rather than an intention.
+* **`resume_test` exists** and `SIGKILL`s a real child process the moment the durable log says it
+  entered the proof. **It found a real defect on its first run** (ADR-0052).
+* **The corpus grew from 15 tasks to 55.** `agent_bench --tasks 50` is the phase's own exit gate
+  and 15 tasks could not satisfy it. The 15-task corpus also made `repair_bench` *unpassable*: 3
+  of its 7 rate rows were tasks designed to fail, so 4/7 = 57% was the ceiling against a 60% bar —
+  a fact the old §0 did not mention, because the cheat failure masked it.
+* **`--tasks N` became a FLOOR rather than a slice.** It asserts the corpus holds at least N and
+  then runs all of it. Slicing to exactly N would silently exclude every task added after the Nth.
+* **All four gates run in `make verify`** via `scripts/agent-gates.sh` — the three corpus gates
+  concurrently (they are independent and share nothing), then `resume_test` alone, because both
+  of its claims are about wall-clock and three saturating benchmarks are not the condition under
+  which to make them.
+
+### The review: eight read-only lenses, adversarially verified
+
+The wave was written single-threaded, then reviewed by eight independent lenses — the load probe,
+resumption, the worktree cache, test quality, gate falsifiability, corpus honesty, the Laws, and
+claims-in-comments — with **two refute-by-default verifiers per finding**, one asking "is the claim
+accurate?" and the other "if this were fixed, would anything change for a user or a gate?".
+
+**It found things the author could not.** The most valuable were not bugs in new logic; they were
+places where the new logic was *right* and the thing around it was not:
+
+1. **The load probe was absolute where it had to be differential.** A module that fails to import
+   is only evidence against the agent if it imported at the BASELINE. A repository with an
+   unfetched dependency, or a file that was already broken when the user opened the editor, would
+   have produced a cheat accusation for something the agent never touched. The probe now re-checks
+   a failing module against the baseline tree and reports only what *stopped* loading.
+2. **`run_command` ran unsandboxed.** `subprocess.run(argv, cwd=shadow)` — the user's uid,
+   environment, network and whole filesystem, with only the working directory set — while the tool
+   manifest declared `writes: shadow_worktree` and `touches_network: false`. That is a violation of
+   L19 and a false claim in a contract. **It now refuses**, naming the law and F14 (Phase 23),
+   which is the only thing that can honestly re-enable it. This is the finding that most justifies
+   the review: it was pre-existing, it was in code with 100% coverage and 51 passing tests, and
+   every one of those tests asserted that the command *worked*.
+3. **Two gates could not go red about the thing they were named after** (trap 47 again).
+   `agent_bench` asked the run object whether it had a verdict and a bundle id — but `ProvenChange`
+   refuses to exist without either, so it was asking a type whether it was itself. It now re-reads
+   the bundle FROM DISK and compares the engine's aggregation of the stored targets against the
+   verdict the run reported; those can disagree, and the disagreement is exactly L16's failure.
+   `intent_bench`'s 90% floor had been diluted by corpus growth until 54 rows tolerated five wrong
+   answers; against a scripted, deterministic corpus every mismatch is now a failure.
+4. **`resume_test` had three vacuous checks.** "The same shadow worktree was reused" compared two
+   values both derived from the task id; "the baseline did not move" compared a recorded baseline
+   against a tree nobody had disturbed; "produced a verdict backed by a bundle" was unfalsifiable
+   for the same reason as `agent_bench`. Each is now written so that the property failing makes the
+   check fail: a witness file inside the worktree, a user edit between the kill and the restart,
+   and a bundle read back off disk.
+5. **Two crash windows that wedged a task id permanently.** A process killed between creating a
+   shadow and writing its first checkpoint left a worktree `create` would not overwrite and
+   `attach` would not adopt — every later attempt with that id died the same way. Same shape one
+   layer down, between `git worktree add` and `_write_meta`. Both are now reclaimed: a worktree of
+   ours with no metadata beside it is wreckage, and the baseline it was built from is precisely the
+   fact that was never recorded.
+6. **A resume onto a REBUILT shadow would have replayed a transcript describing work that no
+   longer existed** — proving an empty change while reporting a full history. Rebuilding now forces
+   the turns to be re-run, and says so in the log.
+7. **The repair budget reset on every restart.** Attempts are a bound on money (L15.4), and a bound
+   that resets when the process dies is not a bound: a task killed four times would spend four full
+   budgets and the record would show one. The plan now carries how many attempts the whole task has
+   spent, and each attempt's conversation is part of the durable record.
+8. **The fix that introduced the completion marker opened a race.** With the old rule a second
+   process reused a half-written tree (silently wrong); with the marker it would DISCARD the tree
+   the first process was still checking out (loudly wrong, and someone else's work). Rebuilds now
+   happen under an exclusive create, and a waiter waits for the marker instead of acting. **This is
+   trap 48 in its purest form: the regression was introduced by the fix, and only the review of the
+   fix found it.**
+
+Test-quality findings were their own category and every one was real: a fixture that wrote
+`src/pkg//init/.py` while claiming to build a package (the test passed because namespace packages
+exist); a probe test asserting that a module which imports fine still imports, which is true
+whatever the code does — replaced with one that has a failing module try to FORGE a passing
+protocol line on fd 1; an `attach` test whose baseline equality held because nothing had moved the
+tree; a cheat-4 assertion satisfied by the fail-closed message a machine with no sandbox produces,
+so it would have gone green about a probe that never ran.
+
+### The corpus, and where its honesty was corrected
+
+Three tasks written as repairs came back `EQUIVALENT_UNDER_BUDGET` with zero divergences: the
+engine ran them and could not tell the two revisions apart. They were **renamed and re-expected**
+rather than deleted or forced — `separator-change-the-budget-cannot-see` and its two siblings — and
+they now carry `expect_verdict`, so the caveat is *gated* rather than described. The reason the
+generator misses them is labelled a hypothesis, because nobody has run it down and a cause written
+as fact without running it is trap 49.
+
+Two task NAMES asserted intent the run cannot see and were changed:
+`model-turns-the-function-into-a-lambda` became `model-hides-the-function-behind-a-lambda` (the
+lambda is behaviourally identical; what the loop refuses is a target it can no longer prove, which
+is as much an analyser limitation as a trick, and the reason it prints says so), and
+`model-tries-to-rewrite-the-contract` became `…-and-cannot`, because `write_file` is confined to
+the shadow while classification reads the user's repository, so that cheat is unreachable by
+construction and this task records the containment rather than the detector.
+
+The composition stated in the module's own docstring was **wrong** — 52 tasks and 13 not-engaged
+against an actual 55 and 16 — and is now asserted by `test_agent_corpus.py` rather than described.
+A stated composition is a claim, and this project tests its claims.
+
+### What is deliberately still open
+
+* **`run_command` is refused** until F14 (Phase 23) gives a shadow worktree a tier it can execute
+  inside, with the escape suite extended to cover it. Re-enabling it any other way would restore
+  the Law violation.
+* **Nothing serialises two processes resuming the same task id.** One engine sidecar runs today, so
+  it cannot currently happen; the agent fleet (F17) is when it can, and that is when it must close.
+* **`--sleep-mid-stream` proves that a stalled model cannot lose staged work**, and that the task
+  still reaches a real verdict (L23). It does **not** implement stream-level reconnection, which is
+  the other half of P2's spec. The turn loop is non-streaming, so a dropped connection costs one
+  turn and never the staged edits; genuine resumable streaming belongs with the streaming UI.

@@ -78,7 +78,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tasks", type=int, default=len(TASKS))
     parser.add_argument("--min-success", type=float, default=0.60)
-    parser.add_argument("--check-cheats", action="store_true", default=True)
+    # BooleanOptionalAction, so `--no-check-cheats` exists. `action="store_true", default=True`
+    # made the flag inert: it could never be False, and a flag that cannot change anything is a
+    # documented option that is really a decoration (found by review).
+    parser.add_argument("--check-cheats", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args(argv)
 
     if args.tasks > len(TASKS):
@@ -88,7 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    rows = evaluate(TASKS[: args.tasks])
+        # `--tasks N` is a FLOOR, not a slice. Asking for 50 asserts the corpus holds at least 50
+    # and then runs all of it: slicing to exactly N would silently exclude every task added
+    # after the Nth, so growing the corpus would quietly stop testing the new work while the
+    # gate went on printing the number it was asked for.
+    rows = evaluate(TASKS)
     print(render(rows, min_success=args.min_success))
 
     failed = False

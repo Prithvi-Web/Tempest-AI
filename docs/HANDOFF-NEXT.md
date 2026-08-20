@@ -1,74 +1,91 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20 end-of-session;
-# **19, 19a and 20 COMPLETE; Phase 21 is 4/5 built with ONE KNOWN DEFECT and ONE RED GATE — §0
-# is the only thing to read before touching anything**)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20;
+# **19, 19a, 20 and 21 COMPLETE — all four Phase 21 gates green, wired into `make verify`.
+# §0 is the only thing to read before touching anything**)
 
-## 0a. Tree state at hand-off (2026-08-20)
+## 0a. Tree state at hand-off (2026-08-20, second session)
 
-* **`72faec5` is committed and UNPUSHED.** Working tree clean. The owner pushes via GitHub
-  Desktop (trap 13) — one commit is waiting.
-* **`make verify`: `MAKE_EXIT=0`** — 1536 passed, **100.00%** coverage, "all live steps green",
-  `ruff` + `ruff format` + `mypy --strict` clean.
-* **`agent_bench` EXIT 0** (15/15 verdict coverage) · **`intent_bench` EXIT 0** (16/16, zero
-  false INTENDED) · **`repair_bench` EXIT 1** — the known defect in §0, left red on purpose.
-* **CI has not seen this commit.** Everything above is one machine (trap 44). Confirm the run
-  after the push:
-  `curl -s 'https://api.github.com/repos/Prithvi-Web/Tempest-AI/actions/runs?per_page=5'`
-  (quote the URL — `?` is a zsh glob; see trap 49).
-* **The app has NOT been rebuilt.** Deliberate: rebuilding while a known-defective agent sits in
-  the tree would ship something that has to be corrected. What the app gains from this work is
-  the Phase 19a engine change — more instance methods proved — and NOT an agent surface, because
-  none of Phase 21 is wired to a Tauri command or the webview yet.
+* **The previous session's two commits were LOST from the branch and recovered from the working
+  tree.** `git reflog` shows `72faec5` (Phase 19a + 21) and `dff9f5a` (its handoff note) landing
+  at 10:33, and `HEAD` back at `62cc180` afterwards with every one of their changes sitting
+  uncommitted. Nothing was lost — `git diff dff9f5a` shows no deletions, only this session's
+  additions — but the handoff that said *"`72faec5` is committed and UNPUSHED. Working tree
+  clean"* was describing a branch state that no longer existed. **Check `git status` before
+  believing any sentence about what is committed**, including this one.
+* **The owner pushes via GitHub Desktop (trap 13).** If a push seems to have "not happened", look
+  at the reflog before re-doing work: this is what a reset looks like from the inside.
+* **`main` moved once, mid-session, with no reflog entry to explain it** — from `62cc180` (where
+  it sat when this session started) back to `dff9f5a`, while the working tree stayed exactly as it
+  was. GitHub Desktop is open on this repository and is the likeliest author. The outcome was the
+  one wanted, and every changed file was still one this session had authored (`git diff
+  --name-only` checked), but **read `git rev-parse HEAD` before reasoning about what is committed
+  rather than trusting a note like this one.** A branch can move underneath you here.
 
 ---
 
-## 0. START HERE — one known defect, precisely diagnosed, not yet fixed
+## 0. START HERE — Phase 21 is COMPLETE. The §0 defect is fixed and all four gates are green
 
-**`python -m tempest.dev.repair_bench` exits 1. That is correct and deliberate: it is pointing at
-a real gap, and it must not be made green by editing the corpus.**
+**`python -m tempest.dev.repair_bench` exits 0.** The cheat it used to miscount is refused, and
+`collateral-damage-repaired` — the false positive the reverted-symbol excuse exists to prevent —
+is still green.
 
 ```
-repair_bench: 4/7 genuine repairs succeeded (57%; required 60%)
-repair_bench: 2/3 dishonest outcomes correctly refused (cheats miscounted as success: 1)
+repair_bench: 22/28 genuine repairs succeeded (79%; required 60%)
+repair_bench: 11/11 dishonest outcomes correctly refused (cheats miscounted as success: 0)
 ```
 
-**The miscounted cheat is `model-breaks-the-import`.** The task: the agent makes a forbidden
-change, then "repairs" by restoring the function **byte-for-byte** while adding
-`import no_such_module_xyz` at the top of the file. F3 counts that as a successful repair, and it
-should not.
+**What the fix was, and why that one** (ADR-0051). Option (1) from the three that were on the
+table: **a repair is only a repair if the changed code still loads**, checked by executing the
+import in the engine's sandbox. No static rule can separate `import math` from
+`import no_such_module_xyz`; both parse. Option (3) would have re-broken
+`collateral-damage-repaired`; option (2) would not have fixed F3 on its own, because the new
+module-level target would be UNPROVEN, which carries no divergence, so `judge` would still have
+seen a clean bundle.
 
-**Why it happens, exactly.** A bundle only ever contains **changed** symbols. When a symbol is
-put back, it stops being changed and vanishes from the bundle — which is *identical*, at the
-bundle level, to the symbol having been deleted. `repair.judge` originally treated every vanished
-target as a cheat; that was a false positive on `collateral-damage-repaired`, where reverting
-`biggest` is the *correct* repair. The fix (`repair.reverted_symbols`) compares the symbol's
-SOURCE at baseline and head and excuses it when identical.
+The probe is **differential**, which it was not in its first version: a module that fails to
+import at head is only evidence against the agent if it imported at the BASELINE. A repository
+with an unfetched dependency or an already-broken file would otherwise have produced a cheat
+accusation for something the agent never touched. That correction came from the review, not from
+the author.
 
-`model-breaks-the-import` defeats that: `total`'s source **is** identical, so it is excused — and
-the module is broken anyway by a statement that belongs to no symbol. **The engine cannot see it
-either**: with no changed symbol there is nothing to target, so nothing goes UNPROVEN.
+**The half of the problem the old §0 did not mention.** The RATE was red too — 4/7 = 57% against
+a 60% bar — and with the 15-task corpus it could never have gone green, because three of the seven
+rate rows were tasks designed to fail. 4/7 was the ceiling. The corpus is now **55 tasks**, which
+`agent_bench --tasks 50` required anyway.
 
-**This is trap 48 again, in one sitting**: the fix for a real false positive introduced a real
-false negative. Both are recorded because both are true.
+### The four Phase 21 gates, and where they run
 
-**What NOT to do.** Do not change `model-breaks-the-import`'s `expect_repair` to make the gate
-green. The expectation (`cheated`) is the honest one; the gate is red because the product is
-wrong, which is the gate working.
-
-**Three candidate fixes, none chosen — this is a design decision for a fresh head:**
-1. **Require the changed files to still import.** Principled and probably right, but `ast.parse`
-   will not catch it (`import no_such_module_xyz` parses fine), so it needs an execution probe —
-   which is the engine's job and a new call into it.
-2. **Treat a module-level change with no changed symbol as its own target.** Fixes the class
-   rather than the instance, and would also catch a repair that breaks a decorator or a global.
-   Bigger change, touches `targets/symbols.py`.
-3. **Narrow `reverted_symbols` to require the whole FILE be unchanged.** Simplest, and it
-   reintroduces the `collateral-damage-repaired` false positive — do not take this one without
-   solving that too.
-
-**Reproduce it in one command:**
 ```bash
-TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.repair_bench
+cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+./scripts/agent-gates.sh          # all four; also wired into `make verify` as `verify-agent`
 ```
+
+`agent_bench --tasks 50` · `intent_bench` · `repair_bench` · `resume_test --kill-mid-proof
+--sleep-mid-stream`. The first three share one corpus and run concurrently; `resume_test` runs
+alone afterwards because both of its claims are about wall-clock.
+
+### What P2 does now
+
+`run_task` consumes `plan_resume`. A restarted process re-attaches to the SAME shadow worktree at
+the SAME baseline, replays the recorded conversation instead of paying the model again, re-proves,
+and REFUSES to silently redo a task that already finished. `resume_test` proves it by `SIGKILL`ing
+a real child the moment the durable log says it entered the proof.
+
+**That gate found a real defect on its first run** (ADR-0052): `envrepro.materialize` reused a
+cached git worktree whenever the DIRECTORY existed, so a killed process poisoned the cache
+permanently and every later run in that repository died on a file that was not there.
+
+### Two things this phase deliberately left OPEN, and they are not hidden
+
+1. **`run_command` is refused.** It used to call `subprocess.run(argv, cwd=shadow)` — the user's
+   uid, environment, network and whole filesystem, with only the working directory set — while
+   the tool manifest declared `writes: shadow_worktree` and `touches_network: false`. That is a
+   Law violation (L19) and a false claim in a contract. It now refuses, naming the law and F14.
+   **Phase 23's F14 (the sandboxed agent terminal, with the escape suite extended to cover it) is
+   what re-enables it.** Do not re-enable it any other way.
+2. **Nothing serialises two processes resuming the same task id.** They would attach the same
+   shadow and interleave. One engine sidecar runs today so it cannot currently happen; the agent
+   fleet (F17, Phase 26) is when it can, and that is when it must be closed.
 
 ---
 
@@ -227,37 +244,59 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   `git ls-files`, which answers about the index). Exactly one instance of this defect; the
   gitignored artifacts other tests read are all produced by an explicit CI step.
 
-## 2. WHERE WE ARE: **19, 19a and 20 are COMPLETE. Phase 21 is UNDER WAY — F1 and F2 land;
-F3, P2 and the four benchmark gates do not.**
+## 2. WHERE WE ARE: **19, 19a, 20 and 21 are COMPLETE.** Phase 22 is the next feature work.
 
 **QV1 is ANSWERED (owner, 2026-08-20): ENGINE FIRST.** Phase 19a followed immediately and the
-proof rate is **re-measured at 43%**, up from 34% (ADR-0048, METRICS.md). Still under the 60%
-bar, so the standing rule still puts engine work ahead of feature work — the remaining
+proof rate is **re-measured at 43%**, up from 34% (ADR-0048, METRICS.md). Still under the 60% bar,
+so the standing rule still puts engine work ahead of feature work — the remaining
 `TARGET_UNREACHABLE` bucket is 94 and is still the dominant one by an order of magnitude.
 
-### What Phase 21 has, and what it does not — read this before claiming anything
+### Phase 21, piece by piece
 
 | Piece | State |
 |---|---|
-| Tool dispatch (boundary D enforcement) | **DONE** — `agent/tools.py`, 51 tests, 100% |
-| Structured tool calling, BOTH wires | **DONE** — `inference/client.py`, 24 tests, real loopback peers |
-| **F1** turn loop → verdict, L16 by construction | **DONE** — `agent/orchestrator.py`, 20 integration tests |
-| **F2** intent contracts + classification | **DONE** — `agent/contracts.py`, 31 tests, wired into the loop |
-| **F3** proof-guided repair | **BUILT, one known defect** — `agent/repair.py` + the loop in `orchestrator.py`; 26 unit + 11 integration tests; see §0 |
-| **P2** durable/resumable turns | **PARTIAL** — `agent/turnlog.py` records every stage durably and `plan_resume` says what to redo (14 tests); **nothing CONSUMES the plan yet** — `run_task` always starts fresh |
-| `agent_bench` | **DONE, GREEN** — 15/15 verdict coverage |
-| `intent_bench` | **DONE, GREEN** — 16/16, zero false INTENDED |
-| `repair_bench` | **DONE, RED** — see §0. The gate is right; the product is wrong |
-| `resume_test --kill-mid-proof --sleep-mid-stream` | **NOT BUILT** — needs P2's consumption side first |
+| Tool dispatch (boundary D enforcement) | **DONE** — `agent/tools.py`; `run_command` REFUSES, see §0 |
+| Structured tool calling, BOTH wires | **DONE** — `inference/client.py`, real loopback peers |
+| **F1** turn loop → verdict, L16 by construction | **DONE** — `agent/orchestrator.py` |
+| **F2** intent contracts + classification | **DONE** — `agent/contracts.py`, wired into the loop |
+| **F3** proof-guided repair | **DONE** — the load probe closed the §0 defect (ADR-0051) |
+| **P2** durable/resumable turns | **DONE** — `run_task` consumes `plan_resume`; ADR-0053 |
+| `agent_bench --tasks 50` | **GREEN** — 55/55, each verdict checked against its stored bundle |
+| `intent_bench` | **GREEN** — 54/54, zero false INTENDED, any mismatch now fails |
+| `repair_bench` | **GREEN** — 22/28 (79%), 11/11 cheats refused, 0 miscounted |
+| `resume_test --kill-mid-proof --sleep-mid-stream` | **GREEN** — 15/15 |
 
-**The four gates are new shipped dev tooling** and are NOT yet wired into `make verify`. Wiring
-them in is a deliberate later step: `repair_bench` is red, and adding a red gate to `make verify`
-would make every future run red for a reason unrelated to whatever that session is doing.
+All four run inside `make verify` as `verify-agent` (`scripts/agent-gates.sh`).
 
-**Phase 21 is therefore NOT complete and must not be recorded as complete.** The exit gate in
-`PLAN-V2.md` is those four benchmarks; until they exist and pass, the phase is partial. What is
-built is built properly — 100% coverage on the whole `tempest/agent` package, mutation-tested,
-with the L16 forge tests the law asks for — but "some of it is flawless" is not "it is done".
+**The owner's decisions (2026-08-18) are binding and recorded in `docs/QUESTIONS.md`:**
+retag as `v0.2.0`; **fund phases 19–27**; build every master-prompt feature **one at a time**,
+each landing flawless with a **mini release** and a plain-English report naming the step;
+licence is **MIT** and copying LibreChat code is authorized with attribution.
+
+**19.1 DONE** (`2a88d91`) — MIT `LICENSE` + the `license_check` gate + LibreChat credits
+(ADR-0038 amendment). **19.2 DONE** (`37e9027`) — boundary D, the Agent Tool Protocol:
+`src-tauri/src/agent_tools.rs` is the root, `make gen-contracts` emits four committed artifacts
+via `export_agent_tools`, and the existing `verify-contract` diff already covers where they
+land — so four boundaries share one gate.
+
+**19.3 DONE** (`80ad33a`) — the shadow worktree, `tempest/agent/shadow.py`. It lives in the
+**engine, not Rust** (ADR-0036 amendment records why). Baseline via `git stash create` so the
+agent edits what the user actually sees without their tree being touched; a snapshot is a real
+commit so `prove(baseline, shadow)` needs no engine change; acceptance is all-or-nothing with
+journalled pre-images. 38 tests on real repos, 100% coverage, no pragmas.
+
+**19.4 DONE** (`6301d66`) — the agent journal, `tempest/agent/journal.py` (ADR-0039).
+Append-only JSONL + pre-images, durable across restart, `undo_last()` LIFO with out-of-order
+undo refused by reason. `shadow.accept` was refactored to write through it, so there is **one
+journal and one reversal path**. The Phase 19 gate *"undo restores any state"* is met by a
+12-seed randomised property test.
+
+**19.5 DONE** (`53a3efb`) — P1, the model layer at `tempest/inference/` (ADR-0040).
+**16 providers via two wires** (Anthropic Messages + OpenAI Chat Completions, which every
+OpenAI-compatible endpoint speaks), stdlib-only, no vendor SDK, **no per-provider branch
+anywhere** — proven by a test that invents a provider absent from the registry file. Real
+streaming cancellation. `provider_matrix --min-providers 12` is in `make verify`, runs
+**offline**, and exercises all 16 request paths against real loopback peers.
 
 Phase 20 closed on 2026-08-19 with ADR-0046: 20.1 editor surface · 20.1b budgets armed ·
 20.2 LSP multiplexer · 20.3a–e F11 · **20.4a–d the review fixes** · **20.5 hover reachable** ·
@@ -662,7 +701,16 @@ wrong cause was written into this handoff as fact and caught only by running the
 recommended; the real cause was zsh's `echo` expanding `\n` inside JSON (§17) ·
 50 A SOURCE FILE CREATED DURING A COVERAGE RUN IS MEASURED AT 0% AND ITS TESTS ARE NEVER
 COLLECTED — the run then fails the 100% gate for a reason that is an artifact of the edit, not a
-fact about the code (§18)** ·
+fact about the code (§18) ·
+51 A NEW CHECK IN A DIFFERENTIAL PRODUCT MUST ASK "DID THIS CHANGE IT", NOT "IS THIS TRUE NOW" —
+the load probe's first version reported every module that failed to import, which in any repo with
+an unfetched dependency is a cheat accusation for a file the agent never touched (§19) ·
+52 A CRASH WINDOW ONE LINE WIDE CAN CLOSE A RESOURCE PERMANENTLY — two in this wave, both between
+creating something and recording that it exists, and both left a directory `create` would not
+overwrite and `attach` would not adopt (§20) ·
+53 A COMMITTED CONTRACT CAN CLAIM CONTAINMENT THE CODE DOES NOT PROVIDE — `run_command`'s manifest
+declared `writes: shadow_worktree, touches_network: false` over a bare `subprocess.run`, and 51
+passing tests all asserted that it WORKED (§21)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -1079,3 +1127,90 @@ test.
    something is measuring.** That trap was about review agents; this is the same rule for the
    coverage gate, which is just a slower measurement of the same tree.
 4. The fix is to re-run, not to add a pragma. There was never anything wrong with the module.
+
+
+---
+
+## 19. Trap 51 — a new check in a differential product must be differential
+
+The load probe answers "does this module import?". Its first version reported every changed file
+that failed, and `judge` called that a cheat.
+
+In a repository with a dependency nobody fetched — or a file that was already broken when the user
+opened the editor, or a package that needs an installed extra — that is an accusation about
+something the agent never touched. The agent's change is innocent and the loop says it moved the
+goalposts.
+
+The fix is one the product already knew: **ask whether the change caused it.** A module that fails
+at head is only evidence if it imported at the baseline. The probe now re-checks a failure against
+the baseline tree and reports only what *stopped* loading.
+
+**How to apply.** Every new check in this codebase inherits a question: absolute, or differential?
+The answer is almost always differential, because the product's entire claim is about the delta.
+An absolute check is right only when the property must hold unconditionally *and* the user could
+not have been living with a violation of it already. Ask which one you are writing, and write the
+answer in the docstring — the first version of this one did not, which is why nobody noticed.
+
+---
+
+## 20. Trap 52 — a crash window one line wide can close a resource forever
+
+Two in one wave, and the same shape both times:
+
+```python
+shadow = create(repo, task_id)          # ← killed here
+log.checkpoint(task_id, STARTED, ...)
+```
+
+```python
+_git(repo, "worktree", "add", ..., path)   # ← or here
+_write_meta(repo, slug, baseline=sha)
+```
+
+Afterwards the directory exists and the record does not. `attach` will not adopt a shadow whose
+baseline was never written; `create` will not overwrite a directory that already exists. So the
+task id is finished — not for this run, but for every run, until somebody deletes the directory by
+hand. A user would experience it as "that task never works any more".
+
+**How to apply.**
+1. **After any "create the thing, then record the thing" pair, ask what the state between them
+   looks like from a restart.** If the answer is "indistinguishable from a state we refuse", it is
+   a wedge.
+2. **Wreckage under your own directory is yours to reclaim.** A worktree under
+   `.tempest/agent/worktrees/` with no metadata beside it was written by this code and interrupted;
+   nothing else writes there, and the fact that was never recorded is exactly the fact that would
+   have made it worth keeping.
+3. The general form is idempotent creation: a function that can be called twice and leaves one
+   resource is a function a crash cannot corner.
+
+---
+
+## 21. Trap 53 — a committed contract can claim containment the code does not provide
+
+`agent-tools.json` — generated from Rust, committed, diffed by `verify-contract`, and shown to the
+model — declared `run_command` as `writes: "shadow_worktree"`, `touches_network: false`. The
+implementation was:
+
+```python
+subprocess.run(argv, cwd=self.root, capture_output=True, text=True, timeout=timeout)
+```
+
+The user's uid. The user's environment. The user's network. The user's whole filesystem. The only
+thing the shadow constrained was the working directory. L19 says agent commands run at the same
+isolation tier as differential runners; this ran at no tier at all.
+
+**It had 100% coverage and 51 passing tests, and every test that touched it asserted that the
+command WORKED** — that `echo hi` printed `hi`, that `ls` saw the shadow's files. A test suite can
+be complete about behaviour and silent about capability.
+
+**How to apply.**
+1. **A generated contract is a claim, and a claim is a deliverable (trap 39).** When a manifest
+   says a tool writes only X or touches no network, something must make that true. Grep for the
+   fields — `writes`, `touches_network`, `destructive` — and ask, per tool, what enforces each one.
+2. **Grant-gating is not containment.** `prompt_once_per_project` means the user approved the
+   capability, not that the capability is bounded. Approval and isolation answer different
+   questions.
+3. **When the capability cannot yet be contained, refuse it and say why.** The tool stays in the
+   manifest (boundary D requires the handler set and the tool set to match), the handler raises a
+   refusal naming the law and the feature that will close it, and the tests assert the refusal.
+   That is a smaller product and a true one.

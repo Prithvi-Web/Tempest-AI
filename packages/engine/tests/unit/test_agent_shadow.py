@@ -443,3 +443,80 @@ class TestRawGitErrors:
         s = sw.create(repo, "task-1")
         with pytest.raises(sw.ShadowError, match="git show"):
             sw._git_bytes(repo, "show", f"{s.baseline}:does/not/exist.py")
+
+
+class TestAttach:
+    """P2's way back in. `create` refuses to overwrite a live shadow, so a restarted process
+    needs a way to pick up the one it already has — with the baseline it was created with, not a
+    fresh reading of a tree that has moved on since.
+
+    States: a live shadow · no shadow at all · a meta file whose worktree is gone · a worktree
+    with no meta beside it · a meta file that parses but says nothing useful.
+    """
+
+    def test_it_returns_the_shadow_with_its_recorded_baseline(self, repo: Path) -> None:
+        """The baseline must come from the RECORD, not from re-reading the tree.
+
+        So the tree moves first: after a snapshot the branch tip has advanced and the user's
+        checkout has changed, and every way of re-deriving a baseline now gives a different sha.
+        Only the recorded one still matches. The first version of this test asserted equality
+        against a value nothing had disturbed, and a review pointed out it held whatever the code
+        did.
+        """
+        made = sw.create(repo, "task-1")
+        sw.write(made, "app.py", "print('agent edit')\n")
+        head = sw.snapshot(made)
+        assert head != made.baseline, "the branch tip has moved away from the baseline"
+        (repo / "user_edit.py").write_text("print('the user kept working')\n", encoding="utf-8")
+
+        got = sw.attach(repo, "task-1")
+        assert got is not None
+        assert (got.path, got.branch) == (made.path, made.branch)
+        assert got.baseline == made.baseline
+        assert got.baseline != head
+
+    def test_a_task_with_no_shadow_answers_none(self, repo: Path) -> None:
+        assert sw.attach(repo, "never-made") is None
+
+    def test_a_discarded_shadow_answers_none(self, repo: Path) -> None:
+        sw.discard(sw.create(repo, "task-1"))
+        assert sw.attach(repo, "task-1") is None
+
+    def test_a_meta_file_whose_worktree_is_gone_answers_none(self, repo: Path) -> None:
+        """Answering with it would hand the caller a path nothing lives at, and the failure would
+        surface later as a confusing git error about a directory rather than a missing shadow."""
+        made = sw.create(repo, "task-1")
+        _git(repo, "worktree", "remove", "--force", str(made.path))
+        assert sw.attach(repo, "task-1") is None
+
+    def test_a_worktree_with_no_meta_answers_none(self, repo: Path) -> None:
+        """Nothing trustworthy to rebuild from: the baseline is the one fact that cannot be
+        derived, and guessing it is how a shadow ends up diffed against itself.
+
+        And the state this creates is a WEDGE — a worktree `create` will refuse to overwrite and
+        `attach` will not adopt — so the second assertion pins that it is recoverable rather than
+        permanent. `discard` is the recovery, and it works on a shadow rebuilt by hand from the
+        path, which is all a caller has left at that point.
+        """
+        made = sw.create(repo, "task-1")
+        sw._meta_path(repo, sw._slug("task-1")).unlink()
+        assert made.path.is_dir()
+        assert sw.attach(repo, "task-1") is None
+        # And it is RECOVERABLE, not a wedge: `create` reclaims a worktree of its own with no
+        # metadata beside it, because that is the wreckage of a process killed between the two
+        # writes and the baseline it was built from is exactly what was never recorded.
+        rebuilt = sw.create(repo, "task-1")
+        assert rebuilt.path == made.path
+        assert sw.attach(repo, "task-1") is not None
+
+    def test_a_meta_file_with_no_baseline_answers_none(self, repo: Path) -> None:
+        sw.create(repo, "task-1")
+        sw._meta_path(repo, sw._slug("task-1")).write_text(
+            '{"task_id": "task-1"}', encoding="utf-8"
+        )
+        assert sw.attach(repo, "task-1") is None
+
+    def test_a_meta_file_that_is_not_an_object_answers_none(self, repo: Path) -> None:
+        sw.create(repo, "task-1")
+        sw._meta_path(repo, sw._slug("task-1")).write_text("[1, 2, 3]", encoding="utf-8")
+        assert sw.attach(repo, "task-1") is None

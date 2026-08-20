@@ -21,6 +21,7 @@ So `RepairOutcome.succeeded` requires all of:
 
 * no `UNINTENDED` and no `UNCLASSIFIED` divergences remain;
 * the contract is byte-identical to the one the loop started with;
+* **every file the change touches still loads**;
 * **every target that produced a verdict before still produces one**, and the proven set did not
   shrink.
 
@@ -28,6 +29,16 @@ The last condition is what makes deletion and unreachability fail closed. It is 
 stricter than the run-level verdict: `bundle.run_verdict` answers EQUIVALENT when *any* target is
 equivalent even if others went UNPROVEN, which is right for a run and useless as a repair
 criterion. F3 compares **per target**.
+
+**Why "still loads" is a separate condition, and why it has to be EXECUTED** (ADR-0051). A bundle
+carries only CHANGED symbols, so a symbol put back stops being a target and vanishes — exactly as
+a deleted one does. `reverted_symbols` tells those apart by comparing the symbol's source, and an
+agent that restores a function byte-for-byte while adding `import no_such_module_xyz` at the top
+of the file defeats it: the source really is identical, the module is broken anyway by a statement
+that belongs to no symbol, and with no changed symbol the engine has nothing to target either. No
+static check closes it — `import no_such_module_xyz` parses perfectly. So the loop runs the
+import, in the same sandbox everything else runs in (L4), and a module that no longer loads fails
+the attempt whatever the divergence count says.
 
 **No model decides whether a repair worked.** The judgement here is a comparison of two bundles
 and one file hash (L17). The model only ever receives evidence and writes code.
@@ -96,6 +107,36 @@ class EvidencePacket:
 
 
 @dataclass(frozen=True)
+class BrokenModule:
+    """A file the change touches that no longer imports, and the traceback that says why."""
+
+    path: str
+    module: str
+    error: str
+
+    @property
+    def first_line(self) -> str:
+        """The last line of the traceback — the exception, without the frames above it."""
+        lines = [line for line in self.error.splitlines() if line.strip()]
+        return lines[-1].strip() if lines else "no error was reported"
+
+
+@dataclass(frozen=True)
+class Judgement:
+    """The verdict on one repair attempt, and whether it was a cheat.
+
+    `cheat` is not a severity label: it decides what the loop does next. A behaviour that is
+    still wrong earns another attempt, because that is what the budget is for. A cheat does not —
+    giving an agent three more turns to keep moving the goalposts spends budget to make the
+    record worse.
+    """
+
+    succeeded: bool
+    reason: str
+    cheat: bool = False
+
+
+@dataclass(frozen=True)
 class RepairAttempt:
     """One pass. Kept and returned because F3 says never hide the loop."""
 
@@ -112,6 +153,12 @@ class RepairOutcome:
     succeeded: bool
     attempts: tuple[RepairAttempt, ...]
     reason: str
+    #: True when the agent undid its own work: the divergence is gone because the change is, so
+    #: there is nothing to present. A FLAG rather than a phrase in `reason`, because callers act
+    #: on this — the gate reports it as its own outcome — and reading a caller's behaviour off a
+    #: substring of a human-readable message is a rule that breaks the next time the message is
+    #: reworded (found by review).
+    abandoned: bool = False
 
     @property
     def cheated(self) -> bool:
@@ -166,14 +213,31 @@ def judge(
     contract_before: str,
     contract_after: str,
     reverted: frozenset[str] = frozenset(),
-) -> tuple[bool, str]:
-    """Did this attempt repair the change? Returns (succeeded, reason).
+    broken: tuple[BrokenModule, ...] = (),
+) -> Judgement:
+    """Did this attempt repair the change?
 
     The order of the checks is the order of severity, so the reason a caller shows the user names
     the WORST thing that happened rather than the first one noticed.
+
+    `cheat` is decided HERE, by which check failed, rather than inferred by the caller from the
+    wording of `reason`. An earlier draft had the orchestrator test `"remain" in reason`, which
+    made every future failure message a load-bearing string one word away from silently
+    reclassifying a cheat as an ordinary miss.
     """
     if contract_before != contract_after:
-        return False, "the contract changed during the repair — the claim was moved, not met"
+        return Judgement(
+            False, "the contract changed during the repair — the claim was moved, not met", True
+        )
+
+    if broken:
+        return Judgement(
+            False,
+            "the change no longer loads: "
+            + "; ".join(f"{b.path} ({b.first_line})" for b in broken)
+            + " — a divergence that disappears because the module stopped running is not a repair",
+            True,
+        )
 
     after = proven_targets(after_bundle)
     # A symbol that was PUT BACK is not a lost target. It leaves the bundle because it is no
@@ -183,21 +247,25 @@ def judge(
     # a bundle that only ever contains changed symbols.
     lost = sorted(set(before) - set(after) - reverted)
     if lost:
-        return False, (
+        return Judgement(
+            False,
             f"targets stopped being provable: {', '.join(lost)} — a divergence that disappears "
-            f"because the evidence did is not a repair"
+            f"because the evidence did is not a repair",
+            True,
         )
 
     unintended = [d for d in divergences if d.classification == contracts_mod.UNINTENDED]
     unclassified = [d for d in divergences if d.classification == contracts_mod.UNCLASSIFIED]
     if unintended:
-        return False, f"{len(unintended)} unintended divergence(s) remain"
+        return Judgement(False, f"{len(unintended)} unintended divergence(s) remain", False)
     if unclassified:
-        return False, (
+        return Judgement(
+            False,
             f"{len(unclassified)} unclassified divergence(s) remain — nobody predicted these, so "
-            f"they are shown rather than assumed harmless"
+            f"they are shown rather than assumed harmless",
+            False,
         )
-    return True, "the divergence set matches the contract"
+    return Judgement(True, "the divergence set matches the contract", False)
 
 
 def reverted_symbols(

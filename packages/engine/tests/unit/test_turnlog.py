@@ -154,3 +154,85 @@ class TestWhatARestartedProcessIsToldToDo:
         log.checkpoint("t1", turnlog.PROVING, base="a", head="c")
 
         assert plan_resume(log, "t1").reprove
+
+
+class TestWhatTheRestartMaySkip:
+    """The plan has to say what to redo, not just that something is left. Model turns cost money
+    and cannot be repeated identically; a proof is a pure function and is safe to redo blindly.
+    Those are different facts and the plan carries both.
+    """
+
+    def test_a_fresh_task_redoes_everything_and_is_not_resuming(self, repo: Path) -> None:
+        plan = plan_resume(TurnLog(repo), "never-seen")
+        assert plan.redo_turns and not plan.resuming and plan.baseline == ""
+
+    def test_turns_recorded_means_the_model_is_not_asked_again(self, repo: Path) -> None:
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        log.checkpoint("t1", turnlog.TURNS_DONE, turns=2, stopped="the model finished")
+        log.checkpoint("t1", turnlog.PROVING, base="abc123", head="def456")
+        plan = plan_resume(log, "t1")
+        assert plan.resuming and plan.reprove and not plan.redo_turns
+        assert plan.baseline == "abc123"
+
+    def test_a_crash_before_the_turns_finished_redoes_them(self, repo: Path) -> None:
+        """STARTED alone means the conversation never completed. Its edits, if any, are in the
+        shadow — but nothing says the model was done, so the honest answer is to ask again."""
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        plan = plan_resume(log, "t1")
+        assert plan.resuming and plan.redo_turns
+        assert "the model turns never completed" in plan.reason
+
+    def test_a_crash_inside_the_proof_before_the_turns_finished_redoes_both(
+        self, repo: Path
+    ) -> None:
+        """Contrived but real: a proof row with no TURNS_DONE above it. The turn flag is asked of
+        the whole history, so the absence is seen rather than assumed away by the last stage."""
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        log.checkpoint("t1", turnlog.PROVING, base="abc123", head="def456")
+        plan = plan_resume(log, "t1")
+        assert plan.reprove and plan.redo_turns
+
+    def test_a_task_resumed_twice_still_knows_its_turns_are_done(self, repo: Path) -> None:
+        """A RESUMED row lands on top of the history. Reading only the LAST stage to decide
+        whether the model already ran would ask for the whole conversation again on the second
+        restart — the expensive answer, arrived at by looking at the wrong row."""
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        log.checkpoint("t1", turnlog.TURNS_DONE, turns=1, stopped="done")
+        log.checkpoint("t1", turnlog.RESUMED, reason="first restart", redo_turns=False)
+        log.checkpoint("t1", turnlog.PROVING, base="abc123", head="def456")
+        assert not plan_resume(log, "t1").redo_turns
+
+    def test_the_baseline_comes_from_the_FIRST_started_row(self, repo: Path) -> None:
+        """One task has one baseline and possibly several attempts at it. Reading the newest row
+        would let the answer drift with every restart, and a proof against a drifting baseline
+        answers a different question each time."""
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="first")
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="second")
+        assert plan_resume(log, "t1").baseline == "first"
+
+    def test_a_started_row_with_no_baseline_answers_empty_rather_than_guessing(
+        self, repo: Path
+    ) -> None:
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p")
+        assert plan_resume(log, "t1").baseline == ""
+
+    def test_a_finished_task_reports_its_baseline_and_asks_for_no_work(self, repo: Path) -> None:
+        log = TurnLog(repo)
+        log.checkpoint("t1", turnlog.STARTED, prompt="p", baseline="abc123")
+        log.checkpoint("t1", turnlog.TURNS_DONE, turns=1, stopped="done")
+        log.checkpoint("t1", turnlog.FINISHED, verdict="DIVERGENT", bundle_id="a..b")
+        plan = plan_resume(log, "t1")
+        assert plan.finished and not plan.reprove and not plan.redo_turns
+        assert plan.baseline == "abc123" and plan.resuming
+
+    def test_resumed_is_a_stage_the_log_accepts(self, repo: Path) -> None:
+        log = TurnLog(repo)
+        entry = log.checkpoint("t1", turnlog.RESUMED, reason="why", redo_turns=False)
+        assert entry.stage == turnlog.RESUMED
+        assert log.history("t1")[-1].payload["redo_turns"] is False

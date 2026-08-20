@@ -131,7 +131,18 @@ def create(repo: Path, task_id: str, *, baseline: str | None = None) -> Shadow:
     slug = _slug(task_id)
     path = repo / _WORKTREES / slug
     if path.exists():
-        raise ShadowError(f"a shadow for task {task_id!r} already exists at {path}")
+        if _meta_path(repo, slug).is_file():
+            raise ShadowError(f"a shadow for task {task_id!r} already exists at {path}")
+        # A worktree under our own directory with no metadata beside it is the wreckage of a
+        # process killed between `git worktree add` and `_write_meta` — a window one line wide
+        # that closed the task id permanently, because `attach` will not adopt a shadow it cannot
+        # read a baseline from and `create` refused to overwrite one. Nothing else writes here,
+        # and without metadata there is nothing in it worth keeping: the baseline it was built
+        # from is exactly the fact that was never recorded.
+        _git_quiet(repo, "worktree", "remove", "--force", str(path))
+        if path.exists():
+            shutil.rmtree(path, ignore_errors=True)
+        _git_quiet(repo, "worktree", "prune")
 
     sha = _git(repo, "rev-parse", f"{baseline}^{{commit}}") if baseline else _baseline_commit(repo)
     branch = f"{_BRANCH_PREFIX}{slug}"
@@ -363,6 +374,36 @@ def list_shadows(repo: Path) -> list[Shadow]:
             )
         )
     return out
+
+
+def attach(repo: Path, task_id: str) -> Shadow | None:
+    """The existing shadow for `task_id`, or None when there is not one.
+
+    P2's way back in after a restart. `create` deliberately refuses to overwrite a live shadow,
+    and a resumed task must not get a NEW baseline: the baseline is a claim about what the agent
+    started from, and re-deriving it from the user's tree hours later would silently re-point the
+    proof at a different starting state — the agent's own edits would vanish from the diff and
+    the user's later edits would appear in it.
+
+    Both halves are required. A meta file whose worktree is gone describes a shadow that no
+    longer exists, and answering with it would hand the caller a path nothing lives at.
+    """
+    repo = Path(repo)
+    slug = _slug(task_id)
+    meta_path = _meta_path(repo, slug)
+    path = repo / _WORKTREES / slug
+    if not meta_path.is_file() or not path.is_dir():
+        return None
+    meta: Any = json.loads(meta_path.read_text(encoding="utf-8"))
+    if not isinstance(meta, dict) or not meta.get("baseline"):
+        return None
+    return Shadow(
+        task_id=str(meta.get("task_id", task_id)),
+        repo=repo,
+        path=path,
+        branch=f"{_BRANCH_PREFIX}{slug}",
+        baseline=str(meta["baseline"]),
+    )
 
 
 def read_at(shadow: Shadow, sha: str, relpath: str) -> str | None:

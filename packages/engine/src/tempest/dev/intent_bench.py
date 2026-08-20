@@ -10,6 +10,15 @@ is the one outcome that turns evidence into false comfort. F2 says so directly: 
 'intended' is worse than no feature".
 
 So a run with 100% accuracy and one false INTENDED fails, and a run at 92% with none passes.
+
+**And a third bar, which is the one that actually binds on a keyless run.** The model here is a
+script, so the corpus is deterministic: every row has exactly one correct answer and the product
+either gets it or has regressed. The accuracy floor is a bar for a REAL model, where 90% is a
+quality judgement; against the scripted corpus it is nearly unfallible, because 54 rows and a 90%
+bar tolerate five wrong answers. So a keyless run additionally fails on ANY mismatch, and says
+which. Growing the corpus made this necessary and a review made it visible: adding tasks had
+quietly diluted the denominator until a real classification regression could not turn the gate
+red (trap 47).
 """
 
 from __future__ import annotations
@@ -90,7 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    rows = evaluate(TASKS[: args.tasks])
+        # `--tasks N` is a FLOOR, not a slice. Asking for 50 asserts the corpus holds at least 50
+    # and then runs all of it: slicing to exactly N would silently exclude every task added
+    # after the Nth, so growing the corpus would quietly stop testing the new work while the
+    # gate went on printing the number it was asked for.
+    rows = evaluate(TASKS)
     print(render(rows, min_accuracy=args.min_accuracy))
     correct = sum(1 for r in rows if r.correct)
     accuracy = correct / len(rows) if rows else 0.0
@@ -107,13 +120,17 @@ def main(argv: list[str] | None = None) -> int:
     if false_intended > args.max_false_intended:
         failed = True
     if accuracy < args.min_accuracy:
-        for row in rows:
-            if not row.correct and not row.false_intended:
-                print(
-                    f"INTENT-BENCH {row.task}/{row.symbol}: {row.actual}, expected {row.expected}",
-                    file=sys.stderr,
-                )
         failed = True
+    # Every mismatch is named and every mismatch fails, independently of the floor above. The
+    # corpus is deterministic; a wrong row is a regression, not a rounding error.
+    for row in rows:
+        if not row.correct and not row.false_intended:
+            print(
+                f"INTENT-BENCH {row.task}/{row.symbol}: {row.actual}, expected {row.expected} — "
+                f"the scripted corpus has one correct answer per row, so this is a regression",
+                file=sys.stderr,
+            )
+            failed = True
     return 1 if failed else 0
 
 

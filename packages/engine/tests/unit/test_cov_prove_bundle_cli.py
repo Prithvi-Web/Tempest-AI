@@ -19,9 +19,10 @@ from tempest.cli.report import render_report
 from tempest.compare.compare import CompareConfig
 from tempest.envrepro.worktree import MaterializedEnv
 from tempest.execute.dual import FoundDivergence
+from tempest.execute.runner import module_name_for
 from tempest.execute.sandbox import ProcessSandbox
 from tempest.model import BUNDLE_SCHEMA_VERSION, DivergenceClass, Severity, Verdict
-from tempest.prove import ProveConfig, _minimize, _module_name, run_prove
+from tempest.prove import ProveConfig, _minimize, run_prove
 
 from .test_bundle import _bundle, _divergence, _target
 from .test_targets_diff import commit_head, make_repo
@@ -33,11 +34,11 @@ _MARKER = "tempest-first-party-fixture-v1"
 
 class TestModuleName:
     def test_src_layout_prefix_is_stripped(self) -> None:
-        assert _module_name("src/pkg/mod.py") == "pkg.mod"
+        assert module_name_for("src/pkg/mod.py") == "pkg.mod"
 
     def test_flat_layout_maps_directly(self) -> None:
-        assert _module_name("pkg/mod.py") == "pkg.mod"
-        assert _module_name("m.py") == "m"
+        assert module_name_for("pkg/mod.py") == "pkg.mod"
+        assert module_name_for("m.py") == "m"
 
 
 class TestProveScopeAddedDeleted:

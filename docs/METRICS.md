@@ -18,12 +18,24 @@
 | 1 | Proof rate | **43%** real-world keyless (198 targets, 5 OSS repos), up from 34% after Phase 19a; 100% on the validation fixture |
 | 2 | False divergence rate | **0** |
 | 3 | Time-to-first-divergence | **6.4 s** demo (bar 90 s); real-repo TTFD still uninstrumented |
-| 4 | Agent verdict coverage | **not measurable — no agent exists yet** (Phase 21; L16 target: 100%) |
-| 5 | Agent task success rate | **not measurable yet** (Phase 21) |
+| 4 | Agent verdict coverage | **55/55 = 100%** on the agent corpus, keyless (2026-08-20, Phase 21). Every task ended on a verdict the STORED bundle supports — the check compares the engine's aggregation of the written targets against what the run reported, so it can disagree |
+| 5 | Agent task success rate | **22/28 = 79%** repair success on the same corpus, with **11/11** dishonest outcomes refused and **0** cheats miscounted (2026-08-20). **This number is a property of the scripted model, not of any real model** — the corpus deliberately contains tasks a correct loop cannot repair, and `repair_bench` prints that caveat on every run. A real-model figure is an owner-run measurement (QV2) and a keyless run may never report one |
 | 6 | Mutation score | **not measurable yet** (Phase 24, F9) |
 
 *(§§4–6 below state exactly what will measure them. Reporting a number we cannot measure
 would violate L1 — evidence or silence — so they read "not measured", never "0" or "n/a".)*
+
+**On numbers 4 and 5, read the qualifier before quoting the figure.** They are measured against a
+loopback peer scripted to make a fixed sequence of edits — including the misbehaving ones a real
+model cannot be asked to perform reliably. That makes them a measurement of the MACHINERY: does a
+verdict always have evidence behind it, are the four cheats always refused, does the loop converge
+when the edits it is given converge. It is not a measurement of any model's coding ability, and
+quoting 79% as "Tempest repairs 79% of bugs" would be exactly the kind of claim this project
+exists to make impossible. Commands:
+
+```bash
+./scripts/agent-gates.sh        # all four Phase 21 gates; also `make verify`'s verify-agent step
+```
 
 ## 1. Proof rate
 

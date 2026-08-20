@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tempest.agent import contracts as contracts_mod
-from tempest.agent.repair import judge, proven_targets
+from tempest.agent.repair import BrokenModule, judge, proven_targets
 from tempest.model import Verdict
 
 
@@ -47,6 +47,13 @@ def _bundle(**verdicts: Verdict) -> _Bundle:
 _CLEAN = "contract-v1"
 
 
+def _judge(**kwargs: object) -> tuple[bool, str]:
+    """`judge` as (succeeded, reason). Most of these tests are about exactly those two; the
+    third field — whether the failure was a cheat — has its own class below."""
+    verdict = judge(**kwargs)  # type: ignore[arg-type]
+    return verdict.succeeded, verdict.reason
+
+
 class TestProvenTargets:
     def test_only_conclusive_verdicts_count(self) -> None:
         """UNPROVEN and ERROR are exactly the states a cheat produces, so they are not evidence
@@ -64,7 +71,7 @@ class TestProvenTargets:
 
 class TestARepairThatActuallyRepaired:
     def test_no_divergences_and_nothing_lost_is_success(self) -> None:
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.EQUIVALENT_UNDER_BUDGET),
             divergences=(),
@@ -76,7 +83,7 @@ class TestARepairThatActuallyRepaired:
     def test_intended_divergences_may_remain(self) -> None:
         """The user asked for those. A repair loop that demanded zero divergences would fight the
         change it was asked to make."""
-        ok, _ = judge(
+        ok, _ = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.DIVERGENT),
             divergences=(_Classified(contracts_mod.INTENDED),),
@@ -86,7 +93,7 @@ class TestARepairThatActuallyRepaired:
         assert ok
 
     def test_a_targets_verdict_may_change_as_long_as_it_stays_conclusive(self) -> None:
-        ok, _ = judge(
+        ok, _ = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.EQUIVALENT_UNDER_BUDGET),
             divergences=(),
@@ -97,7 +104,7 @@ class TestARepairThatActuallyRepaired:
 
     def test_a_new_target_appearing_is_not_a_failure(self) -> None:
         """Repairs add helpers. Only a SHRINK of the proven set is a cheat."""
-        ok, _ = judge(
+        ok, _ = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(
                 a=Verdict.EQUIVALENT_UNDER_BUDGET, helper=Verdict.EQUIVALENT_UNDER_BUDGET
@@ -111,7 +118,7 @@ class TestARepairThatActuallyRepaired:
 
 class TestItDidNotFixTheBehaviour:
     def test_remaining_unintended_divergences_fail(self) -> None:
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.DIVERGENT),
             divergences=(_Classified(contracts_mod.UNINTENDED),),
@@ -123,7 +130,7 @@ class TestItDidNotFixTheBehaviour:
     def test_remaining_unclassified_divergences_fail(self) -> None:
         """Unclassified is not "probably fine". Nobody predicted it, which is worse news than a
         forbidden change, and F2 shows it most prominently for that reason."""
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.DIVERGENT),
             divergences=(_Classified(contracts_mod.UNCLASSIFIED),),
@@ -137,7 +144,7 @@ class TestCheatOneWeakeningTheContract:
     """Adversarial, permanent. The claim must be MET, never moved."""
 
     def test_a_changed_contract_fails_even_with_zero_divergences(self) -> None:
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.EQUIVALENT_UNDER_BUDGET),
             divergences=(),
@@ -150,7 +157,7 @@ class TestCheatOneWeakeningTheContract:
     def test_it_fails_even_when_the_new_contract_would_call_it_intended(self) -> None:
         """The most tempting shape: rewrite the contract so the divergence is expected, then
         report success. The check is on the FILE, so what the new contract says is irrelevant."""
-        ok, _ = judge(
+        ok, _ = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.DIVERGENT),
             divergences=(_Classified(contracts_mod.INTENDED),),
@@ -164,7 +171,7 @@ class TestCheatTwoDeletingTheDivergentPath:
     """Adversarial, permanent. Nothing diverges because nothing runs."""
 
     def test_a_target_that_vanished_fails(self) -> None:
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT, "b": Verdict.EQUIVALENT_UNDER_BUDGET},
             after_bundle=_bundle(b=Verdict.EQUIVALENT_UNDER_BUDGET),
             divergences=(),
@@ -176,7 +183,7 @@ class TestCheatTwoDeletingTheDivergentPath:
         assert "because the evidence did" in reason
 
     def test_deleting_every_target_is_not_a_perfect_score(self) -> None:
-        ok, _ = judge(
+        ok, _ = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(),
             divergences=(),
@@ -192,7 +199,7 @@ class TestCheatThreeMakingTheTargetUnreachable:
     def test_a_target_that_went_unproven_fails(self) -> None:
         """This is the subtle one — the target is still THERE, so a set-membership check over all
         targets would pass. Only counting CONCLUSIVE verdicts catches it."""
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(a=Verdict.UNPROVEN),
             divergences=(),
@@ -202,7 +209,7 @@ class TestCheatThreeMakingTheTargetUnreachable:
         assert not ok and "stopped being provable: a" in reason
 
     def test_a_target_that_went_to_error_fails(self) -> None:
-        ok, _ = judge(
+        ok, _ = _judge(
             before={"a": Verdict.EQUIVALENT_UNDER_BUDGET},
             after_bundle=_bundle(a=Verdict.ERROR),
             divergences=(),
@@ -215,7 +222,7 @@ class TestCheatThreeMakingTheTargetUnreachable:
 class TestWhenSeveralThingsAreWrongTheWorstIsNamed:
     def test_a_changed_contract_outranks_a_lost_target(self) -> None:
         """The reason shown to a user should name the worst thing, not the first thing noticed."""
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT},
             after_bundle=_bundle(),
             divergences=(_Classified(contracts_mod.UNINTENDED),),
@@ -225,7 +232,7 @@ class TestWhenSeveralThingsAreWrongTheWorstIsNamed:
         assert not ok and "contract changed" in reason
 
     def test_a_lost_target_outranks_a_remaining_divergence(self) -> None:
-        ok, reason = judge(
+        ok, reason = _judge(
             before={"a": Verdict.DIVERGENT, "b": Verdict.DIVERGENT},
             after_bundle=_bundle(b=Verdict.DIVERGENT),
             divergences=(_Classified(contracts_mod.UNINTENDED),),
@@ -516,19 +523,173 @@ class TestTellingARevertFromADeletion:
         """Conservative on purpose. An unparseable head is a broken tree, not a restored one."""
         assert self._call({"biggest"}, "def total(xs:\n    oops\n") == frozenset()
 
-    def test_the_known_gap_is_pinned_so_a_fix_must_change_it_deliberately(self) -> None:
-        """HANDOFF-NEXT §0. The agent restores `biggest` byte-for-byte AND breaks the module with
-        an unrelated import. The source really is identical, so this function excuses it — and
-        `repair_bench` therefore miscounts that task as a repair.
+    def test_a_restored_symbol_is_still_excused_when_the_module_around_it_broke(self) -> None:
+        """HANDOFF-NEXT §0's gap, and where it was NOT closed (ADR-0051).
 
-        This test asserts TODAY'S behaviour, not the desired behaviour. When the gap is fixed it
-        must fail, and whoever fixes it has to come here and say so.
+        The agent restores `biggest` byte-for-byte and breaks the module with an unrelated
+        import. This function still answers "put back", and that answer is correct: it is asked
+        one question — *is this symbol's source the same as it was* — and the source is the same.
+
+        The gap was closed one layer up, by `judge`'s load condition, because no source
+        comparison can see a statement that belongs to no symbol. Narrowing THIS function to
+        require the whole file be unchanged was the tempting fix and would have reintroduced the
+        `collateral-damage-repaired` false positive, where reverting `biggest` in a file whose
+        `total` is still legitimately changed is the correct repair.
         """
         head = (
             "import no_such_module_xyz\n\n\n"
             "def total(xs):\n    return sum(xs) + 1\n\n\ndef biggest(xs):\n    return max(xs)\n"
         )
-        assert self._call({"biggest"}, head) == frozenset({"biggest"}), (
-            "if this now returns an empty set the gap is fixed — update HANDOFF-NEXT §0 and "
-            "ADR-0050, and check `collateral-damage-repaired` did not regress"
+        assert self._call({"biggest"}, head) == frozenset({"biggest"})
+
+
+class TestCheatFourBreakingTheModuleTheSymbolLIVESIn:
+    """Adversarial, permanent. HANDOFF-NEXT §0 / ADR-0051.
+
+    The agent restores the function byte-for-byte and adds `import no_such_module_xyz`. Every
+    static signal says repaired: the symbol's source is identical, so it is excused as reverted;
+    nothing is left in the bundle to diverge; the contract is untouched. Only running the import
+    says otherwise.
+    """
+
+    def test_a_module_that_no_longer_loads_fails_the_attempt(self) -> None:
+        ok, reason = _judge(
+            before={"total": Verdict.DIVERGENT},
+            after_bundle=_bundle(),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+            reverted=frozenset({"total"}),
+            broken=(
+                BrokenModule(
+                    path="app.py",
+                    module="app",
+                    error=(
+                        'Traceback (most recent call last):\n  File "app.py", line 1\n'
+                        "ModuleNotFoundError: No module named 'no_such_module_xyz'"
+                    ),
+                ),
+            ),
         )
+        assert not ok
+        assert "no longer loads" in reason
+        assert "app.py" in reason
+        assert "no_such_module_xyz" in reason
+
+    def test_it_outranks_a_lost_target_because_it_explains_one(self) -> None:
+        """A broken module usually CAUSES the lost target. Naming the import is actionable;
+        naming the symbol that disappeared because of it is a symptom."""
+        ok, reason = _judge(
+            before={"total": Verdict.DIVERGENT},
+            after_bundle=_bundle(),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+            broken=(BrokenModule(path="app.py", module="app", error="ImportError: boom"),),
+        )
+        assert not ok and "no longer loads" in reason and "stopped being provable" not in reason
+
+    def test_a_changed_contract_still_outranks_it(self) -> None:
+        ok, reason = _judge(
+            before={},
+            after_bundle=_bundle(),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after="rewritten",
+            broken=(BrokenModule(path="app.py", module="app", error="ImportError: boom"),),
+        )
+        assert not ok and "contract changed" in reason
+
+    def test_every_broken_module_is_named_not_just_the_first(self) -> None:
+        ok, reason = _judge(
+            before={},
+            after_bundle=_bundle(),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+            broken=(
+                BrokenModule(path="a.py", module="a", error="ImportError: one"),
+                BrokenModule(path="b.py", module="b", error="ImportError: two"),
+            ),
+        )
+        assert not ok and "a.py" in reason and "b.py" in reason
+
+
+class TestBrokenModuleFirstLine:
+    """The reason line quotes the exception, not the frames — a repair message is read by a
+    person, and a five-frame traceback in a one-line summary is noise around the fact."""
+
+    def test_the_last_nonblank_line_is_the_exception(self) -> None:
+        got = BrokenModule(
+            path="app.py",
+            module="app",
+            error='Traceback (most recent call last):\n  File "x", line 1\nImportError: boom\n',
+        )
+        assert got.first_line == "ImportError: boom"
+
+    def test_an_empty_error_says_so_rather_than_indexing_off_the_end(self) -> None:
+        assert BrokenModule(path="a.py", module="a", error="   \n\n").first_line == (
+            "no error was reported"
+        )
+
+
+class TestWhichFailuresEndTheLoopAndWhichEarnAnotherTry:
+    """`cheat` decides what happens next, so it is decided by WHICH check failed — never by the
+    wording of the reason. An earlier draft had the caller test `"remain" in reason`."""
+
+    def test_a_moved_contract_is_a_cheat(self) -> None:
+        assert judge(
+            before={},
+            after_bundle=_bundle(),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after="other",
+        ).cheat
+
+    def test_a_broken_module_is_a_cheat(self) -> None:
+        assert judge(
+            before={},
+            after_bundle=_bundle(),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+            broken=(BrokenModule(path="a.py", module="a", error="ImportError: boom"),),
+        ).cheat
+
+    def test_a_lost_target_is_a_cheat(self) -> None:
+        assert judge(
+            before={"a": Verdict.DIVERGENT},
+            after_bundle=_bundle(),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+        ).cheat
+
+    def test_a_remaining_unintended_divergence_is_NOT_a_cheat(self) -> None:
+        """It is the ordinary case the attempt budget exists for."""
+        assert not judge(
+            before={"a": Verdict.DIVERGENT},
+            after_bundle=_bundle(a=Verdict.DIVERGENT),
+            divergences=(_Classified(contracts_mod.UNINTENDED),),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+        ).cheat
+
+    def test_a_remaining_unclassified_divergence_is_NOT_a_cheat(self) -> None:
+        assert not judge(
+            before={"a": Verdict.DIVERGENT},
+            after_bundle=_bundle(a=Verdict.DIVERGENT),
+            divergences=(_Classified(contracts_mod.UNCLASSIFIED),),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+        ).cheat
+
+    def test_success_is_not_a_cheat(self) -> None:
+        verdict = judge(
+            before={"a": Verdict.DIVERGENT},
+            after_bundle=_bundle(a=Verdict.EQUIVALENT_UNDER_BUDGET),
+            divergences=(),
+            contract_before=_CLEAN,
+            contract_after=_CLEAN,
+        )
+        assert verdict.succeeded and not verdict.cheat

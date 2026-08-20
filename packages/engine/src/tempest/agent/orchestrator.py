@@ -25,7 +25,7 @@ that ran out of budget half-written is exactly the change a user most needs a ve
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -35,9 +35,18 @@ from tempest.agent import shadow as shadow_mod
 from tempest.agent import turnlog as turnlog_mod
 from tempest.agent.tools import Budgets, Dispatcher, ToolResult, model_facing_catalog
 from tempest.bundle.bundle import run_verdict
-from tempest.inference.client import Message, ModelError, complete
+from tempest.config import TempestConfig, TempestConfigError, is_ignored
+from tempest.envrepro.worktree import materialize
+from tempest.execute.runner import module_for_path, module_loads
+from tempest.inference.client import (
+    DEFAULT_TIMEOUT_S,
+    Message,
+    ModelError,
+    ToolCall,
+    complete,
+)
 from tempest.model import Verdict
-from tempest.prove import ProveConfig, run_prove
+from tempest.prove import ProveConfig, run_prove, select_sandbox_for_repo
 
 #: What the model is told about its situation. Deliberately short: the tool descriptions are the
 #: contract (boundary D) and repeating them here would be a second, drifting copy.
@@ -59,6 +68,26 @@ and say what you changed."""
 
 class AgentError(Exception):
     """The orchestrator could not run the task. Never used for a model's bad answer."""
+
+
+class TaskAlreadyFinished(AgentError):
+    """This task ran to completion already; its verdict is on disk (P2).
+
+    Raised rather than silently re-running. A second run would build a second shadow worktree for
+    a task that has one, spend model turns that were already paid for, and — because it would
+    take a NEW baseline from a tree the first run may since have changed — could answer a
+    different question and present it under the same task id. The recorded verdict and bundle id
+    travel on the exception so a caller that just wants the answer has it without a second call.
+    """
+
+    def __init__(self, task_id: str, verdict: str, bundle_id: str) -> None:
+        super().__init__(
+            f"task {task_id!r} already finished with verdict {verdict} (bundle {bundle_id}) — "
+            f"read the recorded run rather than running it again, or use a new task id"
+        )
+        self.task_id = task_id
+        self.verdict = verdict
+        self.bundle_id = bundle_id
 
 
 @dataclass(frozen=True)
@@ -153,10 +182,139 @@ class TaskSpec:
     grants: frozenset[str] = frozenset()
     max_inputs: int = 50
     seed: int = 0
+    #: The wall-clock bound on ONE model call (L15.4). Explicit rather than inherited: a turn
+    #: loop whose only time bound is a library default is bounded by something nobody chose, and
+    #: `resume_test --sleep-mid-stream` needs to be able to choose it.
+    model_timeout_s: float = DEFAULT_TIMEOUT_S
     #: F3. Attempts are only spent when there IS a contract — with no stated intent there is
     #: nothing to repair against, and an agent guessing at what the user wanted is precisely what
     #: F2 exists to prevent. Set to 0 to prove once and stop.
     max_repair_attempts: int = repair_mod.DEFAULT_MAX_ATTEMPTS
+
+
+@dataclass(frozen=True)
+class _Staging:
+    """The shadow this run works in, and whether it is the one the log describes."""
+
+    shadow: shadow_mod.Shadow
+    #: False when the recorded worktree was gone and a new one had to be built. The recorded
+    #: conversation then describes edits that no longer exist anywhere, so replaying it instead
+    #: of re-running it would prove an empty change while reporting a transcript full of work.
+    continues_the_record: bool
+
+
+def _shadow_for(spec: TaskSpec, plan: turnlog_mod.ResumePlan) -> _Staging:
+    """The shadow this run works in — the existing one where there is one, a fresh one otherwise.
+
+    A resumed task must NOT get a new baseline. The baseline is a claim about what the agent
+    started from; re-deriving it from the user's tree after a restart would silently re-point the
+    proof at a different starting state, hiding the agent's own edits and attributing the user's
+    later ones to it.
+
+    **A shadow with no history is an ORPHAN, and it is adopted.** A process killed between
+    creating the worktree and writing its first checkpoint leaves exactly that, and the first
+    version of this function then wedged the task id forever: the log said "fresh", `create` said
+    "already exists", and every later attempt with that id died the same way. There is nothing to
+    resume in an orphan — no turns were recorded — so the run starts over inside it, which is the
+    honest reading of "the worktree exists and nothing is known about it".
+
+    A log that says "resuming" while the worktree is gone is the other real state — someone
+    deleted `.tempest/`, or the repository was re-cloned — and the answer is a fresh shadow at the
+    RECORDED baseline, flagged so the caller knows the transcript no longer describes the tree.
+    """
+    existing = shadow_mod.attach(spec.repo, spec.task_id)
+    if existing is not None and plan.consulted_the_log:
+        return _Staging(shadow=existing, continues_the_record=plan.resuming)
+    rebuilt = shadow_mod.create(spec.repo, spec.task_id, baseline=plan.baseline or None)
+    return _Staging(shadow=rebuilt, continues_the_record=not plan.resuming)
+
+
+def _recorded_answer(log: turnlog_mod.TurnLog, task_id: str) -> tuple[str, str]:
+    """The verdict and bundle id from the FINISHED row, for the refusal message."""
+    last = log.last(task_id)
+    payload = last.payload if last is not None else {}
+    return str(payload.get("verdict", "")), str(payload.get("bundle_id", ""))
+
+
+def _dump_history(history: list[Message]) -> list[dict[str, Any]]:
+    """The conversation as plain JSON. Durable means re-readable by a process that shares no
+    memory with this one, so nothing here is a Python object."""
+    return [
+        {
+            "role": m.role,
+            "content": m.content,
+            "tool_result_for": m.tool_result_for,
+            "tool_calls": [
+                {"id": c.id, "name": c.name, "arguments": c.arguments} for c in m.tool_calls
+            ],
+        }
+        for m in history
+    ]
+
+
+def _load_history(rows: Any) -> list[Message]:
+    return [
+        Message(
+            role=str(row["role"]),
+            content=str(row["content"]),
+            tool_result_for=row["tool_result_for"],
+            tool_calls=tuple(
+                ToolCall(id=str(c["id"]), name=str(c["name"]), arguments=dict(c["arguments"]))
+                for c in row.get("tool_calls", ())
+            ),
+        )
+        for row in rows
+    ]
+
+
+def _dump_calls(calls: list[ToolCallRecord]) -> list[dict[str, Any]]:
+    return [
+        {"name": c.name, "arguments": c.arguments, "ok": c.ok, "detail": c.detail} for c in calls
+    ]
+
+
+def _load_calls(rows: Any) -> list[ToolCallRecord]:
+    return [
+        ToolCallRecord(
+            name=str(row["name"]),
+            arguments=dict(row["arguments"]),
+            ok=bool(row["ok"]),
+            detail=str(row["detail"]),
+        )
+        for row in rows
+    ]
+
+
+def _replay_turns(
+    log: turnlog_mod.TurnLog,
+    task_id: str,
+    history: list[Message],
+    narration: list[str],
+    calls: list[ToolCallRecord],
+) -> tuple[str, int]:
+    """Rehydrate the most complete recorded conversation, in place.
+
+    **The LAST transcript, not the first.** A repair attempt continues the same conversation and
+    records it again, so the newest row is the one that describes the tree as it now stands.
+    Reading the first would replay a conversation that stops before the repair the shadow already
+    contains — a transcript and a worktree telling the model two different stories.
+
+    The lists arrive holding the fresh prompt; the recorded history REPLACES it, because the
+    recorded history starts with that same prompt and continues into everything that followed.
+    A log row that predates this recording — or one written by a version that stored only the
+    counters — leaves the prompt alone and says how many turns it is standing in for, which is
+    a smaller answer than the full transcript and an honest one.
+    """
+    for entry in reversed(log.history(task_id)):
+        if "history" not in entry.payload and entry.stage != turnlog_mod.TURNS_DONE:
+            continue
+        recorded = entry.payload.get("history")
+        if recorded:
+            history[:] = _load_history(recorded)
+        narration.extend(str(n) for n in entry.payload.get("narration", ()))
+        calls.extend(_load_calls(entry.payload.get("calls", ())))
+        return str(entry.payload.get("stopped", "")), int(entry.payload.get("turns", 0))
+    return "", 0  # pragma: no cover — reached only with a TURNS_DONE row the plan says exists
 
 
 def _summarise(result: ToolResult) -> str:
@@ -196,6 +354,7 @@ def _converse(
                 model=spec.model,
                 system=SYSTEM_PROMPT,
                 tools=catalog,
+                timeout=spec.model_timeout_s,
             )
         except ModelError as exc:
             # A model failure ends the LOOP, never the task: whatever is already staged still
@@ -238,15 +397,51 @@ def run_task(
     *,
     env: dict[str, str],
     on_event: Callable[[str, str], None] | None = None,
+    resume: bool = True,
 ) -> AgentRun:
     """Run one agent task to a verdict.
 
     The proof at the end is unconditional. It runs when the model finishes, when the turn budget
     is spent, and when the model errors — because in every one of those cases there may be edits
     in the shadow, and edits without a verdict are what L16 exists to prevent.
+
+    **P2: a task that has run before does not start over.** The durable log says what already
+    happened and `plan_resume` says what is left; this function does what the plan says. A
+    restarted process re-attaches to the SAME shadow worktree at the SAME baseline, replays the
+    conversation it had rather than paying for it twice, and re-runs only the proof — the one
+    expensive step that is a pure function of its inputs and therefore safe to redo blindly.
+
+    `resume=False` forces a fresh run. It exists for callers that genuinely want to start over,
+    and it does NOT delete the previous shadow: the caller who wants the old one gone says so.
     """
     emit = on_event or (lambda _kind, _detail: None)
-    shadow = shadow_mod.create(spec.repo, spec.task_id)
+    log = turnlog_mod.TurnLog(spec.repo)
+    plan = (
+        turnlog_mod.plan_resume(log, spec.task_id)
+        if resume
+        else turnlog_mod.ResumePlan(
+            finished=False,
+            reprove=False,
+            reason="the caller asked for a fresh run",
+            consulted_the_log=False,
+        )
+    )
+    if plan.finished:
+        raise TaskAlreadyFinished(spec.task_id, *_recorded_answer(log, spec.task_id))
+    staging = _shadow_for(spec, plan)
+    shadow = staging.shadow
+    if plan.resuming and not staging.continues_the_record:
+        # The recorded worktree is gone, so the edits the transcript describes are gone with it.
+        # Replaying that conversation would prove an empty change while reporting a full history
+        # of work — the shape of a resume that looks like it worked and did not.
+        plan = replace(
+            plan,
+            redo_turns=True,
+            reason=(
+                f"{plan.reason}; the shadow worktree was rebuilt, so the recorded turns describe "
+                f"edits that no longer exist and are being re-run rather than replayed"
+            ),
+        )
     # NOT journalled here, deliberately. `agent/journal.py` exists to make an applied change
     # UNDOABLE (L20) by capturing pre-images of files it is about to overwrite — and nothing the
     # loop does touches a file the user can see. Every edit lands in the shadow worktree, which
@@ -259,15 +454,42 @@ def run_task(
     # outcome including refusals.
     dispatcher = Dispatcher(root=shadow.path, budgets=spec.budgets, grants=spec.grants)
     catalog = model_facing_catalog()
-    log = turnlog_mod.TurnLog(spec.repo)
-    log.checkpoint(spec.task_id, turnlog_mod.STARTED, prompt=spec.prompt, baseline=shadow.baseline)
+    if not plan.resuming:
+        log.checkpoint(
+            spec.task_id, turnlog_mod.STARTED, prompt=spec.prompt, baseline=shadow.baseline
+        )
+    else:
+        log.checkpoint(
+            spec.task_id,
+            turnlog_mod.RESUMED,
+            reason=plan.reason,
+            redo_turns=plan.redo_turns,
+            baseline=shadow.baseline,
+        )
+        emit("resume", plan.reason)
 
     history: list[Message] = [Message(role="user", content=spec.prompt)]
     narration: list[str] = []
     calls: list[ToolCallRecord] = []
 
-    stopped, turns = _converse(spec, history, narration, calls, dispatcher, catalog, env, emit)
-    log.checkpoint(spec.task_id, turnlog_mod.TURNS_DONE, turns=turns, stopped=stopped)
+    if plan.redo_turns:
+        stopped, turns = _converse(spec, history, narration, calls, dispatcher, catalog, env, emit)
+        log.checkpoint(
+            spec.task_id,
+            turnlog_mod.TURNS_DONE,
+            turns=turns,
+            stopped=stopped,
+            history=_dump_history(history),
+            narration=narration,
+            calls=_dump_calls(calls),
+        )
+    else:
+        # The conversation already happened and its edits are on disk in the shadow. Replaying
+        # it from the log costs nothing and keeps the repair loop's context intact; asking the
+        # model to do it again would cost money to produce a second, different answer to a
+        # question that was already settled.
+        stopped, turns = _replay_turns(log, spec.task_id, history, narration, calls)
+        emit("resume", f"replayed {turns} recorded turn(s) instead of asking the model again")
 
     proof, change, classified = _prove_and_classify(spec, shadow, emit)
 
@@ -283,6 +505,7 @@ def run_task(
         emit=emit,
         first_bundle=proof.bundle,
         first_divergences=classified,
+        spent_attempts=plan.repair_attempts_spent,
     )
     if outcome is not None and outcome.attempts:
         # The repair loop re-proved, so the change and classification it ended on are the current
@@ -386,6 +609,84 @@ def _contract_bytes(spec: TaskSpec) -> str:
     return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
+def _modules_that_stopped_loading(
+    spec: TaskSpec, shadow: shadow_mod.Shadow
+) -> tuple[repair_mod.BrokenModule, ...]:
+    """Import every Python file the change touches and collect the ones the AGENT broke.
+
+    **Differential, like everything else here.** A module that fails to import at head is only
+    evidence against the attempt if it imported at the BASELINE. Plenty of modules do not load in
+    any given environment — a third-party dependency that was never fetched, a file that was
+    already broken when the user opened the editor, a package that needs an installed extra — and
+    every one of them would otherwise be reported as a cheat the agent committed. So a head
+    failure is re-checked against the baseline tree, and only a module that *stopped* loading is
+    named. (This is the same principle the whole product runs on, arrived at the hard way: the
+    first version of this check was absolute, and the review pointed out it would accuse an agent
+    of breaking a file that was broken before it started.)
+
+    **Only files the change touches**, and only files the repository has not declared out of
+    scope. A loop that refused to finish until the whole tree imported would be judging the
+    user's project rather than this attempt.
+
+    Executed, in the sandbox the repo's tier selects — the same one the proof runs in (L4/L6).
+    There is no static substitute: a fatal import is syntactically perfect right up to the moment
+    the interpreter disagrees.
+
+    With no sandbox available nothing may execute, so nothing can be checked — and an unchecked
+    module is reported as broken rather than assumed sound. Fail closed: the alternative is a
+    repair that passes *because* the machine could not look.
+    """
+    changed = _changed_python(spec, shadow)
+    if not changed:
+        return ()
+    selection = select_sandbox_for_repo(spec.repo)
+    if selection.sandbox is None:
+        reason = selection.reason or "no sandbox tier is available"
+        return tuple(
+            repair_mod.BrokenModule(path=rel, module="", error=f"not checked: {reason}")
+            for rel in changed
+        )
+
+    suspects: list[tuple[str, str, str]] = []
+    for rel in changed:
+        module = module_for_path(shadow.path, rel)
+        if not (shadow.path / rel).is_file():
+            suspects.append((rel, module, "the file is gone from the change's head revision"))
+            continue
+        probe = module_loads(shadow.path, module, selection.sandbox)
+        if not probe.loads:
+            suspects.append((rel, module, probe.error))
+    if not suspects:
+        return ()
+
+    # Only now, and only for the suspects: materializing the baseline costs a worktree, so it is
+    # not paid on the ordinary path where nothing is broken.
+    baseline = materialize(spec.repo, shadow.baseline, spec.repo / ".tempest" / "cache")
+    broken: list[repair_mod.BrokenModule] = []
+    for rel, module, error in suspects:
+        before = module_loads(baseline.worktree, module, selection.sandbox)
+        if before.loads:
+            broken.append(repair_mod.BrokenModule(path=rel, module=module, error=error))
+    return tuple(broken)
+
+
+def _changed_python(spec: TaskSpec, shadow: shadow_mod.Shadow) -> list[str]:
+    """The Python files this change touches, minus anything the repository ignores.
+
+    A path the repo has declared out of scope is a path the prover never looks at, and importing
+    it here would execute code the user has told this product to leave alone.
+    """
+    try:
+        config = TempestConfig.load(spec.repo)
+    except TempestConfigError:  # pragma: no cover - a broken config is already fatal upstream
+        config = TempestConfig()
+    return [
+        rel
+        for rel in shadow_mod.changed_files(shadow)
+        if rel.endswith(".py") and not is_ignored(rel, config.ignore_globs)
+    ]
+
+
 def _needs_repair(divergences: tuple[ClassifiedDivergence, ...]) -> bool:
     return any(
         d.classification in (contracts_mod.UNINTENDED, contracts_mod.UNCLASSIFIED)
@@ -406,6 +707,7 @@ def _repair_loop(
     emit: Callable[[str, str], None],
     first_bundle: Any,
     first_divergences: tuple[ClassifiedDivergence, ...],
+    spent_attempts: int = 0,
 ) -> repair_mod.RepairOutcome | None:
     """F3. Hand the agent the evidence, let it try again, re-prove, judge. Bounded.
 
@@ -421,6 +723,19 @@ def _repair_loop(
         return None
     if not _needs_repair(first_divergences):
         return None
+    # The budget is a bound on MONEY, so it counts attempts across the whole task rather than
+    # across this process. A task killed four times would otherwise spend four full budgets and
+    # the record would show one (L15.4).
+    remaining = spec.max_repair_attempts - spent_attempts
+    if remaining <= 0:
+        return repair_mod.RepairOutcome(
+            succeeded=False,
+            attempts=(),
+            reason=(
+                f"the repair budget of {spec.max_repair_attempts} attempt(s) was already spent "
+                f"before this process started"
+            ),
+        )
 
     before = repair_mod.proven_targets(first_bundle)
     contract_before = _contract_bytes(spec)
@@ -429,7 +744,7 @@ def _repair_loop(
     divergences = first_divergences
     reason = "the budget was spent before the divergence set matched the contract"
 
-    for number in range(1, spec.max_repair_attempts + 1):
+    for number in range(spent_attempts + 1, spent_attempts + remaining + 1):
         packet = _first_offender(bundle, divergences, contract)
         if packet is None:  # pragma: no cover - _needs_repair guarantees one exists
             break
@@ -439,6 +754,19 @@ def _repair_loop(
         )
         history.append(Message(role="user", content=packet.render()))
         _converse(spec, history, narration, calls, dispatcher, catalog, env, emit)
+        # The attempt's conversation is part of the durable record. Without this a restart mid
+        # repair replayed the transcript from BEFORE the attempt while the shadow already held
+        # the attempt's edits, and re-ran model turns that had already been paid for.
+        turnlog_mod.TurnLog(spec.repo).checkpoint(
+            spec.task_id,
+            turnlog_mod.REPAIR_ATTEMPT,
+            number=number,
+            symbol=packet.qualname,
+            phase="conversed",
+            history=_dump_history(history),
+            narration=narration,
+            calls=_dump_calls(calls),
+        )
 
         proof, _change, divergences = _prove_and_classify(spec, shadow, emit, quiet=True)
         bundle = proof.bundle
@@ -463,9 +791,10 @@ def _repair_loop(
                     "the agent reverted its own change — the divergence is gone because the "
                     "work is, so there is nothing to present"
                 ),
+                abandoned=True,
             )
 
-        succeeded, why = repair_mod.judge(
+        judgement = repair_mod.judge(
             before=before,
             after_bundle=bundle,
             divergences=divergences,
@@ -478,8 +807,10 @@ def _repair_loop(
                 baseline=shadow.baseline,
                 head=shadow_mod.snapshot(shadow),
             ),
+            broken=_modules_that_stopped_loading(spec, shadow),
         )
-        cheat = "" if succeeded or "remain" in why else why
+        succeeded, why = judgement.succeeded, judgement.reason
+        cheat = judgement.reason if judgement.cheat else ""
         attempts.append(
             repair_mod.RepairAttempt(
                 number=number,

@@ -27,7 +27,7 @@ import argparse
 import sys
 from dataclasses import dataclass
 
-from tempest.dev._agent_corpus import TASKS, TaskCase, run_case
+from tempest.dev._agent_corpus import TASKS, TaskCase, run_case_with_evidence
 
 
 @dataclass(frozen=True)
@@ -36,27 +36,43 @@ class Row:
     verdict: str
     has_bundle: bool
     note: str
+    #: What the BUNDLE ON DISK says, read back independently of the run object.
+    stored_verdict: str = ""
+    evidence: str = ""
+    #: The verdict this task exists to pin, when it pins one. Empty for most tasks.
+    expected_verdict: str = ""
 
     @property
     def covered(self) -> bool:
-        """A task is covered when it ended on a verdict AND that verdict has evidence behind it.
+        """A task is covered when it ended on a verdict AND the stored evidence agrees.
 
-        Both halves matter: a verdict with no bundle is exactly the forgery L16 forbids, and a
-        bundle with no verdict is a run that never reached a conclusion.
+        **This check is deliberately not the obvious one.** `ProvenChange` refuses to exist
+        without a bundle id and refuses a verdict that is not an engine `Verdict`, so asking the
+        run object "do you have a verdict and a bundle id?" is asking a type whether it is
+        itself — a gate that cannot go red about the thing it is named after (trap 47, found by
+        review). So the bundle is read back FROM DISK and its aggregated verdict is compared with
+        the one the run reported. That can disagree, and the disagreement is exactly L16's
+        failure: a verdict presented to a user that the stored evidence does not support.
         """
-        return bool(self.verdict) and self.has_bundle
+        if self.expected_verdict and self.verdict != self.expected_verdict:
+            return False
+        return bool(self.verdict) and self.verdict == self.stored_verdict
 
 
 def evaluate(cases: tuple[TaskCase, ...]) -> list[Row]:
     rows: list[Row] = []
     for case in cases:
-        run = run_case(case)
+        result = run_case_with_evidence(case)
+        run, stored, evidence = result.run, result.stored_verdict, result.detail
         rows.append(
             Row(
                 name=case.name,
                 verdict=run.change.verdict.value,
                 has_bundle=bool(run.change.bundle_id),
                 note=run.stopped_because,
+                stored_verdict=stored,
+                evidence=evidence,
+                expected_verdict=case.expect_verdict,
             )
         )
     return rows
@@ -66,9 +82,10 @@ def render(rows: list[Row], *, required: float) -> str:
     covered = sum(1 for r in rows if r.covered)
     rate = covered / len(rows) if rows else 0.0
     lines = [
-        f"{'task':<28} {'verdict':<24} bundle  note",
+        f"{'task':<28} {'verdict':<24} bundle  {'on disk':<24} note",
         *[
-            f"{r.name:<28} {r.verdict:<24} {'yes' if r.has_bundle else 'NO':<6}  {r.note}"
+            f"{r.name:<28} {r.verdict:<24} {'yes' if r.has_bundle else 'NO':<6}  "
+            f"{r.stored_verdict or 'NO-BUNDLE':<24} {r.note}"
             for r in rows
         ],
     ]
@@ -95,21 +112,34 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    rows = evaluate(TASKS[: args.tasks])
+        # `--tasks N` is a FLOOR, not a slice. Asking for 50 asserts the corpus holds at least 50
+    # and then runs all of it: slicing to exactly N would silently exclude every task added
+    # after the Nth, so growing the corpus would quietly stop testing the new work while the
+    # gate went on printing the number it was asked for.
+    rows = evaluate(TASKS)
     print(render(rows, required=args.require_verdict_coverage))
     covered = sum(1 for r in rows if r.covered)
     rate = covered / len(rows) if rows else 0.0
     if rate < args.require_verdict_coverage:
         for row in rows:
             if not row.covered:
-                print(
-                    f"AGENT-BENCH {row.name}: verdict={row.verdict or 'NONE'} "
-                    f"bundle={'yes' if row.has_bundle else 'NO'} — a change reached the caller "
-                    f"without evidence (L16)",
-                    file=sys.stderr,
-                )
+                print(f"AGENT-BENCH {row.name}: {_why(row)}", file=sys.stderr)
         return 1
     return 0
+
+
+def _why(row: Row) -> str:
+    """The one sentence that says what went wrong with this row, and nothing else."""
+    if row.expected_verdict and row.verdict != row.expected_verdict:
+        return (
+            f"this task exists to pin {row.expected_verdict} and the run answered "
+            f"{row.verdict or 'NOTHING'}"
+        )
+    return (
+        f"reported {row.verdict or 'NOTHING'} but the stored bundle says "
+        f"{row.stored_verdict or 'NOTHING'} ({row.evidence}) — a change reached the caller "
+        f"carrying a verdict its evidence does not support (L16)"
+    )
 
 
 if __name__ == "__main__":

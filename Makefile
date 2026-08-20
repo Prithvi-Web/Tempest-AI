@@ -6,7 +6,7 @@ export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 
 DESKTOP_MANIFEST := packages/desktop/src-tauri/Cargo.toml
 
-.PHONY: verify verify-python verify-node verify-desktop verify-contract verify-grep-safe \
+.PHONY: verify verify-python verify-agent verify-node verify-desktop verify-contract verify-grep-safe \
 	gen-contracts ensure-sidecar sync bench bench-editor perf-gate
 
 sync:
@@ -51,7 +51,7 @@ bench:
 perf-gate:
 	uv run python -m tempest.dev.perf_suite --enforce-budgets
 
-verify: verify-python verify-node verify-desktop verify-contract verify-grep-safe
+verify: verify-python verify-agent verify-node verify-desktop verify-contract verify-grep-safe
 	@echo "── verify: all live steps green ──"
 
 # Tri-boundary generation (CLAUDE.md §9b): Pydantic → openapi.json → domain-schema.json →
@@ -99,6 +99,13 @@ verify-python:
 	uv run python -m tempest.dev.redaction_check --planted-secrets   # Phase 17 (L9 proven)
 	uv run python -m tempest.dev.license_check --third-party-notices  # Phase 19.1 (L25 attribution)
 	uv run python -m tempest.dev.provider_matrix --min-providers 12   # Phase 19.5 (P1 breadth)
+
+# Phase 21's exit gate (PLAN-V2 §21, ADR-0053): F1's verdict coverage, F2's classification
+# accuracy, F3's repair rate and refused cheats, and P2's survival of a SIGKILL mid-proof. Four
+# real benchmarks over 55 real repositories; the script runs the three corpus gates concurrently
+# and prints them in a fixed order.
+verify-agent:
+	./scripts/agent-gates.sh
 
 verify-node:
 	pnpm -r typecheck

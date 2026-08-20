@@ -10,6 +10,7 @@ against them is real.
 
 import json
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -28,6 +29,12 @@ class FakeAnthropic:
         # the model wants a tool. Additive — every existing caller leaves it empty and gets the
         # text-only shape unchanged.
         self.tool_uses: list[dict[str, object]] = []
+        # P2 (`resume_test --sleep-mid-stream`): a peer that accepts the connection and then goes
+        # quiet. That is a different failure from a refusal — nothing is wrong with the request,
+        # the answer simply never comes — and it is the one the client's wall-clock bound exists
+        # for. `stall_on_request` is 1-based over `requests`; 0 means never stall.
+        self.stall_seconds: float = 0.0
+        self.stall_on_request: int = 0
 
     def reply_for(self, body_text: str) -> str:
         for needle, reply in self.replies.items():
@@ -44,6 +51,8 @@ def fake_anthropic_server(fake: FakeAnthropic) -> Iterator[str]:
         def do_POST(self) -> None:  # the http.server contract dictates this name
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
             fake.requests.append(json.loads(body))
+            if fake.stall_seconds and len(fake.requests) == fake.stall_on_request:
+                time.sleep(fake.stall_seconds)
             reply_text = fake.reply_for(body.decode("utf-8", errors="replace"))
             if fake.status != 200:
                 payload = json.dumps(
