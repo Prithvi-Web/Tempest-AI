@@ -3087,3 +3087,38 @@ That last one was written vacuously first — a hardcoded `True` with a note cla
 and a gate should not make that claim on its own behalf. It drains the leftover stream and checks
 every line now, and a `print()` planted in the server fails it. The mutation that found the
 missing "unexpected exception" check survived the first version of the gate entirely.
+
+---
+
+## ADR-0057 — Money was the one budget nothing enforced (2026-08-20)
+
+**Status:** accepted · closes a false claim that shipped through the whole of Phase 21
+
+`agent/orchestrator.py`'s module docstring said, from the day it was written:
+
+> **Everything is bounded (L15.4).** Turns, tool calls per turn, bytes, wall-clock, and — when a
+> `Meter` is supplied — money (L21).
+
+`TaskSpec` had no `meter` field. There was no way to supply one. **Money was the only budget in
+that sentence that nothing enforced**, and the sentence had survived a 138-agent review, a
+132-agent review, and every gate this project runs — because none of them read a docstring against
+the type beside it.
+
+This is trap 45 in its plainest form: a doc comment is a claim, the claim was persuasive, and its
+persuasiveness is what stopped anyone checking it. It was found while reading the cost meter for
+an unrelated reason.
+
+**What was built.** `TaskSpec.meter` and `TaskSpec.cost_session`. Every completion is charged to
+the ledger **before the next turn is asked for**, so a cap can never be breached by a turn already
+in flight. A breached cap ends the loop exactly the way a model error does — and the shadow is
+still proved, because *a change that ran out of money half-written is exactly the change a user
+most needs a verdict about*. The turn that discovered the cap is itself recorded, so the ledger
+never under-reports what was actually spent.
+
+The three scopes L21 names — per task, per session, per day — are the meter's own, and the day is
+UTC because a cap that resets at a different hour depending on where the laptop is would be a
+different cap.
+
+**Still not done, and not claimed:** `preflight` — L21's *"cost is visible BEFORE it is spent"* —
+is implemented in the meter and is not wired into the turn loop, so a user is not yet shown an
+estimate before an expensive task. That belongs with the agent's UI surface, which does not exist.

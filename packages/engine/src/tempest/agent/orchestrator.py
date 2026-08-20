@@ -20,12 +20,19 @@ constructor. `test_agent_orchestrator.py` includes the adversarial forge test L1
 **Everything is bounded (L15.4).** Turns, tool calls per turn, bytes, wall-clock, and — when a
 `Meter` is supplied — money (L21). An exhausted budget ends the turn and still proves: a change
 that ran out of budget half-written is exactly the change a user most needs a verdict about.
+
+That last clause was a FALSE CLAIM for the whole of Phase 21: the sentence was written, and
+`TaskSpec` had no way to supply a meter, so money was the one budget nothing enforced. A doc
+comment is a claim and this project tests its claims (trap 45). `TaskSpec.meter` is real now,
+every completion is charged against it before the next turn begins, and a breached cap ends the
+loop the same way a model error does — the staged work is still proved and still shown.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +47,7 @@ from tempest.config import TempestConfig, TempestConfigError, is_ignored
 from tempest.envrepro.deps import attach_deps, fetch_enabled
 from tempest.envrepro.worktree import materialize
 from tempest.execute.runner import module_for_path, module_loads
+from tempest.inference import cost as cost_mod
 from tempest.inference.client import (
     DEFAULT_TIMEOUT_S,
     Message,
@@ -184,6 +192,14 @@ class TaskSpec:
     grants: frozenset[str] = frozenset()
     max_inputs: int = 50
     seed: int = 0
+    #: The cost ledger and its caps (L21, P11). `None` means money is not bounded for this task
+    #: — an honest state for a local model, and a deliberate choice everywhere else. When it is
+    #: supplied, every completion is charged BEFORE the next turn is asked for, so a cap can
+    #: never be breached by a turn that was already in flight.
+    meter: cost_mod.Meter | None = None
+    #: Which ledger scopes this task's spending belongs to. `task` is the per-task cap; the
+    #: session and day scopes are how "per session" and "per day" in L21 are enforced.
+    cost_session: str = "default"
     #: The wall-clock bound on ONE model call (L15.4). Explicit rather than inherited: a turn
     #: loop whose only time bound is a library default is bounded by something nobody chose, and
     #: `resume_test --sleep-mid-stream` needs to be able to choose it.
@@ -341,6 +357,12 @@ def _replay_turns(
     return "", 0  # pragma: no cover — no TURNS_DONE row; unreachable behind plan.redo_turns
 
 
+def _today() -> str:
+    """The ledger's day scope. UTC, because a cap that resets at a different hour depending on
+    where the laptop is would be a different cap."""
+    return datetime.now(UTC).strftime("%Y-%m-%d")
+
+
 def _summarise(result: ToolResult) -> str:
     """What goes back to the model. Truncation is stated so a cut answer is never read as whole."""
     body = result.content
@@ -386,6 +408,27 @@ def _converse(
             stopped = f"model unavailable: {exc}"
             emit("model_error", str(exc))
             break
+
+        if spec.meter is not None:
+            try:
+                spend = spec.meter.spend(
+                    provider=answer.provider,
+                    model=answer.model,
+                    input_tokens=answer.usage.input_tokens,
+                    output_tokens=answer.usage.output_tokens,
+                    task=spec.task_id,
+                    session=spec.cost_session,
+                    day=_today(),
+                )
+            except cost_mod.CostError as exc:
+                # The turn that has already happened is recorded by the ledger before this
+                # raises, so the cap is never breached by more than the call that discovered it.
+                # The loop ends here and the shadow is still proved: a change that ran out of
+                # money half-written is exactly the change a user most needs a verdict about.
+                stopped = f"cost cap reached: {exc}"
+                emit("cost", str(exc))
+                break
+            emit("cost", f"{spend.total_tokens} tokens this turn")
 
         if answer.text:
             narration.append(answer.text)
