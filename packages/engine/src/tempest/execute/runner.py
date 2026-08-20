@@ -101,6 +101,87 @@ def _sys_path_for(root: Path) -> list[str]:
     return entries
 
 
+def module_name_for(rel_path: str, source_roots: tuple[str, ...] = ()) -> str:
+    """Repo path → importable module. A configured `[roots].source` prefix is stripped
+    (longest match first, whole segments only); otherwise the conventional bare `src/`
+    layout is handled. This mirrors exactly what the worker puts on sys.path.
+
+    Public and living HERE rather than in `prove`, because two callers now need it — the
+    proof pipeline and F3's load probe — and a second copy of the rule would be a second
+    answer to "which module is this file", free to drift from the one the workers use.
+    """
+    parts = Path(rel_path).with_suffix("").parts
+    for root in sorted(source_roots, key=len, reverse=True):
+        root_parts = Path(root).parts
+        if parts[: len(root_parts)] == root_parts and len(parts) > len(root_parts):
+            return ".".join(parts[len(root_parts) :])
+    if parts and parts[0] == "src":
+        parts = parts[1:]
+    return ".".join(parts)
+
+
+def module_for_path(root: Path, rel_path: str) -> str:
+    """`module_name_for`, reading the layout from the worktree the file actually lives in."""
+    return module_name_for(rel_path, _source_roots_of(str(root)))
+
+
+@dataclass(frozen=True)
+class LoadProbe:
+    """Whether one module imports, and the traceback when it does not."""
+
+    module: str
+    loads: bool
+    error: str
+
+
+def module_loads(
+    root: Path,
+    module: str,
+    sandbox: Sandbox,
+    *,
+    python: str | None = None,
+    timeout: float = 20.0,
+) -> LoadProbe:
+    """Import `module` inside the sandbox and report whether it worked.
+
+    Real execution, in the same sandbox every other stage uses (L4). No static check can answer
+    this: `import no_such_module_xyz` parses perfectly, and `ast.parse` is happy right up to the
+    moment the interpreter is not.
+
+    A worker that produces no verdict line — killed, timed out, or exited before `_emit` — is
+    reported as a load FAILURE. That is the conservative direction for the only caller: a module
+    nobody could load is not evidence that the module is fine.
+    """
+    worker_python = python if python is not None else find_worker_python()
+    with tempfile.TemporaryDirectory(prefix="tempest-scratch-") as scratch_dir:
+        scratch = Path(scratch_dir)
+        _prepare_scratch(scratch)
+        job: dict[str, object] = {
+            "mode": "import",
+            "module": module,
+            "qualname": "",
+            "sys_path": _sys_path_for(root),
+            "scratch": str(scratch),
+        }
+        proc = _spawn(sandbox, scratch, root, job, worker_python)
+        try:
+            stdout, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return LoadProbe(module=module, loads=False, error=f"import timed out after {timeout}s")
+        finally:
+            _kill(proc)
+    for raw in stdout.splitlines():
+        payload = _parse_line(raw)
+        if payload is None or "ok" not in payload:
+            continue
+        if payload.get("ok"):
+            return LoadProbe(module=module, loads=True, error="")
+        return LoadProbe(module=module, loads=False, error=str(payload.get("error", "")).strip())
+    return LoadProbe(
+        module=module, loads=False, error="the worker produced no answer about this import"
+    )
+
+
 def _target_file(root: Path, module: str) -> str:
     rel = Path(*module.split("."))
     bases = [root, root / "src", *(root / r for r in _source_roots_of(str(root)))]

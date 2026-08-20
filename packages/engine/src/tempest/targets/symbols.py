@@ -124,8 +124,10 @@ def classify_symbol(src: str, sym: SymbolSpan) -> ClassifiedSymbol:
         return _unreachable(
             sym,
             f"`{sym.symbol}` is an instance method — invoking it requires constructing "
-            f"`{sym.owner_class}()`, and v1 does not synthesize instances. A @staticmethod or "
-            "module-level function wrapping the logic is provable.",
+            f"`{sym.owner_class}()`. Tempest attempts that deterministically from the class's "
+            f"`__init__` (or its dataclass fields) and accepts the result only if it really "
+            f"runs; this message means that attempt was not made or did not survive execution. "
+            f"A @staticmethod or module-level function wrapping the logic is always provable.",
         )
 
     if _touches_io(src, sym):

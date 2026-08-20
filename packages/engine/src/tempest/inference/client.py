@@ -102,9 +102,37 @@ class Cancelled(ModelError):
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    """One structured tool invocation the model asked for.
+
+    `arguments` is a decoded object, never the raw string an OpenAI-shaped wire sends: a caller
+    that had to json-decode it would be a second place that can get it wrong, and a model that
+    emits malformed JSON is a fact the parser must settle once, here.
+    """
+
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class Message:
+    """One turn. `role` is "user" | "assistant"; `content` is the text.
+
+    A message may instead carry the RESULT of a tool the model asked for, in which case
+    `tool_result_for` is the id of that call. The two wires disagree about how a result is
+    carried — Anthropic wants a `user` message whose content is a `tool_result` block,
+    OpenAI wants a message with role `tool` and a `tool_call_id` — so the difference is
+    resolved in `_body`, the one function allowed to know which wire this is.
+    """
+
     role: str  # "user" | "assistant"
     content: str
+    #: The `ToolCall.id` this message answers, when it is a tool result.
+    tool_result_for: str | None = None
+    #: Tool calls an ASSISTANT turn made. Replayed back so the model sees its own request — a
+    #: result without the call it answers is rejected by both wires.
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -116,11 +144,29 @@ class Usage:
 
 
 @dataclass(frozen=True)
+class ToolCatalog:
+    """The committed, model-facing tool definitions for BOTH wires.
+
+    Held as the two shapes rather than one, because the shapes are what
+    `make gen-contracts` emits and what review sees (§9c: "what the model is told must be
+    visible in review, not computed silently at runtime"). `_body` picks by wire, which keeps
+    the promise that the two wires differ in exactly one function.
+    """
+
+    anthropic: list[dict[str, Any]]
+    openai: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
 class Completion:
     provider: str
     model: str
     text: str
     usage: Usage
+    #: Structured calls the model asked for. Empty when it answered with prose alone.
+    tool_calls: tuple[ToolCall, ...] = ()
+    #: Why the model stopped, normalised across wires: "tool_use" | "end" | "length" | "".
+    stop_reason: str = ""
 
 
 def resolve_base_url(provider: Provider, env: dict[str, str]) -> str:
@@ -170,6 +216,68 @@ def _endpoint(provider: Provider, base_url: str) -> str:
     return base_url.rstrip("/") + tail
 
 
+def _turns(provider: Provider, messages: list[Message]) -> list[dict[str, Any]]:
+    """Render the conversation for one wire, including tool calls and their results.
+
+    This is the only place the two shapes are known, which is what keeps sixteen providers at
+    two builders. Both wires require that a tool RESULT be preceded by the CALL it answers, so
+    an assistant turn that made calls replays them; dropping them produces a 400 that reads like
+    a model error and is actually ours.
+    """
+    rendered: list[dict[str, Any]] = []
+    for m in messages:
+        if m.tool_result_for is not None:
+            if provider.wire == WIRE_ANTHROPIC:
+                rendered.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": m.tool_result_for,
+                                "content": m.content,
+                            }
+                        ],
+                    }
+                )
+            else:
+                rendered.append(
+                    {"role": "tool", "tool_call_id": m.tool_result_for, "content": m.content}
+                )
+            continue
+        if m.tool_calls:
+            if provider.wire == WIRE_ANTHROPIC:
+                blocks: list[dict[str, Any]] = (
+                    [{"type": "text", "text": m.content}] if m.content else []
+                )
+                blocks += [
+                    {"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments}
+                    for c in m.tool_calls
+                ]
+                rendered.append({"role": m.role, "content": blocks})
+            else:
+                rendered.append(
+                    {
+                        "role": m.role,
+                        "content": m.content or None,
+                        "tool_calls": [
+                            {
+                                "id": c.id,
+                                "type": "function",
+                                "function": {
+                                    "name": c.name,
+                                    "arguments": json.dumps(c.arguments),
+                                },
+                            }
+                            for c in m.tool_calls
+                        ],
+                    }
+                )
+            continue
+        rendered.append({"role": m.role, "content": m.content})
+    return rendered
+
+
 def _body(
     provider: Provider,
     model: str,
@@ -177,6 +285,7 @@ def _body(
     max_tokens: int,
     stream: bool,
     system: str | None,
+    tools: ToolCatalog | None = None,
 ) -> dict[str, Any]:
     """The one place the two wires differ in shape, and only by where `system` goes.
 
@@ -184,7 +293,7 @@ def _body(
     `system` role. Everything else about the two payloads is identical, which is why sixteen
     providers cost two builders.
     """
-    turns = [{"role": m.role, "content": m.content} for m in messages]
+    turns = _turns(provider, messages)
     payload: dict[str, Any] = {"model": model, "max_tokens": max_tokens}
     if provider.wire == WIRE_ANTHROPIC:
         if system:
@@ -192,6 +301,15 @@ def _body(
         payload["messages"] = turns
     else:
         payload["messages"] = ([{"role": "system", "content": system}] if system else []) + turns
+    if tools is not None:
+        # The committed model-facing artifacts, sent verbatim. Anthropic takes `{name,
+        # description, input_schema}`; OpenAI takes `{type:"function", function:{...}}`. Both
+        # are generated from `agent_tools.rs` by `make gen-contracts`, so what the model is told
+        # is drift-gated against the enforcement point rather than assembled here.
+        if provider.wire == WIRE_ANTHROPIC:
+            payload["tools"] = tools.anthropic
+        else:
+            payload["tools"] = tools.openai
     if stream:
         payload["stream"] = True
     return payload
@@ -207,12 +325,15 @@ def _open(
     stream: bool,
     timeout: float,
     system: str | None,
+    tools: ToolCatalog | None = None,
 ) -> Any:
     key = resolve_key(provider, env)
     base = resolve_base_url(provider, env)
     request = urllib.request.Request(
         _endpoint(provider, base),
-        data=json.dumps(_body(provider, model, messages, max_tokens, stream, system)).encode(),
+        data=json.dumps(
+            _body(provider, model, messages, max_tokens, stream, system, tools)
+        ).encode(),
         headers=_headers(provider, key),
         method="POST",
     )
@@ -261,6 +382,77 @@ def _text_and_usage(provider: Provider, document: Any) -> tuple[str, Usage]:
     return text, Usage(int(raw.get("prompt_tokens", 0)), int(raw.get("completion_tokens", 0)))
 
 
+def _tool_calls(provider: Provider, document: Any) -> tuple[ToolCall, ...]:
+    """The structured calls in a response, for whichever wire this is.
+
+    A call whose arguments will not decode is DROPPED, not passed on as an empty object: an
+    empty `{}` reads downstream as "the model asked for this tool with no arguments", which is a
+    different request from the one it actually made and would be dispatched as if it were valid.
+    Dropping it leaves the model with a turn that did nothing, which it can see and retry.
+    """
+    if not isinstance(document, dict):
+        return ()
+    found: list[ToolCall] = []
+    if provider.wire == WIRE_ANTHROPIC:
+        for block in document.get("content", []):
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            args = block.get("input")
+            if not isinstance(args, dict):
+                continue
+            found.append(
+                ToolCall(
+                    id=str(block.get("id", "")), name=str(block.get("name", "")), arguments=args
+                )
+            )
+        return tuple(found)
+    choices = document.get("choices", [])
+    if not choices or not isinstance(choices[0], dict):
+        return ()
+    message = choices[0].get("message", {})
+    if not isinstance(message, dict):
+        return ()
+    for call in message.get("tool_calls") or []:
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function", {})
+        if not isinstance(fn, dict):
+            continue
+        # OpenAI-shaped wires send arguments as a JSON *string*; decode once, here.
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except ValueError:
+            continue
+        if not isinstance(args, dict):
+            continue
+        found.append(
+            ToolCall(id=str(call.get("id", "")), name=str(fn.get("name", "")), arguments=args)
+        )
+    return tuple(found)
+
+
+def _stop_reason(provider: Provider, document: Any, calls: tuple[ToolCall, ...]) -> str:
+    """Normalised across wires so the turn loop has one condition to read.
+
+    Anthropic says `stop_reason: "tool_use" | "end_turn" | "max_tokens"`; OpenAI says
+    `finish_reason: "tool_calls" | "stop" | "length"`. A loop written against either spelling
+    would be a per-provider branch, which §7 forbids in feature code.
+    """
+    if not isinstance(document, dict):
+        return ""
+    if provider.wire == WIRE_ANTHROPIC:
+        raw = str(document.get("stop_reason") or "")
+        mapping = {"tool_use": "tool_use", "end_turn": "end", "max_tokens": "length"}
+    else:
+        choices = document.get("choices", [])
+        raw = str(choices[0].get("finish_reason") or "") if choices else ""
+        mapping = {"tool_calls": "tool_use", "stop": "end", "length": "length"}
+    normalised = mapping.get(raw, "")
+    # A peer that returns tool calls without saying so still means "tool_use" — the calls are
+    # the fact; the label is the claim about it.
+    return "tool_use" if calls and normalised != "length" else normalised
+
+
 def complete(
     provider_id: str,
     messages: list[Message],
@@ -270,6 +462,7 @@ def complete(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: float = DEFAULT_TIMEOUT_S,
     system: str | None = None,
+    tools: ToolCatalog | None = None,
 ) -> Completion:
     """One non-streaming completion. `env` is passed in so callers can scope the key exactly."""
     provider = get(provider_id)
@@ -283,6 +476,7 @@ def complete(
         stream=False,
         timeout=timeout,
         system=system,
+        tools=tools,
     ) as response:
         raw = response.read().decode("utf-8", errors="replace")
     try:
@@ -290,7 +484,15 @@ def complete(
     except ValueError as err:
         raise UpstreamError(f"{provider.label} returned a non-JSON body: {raw[:200]}") from err
     text, usage = _text_and_usage(provider, document)
-    return Completion(provider=provider.id, model=chosen, text=text, usage=usage)
+    calls = _tool_calls(provider, document)
+    return Completion(
+        provider=provider.id,
+        model=chosen,
+        text=text,
+        usage=usage,
+        tool_calls=calls,
+        stop_reason=_stop_reason(provider, document, calls),
+    )
 
 
 def _sse_delta(provider: Provider, payload: Any) -> str:

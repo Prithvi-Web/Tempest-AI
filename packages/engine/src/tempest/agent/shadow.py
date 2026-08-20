@@ -240,10 +240,22 @@ def changed_files(shadow: Shadow) -> list[str]:
 
 
 def snapshot(shadow: Shadow, message: str = "tempest: agent staged change") -> str:
-    """Commit the shadow's state and return a sha the engine can prove against."""
+    """Commit the shadow's state and return a sha the engine can prove against.
+
+    **Idempotent.** Calling it twice with nothing new in between returns the same sha rather than
+    failing. `changed_files` answers "does this differ from the BASELINE", which stays true after
+    the first commit — so a second call used to reach `git commit` with an empty index and die
+    with an empty stderr. F3's repair loop proves after every attempt, so that second call is the
+    normal case, not an edge one.
+
+    The two questions are genuinely different and both are asked here: *anything since the
+    baseline?* decides whether there is a change at all, and *anything staged that HEAD does not
+    already have?* decides whether a new commit is warranted.
+    """
     if not changed_files(shadow):
         return shadow.baseline
-    _commit(shadow.path, message)
+    if _git(shadow.path, "diff", "--cached", "--name-only", "HEAD"):
+        _commit(shadow.path, message)
     return _git(shadow.path, "rev-parse", "HEAD^{commit}")
 
 
@@ -351,3 +363,18 @@ def list_shadows(repo: Path) -> list[Shadow]:
             )
         )
     return out
+
+
+def read_at(shadow: Shadow, sha: str, relpath: str) -> str | None:
+    """A file's text at a revision of the shadow, or None when it is not there.
+
+    Used by F3 to tell a symbol that was PUT BACK from one that was deleted: both vanish from a
+    bundle that only carries changed symbols, and only the source can say which happened.
+    """
+    result = subprocess.run(
+        ["git", "-C", str(shadow.path), "show", f"{sha}:{relpath}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else None

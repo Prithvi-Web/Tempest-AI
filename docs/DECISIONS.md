@@ -2327,3 +2327,228 @@ keep on the first real measurement it was asked to judge.
   metrics in `bench/editor-metrics.json` predate HEAD, so the staleness guard discarded them
   exactly as designed, and `open_file` / `keystroke` / `completion` correctly read
   NOT-YET-MEASURED. `make bench-editor` restores them.
+
+## ADR-0048 — Phase 19a: the keyless rung widens from dataclasses to plain classes (2026-08-20)
+
+**Status:** accepted · **Answers QV1's engine-first mandate without running into QV2.**
+
+**Context.** The owner answered QV1 on 2026-08-20: **engine work before feature work**, per the
+standing rule that below a ~60% real-world proof rate the engine outranks features. The measured
+rate is 34%. `docs/METRICS.md` names the lever precisely: of 130 UNPROVEN targets across five OSS
+repos, **112 are `TARGET_UNREACHABLE`** — 86% of everything unproven, an order of magnitude above
+the next bucket (12), and every one an instance method.
+
+`targets/symbols.py` classified **every** instance method unreachable by a blanket rule, before
+any attempt was made, with the detail "v1 does not synthesize instances". `prove.py` then ran a
+two-rung ladder: rung 1 `harness/typed.py` (deterministic, offline, no key) and rung 2
+`harness/llm.py` (ADR-0024, **key-gated**). Rung 1 refused everything that was not a `@dataclass`,
+at one line. So all 112 fell to the rung that needs an API key — **the engine-first answer to QV1
+ran straight into QV2 (who pays) for no reason except that a constructor was never attempted.**
+
+**Decision.** Widen rung 1 to plain classes by deriving the constructor call from `__init__`'s
+signature instead of from dataclass fields. Everything else is reused unchanged.
+
+**Why this is safe, and why it is not a loosening.** Acceptance was already **execution, not
+review**: the rendered call must pass `harness.synth.synthesize` on BASE in the sandbox or the
+target falls through. Rendering a call is a *guess*; the probe decides. Widening changes which
+guesses get made, never which get believed. The give-up arms are the honesty surface and they
+stay: an unannotated defaultless parameter, an annotation with no zero value, and an
+`async def __init__` all return None and hand the target to the next rung.
+
+**Which constructor is real decides which arm reads it.** A `@dataclass` normally has no
+`__init__` and gets a generated one from its fields, so only the field path can see its
+parameters. A `@dataclass(init=False)` with a hand-written `__init__` is the reverse. The presence
+of an explicit `__init__` therefore wins over the decorator, for both kinds of class.
+
+**Positional-only parameters are passed positionally.** `def __init__(self, fee, /)` raises
+`TypeError: got some positional-only arguments passed as keyword arguments` for `fee=0`, and a
+probe failing on our own rendering bug is indistinguishable from a class that cannot be built — a
+wrong answer arrived at honestly, which is the worst kind.
+
+**Refused attempts are cleaned up.** Widening took refusals from a handful to the common case, and
+each one used to leave a `_tempest_typed_adapter_*.py` in BOTH worktrees. Those trees are what the
+differential runner executes and what coverage is attributed against, and a `.tempest` shadow
+worktree is a real git worktree the user can open. The shim is now removed when the probe rejects.
+
+### The measured result, and the consequence it forced
+
+On the `pyfix` fixture, the three instance-method targets went from **0 of 3 proven keyless** to
+**3 of 3**: `Discounter.apply` DIVERGENT, `Wallet.withdraw` DIVERGENT, `Tally.bump`
+EQUIVALENT_UNDER_BUDGET — no key, no network, no money.
+
+That success broke something, and the break was the important part. **Rung 1 now short-circuits
+rung 2 for exactly the fixtures that tested rung 2**, so ADR-0024's LLM constructor synthesis
+would have kept passing its unit tests while losing its only end-to-end exercise — a feature going
+quietly untested because a cheaper path started winning. Two of its integration tests failed and
+said so.
+
+The fixture is therefore **split by which rung the target reaches**:
+
+| Module | `__init__` | Rung | What it proves |
+|---|---|---|---|
+| `c01`/`c02`/`c03` | annotated, zero-valuable | 1, deterministic | the phase's win, keyless |
+| `c08` (new) | `(self, seed)` — **unannotated** | 2, key-gated | ADR-0024 still works end to end |
+
+`c08` is also the keyless-honesty case: without a key it is `UNPROVEN(TARGET_UNREACHABLE)` with
+the remediation naming what would change the answer. **Do not annotate `seed`** — that would
+silently delete the only end-to-end test of the LLM rung, which is why the fixture says so in a
+comment next to the parameter.
+
+A test also asserts the deterministic verdicts are **unaffected by what the model says**: a peer
+returning prose instead of an adapter takes `c08` down and leaves c01–c03 exactly where they were.
+A deterministic proof must not be hostage to an unrelated network reply.
+
+### MEASURED 2026-08-20: 34% → 43%
+
+`tempest.dev.real_world corpus/real-world.toml`, keyless, five OSS repos, 198 targets:
+**86/198 (43%)**, up from 68/198. `TARGET_UNREACHABLE` fell **112 → 94**; every one of the 18
+newly-proven targets is an instance method the deterministic rung can now construct. packaging
+went 25% → 36%; no repo lost a proven target.
+
+`DIVERGENT` fell 12 → 10, and that is **not** this change. Both losses are humanize's
+`naturalday`/`naturaldate` — date-relative functions, and the recorded figure is four days old.
+The A/B: `typed.py` reverted to dataclass-only and humanize re-measured *today* gives
+`4 | 17 | 3`, identical to the new code. Environment, not regression. Recorded in METRICS.md.
+
+**Still below the 60% bar**, so the engine keeps outranking feature work, and
+`TARGET_UNREACHABLE` at 94 remains the dominant bucket by an order of magnitude.
+
+**Superseded note:** the paragraph below was written before the measurement and is kept because
+its caution was right — the static estimate it cites (93 of 158) was never the number that
+mattered. `tempest.dev.real_world` against the five cloned repos
+is the number that matters and it has not been re-run. A static scan of those repos' source (test
+files excluded) suggests **93 of 158 plain-class instance methods are mechanically constructible
+enough to attempt** — but "attempt" is not "prove", every one still faces the probe, and the scan
+counts all classes rather than the changed ones Tempest actually targets. **The rate is
+re-measured, never asserted**; if it does not move, that is the finding (the ADR-0027 precedent).
+
+---
+
+## ADR-0049 — The agent orchestrator's turn loop lives in the engine, not the Rust host (2026-08-20)
+
+**Status:** accepted · **Deviation from `PLAN-V2.md` Phase 21, recorded rather than drifted into
+(CLAUDE.md: "deviating silently is a failure").**
+
+**Context.** `PLAN-V2.md` says "Agent Orchestrator **in Rust**: turn loop, tool dispatch, budget
+enforcement, model router". §9c gives the reason boundary D is rooted in Rust: *"the orchestrator
+owns tool dispatch, budget enforcement, and capability checks; the enforcement point and the
+schema must not be able to disagree."*
+
+But every collaborator the turn loop needs is Python: `prove.run_prove` (the engine),
+`agent/shadow.py` (L19 staging — already moved to Python by the ADR-0036 amendment, for the same
+kind of reason), `agent/journal.py` (L20), and `inference/` (the model router, 16 providers).
+A Rust turn loop would cross the stdio boundary for the proof, the shadow, and every model call —
+adding a new boundary-A surface for each, all contract-gated, to orchestrate steps that are
+themselves Python.
+
+**Decision.** The **contract and its enforcement stay in Rust**; the **turn loop lives in the
+engine** at `tempest/agent/orchestrator.py`.
+
+* `agent_tools.rs` remains boundary D's root. It is the only declaration of what tools exist and
+  what policy each carries.
+* `tempest/agent/tools.py` **reads the committed `agent-tools.json`** and dispatches from it. It
+  declares nothing. `test_agent_tools.py` asserts the handler set and the manifest's tool set are
+  equal **in both directions**, so adding a tool in Rust breaks the Python suite until it is
+  implemented — the drift gate now covers dispatch, not only shape.
+* `model_facing_catalog()` loads the two committed model-facing artifacts and cross-checks both
+  against the canonical manifest before use. Three files, one Rust declaration; a silent
+  divergence between them is boundary D failing exactly as §9c describes, and it is not a type
+  error.
+
+**What this preserves.** The enforcement point and the schema still cannot disagree — they are the
+same file, read rather than mirrored. What moves is *where the loop runs*, and the loop is not the
+enforcement.
+
+**What it costs, stated plainly.** The Rust host does not today re-validate a tool call before it
+reaches Python. That is acceptable while the only caller is the engine itself; it stops being
+acceptable the moment the webview can originate a call, and the fix then is for the Tauri command
+to validate against the same manifest before forwarding. Written down here so it is a known edge
+rather than a discovered one.
+
+### L16 is a state with no constructor
+
+`ProvenChange` — the only type the user may be shown — refuses to exist without a `bundle_id`, and
+refuses a `verdict` that is not an engine `Verdict` (L17: a model's string cannot arrive in the
+field the UI reads as the answer). `run_task` is the sole producer and always calls `run_prove`,
+including when the model errors mid-turn and when the turn budget is spent — because in both of
+those cases there are edits in the shadow, and edits without a verdict are the thing L16 exists to
+prevent. A test asserts `run_task` is the only producer in the module.
+
+Two adversarial forge attempts are pinned, and two mutations confirm the tests bite: a fast path
+that skips the proof when nothing changed and calls it equivalent, and a post-proof overrule that
+upgrades UNPROVEN. Both are caught.
+
+**The model cannot run the proof.** `prove` is declared in the manifest so it stays whole, and its
+handler refuses: a model that could invoke proving could also decline to, and L16 would be a
+request rather than a property.
+
+### One rule for verdicts, imported rather than restated
+
+An earlier draft of `run_task` computed its own worst-first aggregation. It disagreed with the
+engine's `bundle.run_verdict` on a mixed EQUIVALENT+UNPROVEN run — a second verdict rule living
+next to the model layer, which is the one place L17 says a verdict may never be authored. The
+orchestrator now imports `run_verdict`. There is one rule and it belongs to the engine.
+
+## ADR-0050 — Phase 21: F1, F2, F3 and the exit gates; what landed and the one defect that did not (2026-08-20)
+
+**Status:** accepted for what is built · **Phase 21 is NOT complete.** `repair_bench` is red on a
+real defect (HANDOFF-NEXT §0) and `resume_test` does not exist.
+
+**Built, at the project's bar (100% coverage on `tempest/agent`, mutation-tested, adversarial
+tests where a law demands one):**
+
+* **Tool dispatch** — `agent/tools.py` reads the committed `agent-tools.json` and dispatches from
+  it, declaring nothing. A test asserts the handler set and the manifest's tool set are equal in
+  BOTH directions, so adding a tool in Rust breaks the Python suite until it is implemented: the
+  drift gate now covers dispatch, not only shape.
+* **Structured tool calling on both wires** — `inference/client.py`. Fifteen of sixteen providers
+  speak the OpenAI shape, so both are exercised over real loopback HTTP. `Completion.stop_reason`
+  is normalised so the turn loop has one condition rather than a per-provider branch (§7).
+* **F1, the verdict loop** — `agent/orchestrator.py`. `ProvenChange` cannot be constructed without
+  a bundle id or with a non-`Verdict` verdict, `run_task` is its only producer, and a test asserts
+  the module has exactly one construction site which calls `run_prove`. Two adversarial forge
+  tests, and mutations covering "skip the proof when nothing changed" and "overrule the engine
+  when it says UNPROVEN" are both caught.
+* **F2, intent contracts** — `agent/contracts.py`. TOML rather than the spec's YAML: `tomllib` is
+  in the standard library, PyYAML would be a new runtime dependency in an engine that ships
+  frozen, and TOML is already this project's config format and supports the comments a
+  user-editable contract needs. Nothing is INTENDED unless explicitly listed; a symbol in both
+  lists resolves to UNINTENDED; `"*"` is refused at construction because a contract permitting
+  everything would classify every divergence INTENDED, which is the one thing F2's gate forbids.
+* **F3, proof-guided repair** — `agent/repair.py` + the loop in the orchestrator. Success is
+  deliberately NOT "no divergences remain": it also requires the contract to be byte-identical and
+  every previously-proven target to still be proven.
+* **P2, partial** — `agent/turnlog.py`, a stdlib-`sqlite3`, WAL, `synchronous=FULL` log in the
+  engine (the API's SQLAlchemy store wraps the engine; importing it here would invert the
+  dependency). `PROVING` and `PROVED` are separate stages because the gap between them is the
+  expensive one. **`plan_resume` says what a restarted process should do and nothing consumes it
+  yet** — that, and `resume_test`, are what P2 still needs.
+
+### Three defects this phase found in code that already existed
+
+1. **`shadow.snapshot` was not idempotent.** `changed_files` answers "differs from the BASELINE",
+   which stays true after the first commit, so a second call reached `git commit` with an empty
+   index and died with an empty stderr. Harmless until F3 made proving twice the normal case.
+2. **The dispatcher double-counted refusals.** A `ToolError` raised INSIDE a handler incremented
+   the turn budget twice. Every test passed because they all used EARLY refusals, which take the
+   other path. Found by mutation, not by reading.
+3. **A second verdict rule.** An early `run_task` computed its own worst-first aggregation and
+   disagreed with `bundle.run_verdict` on a mixed EQUIVALENT+UNPROVEN run — a verdict rule living
+   next to the model layer, which is the one place L17 forbids it. The engine's rule is imported
+   now.
+
+### The defect that is still open, and why it is being handed over rather than patched
+
+A bundle carries only CHANGED symbols, so a symbol that is **put back** vanishes from it —
+indistinguishable, at the bundle level, from one that was **deleted**. Judging every vanished
+target a cheat is a false positive on the correct repair of collateral damage;
+`repair.reverted_symbols` therefore excuses a symbol whose SOURCE is identical at baseline and
+head.
+
+`model-breaks-the-import` defeats exactly that: the agent restores the function byte-for-byte and
+adds `import no_such_module_xyz`. The symbol is genuinely identical, so it is excused, and the
+engine cannot help — with no changed symbol there is nothing to target, so nothing goes UNPROVEN.
+**The fix for a real false positive created a real false negative in the same sitting (trap 48).**
+
+It is left red on purpose. Three candidate fixes are written out in HANDOFF-NEXT §0; choosing
+between them is a design decision, and the wrong time to make one is at the end of a long session.

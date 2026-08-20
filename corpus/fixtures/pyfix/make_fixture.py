@@ -53,10 +53,20 @@ BEHAVIOR_HEAD: dict[str, str] = {
     "b12.py": "def magnitude(x: float) -> float:\n    return abs(x) if x else -0.0\n",
 }
 
-# ---- instance-method targets (LLM constructor synthesis, HANDOFF-WORLD-CLASS 2.1) ----------
-# Kept OUT of BEHAVIOR_*: without an AI key these are honestly UNPROVEN(TARGET_UNREACHABLE),
-# so the keyless 12/12 gate must not require them. With synthesis, c01/c02 must land
-# DIVERGENT and c03 must stay clean — that is the proof-rate measurement.
+# ---- instance-method targets ---------------------------------------------------------------
+# Kept OUT of BEHAVIOR_*, so the keyless 12/12 gate never depends on them.
+#
+# TWO RUNGS, and after Phase 19a (ADR-0048) they are exercised by DIFFERENT modules — which is
+# the point of the split, because one fixture set cannot test a ladder's ordering.
+#
+#   c01/c02/c03 — `__init__` parameters are annotated and zero-valuable, so the DETERMINISTIC
+#     rung constructs them with no key and no network. c01/c02 land DIVERGENT, c03 stays clean.
+#     Before Phase 19a all three were UNPROVEN without a key; they are the measurement of what
+#     the phase bought.
+#   c08 — `__init__` takes an UNANNOTATED parameter, so there is nothing to derive a value from
+#     and the deterministic rung must give up. It is the only instance target that still reaches
+#     the LLM rung, and therefore the one that keeps ADR-0024 tested end to end: keyless it is
+#     honestly UNPROVEN(TARGET_UNREACHABLE) naming the key, and with one it is SYNTHESIZED.
 INSTANCE_BASE: dict[str, str] = {
     "c01.py": (
         "class Discounter:\n"
@@ -87,6 +97,20 @@ INSTANCE_BASE: dict[str, str] = {
         "            total += x\n"
         "        return total\n"
     ),
+    # UNANNOTATED `seed`: the deterministic rung has nothing to derive a value from and gives
+    # up by design. Do NOT annotate it — that would silently delete the only end-to-end test of
+    # the LLM constructor rung.
+    "c08.py": (
+        "class Ledger:\n"
+        "    def __init__(self, seed) -> None:\n"
+        "        self.seed = seed\n"
+        "\n"
+        "    def score(self, xs: list[int]) -> int:\n"
+        "        total = self.seed\n"
+        "        for x in xs:\n"
+        "            total += x\n"
+        "        return total\n"
+    ),
 }
 INSTANCE_HEAD: dict[str, str] = {
     "c01.py": (
@@ -112,6 +136,15 @@ INSTANCE_HEAD: dict[str, str] = {
         "\n"
         "    def bump(self, xs: list[int]) -> int:\n"
         "        return self.start + sum(xs)\n"
+    ),
+    # A seeded sign flip: divergent for every non-empty input.
+    "c08.py": (
+        "class Ledger:\n"
+        "    def __init__(self, seed) -> None:\n"
+        "        self.seed = seed\n"
+        "\n"
+        "    def score(self, xs: list[int]) -> int:\n"
+        "        return self.seed - sum(xs)\n"
     ),
 }
 

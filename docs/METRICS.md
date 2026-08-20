@@ -15,7 +15,7 @@
 
 | # | Number | Status today |
 |---|---|---|
-| 1 | Proof rate | **34%** real-world keyless (198 targets, 5 OSS repos); 100% on the validation fixture |
+| 1 | Proof rate | **43%** real-world keyless (198 targets, 5 OSS repos), up from 34% after Phase 19a; 100% on the validation fixture |
 | 2 | False divergence rate | **0** |
 | 3 | Time-to-first-divergence | **6.4 s** demo (bar 90 s); real-repo TTFD still uninstrumented |
 | 4 | Agent verdict coverage | **not measurable — no agent exists yet** (Phase 21; L16 target: 100%) |
@@ -51,6 +51,38 @@ Five real open-source repos, real consecutive release pairs, T2 Seatbelt, keyles
 | more-itertools | v11.0.2 `247e15b3a489` → v11.1.0 `64be96ceb2a6` | T2 | 4 | 0 | 0 | 4 | 0 | 0/4 (0%) |
 | python-slugify | v8.0.1 `58031becacdc` → v8.0.4 `f85f94885201` | T2 | 7 | 0 | 0 | 7 | 0 | 0/7 (0%) |
 | **overall** |  |  | **198** | **5** | **37** | **156** | **0** | **42/198 (21%)** |
+
+**Re-measured 2026-08-20 after Phase 19a (ADR-0048) — 34% → 43%, the second movement of the
+corpus number:**
+
+| Repo | Base → Head | Tier | Targets | DIVERGENT | EQUIVALENT | UNPROVEN | ERROR | Proof rate |
+|---|---|---|---|---|---|---|---|---|
+| packaging | 26.2 `84a87ee42483` → 26.3 `929fd4b1410a` | T2 | 153 | 5 | 50 | 98 | 0 | 55/153 (36%) |
+| semver | 3.0.0 `3a7680dc4362` → 3.0.4 `6adf8765f6e2` | T2 | 10 | 0 | 4 | 6 | 0 | 4/10 (40%) |
+| humanize | 4.15.0 `2ddb5903cdc1` → 4.16.0 `3c577d765050` | T2 | 24 | 4 | 17 | 3 | 0 | 21/24 (88%) |
+| more-itertools | v11.0.2 `247e15b3a489` → v11.1.0 `64be96ceb2a6` | T2 | 4 | 0 | 0 | 4 | 0 | 0/4 (0%) |
+| python-slugify | v8.0.1 `58031becacdc` → v8.0.4 `f85f94885201` | T2 | 7 | 1 | 5 | 1 | 0 | 6/7 (86%) |
+| **overall** |  |  | **198** | **10** | **76** | **112** | **0** | **86/198 (43%)** |
+
+**What moved, and what only looked like it moved.**
+
+* **+18 targets proven, every one of them an instance method.** `TARGET_UNREACHABLE` fell from
+  **112 to 94** and `EQUIVALENT` rose by 20 — the deterministic constructor rung now attempts
+  plain classes, so a receiver it can build mechanically is proved with no key, no network and no
+  money. packaging alone went 25% → 36%.
+* **`DIVERGENT` fell from 12 to 10, and that is NOT this change.** Both losses are in humanize,
+  on `naturalday` and `naturaldate` — date-relative functions, measured four days apart. The A/B
+  that settles it: `typed.py` was temporarily reverted to its dataclass-only form and humanize
+  re-measured **today**, giving `4 | 17 | 3` — identical to the new code. The recorded 6 belongs
+  to 2026-08-16's calendar, not to a regression. (Same discipline as the cold-launch A/B in
+  ADR-0047: when a number moves, revert the suspect and re-measure rather than reason about it.)
+* **Nothing regressed.** Four repos improved or held; no repo lost a proven target.
+
+**Still 43%, not 60%.** The standing rule stands: the engine still outranks feature work. The
+distribution below remains the roadmap, and `TARGET_UNREACHABLE` at 94 is still the dominant
+bucket by an order of magnitude — the residue is receivers whose `__init__` is unannotated, takes
+a non-zero-valuable type, or rejects zero values at construction. Those are the cases the
+key-gated rung exists for, and the cases a smarter deterministic rung could still take.
 
 UNPROVEN reason distribution (the engine roadmap, as evidence):
 

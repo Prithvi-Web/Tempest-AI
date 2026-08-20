@@ -132,6 +132,28 @@ def do_introspect(module_name: str, qualname: str) -> None:
     _emit({"ok": True, "params": params})
 
 
+def do_import(module_name: str) -> None:
+    """Does this module still load? One question, one answer, nothing else measured.
+
+    A file can change with no changed SYMBOL — a new import, a module-level statement, a
+    decorator evaluated at load time — and then no target exists and the proof has nothing to
+    say. That silence is not the same as "nothing happened": a module that no longer imports
+    has stopped doing everything it used to do, and F3 treats a repair that leaves one behind
+    as a destroyed target rather than a fixed one.
+
+    `BaseException` on purpose. A module-level `sys.exit()` or a `KeyboardInterrupt` raised by
+    import-time code is a load failure exactly like an `ImportError`; narrowing to `Exception`
+    would report the worst ones as successes. A module that kills the process outright emits
+    no line at all, which the runner reads as a failure — the conservative direction.
+    """
+    try:
+        importlib.import_module(module_name)
+    except BaseException:
+        _emit({"ok": False, "error": traceback.format_exc(limit=5)})
+        return
+    _emit({"ok": True})
+
+
 class _Tracer:
     """Line + arc collection restricted to the target file (sys.settrace, stdlib-only)."""
 
@@ -423,6 +445,8 @@ def main() -> None:
     _emit({"boot": True})
     if job["mode"] == "introspect":
         do_introspect(job["module"], job["qualname"])
+    elif job["mode"] == "import":
+        do_import(job["module"])
     elif job["mode"] == "serve":
         do_serve(job, canonical)
     else:

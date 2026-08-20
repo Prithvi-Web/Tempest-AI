@@ -27,7 +27,7 @@ from tempest.execute.dual import (
     prove_target,
 )
 from tempest.execute.powerstate import wait_while_paused
-from tempest.execute.runner import PersistentWorker
+from tempest.execute.runner import PersistentWorker, module_name_for
 from tempest.execute.sandbox import ProcessSandbox, Sandbox, SandboxSelection, select_sandbox
 from tempest.execute.ts_dual import (
     TsExecUnavailableError,
@@ -129,20 +129,6 @@ def _select_sandbox(repo: Path) -> SandboxSelection:
     )
 
 
-def _module_name(rel_path: str, source_roots: tuple[str, ...] = ()) -> str:
-    """Repo path → importable module. A configured `[roots].source` prefix is stripped
-    (longest match first, whole segments only); otherwise the conventional bare `src/`
-    layout is handled. This mirrors exactly what the worker puts on sys.path."""
-    parts = Path(rel_path).with_suffix("").parts
-    for root in sorted(source_roots, key=len, reverse=True):
-        root_parts = Path(root).parts
-        if parts[: len(root_parts)] == root_parts and len(parts) > len(root_parts):
-            return ".".join(parts[len(root_parts) :])
-    if parts and parts[0] == "src":
-        parts = parts[1:]
-    return ".".join(parts)
-
-
 def run_prove(cfg: ProveConfig) -> ProveResult:
     if cfg.cancel is None:
         return _run_prove(cfg)
@@ -206,7 +192,7 @@ def _run_prove(cfg: ProveConfig) -> ProveResult:
             continue
         head_src = (head_env.worktree / fd.path).read_text(encoding="utf-8")
         base_symbols = all_symbol_names((base_env.worktree / fd.path).read_text(encoding="utf-8"))
-        module = _module_name(fd.path, source_roots)
+        module = module_name_for(fd.path, source_roots)
         for sym in enclosing_symbols(head_src, set(fd.changed_head_lines)):
             _checkpoint(cfg)  # L11: cancellable + battery/thermal pause between targets
             if sym.symbol not in base_symbols:
@@ -390,7 +376,7 @@ def _ts_records(
         if target_fd is None:
             continue  # a symbol outside the changed files cannot happen; defensive skip
         fd = target_fd
-        module = _module_name(rel_path, source_roots)
+        module = module_name_for(rel_path, source_roots)
         classification_raw = str(target.get("classification"))
         reason_detail = target.get("reasonDetail")
         span_raw = target.get("span")
@@ -605,7 +591,7 @@ def _ts_file_unproven(
 ) -> TargetRecord:
     return _ts_symbol_record(
         fd,
-        _module_name(fd.path, source_roots),
+        module_name_for(fd.path, source_roots),
         "__file__",
         TargetClassification.UNREACHABLE,
         reason_code,
@@ -616,7 +602,7 @@ def _ts_file_unproven(
 def _ts_unexercised_record(fd: FileDiff, source_roots: tuple[str, ...] = ()) -> TargetRecord:
     return TargetRecord(
         file_path=fd.path,
-        module=_module_name(fd.path, source_roots),
+        module=module_name_for(fd.path, source_roots),
         qualname="__file__",
         lang=Lang.TYPESCRIPT,
         classification=TargetClassification.UNREACHABLE,

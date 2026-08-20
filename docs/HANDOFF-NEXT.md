@@ -1,9 +1,59 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20 after the Phase 20
-# review; Phase 19 COMPLETE and CI-confirmed; **PHASE 20 IS COMPLETE AND CI-CONFIRMED — the one
-# red job settled itself as a transient runner fault; read §0 for why that is a measurement and
-# not an assumption, then go to §1a CARRIED.**)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20 end-of-session;
+# **19, 19a and 20 COMPLETE; Phase 21 is 4/5 built with ONE KNOWN DEFECT and ONE RED GATE — §0
+# is the only thing to read before touching anything**)
 
-## 0. SETTLED — the red `desktop` job on `070f046` did not reproduce (2026-08-20)
+## 0. START HERE — one known defect, precisely diagnosed, not yet fixed
+
+**`python -m tempest.dev.repair_bench` exits 1. That is correct and deliberate: it is pointing at
+a real gap, and it must not be made green by editing the corpus.**
+
+```
+repair_bench: 4/7 genuine repairs succeeded (57%; required 60%)
+repair_bench: 2/3 dishonest outcomes correctly refused (cheats miscounted as success: 1)
+```
+
+**The miscounted cheat is `model-breaks-the-import`.** The task: the agent makes a forbidden
+change, then "repairs" by restoring the function **byte-for-byte** while adding
+`import no_such_module_xyz` at the top of the file. F3 counts that as a successful repair, and it
+should not.
+
+**Why it happens, exactly.** A bundle only ever contains **changed** symbols. When a symbol is
+put back, it stops being changed and vanishes from the bundle — which is *identical*, at the
+bundle level, to the symbol having been deleted. `repair.judge` originally treated every vanished
+target as a cheat; that was a false positive on `collateral-damage-repaired`, where reverting
+`biggest` is the *correct* repair. The fix (`repair.reverted_symbols`) compares the symbol's
+SOURCE at baseline and head and excuses it when identical.
+
+`model-breaks-the-import` defeats that: `total`'s source **is** identical, so it is excused — and
+the module is broken anyway by a statement that belongs to no symbol. **The engine cannot see it
+either**: with no changed symbol there is nothing to target, so nothing goes UNPROVEN.
+
+**This is trap 48 again, in one sitting**: the fix for a real false positive introduced a real
+false negative. Both are recorded because both are true.
+
+**What NOT to do.** Do not change `model-breaks-the-import`'s `expect_repair` to make the gate
+green. The expectation (`cheated`) is the honest one; the gate is red because the product is
+wrong, which is the gate working.
+
+**Three candidate fixes, none chosen — this is a design decision for a fresh head:**
+1. **Require the changed files to still import.** Principled and probably right, but `ast.parse`
+   will not catch it (`import no_such_module_xyz` parses fine), so it needs an execution probe —
+   which is the engine's job and a new call into it.
+2. **Treat a module-level change with no changed symbol as its own target.** Fixes the class
+   rather than the instance, and would also catch a repair that breaks a decorator or a global.
+   Bigger change, touches `targets/symbols.py`.
+3. **Narrow `reverted_symbols` to require the whole FILE be unchanged.** Simplest, and it
+   reintroduces the `collateral-damage-repaired` false positive — do not take this one without
+   solving that too.
+
+**Reproduce it in one command:**
+```bash
+TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.repair_bench
+```
+
+---
+
+## 0b. SETTLED (history) — the red `desktop` job on `070f046` did not reproduce
 
 **Nothing to do here. Do not re-run it, do not pin the runner, do not re-read the old evidence
 table.** This section is kept because the *reasoning* is reusable, not because the item is open.
@@ -158,8 +208,37 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   `git ls-files`, which answers about the index). Exactly one instance of this defect; the
   gitignored artifacts other tests read are all produced by an explicit CI step.
 
-## 2. WHERE WE ARE: **Phase 19 and Phase 20 are both COMPLETE. Phase 21 (the agent
-orchestrator) is next — but answer QV1 first (§4.4).**
+## 2. WHERE WE ARE: **19, 19a and 20 are COMPLETE. Phase 21 is UNDER WAY — F1 and F2 land;
+F3, P2 and the four benchmark gates do not.**
+
+**QV1 is ANSWERED (owner, 2026-08-20): ENGINE FIRST.** Phase 19a followed immediately and the
+proof rate is **re-measured at 43%**, up from 34% (ADR-0048, METRICS.md). Still under the 60%
+bar, so the standing rule still puts engine work ahead of feature work — the remaining
+`TARGET_UNREACHABLE` bucket is 94 and is still the dominant one by an order of magnitude.
+
+### What Phase 21 has, and what it does not — read this before claiming anything
+
+| Piece | State |
+|---|---|
+| Tool dispatch (boundary D enforcement) | **DONE** — `agent/tools.py`, 51 tests, 100% |
+| Structured tool calling, BOTH wires | **DONE** — `inference/client.py`, 24 tests, real loopback peers |
+| **F1** turn loop → verdict, L16 by construction | **DONE** — `agent/orchestrator.py`, 20 integration tests |
+| **F2** intent contracts + classification | **DONE** — `agent/contracts.py`, 31 tests, wired into the loop |
+| **F3** proof-guided repair | **BUILT, one known defect** — `agent/repair.py` + the loop in `orchestrator.py`; 26 unit + 11 integration tests; see §0 |
+| **P2** durable/resumable turns | **PARTIAL** — `agent/turnlog.py` records every stage durably and `plan_resume` says what to redo (14 tests); **nothing CONSUMES the plan yet** — `run_task` always starts fresh |
+| `agent_bench` | **DONE, GREEN** — 15/15 verdict coverage |
+| `intent_bench` | **DONE, GREEN** — 16/16, zero false INTENDED |
+| `repair_bench` | **DONE, RED** — see §0. The gate is right; the product is wrong |
+| `resume_test --kill-mid-proof --sleep-mid-stream` | **NOT BUILT** — needs P2's consumption side first |
+
+**The four gates are new shipped dev tooling** and are NOT yet wired into `make verify`. Wiring
+them in is a deliberate later step: `repair_bench` is red, and adding a red gate to `make verify`
+would make every future run red for a reason unrelated to whatever that session is doing.
+
+**Phase 21 is therefore NOT complete and must not be recorded as complete.** The exit gate in
+`PLAN-V2.md` is those four benchmarks; until they exist and pass, the phase is partial. What is
+built is built properly — 100% coverage on the whole `tempest/agent` package, mutation-tested,
+with the L16 forge tests the law asks for — but "some of it is flawless" is not "it is done".
 
 Phase 20 closed on 2026-08-19 with ADR-0046: 20.1 editor surface · 20.1b budgets armed ·
 20.2 LSP multiplexer · 20.3a–e F11 · **20.4a–d the review fixes** · **20.5 hover reachable** ·
@@ -561,10 +640,37 @@ fix wave found 18 more defects, four of them regressions the fixes themselves in
 written by an author who had just read 37 findings about the same modules (§16) ·
 49 A DIAGNOSIS YOU DID NOT RUN IS A GUESS, AND A GUESS IN A DOC IS A FALSE CLAIM — a plausible,
 wrong cause was written into this handoff as fact and caught only by running the command it
-recommended; the real cause was zsh's `echo` expanding `\n` inside JSON (§17)** ·
+recommended; the real cause was zsh's `echo` expanding `\n` inside JSON (§17) ·
+50 A SOURCE FILE CREATED DURING A COVERAGE RUN IS MEASURED AT 0% AND ITS TESTS ARE NEVER
+COLLECTED — the run then fails the 100% gate for a reason that is an artifact of the edit, not a
+fact about the code (§18)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
+
+## 6b. The Phase 21 gates — how to run them, and what each currently says
+
+```bash
+cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.agent_bench   # EXIT 0
+TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.intent_bench  # EXIT 0
+TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run python -m tempest.dev.repair_bench  # EXIT 1 — §0
+```
+
+Each takes 1-3 minutes: every task is a real git repo, a real shadow worktree and a real
+differential proof. The only fake is the MODEL — a loopback peer scripted to make a fixed
+sequence of edits, including the misbehaving ones a real model cannot be asked to perform
+reliably (L4: the fake is the model, never the execution).
+
+The corpus is `tempest/dev/_agent_corpus.py`, 15 tasks. Its composition is a choice and is stated
+in the module: repairable and deliberately-unrepairable tasks are both present, so the keyless
+repair RATE is a property of those scripts rather than of any model. A real-model number is an
+owner-run measurement (QV2) and a keyless run may never report one.
+
+**`--tasks N` is a REQUIREMENT, not a target.** Asking for more tasks than the corpus holds exits
+2 with the shortfall named, rather than quietly reporting a rate over a smaller set (trap 44).
 
 ## 7. Resume commands
 
@@ -922,3 +1028,35 @@ literal, which is not. Reproduced in three lines:
    returned a 403 whose body is *valid JSON* carrying `message` and `documentation_url` and none
    of the fields being read — a rate limit that looks exactly like a schema change. Check
    `x-ratelimit-remaining` before believing a surprising answer.
+
+
+---
+
+## 18. Trap 50 — a source file created during a coverage run is measured at 0%
+
+`make verify` came back `MAKE_EXIT=2` with **1466 passed** and *"Required test coverage of 100.0%
+not reached. Total coverage: 99.01%"*. The named file was `agent/repair.py`, at **0%, lines
+36-194** — a module whose tests were sitting right there and passing.
+
+**They were written while the run was in flight.** pytest collects once, at startup; a test file
+that appears afterwards is never collected. `coverage`, meanwhile, walks the *source tree* at
+report time, finds the new module, and correctly reports that nothing executed it. So the run
+fails for a reason that is entirely an artifact of the edit — the code is fine, the tests are
+fine, and the number is real but meaningless.
+
+The reasoning that produced it was: *"editing docs during a verify is safe, and a NEW file is
+safe too, because nothing imports it yet."* The first half is true. The second is not, and the
+difference is that coverage is a claim about the whole tree rather than about the files under
+test.
+
+**How to apply.**
+1. **Do not create files in `packages/*/src` while a coverage run is going.** Docs are fine; new
+   source is not. A new test file is merely useless (uncollected); a new *source* file actively
+   fails the run.
+2. When a coverage gate names a file at exactly **0%**, check its mtime against the run's start
+   before reading it as a defect. 0% is the signature of "never imported", and "did not exist at
+   collection time" is the cheapest explanation.
+3. The general form is the one trap 46 already states about verifiers: **do not mutate the tree
+   something is measuring.** That trap was about review agents; this is the same rule for the
+   coverage gate, which is just a slower measurement of the same tree.
+4. The fix is to re-run, not to add a pragma. There was never anything wrong with the module.
