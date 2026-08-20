@@ -304,9 +304,12 @@ _HANDLERS: dict[str, Any] = {
 
 
 def main() -> int:
+    """Serve until the client closes the stream.
+
+    There is deliberately no `if __name__ == "__main__"` guard here: `python -m tempest.mcp`
+    goes through `mcp/__main__.py`, which is the documented entry point and the one a client
+    spawns. A second way in would be a second thing to keep working, reachable only by running
+    this file by path — and unreachable code in a server is where a divergence hides.
+    """
     serve(handle)
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

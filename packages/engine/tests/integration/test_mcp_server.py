@@ -105,6 +105,45 @@ class TestTheSurface:
     def test_ping_answers_empty(self) -> None:
         assert server_mod.handle(Request(1, "ping", {})) == {}
 
+    def test_an_unknown_tool_names_the_ones_that_exist(self) -> None:
+        """A model that asked for the wrong tool should be able to fix its next call from the
+        refusal alone — the alternative is a turn spent guessing."""
+        with pytest.raises(RpcError) as caught:
+            server_mod.handle(Request(1, "tools/call", {"name": "mutation_score", "arguments": {}}))
+        assert caught.value.code == METHOD_NOT_FOUND
+        assert "mutation_score" in caught.value.message
+        assert "prove" in caught.value.message
+
+
+class TestTheEntryPoint:
+    """`python -m tempest.mcp` is what a client spawns, so it is exercised the way a client
+    would: as a module, over a real (empty) stream."""
+
+    def test_main_serves_until_its_input_ends_and_exits_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import io
+
+        monkeypatch.setattr("sys.stdin", io.StringIO(""))
+        monkeypatch.setattr("sys.stdout", io.StringIO())
+        assert server_mod.main() == 0
+
+    def test_the_module_entry_point_runs_and_exits_zero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import io
+        import runpy
+
+        monkeypatch.setattr(
+            "sys.stdin", io.StringIO('{"jsonrpc": "2.0", "id": 1, "method": "ping"}\n')
+        )
+        out = io.StringIO()
+        monkeypatch.setattr("sys.stdout", out)
+        with pytest.raises(SystemExit) as caught:
+            runpy.run_module("tempest.mcp", run_name="__main__")
+        assert caught.value.code == 0
+        assert json.loads(out.getvalue())["result"] == {}
+
 
 class TestProve:
     def test_a_behaviour_change_is_DIVERGENT_with_the_input_that_shows_it(
