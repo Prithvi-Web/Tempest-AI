@@ -143,12 +143,17 @@ class SymbolRow:
         return f"{self.path}:{self.line_start}-{self.line_end}"
 
 
-def open_index(repo: Path) -> sqlite3.Connection:
+def open_index(repo: Path, *, _rebuilt: bool = False) -> sqlite3.Connection:
     """Open (creating if needed) the index for `repo`, at the current schema version.
 
     An index written by a different schema version is dropped and recreated. That is safe here
     and would not be for a bundle: an index is derived, so the worst case is the cost of
     rebuilding it, while a bundle is the evidence itself and may never be regenerated silently.
+
+    `_rebuilt` is a recursion guard, not an option. The rebuild is one `unlink` and one reopen,
+    and if the unlink cannot take effect — a read-only directory, a file another process holds
+    open on a filesystem that will not remove it — the reopen finds the same wrong version and
+    tries again forever. One retry, then an error naming what is actually wrong.
     """
     path = Path(repo) / INDEX_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -163,10 +168,16 @@ def open_index(repo: Path) -> sqlite3.Connection:
         )
     elif found[0] != str(SCHEMA_VERSION):
         conn.close()
+        if _rebuilt:
+            raise IndexError_(
+                f"{path} still reports schema version {found[0]!r} after being rebuilt for "
+                f"version {SCHEMA_VERSION} — the file could not actually be replaced. Delete "
+                f"{path.parent} by hand; the index is derived and nothing in it is evidence."
+            )
         path.unlink(missing_ok=True)
         for suffix in ("-wal", "-shm"):
             path.with_name(path.name + suffix).unlink(missing_ok=True)
-        return open_index(repo)
+        return open_index(repo, _rebuilt=True)
     return conn
 
 

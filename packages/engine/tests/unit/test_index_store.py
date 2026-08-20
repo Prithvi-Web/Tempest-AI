@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tempest.index import store
 
 
@@ -39,6 +41,19 @@ class TestOpening:
             assert conn.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
             found = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
             assert found[0] == str(store.SCHEMA_VERSION)
+
+    def test_a_rebuild_that_cannot_take_effect_is_an_error_not_a_loop(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The rebuild is one unlink and one reopen. If the unlink cannot take effect — a
+        read-only directory, a file something holds open on a filesystem that will not remove
+        it — the reopen finds the same wrong version and tries again forever. One retry, then an
+        error naming what is actually wrong."""
+        with store.index_for(tmp_path) as conn:
+            conn.execute("UPDATE meta SET value = '999' WHERE key = 'schema_version'")
+        monkeypatch.setattr(Path, "unlink", lambda _self, missing_ok=False: None)
+        with pytest.raises(store.IndexError_, match="could not actually be replaced"):
+            store.open_index(tmp_path)
 
     def test_the_write_ahead_files_go_with_it(self, tmp_path: Path) -> None:
         """WAL mode leaves `-wal` and `-shm` beside the database. A rebuild that deleted only the

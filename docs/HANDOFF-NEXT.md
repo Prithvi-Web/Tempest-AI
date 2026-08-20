@@ -1244,3 +1244,43 @@ be complete about behaviour and silent about capability.
    manifest (boundary D requires the handler set and the tool set to match), the handler raises a
    refusal naming the law and the feature that will close it, and the tests assert the refusal.
    That is a smaller product and a true one.
+
+---
+
+## 22. What Phase 23 needs, and what is already drafted for it
+
+Phase 23 is **F12** (composer with proof preview), **F14** (sandboxed agent terminal), **F15**
+(project memory & behavioural rules), **F16** (MCP client AND server), plus **P3** Proof Skills,
+**P4** subagents, **P5** production MCP client and **P9** web search treated as hostile input. Its
+exit gate is four separate things, one of which is a recorded Claude-Code-to-Tempest MCP demo.
+
+**Do F14 first.** Phase 21 REFUSES `run_command` (§0), and that refusal is a capability the agent
+is currently missing because nothing could contain it. Everything else in Phase 23 is additive;
+this one is a hole.
+
+Three pieces are drafted and waiting in the session scratchpad — they are not in the repository,
+because a draft that has not run is not work:
+
+* **`terminal.py`** — the bounded, sandboxed command runner, plus the `capture_stderr` patch every
+  sandbox backend needs (the runners send stderr to `/dev/null` because a worker's stderr is
+  noise; a command's stderr is usually the only thing that says why it failed). Two decisions are
+  worth keeping: **no tier, no command** — a refusal, never a degraded run — and **the repository
+  is read-only under T1**, so a command that writes into the worktree fails. That is the design,
+  not an oversight: an agent's writes belong in `write_file` where they are staged, journalled and
+  proved, and a side effect the proof never sees is a change reaching the user without evidence.
+* **`rules.py`** — F15/P3. `.tempest/rules/*.toml` plus directory-local `rules.toml`, compiled
+  into the `IntentContract` the classifier already consumes, so the enforcement is where it
+  already was. The load-bearing decision: **a rule may only ever ADD `must_not_change`.** A rule
+  that could widen `may_change` would be a way for an agent to grant itself permission by writing
+  a file, and an agent can write files.
+* **`redteam.py`** — P9's gate. Five payloads, each delivered through three channels at once (a
+  file the agent reads, the task prompt, the agent's own tool calls), against a model scripted as
+  **already captured** — it obeys the payload completely. The framing is the point: not "did the
+  model resist?" but "did anything move?". Six invariants per payload: the verdict is the
+  engine's, nothing is classified INTENDED, `prove` is refused as a step, the shadow holds, the
+  credential denylist holds, and the user's contract file is untouched.
+
+**What Phase 23 also needs that is NOT drafted**: the MCP client and server (F16 — strategically
+the highest-leverage feature in the whole plan, since the server makes Tempest the verification
+oracle for every other coding agent), subagents with their own shadow and verdict (P4), and the
+composer surface (F12), which is desktop UI work.

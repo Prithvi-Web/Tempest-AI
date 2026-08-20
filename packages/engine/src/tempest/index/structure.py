@@ -25,6 +25,7 @@ import ast
 import hashlib
 import sqlite3
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -147,7 +148,12 @@ def python_files(repo: Path) -> list[Path]:
     return out
 
 
-def build(conn: sqlite3.Connection, repo: Path, *, on_symbol: object = None) -> IndexStats:
+def build(
+    conn: sqlite3.Connection,
+    repo: Path,
+    *,
+    on_symbol: Callable[[int, ParsedSymbol], None] | None = None,
+) -> IndexStats:
     """Index every Python file under `repo`, skipping those whose bytes have not changed.
 
     Returns what it actually did — files seen versus files re-parsed — because "the index is up
@@ -212,7 +218,7 @@ def build(conn: sqlite3.Connection, repo: Path, *, on_symbol: object = None) -> 
                     (symbol_id, callee, line),
                 )
                 calls += 1
-            if callable(on_symbol):
+            if on_symbol is not None:
                 on_symbol(symbol_id, parsed)
 
     for rel, (file_id, _digest) in known.items():
