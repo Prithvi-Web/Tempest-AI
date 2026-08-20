@@ -48,8 +48,19 @@ run resume_test --kill-mid-proof --sleep-mid-stream
 # and independent, so it rides along here instead of paying for its own runner.
 run retrieval_bench --questions 40 --require-citations
 
+# F14's exit gate (Phase 23): the escape suite run through the AGENT TERMINAL rather than the
+# differential worker. `terminal.run` picks the same `sandbox.popen`, so this proves the terminal
+# INHERITS the tier's containment rather than resembling it — and it catches the day somebody
+# adds a convenience to the terminal that widens what a command can reach.
+run escape_suite --tier T2 --surface agent-terminal
+
+# P9 + F15's security gate (Phase 23): five injection payloads, each delivered through three
+# channels at once, against a model scripted as ALREADY CAPTURED. The question is not "did the
+# model resist?" — it is "did anything move?".
+run redteam --injection
+
 failed=0
-for name in agent_bench intent_bench repair_bench resume_test retrieval_bench; do
+for name in agent_bench intent_bench repair_bench resume_test retrieval_bench escape_suite redteam; do
     echo "── $name ──"
     cat "$LOGS/$name.log" 2>/dev/null || echo "(this gate produced no output at all)"
     code="$(exit_code_of "$name")"

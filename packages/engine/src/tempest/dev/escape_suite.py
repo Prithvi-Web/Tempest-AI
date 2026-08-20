@@ -23,6 +23,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from tempest.agent import terminal
 from tempest.execute.sandbox import ProcessSandbox, Sandbox, SeatbeltSandbox
 
 _HOST = Path.home()
@@ -420,6 +421,33 @@ def _plant_bait() -> None:
         bait.write_text("PRIVATE-KEY-BAIT\n")
 
 
+def _run_payload_through_terminal(payload: Payload, sandbox: Sandbox, python: str) -> Outcome:
+    """The same payload, through F14's agent terminal instead of a bespoke `popen`.
+
+    F14's gate is *"the escape suite extended to the agent terminal on all tiers and all OSes"*,
+    and the only version of that worth having runs the payloads through the function the agent
+    actually calls. `terminal.run` picks the same `sandbox.popen`, so what this proves is that
+    the terminal INHERITS the tier's containment rather than resembling it — and it would catch
+    the day someone adds a convenience to the terminal that widens what a command can reach.
+    """
+    with tempfile.TemporaryDirectory(prefix="tempest-escape-") as repo_dir:
+        repo = Path(repo_dir)
+        script = repo / "attack.py"
+        script.write_text(payload.source)
+        with tempfile.TemporaryDirectory(prefix="tempest-escape-scratch-") as scratch_dir:
+            scratch = Path(scratch_dir)
+            result = terminal.run(
+                [python, "-s", "-B", str(script), str(scratch), str(_HOST)],
+                root=repo,
+                sandbox=sandbox,
+                timeout=30,
+                max_bytes=1 << 20,
+                scratch=scratch,
+            )
+            stdout = result.stdout.encode()
+    return _verdict(payload, stdout)
+
+
 def _run_payload(payload: Payload, sandbox: Sandbox, python: str) -> Outcome:
     with tempfile.TemporaryDirectory(prefix="tempest-escape-") as repo_dir:
         repo = Path(repo_dir)
@@ -443,6 +471,11 @@ def _run_payload(payload: Payload, sandbox: Sandbox, python: str) -> Outcome:
                 with contextlib.suppress(ProcessLookupError, PermissionError):
                     os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
+    return _verdict(payload, stdout)
+
+
+def _verdict(payload: Payload, stdout: bytes) -> Outcome:
+    """Read the payload's own report, then check the host for a trace it did not admit to."""
     verdict = _parse(stdout)
     if verdict is None:
         # No parseable verdict: the sandbox killed the payload before it could report. For a
@@ -494,7 +527,7 @@ def _host_trace(probe: str) -> str | None:
 _SELF_HARMING = {"kill_parent"}
 
 
-def run_matrix(tier: str) -> list[Outcome]:
+def run_matrix(tier: str, *, surface: str = "worker") -> list[Outcome]:
     from tempest.execute.interpreter import find_worker_python
 
     _plant_bait()
@@ -516,12 +549,16 @@ def run_matrix(tier: str) -> list[Outcome]:
                 )
             )
             continue
-        outcomes.append(_run_payload(payload, sandbox, python))
+        runner = _run_payload_through_terminal if surface == "agent-terminal" else _run_payload
+        outcomes.append(runner(payload, sandbox, python))
     return outcomes
 
 
-def _print_matrix(tier: str, outcomes: list[Outcome]) -> int:
-    print(f"\ntempest escape suite · tier {tier} · {platform.system()} {platform.machine()}")
+def _print_matrix(tier: str, outcomes: list[Outcome], *, surface: str = "worker") -> int:
+    print(
+        f"\ntempest escape suite · tier {tier} · surface {surface} · "
+        f"{platform.system()} {platform.machine()}"
+    )
     print(f"{'payload':32} {'category':12} result")
     print("-" * 64)
     breached = 0
@@ -539,6 +576,12 @@ def _print_matrix(tier: str, outcomes: list[Outcome]) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tier", default="T2", choices=("T2", "T3"))
+    parser.add_argument(
+        "--surface",
+        default="worker",
+        choices=("worker", "agent-terminal"),
+        help="which caller runs the payloads: the differential worker, or F14's agent terminal",
+    )
     parser.add_argument("--all-tiers", action="store_true", help="also run the T3 baseline")
     parser.add_argument(
         "--all-os",
@@ -555,7 +598,9 @@ def main() -> None:
     tiers = [args.tier] + (["T3"] if args.all_tiers and args.tier != "T3" else [])
     total_breached = 0
     for tier in tiers:
-        total_breached += _print_matrix(tier, run_matrix(tier))
+        total_breached += _print_matrix(
+            tier, run_matrix(tier, surface=args.surface), surface=args.surface
+        )
 
     if args.all_os:
         print(

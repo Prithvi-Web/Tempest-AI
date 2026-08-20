@@ -42,6 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tempest.agent import terminal
+from tempest.execute.sandbox import Sandbox
 from tempest.inference.client import ToolCatalog
 
 # tools.py lives at packages/engine/src/tempest/agent/, so parents[4] is `packages/`.
@@ -187,6 +189,12 @@ class Dispatcher:
     #: Tool names the user has granted for this project (§8). A tool whose policy is not `auto`
     #: and whose name is absent is refused — never silently auto-approved.
     grants: frozenset[str] = frozenset()
+    #: The isolation tier commands run at (F14, L19). `None` means the ladder offered nothing and
+    #: `run_command` refuses — a refusal, never a degraded run.
+    sandbox: Sandbox | None = None
+    sandbox_tier: str = "none"
+    #: Why there is no tier, quoted back to the model so the refusal is actionable.
+    sandbox_reason: str = ""
     manifest: dict[str, ToolSpec] = field(default_factory=load_manifest)
     calls_made: int = 0
 
@@ -334,38 +342,49 @@ class Dispatcher:
         return ToolResult(ok=True, content=f"wrote {len(contents)} bytes to {args['path']}")
 
     def _run_command(self, args: Mapping[str, Any]) -> ToolResult:
-        """**Refused, deliberately, until F14 lands (Phase 23).**
+        """Run a command at the SAME isolation tier a differential runner would use (L19, F14).
 
-        L19 is not "the agent's commands run in the shadow directory". It is: *agent terminal
-        commands run at the same isolation tier as differential runners.* This handler used to
-        call `subprocess.run(argv, cwd=self.root)` — the user's own uid, the user's environment,
-        the user's network, the user's whole filesystem, with only the working directory set to
-        the shadow. A `curl`, an `rm -rf ~`, a read of `~/.ssh/id_rsa` piped anywhere: all of it
-        was one granted tool call away.
+        Phase 21 shipped this as a bare `subprocess.run(argv, cwd=shadow)` — the user's own uid,
+        environment, network and whole filesystem, bounded by nothing but a working directory —
+        under a manifest declaring `writes: shadow_worktree` and `touches_network: false`. Neither
+        was true, so the tool was REFUSED rather than left running (trap 53). This is what makes
+        refusing unnecessary.
 
-        The manifest, meanwhile, declares `writes: shadow_worktree` and `touches_network: false`.
-        Neither was true, and in this project a contract that says something false is the defect,
-        not the documentation of one.
+        **No tier, no command.** When the ladder offers nothing the call is refused with the
+        reason the selection gave. A degraded tier that ran anyway would be failure mode 3, and
+        "the refusal is inconvenient" is not an argument.
 
-        The argument shape is still validated before the refusal, because a model that hands this
-        tool a shell string should learn that now rather than after the capability arrives — and
-        because argv-not-a-string is the property that makes an allowlist analysable at all.
-
-        **What closes this** is F14: a PTY at the same tier ladder the runners use, with the
-        escape suite extended to cover it on every tier and OS. That is Phase 23's exit gate, and
-        it is the only thing that would let this return an exit code honestly. Found by the
-        Phase 21 review; recorded in ADR-0053.
+        **The repository may be read-only**, and under T1 Docker it is. A command that writes into
+        the worktree fails, and that is the design rather than a limitation to apologise for: an
+        agent's writes belong in `write_file`, where they are staged, journalled and proved. A
+        side effect the proof never sees is a change reaching the user without evidence, which is
+        the one thing L16 exists to prevent.
         """
         argv_raw = args.get("argv")
         if not isinstance(argv_raw, Sequence) or isinstance(argv_raw, str) or not argv_raw:
             raise ToolError("argv must be a non-empty list of already-split arguments")
-        raise ToolError(
-            "running commands is not available yet: L19 requires an agent command to execute at "
-            "the same isolation tier as a differential runner, and Tempest cannot do that for a "
-            "shadow worktree until F14 (the sandboxed agent terminal, Phase 23) ships. Running "
-            "it unsandboxed would give this tool the whole machine while the tool contract "
-            "claims it only writes the shadow. Read, search, and write files instead; the proof "
-            "runs when your turn ends either way."
+        if self.sandbox is None:
+            raise ToolError(
+                f"running commands needs an isolation tier and this machine has none: "
+                f"{self.sandbox_reason or 'no OS-native sandbox is available'}. L19 requires an "
+                f"agent command to execute at the same tier as a differential runner, and running "
+                f"it unsandboxed would hand this tool the whole machine. Read, search and write "
+                f"files instead; the proof runs when your turn ends either way."
+            )
+        argv = [str(a) for a in argv_raw]
+        timeout = self.budgets.max_command_seconds
+        requested = args.get("timeout_seconds")
+        if isinstance(requested, int) and not isinstance(requested, bool) and requested > 0:
+            timeout = min(timeout, requested)
+        result = terminal.run(
+            argv,
+            root=self.root,
+            sandbox=self.sandbox,
+            timeout=timeout,
+            max_bytes=self.budgets.max_read_bytes,
+        )
+        return ToolResult(
+            ok=True, content=result.render(tier=self.sandbox_tier), truncated=result.truncated
         )
 
     def _prove(self, args: Mapping[str, Any]) -> ToolResult:

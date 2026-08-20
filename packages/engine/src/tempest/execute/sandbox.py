@@ -46,6 +46,7 @@ class Sandbox(Protocol):
         scratch: Path,
         stdin_pipe: bool = False,
         v8: bool = False,  # V8 workers: no RLIMIT_AS (see _set_child_limits_v8)
+        capture_stderr: bool = False,  # F14: an agent command's stderr is part of its answer
     ) -> subprocess.Popen[bytes]: ...
 
 
@@ -102,13 +103,14 @@ class ProcessSandbox:
         scratch: Path,
         stdin_pipe: bool = False,
         v8: bool = False,
+        capture_stderr: bool = False,
     ) -> subprocess.Popen[bytes]:
         return subprocess.Popen(
             cmd,
             cwd=cwd,
             env=env,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
             stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
             preexec_fn=_set_child_limits_v8 if v8 else _set_child_limits,
@@ -213,6 +215,7 @@ class SeatbeltSandbox:
         scratch: Path,
         stdin_pipe: bool = False,
         v8: bool = False,
+        capture_stderr: bool = False,
     ) -> subprocess.Popen[bytes]:
         binary = self._binary()
         if binary is None:  # available() is checked before selection; belt-and-braces
@@ -231,7 +234,7 @@ class SeatbeltSandbox:
             cwd=cwd,
             env=env,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
             stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
             preexec_fn=_set_child_limits_v8 if v8 else _set_child_limits,
@@ -376,6 +379,7 @@ class DockerSandbox:
         scratch: Path,
         stdin_pipe: bool = False,
         v8: bool = False,  # containment is the container's --memory; nothing to vary here
+        capture_stderr: bool = False,
     ) -> subprocess.Popen[bytes]:
         container_cmd = self.translate_command(cmd, workdir=cwd, scratch=scratch)
         name = f"tempest-{uuid.uuid4().hex[:12]}"
@@ -384,7 +388,7 @@ class DockerSandbox:
             wrapped,
             env={"PATH": "/usr/bin:/bin:/usr/local/bin"},
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE if capture_stderr else subprocess.DEVNULL,
             stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
             start_new_session=True,
         )

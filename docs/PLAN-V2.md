@@ -197,7 +197,27 @@ python -m tempest.dev.retrieval_bench --questions 40 --require-citations
 # prints that caveat itself. The 500k-LOC number in §5 is NOT measured and is not claimed.
 ```
 
-## Phase 23 — Coding surface + MCP both directions + P3, P4, P5, P9
+## Phase 23 — Coding surface + MCP both directions + P3, P4, P5, P9  ⚠️ PART ONE ONLY (ADR-0055)
+
+**Landed 2026-08-20: F14, F15/P3 and P9.** F12, F16, P4 and P5 are NOT started and the phase is
+NOT complete. Two of the exit gate's four parts are met (the injection suite, and a Proof Skill's
+floor holding when the model is told to ignore it); the MCP demo and the eight nested subagents
+are not.
+
+- [x] **F14** sandboxed agent terminal — the same tier ladder the runners use; no tier, no
+      command; the repository read-only under T1 because an agent's writes belong in `write_file`
+      where they are proved. Gate met: `escape_suite --surface agent-terminal`, 27/27 contained.
+- [x] **F15 + P3** behavioural rules — `.tempest/rules/*.toml`, compiled into the contract the
+      classifier consumes, enforced after the model's turn is over. A rule may only ever ADD
+      `must_not_change`, because an agent can write files.
+- [x] **P9** retrieved content as hostile input — `redteam --injection`, 30/30 invariants held
+      under a model scripted as ALREADY CAPTURED.
+- [ ] **F12** composer with proof preview (desktop UI).
+- [ ] **F16** MCP client + server — the highest-leverage item in the plan.
+- [ ] **P4** subagents with their own shadow worktree and verdict.
+- [ ] **P5** production-grade MCP client.
+
+
 
 - [ ] **F12** composer with proof preview; **F14** sandboxed agent terminal; **F15** project
       memory & behavioral rules; **F16** MCP client + server.

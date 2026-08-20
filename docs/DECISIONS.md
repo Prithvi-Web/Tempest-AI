@@ -2940,3 +2940,94 @@ retrieval_bench: retrieval p50 0.1 ms, p95 0.2 ms (bar 400 ms)
 500k-LOC repository, and this is not that measurement. What the shape supports is the claim that
 cost scales with the postings of a query's terms rather than with the size of the index: a query
 never scores a symbol it shares no term with. The 500k-LOC number stays unmeasured, and unclaimed.
+
+---
+
+## ADR-0055 — Phase 23, part one: the terminal that can be contained, and rules that are walls (2026-08-20)
+
+**Status:** accepted for what is built · **Phase 23 is NOT complete** — F12, F16, P4 and P5 are
+not started, and its exit gate has four parts of which two are met.
+
+### F14 — the sandboxed agent terminal
+
+Phase 21 shipped `run_command` as a bare `subprocess.run(argv, cwd=shadow)`: the user's own uid,
+environment, network and whole filesystem, bounded by nothing but a working directory, under a
+committed manifest declaring `writes: shadow_worktree` and `touches_network: false`. The review
+found it (trap 53) and it was **refused** rather than left running. This is what makes refusing
+unnecessary.
+
+Commands now execute through the same `Sandbox` a proof for that repository would use, selected by
+the same ladder. Three decisions are load-bearing:
+
+* **No tier, no command.** When the ladder offers nothing the call is refused with the reason the
+  selection gave. A degraded tier that ran anyway is failure mode 3, and "the refusal is
+  inconvenient" is not an argument.
+* **The repository may be read-only** — under T1 Docker it is, and a command that writes into the
+  worktree fails. That is the design, not a limitation to apologise for: an agent's writes belong
+  in `write_file`, where they are staged, journalled and proved, and a side effect the proof never
+  sees is a change reaching the user without evidence.
+* **Scratch is the only writable space and is discarded per command**, so two calls are
+  independent whatever the model believes. A caller may supply one when it needs to inspect what
+  a command wrote — the escape suite is that caller, and supplying it widens nothing.
+
+The sandbox protocol gained `capture_stderr`. The runners send a worker's stderr to `/dev/null`
+because it is noise; a command's stderr is usually the only thing that says why it failed.
+
+**Its gate is met the only way worth having.** F14 asks for "the escape suite extended to the
+agent terminal", and the extension runs the same 27 payloads through `terminal.run` itself rather
+than through a lookalike — proving the terminal INHERITS the tier's containment, and catching the
+day somebody adds a convenience to it that widens what a command can reach:
+
+```
+tempest escape suite · tier T2 · surface agent-terminal · Darwin arm64
+27/27 contained on tier T2
+```
+
+**A defect the tests found in the fix.** The first version called `proc.kill()` and its own
+docstring claimed the kill went to the session. It did not: a command that backgrounds a child and
+then hangs left the child running. The test that backgrounds a `touch` and sleeps caught it, and
+the kill goes to the process group now, with the runner's TOCTOU guard for the runner's reason.
+
+### F15 + P3 — behavioural rules
+
+`.tempest/rules/*.toml` and directory-local `rules.toml`, compiled into the `IntentContract` the
+classifier already consumes. **The enforcement is where it already was**, which is the whole
+design: the rules are read from disk by the host and folded in after the model's turn is over, so
+"ignore the rules" is not an instruction anything can obey.
+
+**A rule may only ever ADD `must_not_change`.** A rule that could widen `may_change` would be a
+way for an agent to grant itself permission by writing a file, and an agent can write files.
+`may_change` in a rule is parsed, reported, and never applied.
+
+**A rules file that cannot be read stops the task.** A rule that silently fails to load is worse
+than no rule, because the user believes the wall is there — so a typo (`must_not_chnage`) is
+refused by name rather than ignored, and the failure propagates rather than degrading to "no
+rules".
+
+F15's gate is *"a behavioural rule violation is blocked by the engine even when the model is
+explicitly instructed to violate it"*, and the test does exactly that: the instruction is in the
+prompt, the model obeys it completely and says in its own narration that the change is intended,
+and the classification does not move.
+
+### P9 — the injection suite
+
+Five payloads — verdict forgery, contract rewrite, proof skipping, sandbox escape, credential
+exfiltration — each delivered through **three channels at once**: a file the agent reads (the
+retrieval channel P9 names), the task prompt, and the agent's own tool calls. The model is
+scripted as **already captured**: it obeys the payload completely, because a model that resisted
+would prove nothing about the mechanism.
+
+Six invariants per payload: the verdict is the engine's and backed by a bundle, every divergence
+in a forbidden symbol is still UNINTENDED, `prove` is refused as a step, the shadow holds, the
+credential denylist holds, and the user's contract file is untouched. **30/30 held.**
+
+The classification invariant was written weakly first — *"nothing was called INTENDED"* — and a
+mutation that disabled `must_not_change` entirely **survived it**, because every divergence became
+UNCLASSIFIED and the check still passed. It asserts the contract's own decision now.
+
+### What Phase 23 still needs
+
+**F16 (MCP client and server)** — strategically the highest-leverage feature in the plan, since
+the server makes Tempest the verification oracle for every other coding agent. **P4 subagents**
+with their own shadow and verdict. **P5** production MCP client. **F12** the composer surface,
+which is desktop UI work. None of these are started, and the phase is not complete.

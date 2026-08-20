@@ -31,6 +31,7 @@ import pytest
 
 from tempest.agent import tools
 from tempest.agent.tools import Budgets, Dispatcher, ToolError, ToolResult
+from tempest.execute.sandbox import ProcessSandbox
 
 
 @pytest.fixture
@@ -44,6 +45,22 @@ def shadow(tmp_path: Path) -> Path:
 
 def _d(root: Path, **kw: object) -> Dispatcher:
     return Dispatcher(root=root, **kw)  # type: ignore[arg-type]
+
+
+def _sandboxed(root: Path, **kw: object) -> Dispatcher:
+    """A dispatcher with a real tier and the grant `run_command` needs.
+
+    `ProcessSandbox` is the trusted rung the first-party fixtures use (ADR-0008); production
+    picks the ladder's answer. What matters here is that a tier exists at all — the refusal when
+    one does not has its own test.
+    """
+    return Dispatcher(
+        root=root,
+        grants=frozenset({"run_command"}),
+        sandbox=ProcessSandbox(),
+        sandbox_tier="fixture",
+        **kw,  # type: ignore[arg-type]
+    )
 
 
 class TestTheManifestIsTheOnlyDeclaration:
@@ -232,35 +249,58 @@ class TestApproval:
         got = _d(shadow).call("run_command", {"argv": ["echo", "hi"]})
         assert not got.ok and "requires approval" in got.content
 
-    def test_a_granted_command_is_still_refused_because_nothing_can_contain_it_yet(
+    def test_a_granted_command_runs_at_the_tier_it_was_given(self, shadow: Path) -> None:
+        """F14. Phase 21 refused this outright, because the handler was a bare `subprocess.run`
+        with the user's own uid, environment, network and filesystem — under a manifest declaring
+        `writes: shadow_worktree` and `touches_network: false`. It executes through the sandbox
+        now, and the answer names the tier so a reader can see what the command could do."""
+        got = _sandboxed(shadow).call("run_command", {"argv": ["echo", "hi"]})
+        assert got.ok and "hi" in got.content
+        assert "exit=0" in got.content and "tier=fixture" in got.content
+
+    def test_stderr_comes_back_with_it(self, shadow: Path) -> None:
+        """A worker's stderr is noise, which is why the runners discard it. A command's stderr is
+        usually the only thing that says why it failed."""
+        got = _sandboxed(shadow).call("run_command", {"argv": ["sh", "-c", "echo bad >&2; exit 4"]})
+        assert got.ok and "bad" in got.content and "exit=4" in got.content
+
+    def test_a_command_runs_with_the_shadow_as_its_working_directory(self, shadow: Path) -> None:
+        got = _sandboxed(shadow).call("run_command", {"argv": ["ls"]})
+        assert got.ok and "README.md" in got.content
+
+    def test_a_command_that_overruns_its_budget_is_killed_and_says_so(self, shadow: Path) -> None:
+        got = _sandboxed(shadow).call(
+            "run_command", {"argv": ["sleep", "30"], "timeout_seconds": 1}
+        )
+        assert got.ok and "time budget" in got.content
+
+    def test_with_NO_TIER_the_command_is_refused_and_the_reason_is_actionable(
         self, shadow: Path
     ) -> None:
-        """L19, enforced rather than assumed. This handler used to call `subprocess.run` with the
-        user's own uid, environment, network and filesystem, confined only by a working
-        directory — while the tool contract declared `writes: shadow_worktree` and
-        `touches_network: false`. The refusal is the honest state until F14 (Phase 23) provides a
-        tier a shadow worktree can execute inside.
-        """
+        """L19 and L6 together: no isolation tier, no command. A degraded run would be exactly
+        the silent downgrade the tier ladder exists to prevent (failure mode 3)."""
+        got = _d(
+            shadow,
+            grants=frozenset({"run_command"}),
+            sandbox_reason="no OS-native sandbox tier available",
+        ).call("run_command", {"argv": ["echo", "hi"]})
+        assert not got.ok
+        assert "L19" in got.content and "no OS-native sandbox tier available" in got.content
+
+    def test_a_refusal_with_no_stated_reason_still_says_something(self, shadow: Path) -> None:
         got = _d(shadow, grants=frozenset({"run_command"})).call(
             "run_command", {"argv": ["echo", "hi"]}
         )
-        assert not got.ok
-        assert "L19" in got.content and "F14" in got.content
+        assert not got.ok and "no OS-native sandbox is available" in got.content
 
-    def test_the_refusal_is_not_a_silent_success(self, shadow: Path) -> None:
-        """The one thing that would be worse than refusing: returning `ok` with empty output, so
-        a model believes the command ran and reasons from nothing."""
-        got = _d(shadow, grants=frozenset({"run_command"})).call("run_command", {"argv": ["ls"]})
-        assert not got.ok and got.content.strip()
-
-    def test_argv_is_validated_BEFORE_the_refusal(self, shadow: Path) -> None:
-        """A model that hands this tool a shell string should learn that now rather than after
-        the capability arrives — and argv-not-a-string is what makes an allowlist analysable."""
+    def test_argv_is_validated_BEFORE_the_tier_is_consulted(self, shadow: Path) -> None:
+        """A model that hands this tool a shell string should learn that whether or not a tier
+        exists — and argv-not-a-string is what makes an allowlist analysable at all."""
         got = _d(shadow, grants=frozenset({"run_command"})).call("run_command", {"argv": "echo hi"})
         assert not got.ok and "already-split" in got.content
 
     def test_an_empty_argv_is_refused_for_its_own_reason(self, shadow: Path) -> None:
-        got = _d(shadow, grants=frozenset({"run_command"})).call("run_command", {"argv": []})
+        got = _sandboxed(shadow).call("run_command", {"argv": []})
         assert not got.ok and "already-split" in got.content
 
 

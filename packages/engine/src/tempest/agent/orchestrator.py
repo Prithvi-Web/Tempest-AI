@@ -31,6 +31,7 @@ from typing import Any
 
 from tempest.agent import contracts as contracts_mod
 from tempest.agent import repair as repair_mod
+from tempest.agent import rules as rules_mod
 from tempest.agent import shadow as shadow_mod
 from tempest.agent import turnlog as turnlog_mod
 from tempest.agent.tools import Budgets, Dispatcher, ToolResult, model_facing_catalog
@@ -475,7 +476,17 @@ def run_task(
     #
     # The inspectable trail F3 needs is `AgentRun.calls`, which records every call and its
     # outcome including refusals.
-    dispatcher = Dispatcher(root=shadow.path, budgets=spec.budgets, grants=spec.grants)
+    # F14: commands run at the repository's own tier, chosen the same way the proof chooses it.
+    # With no tier the dispatcher refuses `run_command` and says why — never a degraded run (L19).
+    selection = select_sandbox_for_repo(spec.repo)
+    dispatcher = Dispatcher(
+        root=shadow.path,
+        budgets=spec.budgets,
+        grants=spec.grants,
+        sandbox=selection.sandbox,
+        sandbox_tier=selection.tier,
+        sandbox_reason=selection.reason or "",
+    )
     catalog = model_facing_catalog()
     if not plan.resuming:
         log.checkpoint(
@@ -603,7 +614,7 @@ def _prove_and_classify(
         verdict=change.verdict.value,
         bundle_id=change.bundle_id,
     )
-    contract = contracts_mod.load(spec.repo, spec.task_id)
+    contract = _effective_contract(spec, shadow)
     classified = tuple(
         ClassifiedDivergence(
             qualname=target.qualname,
@@ -618,6 +629,35 @@ def _prove_and_classify(
         for divergence in target.divergences
     )
     return proof, change, classified
+
+
+def _effective_contract(
+    spec: TaskSpec, shadow: shadow_mod.Shadow
+) -> contracts_mod.IntentContract | None:
+    """The contract this task actually runs under: what the user asked, plus the standing rules
+    that govern the files it touched (F15, P3).
+
+    **A behavioural rule is a wall, not advice**, and this is where the difference lives. The
+    rules are read from disk by the host and folded into the contract the classifier consumes,
+    after the model's turn is over. Nothing the model emits is on that path, so "ignore the rules"
+    is not an instruction that can be obeyed by anything — which is why F15's gate (a violation is
+    blocked even when the model is told to violate it) is achievable rather than aspirational.
+
+    Rules only ever ADD `must_not_change`. A rule that could widen `may_change` would be a way for
+    an agent to grant itself permission by writing a file, and an agent can write files.
+    """
+    stated = contracts_mod.load(spec.repo, spec.task_id)
+    try:
+        rules = rules_mod.load(spec.repo)
+    except rules_mod.RuleError:
+        # A rules file that cannot be read is a wall the user believes is there. Refusing to run
+        # is the only honest answer; falling back to "no rules" would be the silent downgrade.
+        raise
+    if not rules:
+        return stated
+    return rules_mod.apply_to(
+        stated, rules, files=tuple(shadow_mod.changed_files(shadow)), intent=spec.prompt
+    ).contract
 
 
 def _contract_bytes(spec: TaskSpec) -> str:
@@ -758,7 +798,7 @@ def _repair_loop(
     """
     log = turnlog_mod.TurnLog(spec.repo)
     recorded_before, recorded_contract = _repair_baseline(log, spec.task_id)
-    contract = contracts_mod.load(spec.repo, spec.task_id)
+    contract = _effective_contract(spec, shadow)
     if contract is None or spec.max_repair_attempts <= 0:
         return None
     if not _needs_repair(first_divergences):
