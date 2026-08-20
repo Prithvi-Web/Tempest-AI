@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Phase 21's exit gate (docs/PLAN-V2.md §21): the four agent benchmarks, run for real.
+# Phase 21's exit gate (docs/PLAN-V2.md §21) plus Phase 22's — the agent benchmarks and the
+# retrieval benchmark, all run for real.
 #
 # The first three drive the SAME corpus — 55 real git repositories, 55 real shadow worktrees, 55
 # real differential proofs — and ask three different questions of it. They are independent, so
@@ -42,8 +43,13 @@ wait
 
 run resume_test --kill-mid-proof --sleep-mid-stream
 
+# Phase 22's exit gate. It builds a real index over a real fixture repository and executes it,
+# so it belongs with the agent gates rather than with the unit suite — but it is fast (seconds)
+# and independent, so it rides along here instead of paying for its own runner.
+run retrieval_bench --questions 40 --require-citations
+
 failed=0
-for name in agent_bench intent_bench repair_bench resume_test; do
+for name in agent_bench intent_bench repair_bench resume_test retrieval_bench; do
     echo "── $name ──"
     cat "$LOGS/$name.log" 2>/dev/null || echo "(this gate produced no output at all)"
     code="$(exit_code_of "$name")"

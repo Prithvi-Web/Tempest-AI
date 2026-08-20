@@ -100,10 +100,11 @@ verify-python:
 	uv run python -m tempest.dev.license_check --third-party-notices  # Phase 19.1 (L25 attribution)
 	uv run python -m tempest.dev.provider_matrix --min-providers 12   # Phase 19.5 (P1 breadth)
 
-# Phase 21's exit gate (PLAN-V2 §21, ADR-0053): F1's verdict coverage, F2's classification
-# accuracy, F3's repair rate and refused cheats, and P2's survival of a SIGKILL mid-proof. Four
-# real benchmarks over 55 real repositories; the script runs the three corpus gates concurrently
-# and prints them in a fixed order.
+# Phase 21's exit gate (PLAN-V2 §21, ADR-0053) and Phase 22's (§22, ADR-0054): F1's verdict
+# coverage, F2's classification accuracy, F3's repair rate and refused cheats, P2's survival of a
+# SIGKILL mid-proof, and F13's retrieval — 40 questions, 15 of which source text cannot answer.
+# Real benchmarks over real repositories; the script runs the three corpus gates concurrently and
+# prints every gate in a fixed order.
 verify-agent:
 	./scripts/agent-gates.sh
 

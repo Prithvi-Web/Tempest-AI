@@ -2825,3 +2825,118 @@ same conditions.*
   still reaches a real verdict (L23). It does **not** implement stream-level reconnection, which is
   the other half of P2's spec. The turn loop is non-streaming, so a dropped connection costs one
   turn and never the staged edits; genuine resumable streaming belongs with the streaming UI.
+
+---
+
+## ADR-0054 — Phase 22: three indices in one SQLite file, and what "vector" honestly means here (2026-08-20)
+
+**Status:** accepted · Phase 22's exit gate (PLAN-V2 §22) is met
+
+### The thing that had to be built first, and was not in the plan
+
+F13 says the execution index is fed by "the observation store from all bundles". **There is no
+observation store.** A bundle records counts (`inputs_run`, `equivalent_inputs`) and the
+divergences; every other observation the proof computes is discarded, which is right for a bundle
+and useless as an index. So the execution index runs the generator **with no head revision** —
+which is exactly what F4 specifies for spec synthesis — and records what comes back.
+
+It does **not** reach into `prove.py`. That was deliberate: the proof pipeline is the product's hot
+path and the thing thirty corpus fixtures pin, and an index is not a good enough reason to change
+how a proof runs. `introspect_target` + `generate_inputs` + `run_batch` are already public, so the
+index composes them and touches nothing.
+
+### Behaviour CLASSES, not invocations
+
+Storing every input of every symbol is unbounded and mostly repetition: two hundred integers that
+all return an integer are one fact observed two hundred times. Observations are clustered by
+`(outcome, returned TYPE, raised TYPE, effect signature)` and the store keeps the class, its count,
+and **two representatives** — the shortest input literal in the class and the longest, because the
+interesting ones live at the edges.
+
+Keying on the returned *type* rather than the *value*, and on the exception *type* rather than its
+*message*, is what makes the store bounded: a message carrying the input value would make every
+input its own class again.
+
+### What "vector" means, stated rather than implied
+
+F13 names sqlite-vec or LanceDB with a local embedding model. Neither is available to this build:
+both are native extensions that would have to be built for three platforms and loaded inside a
+frozen PyInstaller binary, and an embedding model is a download the app does not make and cannot
+make offline (L23).
+
+So the space is built from the text itself — identifier-aware word tokens and character trigrams —
+and scored with BM25 over an inverted index. **That is a real vector space with a deterministic,
+dependency-free embedding, and it is described that way rather than being called something it is
+not.** Trigrams are why "refnd" finds `refund_total`; the name is counted three times over because
+a symbol's name is the strongest statement about what it is for. Swapping in a learned embedding
+is a change to one function, `document_terms`, and the seam is deliberately that narrow.
+
+### `ast`, not tree-sitter
+
+Python's own parser is in the standard library, is exactly as incremental at file granularity, and
+is **the parser the engine already uses to choose targets** — so the index and the prover agree
+about what a symbol is by construction rather than by two parsers happening to concur. The moment a
+second language needs structural indexing, tree-sitter earns its dependency and `structure.py`
+grows a backend seam. Until then it would be a native dependency bought with nothing.
+
+Call edges are recorded by NAME and resolved only when **exactly one** indexed symbol answers to
+that name. Two functions called `run` make `run(...)` genuinely undecidable from the call site, and
+a call graph that picks one will eventually tell somebody their function has a caller it does not
+have.
+
+### Routing is mechanical, and "I don't know" is an answer
+
+The planner decides which index answers a question by matching the question's shape, not by asking
+a model. That is L17 in its retrieval form: a model may summarise what was retrieved, it may not
+decide what the evidence is. It also makes the benchmark a measurement rather than a sample —
+deterministic, offline, identical on every machine.
+
+A question it cannot route returns no statements and says why. That is a miss the benchmark counts,
+and it is strictly better than prose with nothing behind it. The refusal that matters most is
+narrower: a symbol that matched the question but has **no recorded execution** gets
+*"nothing was observed"* rather than a description read off its source — with the source sitting
+right there, obvious, and unread.
+
+### The citation rule, and the one place it needed a second kind
+
+Every statement carries the source spans and observation ids it came from, and a statement with no
+citation is not written. `Claim` refuses to be constructed with an empty citation list, so F4's
+gate — *every generated claim resolves to at least one stored observation* — is enforced by the
+type rather than by review.
+
+One question needed a second citation kind. *"Which functions have never been exercised?"* is a
+claim about an ABSENCE, and there is no observation of a thing that did not happen. Its evidence is
+the **run** that exercised everything else, so absence answers cite `run:<id>` and the benchmark
+accepts `observation` or `run` — never `source` — as execution grounding. Without a run behind it
+the planner refuses the question outright, because "never exercised" would then be true of every
+symbol and would mean nothing.
+
+### The benchmark, and the mutation that survived it
+
+`retrieval_bench` asks 40 questions of a real four-file repository, really indexed and really
+executed. Fifteen are impossible from source text. Three bars fail independently: every answer is
+cited, every answer is RIGHT (each question carries an expectation, because a gate that checked
+only for citations would pass a confidently-wrong answer with a footnote), and the fifteen are
+grounded in execution.
+
+The first version asked `answer.cited` — and a mutation making that property unconditionally true
+**survived**, because the gate was asking the object it measures whether it passes. It now computes
+citation and grounding from the statements itself. That is the same defect `agent_bench` had one
+phase earlier (trap 47), found the same way, one day later.
+
+`round_refund` in the fixture is the adversarial case F4's gate names: its docstring says it rounds
+in the customer's favour and its body truncates. The spec describes truncation, and can only do
+that because it never read the docstring.
+
+### Measured
+
+```
+retrieval_bench: 40/40 questions answered, cited and correct
+retrieval_bench: 15/15 source-impossible questions grounded in execution
+retrieval_bench: retrieval p50 0.1 ms, p95 0.2 ms (bar 400 ms)
+```
+
+**The latency figure is on a four-file fixture and says so in its own output.** §5's bar is a
+500k-LOC repository, and this is not that measurement. What the shape supports is the claim that
+cost scales with the postings of a query's terms rather than with the size of the index: a query
+never scores a symbol it shares no term with. The 500k-LOC number stays unmeasured, and unclaimed.

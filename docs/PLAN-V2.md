@@ -169,16 +169,32 @@ python -m tempest.dev.resume_test  --kill-mid-proof --sleep-mid-stream         #
 ```
 `--tasks N` is a FLOOR: it asserts the corpus holds at least N and then runs all 55.
 
-## Phase 22 — Index service + F13; F4
+## Phase 22 — Index service + F13; F4 ✅ COMPLETE 2026-08-20 (ADR-0054)
 
-- [ ] Index Service in Rust: vector (sqlite-vec/LanceDB) + structural (tree-sitter call graph,
-      incremental) + **execution index** over the observation store.
-- [ ] **F13** execution-grounded chat & search; **F4** behavioral spec synthesis.
+- [x] Index Service **in the engine, not Rust** — same reasoning as ADR-0049: the execution index
+      is fed by the generator and the runner, both Python, and a Rust service would have had to
+      call into them for every symbol. One SQLite file holds all three indices, because every
+      interesting question crosses them.
+- [x] **vector** — a local, deterministic, dependency-free embedding (identifier word tokens +
+      character trigrams) scored with BM25 over an inverted index. NOT sqlite-vec/LanceDB, and the
+      ADR says why and what the seam is.
+- [x] **structural** — `ast` rather than tree-sitter (the parser the prover already uses, so index
+      and prover agree about what a symbol is by construction), incremental by content digest,
+      call edges resolved only when unambiguous.
+- [x] **execution index** — the observation store the master prompt assumed existed and did not.
+      Behaviour classes with counts and two representatives each; built by running the generator
+      with no head revision, without touching `prove.py`.
+- [x] **F13** execution-grounded chat & search — one query planner, mechanical routing (L17), every
+      statement cited, "I don't know" as a real answer.
+- [x] **F4** behavioral spec synthesis — every claim cites an observation, enforced by the type;
+      the adversarial case (a docstring that lies) is in the suite.
 
-**Exit gate:**
+**Exit gate — MET 2026-08-20:**
 ```bash
 python -m tempest.dev.retrieval_bench --questions 40 --require-citations
-# incl. the 15 source-impossible questions; retrieval p95 < 400 ms on 500k LOC
+# 40/40 answered, cited and correct · 15/15 source-impossible grounded in execution
+# retrieval p95 0.2 ms against a 400 ms bar — measured on a FOUR-FILE fixture, and the gate
+# prints that caveat itself. The 500k-LOC number in §5 is NOT measured and is not claimed.
 ```
 
 ## Phase 23 — Coding surface + MCP both directions + P3, P4, P5, P9

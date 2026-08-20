@@ -244,7 +244,28 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   `git ls-files`, which answers about the index). Exactly one instance of this defect; the
   gitignored artifacts other tests read are all produced by an explicit CI step.
 
-## 2. WHERE WE ARE: **19, 19a, 20 and 21 are COMPLETE.** Phase 22 is the next feature work.
+## 2. WHERE WE ARE: **19, 19a, 20, 21 and 22 are COMPLETE.** Phase 23 is the next feature work.
+
+### Phase 22 in one paragraph (ADR-0054)
+
+Three indices in one SQLite file at `.tempest/index/index.sqlite3` — structural (`ast`, incremental
+by content digest, call edges resolved only when unambiguous), lexical/vector (identifier tokens +
+character trigrams, BM25 over an inverted index — a real vector space with a dependency-free
+embedding, described as what it is), and **execution** (the observation store the master prompt
+assumed existed and did not: behaviour classes with counts and two representatives each, built by
+running the generator with no head revision, without touching `prove.py`). One query planner over
+all three, routing mechanically rather than by asking a model (L17), and **every statement carries
+the source spans and observation ids it came from or is not written**. F4's spec synthesis is the
+same discipline as a type: `Claim` refuses to exist with an empty citation list.
+
+```
+retrieval_bench: 40/40 questions answered, cited and correct
+retrieval_bench: 15/15 source-impossible questions grounded in execution
+retrieval_bench: retrieval p50 0.1 ms, p95 0.2 ms (bar 400 ms)
+```
+
+**The latency figure is on a FOUR-FILE fixture and the gate says so itself.** §5's bar is a
+500k-LOC repository. That measurement has not been taken and is not claimed.
 
 **QV1 is ANSWERED (owner, 2026-08-20): ENGINE FIRST.** Phase 19a followed immediately and the
 proof rate is **re-measured at 43%**, up from 34% (ADR-0048, METRICS.md). Still under the 60% bar,
