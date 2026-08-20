@@ -1158,12 +1158,12 @@ answer in the docstring — the first version of this one did not, which is why 
 Two in one wave, and the same shape both times:
 
 ```python
-shadow = create(repo, task_id)          # ← killed here
+shadow = create(repo, task_id)  # ← killed here
 log.checkpoint(task_id, STARTED, ...)
 ```
 
 ```python
-_git(repo, "worktree", "add", ..., path)   # ← or here
+_git(repo, "worktree", "add", ..., path)  # ← or here
 _write_meta(repo, slug, baseline=sha)
 ```
 

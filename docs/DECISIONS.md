@@ -2776,6 +2776,44 @@ The composition stated in the module's own docstring was **wrong** — 52 tasks 
 against an actual 55 and 16 — and is now asserted by `test_agent_corpus.py` rather than described.
 A stated composition is a claim, and this project tests its claims.
 
+### The verification pass, and the three things it caught that the fix wave had NOT fixed
+
+62 findings, 132 agents, **6 confirmed unanimously**, 10 split, 46 refuted. Three of the six were
+already fixed by the time the verifiers reported; three were not, and all three were real.
+
+1. **The load probe ran without the dependency attachment every proved worktree gets — and the
+   differential check did not save it.** The baseline side is a `materialize`d worktree the proof
+   has already run `attach_deps` on, so `.tempest-deps` is on its `sys.path`; the shadow never got
+   one, because `shadow.create` deliberately carries no `.tempest*` path across. So **every**
+   changed file with a third-party import at module scope failed at head, loaded at baseline, and
+   was reported as a cheat — in every repository with a dependency. The asymmetry was in the
+   ENVIRONMENT, not in the code, which is exactly why comparing two different environments could
+   not see it. Both verifiers reproduced it. The shadow is now attached the same way the baseline
+   is, and a test plants a module reachable only through the deps directory.
+2. **The probe imported a module NAME and never checked which FILE answered.** A verifier
+   demonstrated two working bypasses against live code: a repo whose own `canonical.py` is
+   shadowed by the worker's scratch mount, and — the sharper one — `lib/app.py` broken,
+   `shim/app.py` healthy, and `source = ["shim", "lib"]` added to the worktree's `tempest.toml`,
+   which an agent can write because a config file is not a credential path. `module_loads` reported
+   `loads=True` and the file never became a suspect. **This was the §0 cheat in its second
+   edition**, and it defeated the check ADR-0051 exists to add. The worker now reports the
+   resolved `__file__`, and a name that resolves anywhere else is a failure that says where it
+   went instead.
+3. **A crash inside a repair attempt re-baselined two of the three cheat detectors.** "The contract
+   changed" and "targets stopped being provable" are differential against the state before the
+   loop began — and on a restart that state was recomputed from a fresh proof of a shadow that
+   already contained the killed attempt's edits. Whatever that attempt did became the innocent
+   baseline. Worse: if the attempt removed the divergence by removing the symbol, `_needs_repair`
+   was False and the loop returned `None`, whose own docstring says *"it never engaged"* — while
+   the log's `REPAIR_ATTEMPT` row proved otherwise. The baseline is now recorded once and
+   restored, and a resumed loop with nothing left to repair reports what ran instead of hiding it.
+
+**The lesson worth keeping is (1).** The fix for the original defect was correct and the review
+still found it insufficient, because "differential" is a property of the COMPARISON and the
+comparison was between two unlike worlds. Trap 51 says a new check must ask "did this change it";
+this adds the half that makes that question meaningful — *and both sides must be asked under the
+same conditions.*
+
 ### What is deliberately still open
 
 * **`run_command` is refused** until F14 (Phase 23) gives a shadow worktree a tier it can execute

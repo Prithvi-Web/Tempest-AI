@@ -99,6 +99,10 @@ def render(rows: list[Row], *, required: float) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    # A FLOOR, not a slice: `--tasks 50` asserts the corpus holds at least fifty tasks and
+    # then runs ALL of them. Slicing to exactly N would silently exclude every task added
+    # after the Nth, so growing the corpus would quietly stop testing the new work while
+    # the gate went on printing the number it was asked for (trap 44).
     parser.add_argument("--tasks", type=int, default=len(TASKS))
     parser.add_argument("--require-verdict-coverage", type=float, default=1.0)
     args = parser.parse_args(argv)
@@ -112,10 +116,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-        # `--tasks N` is a FLOOR, not a slice. Asking for 50 asserts the corpus holds at least 50
-    # and then runs all of it: slicing to exactly N would silently exclude every task added
-    # after the Nth, so growing the corpus would quietly stop testing the new work while the
-    # gate went on printing the number it was asked for.
     rows = evaluate(TASKS)
     print(render(rows, required=args.require_verdict_coverage))
     covered = sum(1 for r in rows if r.covered)

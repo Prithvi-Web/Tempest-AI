@@ -147,3 +147,62 @@ class TestPathToModuleName:
     def test_a_repo_with_no_config_gets_the_conventional_answer(self, tmp_path: Path) -> None:
         root = _repo(tmp_path, {"app.py": "X = 1\n"})
         assert module_for_path(root, "app.py") == "app"
+
+
+class TestTheNameMustResolveToTheFileUnderJudGEMENT:
+    """Reproduced by the review against live code, twice, and both are closed here.
+
+    A dotted name is not a file. The scratch mount carries the worker's own modules, and
+    `[roots].source` in the worktree's `tempest.toml` is a path list an AGENT can write, because
+    a config file is not a credential. Either can put a healthy file ahead of the broken one and
+    turn "does this module still load?" into "does something with that name still load?".
+    """
+
+    def test_a_name_that_resolves_to_a_different_file_is_a_failure(self, tmp_path: Path) -> None:
+        """The §0 cheat, second edition: break `lib/app.py`, add a healthy `shim/app.py`, and
+        point the repo's own source roots at the shim first."""
+        root = _repo(
+            tmp_path,
+            {
+                "lib/app.py": "import no_such_module_xyz\n\n\ndef total(xs):\n    return sum(xs)\n",
+                "shim/app.py": "def total(xs):\n    return sum(xs)\n",
+                "tempest.toml": '[roots]\nsource = ["shim", "lib"]\n',
+            },
+        )
+        got = module_loads(root, "app", SANDBOX, expect_file=root / "lib" / "app.py")
+        assert not got.loads
+        assert "resolved to" in got.error and "shim" in got.error
+
+    def test_the_matching_file_still_passes(self, tmp_path: Path) -> None:
+        """The control. Same layout, nothing broken — the check must not refuse everything."""
+        root = _repo(
+            tmp_path,
+            {
+                "lib/app.py": "def total(xs):\n    return sum(xs)\n",
+                "tempest.toml": '[roots]\nsource = ["lib"]\n',
+            },
+        )
+        assert module_loads(root, "app", SANDBOX, expect_file=root / "lib" / "app.py").loads
+
+    def test_a_repo_module_shadowed_by_the_scratch_mount_is_a_failure(self, tmp_path: Path) -> None:
+        """`canonical` is one of the worker's own modules, copied into the scratch directory the
+        worker puts on sys.path. A repo file of that name is never the one that imports."""
+        root = _repo(tmp_path, {"canonical.py": "import no_such_module_xyz\n"})
+        got = module_loads(root, "canonical", SANDBOX, expect_file=root / "canonical.py")
+        assert not got.loads, "the repo's own canonical.py never got a chance to fail"
+        assert "resolved to" in got.error
+
+    def test_without_an_expected_file_the_probe_only_answers_about_the_name(
+        self, tmp_path: Path
+    ) -> None:
+        """Stated so the weaker mode is a choice rather than an oversight. Nothing in the agent
+        path uses it; it exists for callers whose question really is about a name."""
+        root = _repo(tmp_path, {"app.py": "X = 1\n"})
+        assert module_loads(root, "app", SANDBOX).loads
+
+    def test_a_namespace_package_with_no_file_of_its_own_is_a_failure(self, tmp_path: Path) -> None:
+        """`__file__` is None for a namespace package, so nothing proves the directory that
+        imported is the file being judged."""
+        root = _repo(tmp_path, {"pkg/app.py": "X = 1\n"})
+        got = module_loads(root, "pkg", SANDBOX, expect_file=root / "pkg" / "__init__.py")
+        assert not got.loads and "no file of its own" in got.error

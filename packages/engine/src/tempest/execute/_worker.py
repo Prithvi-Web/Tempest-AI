@@ -145,13 +145,20 @@ def do_import(module_name: str) -> None:
     import-time code is a load failure exactly like an `ImportError`; narrowing to `Exception`
     would report the worst ones as successes. A module that kills the process outright emits
     no line at all, which the runner reads as a failure — the conservative direction.
+
+    The answer carries the resolved `__file__`, because "the name imported" and "the file
+    imported" are different facts and only the second one is the question.
     """
     try:
-        importlib.import_module(module_name)
+        module = importlib.import_module(module_name)
     except BaseException:
         _emit({"ok": False, "error": traceback.format_exc(limit=5)})
         return
-    _emit({"ok": True})
+    # WHICH file answered to that name. A dotted name is not a file: the scratch mount, a
+    # `[roots].source` entry the agent can write, or a top-level module of the same name can all
+    # win the import and report a healthy load for a file nobody asked about. The caller compares
+    # this against the path it is actually judging.
+    _emit({"ok": True, "file": str(getattr(module, "__file__", "") or "")})
 
 
 class _Tracer:

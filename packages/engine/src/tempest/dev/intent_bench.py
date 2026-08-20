@@ -86,6 +86,10 @@ def render(rows: list[Row], *, min_accuracy: float) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    # A FLOOR, not a slice: `--tasks 50` asserts the corpus holds at least fifty tasks and
+    # then runs ALL of them. Slicing to exactly N would silently exclude every task added
+    # after the Nth, so growing the corpus would quietly stop testing the new work while
+    # the gate went on printing the number it was asked for (trap 44).
     parser.add_argument("--tasks", type=int, default=len(TASKS))
     parser.add_argument("--min-accuracy", type=float, default=0.90)
     parser.add_argument("--max-false-intended", type=int, default=0)
@@ -99,10 +103,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-        # `--tasks N` is a FLOOR, not a slice. Asking for 50 asserts the corpus holds at least 50
-    # and then runs all of it: slicing to exactly N would silently exclude every task added
-    # after the Nth, so growing the corpus would quietly stop testing the new work while the
-    # gate went on printing the number it was asked for.
     rows = evaluate(TASKS)
     print(render(rows, min_accuracy=args.min_accuracy))
     correct = sum(1 for r in rows if r.correct)

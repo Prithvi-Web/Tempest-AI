@@ -230,7 +230,11 @@ def plan_resume(log: TurnLog, task_id: str) -> ResumePlan:
     # rather than of the last row: a task interrupted twice has a RESUMED row on top and its
     # turns are no less finished for that.
     turns_done = any(c.stage == TURNS_DONE for c in history)
-    spent = sum(1 for c in history if c.stage == REPAIR_ATTEMPT)
+    # `phase="baseline"` is the row that records what the loop is judging AGAINST, not an
+    # attempt. Counting it would charge the budget for bookkeeping.
+    spent = sum(
+        1 for c in history if c.stage == REPAIR_ATTEMPT and c.payload.get("phase") != "baseline"
+    )
     if last.stage == PROVING:
         return ResumePlan(
             finished=False,

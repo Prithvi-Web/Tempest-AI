@@ -36,6 +36,7 @@ from tempest.agent import turnlog as turnlog_mod
 from tempest.agent.tools import Budgets, Dispatcher, ToolResult, model_facing_catalog
 from tempest.bundle.bundle import run_verdict
 from tempest.config import TempestConfig, TempestConfigError, is_ignored
+from tempest.envrepro.deps import attach_deps, fetch_enabled
 from tempest.envrepro.worktree import materialize
 from tempest.execute.runner import module_for_path, module_loads
 from tempest.inference.client import (
@@ -229,6 +230,25 @@ def _shadow_for(spec: TaskSpec, plan: turnlog_mod.ResumePlan) -> _Staging:
     return _Staging(shadow=rebuilt, continues_the_record=not plan.resuming)
 
 
+def _repair_baseline(
+    log: turnlog_mod.TurnLog, task_id: str
+) -> tuple[dict[str, Verdict] | None, str | None]:
+    """The proven set and contract bytes from before the FIRST repair attempt, if recorded.
+
+    `(None, None)` means the loop has never engaged for this task, so the caller computes them.
+    Restoring rather than recomputing is what stops a restart adopting a killed attempt's edits
+    as the state everything is judged against.
+    """
+    for entry in log.history(task_id):
+        if entry.stage == turnlog_mod.REPAIR_ATTEMPT and entry.payload.get("phase") == "baseline":
+            proven = entry.payload.get("proven") or {}
+            return (
+                {str(name): Verdict(str(value)) for name, value in proven.items()},
+                str(entry.payload.get("contract", "")),
+            )
+    return None, None
+
+
 def _recorded_answer(log: turnlog_mod.TurnLog, task_id: str) -> tuple[str, str]:
     """The verdict and bundle id from the FINISHED row, for the refusal message."""
     last = log.last(task_id)
@@ -314,7 +334,10 @@ def _replay_turns(
         narration.extend(str(n) for n in entry.payload.get("narration", ()))
         calls.extend(_load_calls(entry.payload.get("calls", ())))
         return str(entry.payload.get("stopped", "")), int(entry.payload.get("turns", 0))
-    return "", 0  # pragma: no cover — reached only with a TURNS_DONE row the plan says exists
+    # pragma-justification: the plan only says "do not redo the turns" when it has SEEN a
+    # TURNS_DONE row, so the loop above always finds one. The line is the honest answer if a
+    # future caller ever asks without that guarantee.
+    return "", 0  # pragma: no cover — no TURNS_DONE row; unreachable behind plan.redo_turns
 
 
 def _summarise(result: ToolResult) -> str:
@@ -628,9 +651,11 @@ def _modules_that_stopped_loading(
     scope. A loop that refused to finish until the whole tree imported would be judging the
     user's project rather than this attempt.
 
-    Executed, in the sandbox the repo's tier selects — the same one the proof runs in (L4/L6).
-    There is no static substitute: a fatal import is syntactically perfect right up to the moment
-    the interpreter disagrees.
+    Executed, in the sandbox the repo's tier selects and with the dependency attachment every
+    proved worktree gets — the same conditions the proof ran under (L4/L6). There is no static
+    substitute: a fatal import is syntactically perfect right up to the moment the interpreter
+    disagrees. And the probe asserts the NAME it imported resolved to the FILE it is judging: a
+    dotted name is not a file, and several things can answer to one first.
 
     With no sandbox available nothing may execute, so nothing can be checked — and an unchecked
     module is reported as broken rather than assumed sound. Fail closed: the alternative is a
@@ -647,13 +672,23 @@ def _modules_that_stopped_loading(
             for rel in changed
         )
 
+    # The shadow gets the SAME dependency attachment every proved worktree gets. Without it the
+    # two probes are not comparable: the baseline is a `materialize`d worktree the proof has
+    # already run `attach_deps` on, so it has `.tempest-deps` on its sys.path and the shadow does
+    # not — and then every changed file with a third-party import at module scope fails at head,
+    # loads at baseline, and is reported as a cheat. A review reproduced exactly that; the
+    # differential check alone did NOT save it, because the asymmetry is in the environment
+    # rather than in the code (ADR-0053).
+    cache = spec.repo / ".tempest" / "cache"
+    attach_deps(shadow.path, cache, fetch=fetch_enabled())
+
     suspects: list[tuple[str, str, str]] = []
     for rel in changed:
         module = module_for_path(shadow.path, rel)
         if not (shadow.path / rel).is_file():
             suspects.append((rel, module, "the file is gone from the change's head revision"))
             continue
-        probe = module_loads(shadow.path, module, selection.sandbox)
+        probe = module_loads(shadow.path, module, selection.sandbox, expect_file=shadow.path / rel)
         if not probe.loads:
             suspects.append((rel, module, probe.error))
     if not suspects:
@@ -661,10 +696,13 @@ def _modules_that_stopped_loading(
 
     # Only now, and only for the suspects: materializing the baseline costs a worktree, so it is
     # not paid on the ordinary path where nothing is broken.
-    baseline = materialize(spec.repo, shadow.baseline, spec.repo / ".tempest" / "cache")
+    baseline = materialize(spec.repo, shadow.baseline, cache)
+    attach_deps(baseline.worktree, cache, fetch=fetch_enabled())
     broken: list[repair_mod.BrokenModule] = []
     for rel, module, error in suspects:
-        before = module_loads(baseline.worktree, module, selection.sandbox)
+        before = module_loads(
+            baseline.worktree, module, selection.sandbox, expect_file=baseline.worktree / rel
+        )
         if before.loads:
             broken.append(repair_mod.BrokenModule(path=rel, module=module, error=error))
     return tuple(broken)
@@ -718,11 +756,33 @@ def _repair_loop(
     unclassified, and "repair" would mean guessing which of the user's own changes they did not
     want — the exact judgement F2 exists to keep a model out of.
     """
+    log = turnlog_mod.TurnLog(spec.repo)
+    recorded_before, recorded_contract = _repair_baseline(log, spec.task_id)
     contract = contracts_mod.load(spec.repo, spec.task_id)
     if contract is None or spec.max_repair_attempts <= 0:
         return None
     if not _needs_repair(first_divergences):
-        return None
+        if spent_attempts == 0:
+            return None
+        # A previous process ran attempts and this one finds nothing left to repair. Returning
+        # None here would say "the loop never engaged", which the log disproves — and it is the
+        # exact shape of the cheat the lost-target check exists for: an attempt that removed the
+        # divergence by removing the symbol, followed by a restart that proves the tree after the
+        # removal and sees a clean bundle. So the loop is reported, with what it can still check.
+        lost = sorted(set(recorded_before or {}) - set(repair_mod.proven_targets(first_bundle)))
+        return repair_mod.RepairOutcome(
+            succeeded=not lost,
+            attempts=(),
+            reason=(
+                f"{spent_attempts} repair attempt(s) ran in a process that did not survive to "
+                f"judge them"
+                + (
+                    f"; targets that were provable before are not now: {', '.join(lost)}"
+                    if lost
+                    else "; nothing this process can still check is wrong"
+                )
+            ),
+        )
     # The budget is a bound on MONEY, so it counts attempts across the whole task rather than
     # across this process. A task killed four times would otherwise spend four full budgets and
     # the record would show one (L15.4).
@@ -737,8 +797,23 @@ def _repair_loop(
             ),
         )
 
-    before = repair_mod.proven_targets(first_bundle)
-    contract_before = _contract_bytes(spec)
+    # The two differential cheat checks — "the contract changed" and "targets stopped being
+    # provable" — compare against the state BEFORE the loop began. On a restart the fresh proof
+    # already contains the killed attempt's edits, so recomputing them here would make whatever
+    # that attempt did the innocent baseline. They are recorded once and restored (ADR-0053).
+    before = (
+        recorded_before if recorded_before is not None else repair_mod.proven_targets(first_bundle)
+    )
+    contract_before = recorded_contract if recorded_contract is not None else _contract_bytes(spec)
+    if recorded_before is None:
+        log.checkpoint(
+            spec.task_id,
+            turnlog_mod.REPAIR_ATTEMPT,
+            number=0,
+            phase="baseline",
+            proven={name: verdict.value for name, verdict in before.items()},
+            contract=contract_before,
+        )
     attempts: list[repair_mod.RepairAttempt] = []
     bundle = first_bundle
     divergences = first_divergences
@@ -757,7 +832,7 @@ def _repair_loop(
         # The attempt's conversation is part of the durable record. Without this a restart mid
         # repair replayed the transcript from BEFORE the attempt while the shadow already held
         # the attempt's edits, and re-ran model turns that had already been paid for.
-        turnlog_mod.TurnLog(spec.repo).checkpoint(
+        log.checkpoint(
             spec.task_id,
             turnlog_mod.REPAIR_ATTEMPT,
             number=number,

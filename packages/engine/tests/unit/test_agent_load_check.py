@@ -200,3 +200,62 @@ class TestOnlyWhatTheAGENTBroke:
         shadow = shadow_mod.create(root, "t")
         shadow_mod.write(shadow, "generated.py", "import no_such_module_xyz\n")
         assert _modules_that_stopped_loading(_spec(root), shadow) == ()
+
+
+class TestTheTwoProbesSeeTheSameWORLD:
+    """The confirmed review finding the differential check alone did NOT fix (ADR-0053).
+
+    The baseline probe runs in a `materialize`d worktree — the very one the proof just used, with
+    `attach_deps` already run on it, so `.tempest-deps` is on its sys.path. The shadow never got
+    that: `shadow.create` deliberately carries no `.tempest*` path across. So a changed file with
+    a third-party import at module scope failed at head, loaded at baseline, and was reported as a
+    cheat the agent committed — in every repository with a dependency.
+
+    The asymmetry is in the ENVIRONMENT, not in the code, which is why a differential comparison
+    of two different environments does not see it.
+    """
+
+    def _repo_with_deps(self, tmp_path: Path) -> Path:
+        root = tmp_path / "repo"
+        root.mkdir()
+        _git(root, "init", "-b", "main")
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "demo"\nversion = "0.1.0"\n', encoding="utf-8"
+        )
+        (root / "app.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
+        (root / ".tempest-first-party").write_text(_FIRST_PARTY_MARKER, encoding="utf-8")
+        _git(root, "add", "-A")
+        _git(root, "commit", "-m", "base")
+        return root
+
+    def test_a_module_importable_only_through_the_deps_dir_is_not_called_broken(
+        self, tmp_path: Path
+    ) -> None:
+        """A vendored module lives in the site dir the deps link points at — reachable from a
+        worktree that has been attached, invisible to one that has not. If the shadow is not
+        attached, this reads as "the agent broke app.py"."""
+        root = self._repo_with_deps(tmp_path)
+        shadow = shadow_mod.create(root, "t")
+        shadow_mod.write(shadow, "app.py", "def total(xs):\n    return sum(xs) + 1\n")
+
+        # One call to establish the link, then plant a module only the site dir can offer.
+        _modules_that_stopped_loading(_spec(root), shadow)
+        site = (shadow.path / ".tempest-deps").resolve()
+        assert site.is_dir(), "the shadow must be attached at all for this test to mean anything"
+        (site / "vendored_thing.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+        shadow_mod.write(
+            shadow, "app.py", "import vendored_thing\n\n\ndef total(xs):\n    return sum(xs) + 1\n"
+        )
+        assert _modules_that_stopped_loading(_spec(root), shadow) == ()
+
+    def test_the_shadow_is_attached_exactly_as_the_baseline_is(self, tmp_path: Path) -> None:
+        """The invariant behind the case above, asserted directly: both probes run in worlds with
+        the same dependency attachment, or neither comparison means anything."""
+        root = self._repo_with_deps(tmp_path)
+        shadow = shadow_mod.create(root, "t")
+        shadow_mod.write(shadow, "app.py", "def total(xs):\n    return sum(xs) + 1\n")
+        assert not (shadow.path / ".tempest-deps").exists(), "not yet — create() carries none"
+
+        _modules_that_stopped_loading(_spec(root), shadow)
+        assert (shadow.path / ".tempest-deps").is_symlink()

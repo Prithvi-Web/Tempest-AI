@@ -139,6 +139,7 @@ def module_loads(
     module: str,
     sandbox: Sandbox,
     *,
+    expect_file: Path | None = None,
     python: str | None = None,
     timeout: float = 20.0,
 ) -> LoadProbe:
@@ -147,6 +148,15 @@ def module_loads(
     Real execution, in the same sandbox every other stage uses (L4). No static check can answer
     this: `import no_such_module_xyz` parses perfectly, and `ast.parse` is happy right up to the
     moment the interpreter is not.
+
+    **`expect_file` is not optional in spirit.** A dotted name is not a file, and several things
+    can answer to a name ahead of the file you meant: the scratch mount that carries the worker's
+    own `canonical.py` and `shims.py`, a `[roots].source` entry from the worktree's `tempest.toml`
+    — which an agent can write, since it is not a credential path — or simply a top-level module
+    of the same name. A review reproduced both bypasses: a repo with `lib/app.py` broken, a
+    healthy `shim/app.py`, and `source = ["shim", "lib"]` reported the module as loading fine.
+    When `expect_file` is given, a name that resolves anywhere else is a FAILURE, and the error
+    says which file answered instead.
 
     A worker that produces no verdict line — killed, timed out, or exited before `_emit` — is
     reported as a load FAILURE. That is the conservative direction for the only caller: a module
@@ -175,10 +185,44 @@ def module_loads(
         if payload is None or "ok" not in payload:
             continue
         if payload.get("ok"):
-            return LoadProbe(module=module, loads=True, error="")
+            return _check_resolved(module, str(payload.get("file", "")), expect_file)
         return LoadProbe(module=module, loads=False, error=str(payload.get("error", "")).strip())
     return LoadProbe(
         module=module, loads=False, error="the worker produced no answer about this import"
+    )
+
+
+def _check_resolved(module: str, resolved: str, expect_file: Path | None) -> LoadProbe:
+    """The import worked — but did it import the file we are judging?
+
+    A name that resolves elsewhere is reported as a failure rather than a pass, because the
+    caller's question is about a FILE. Answering "yes, something called `app` imports fine" to
+    "does this changed app.py still load?" is the shape of every bypass this check exists for.
+    """
+    if expect_file is None:
+        return LoadProbe(module=module, loads=True, error="")
+    if not resolved:
+        return LoadProbe(
+            module=module,
+            loads=False,
+            error=(
+                f"{module!r} imported but reports no file of its own (a namespace package or a "
+                f"built-in), so nothing proves it is {expect_file}"
+            ),
+        )
+    try:
+        same = Path(resolved).resolve() == expect_file.resolve()
+    except OSError:  # pragma: no cover — a path that cannot be resolved is not the one we want
+        same = False
+    if same:
+        return LoadProbe(module=module, loads=True, error="")
+    return LoadProbe(
+        module=module,
+        loads=False,
+        error=(
+            f"the name {module!r} resolved to {resolved}, not to {expect_file} — the file under "
+            f"judgement was never imported, so nothing here says whether it still loads"
+        ),
     )
 
 

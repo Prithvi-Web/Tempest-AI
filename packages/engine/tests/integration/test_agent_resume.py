@@ -364,3 +364,100 @@ class TestOrphansAndRebuilds:
         rows = [c for c in turnlog_mod.TurnLog(repo).history("t") if c.stage == turnlog_mod.RESUMED]
         assert rows and rows[-1].payload["redo_turns"] is True
         assert "rebuilt" in str(rows[-1].payload["reason"])
+
+
+class TestACrashInsideARepairAttempt:
+    """The subtlest of the resume states, and the one a review had to find.
+
+    Two of `judge`'s three cheat checks are DIFFERENTIAL: the contract must be byte-identical to
+    what it was, and every target that was provable must still be. On a restart the fresh proof
+    already contains the killed attempt's edits — so recomputing those baselines would make
+    whatever that attempt did the innocent starting point, and the check that exists to catch a
+    deleted symbol would have nothing to compare against.
+    """
+
+    def _forbid(self, repo: Path, task_id: str) -> None:
+        from tempest.agent import contracts
+
+        contracts.save(
+            repo,
+            task_id,
+            contracts.IntentContract(intent="do not change total", must_not_change=("total",)),
+        )
+
+    def test_the_baseline_is_recorded_before_the_first_attempt(self, repo: Path) -> None:
+        self._forbid(repo, "t")
+        fake = FakeAnthropic()
+        script = _Script(fake, [_write(_CHANGED), _write(_CHANGED), None])
+        with fake_anthropic_server(fake) as url:
+            run_task(
+                _spec(repo, max_turns=1, max_repair_attempts=1), env=_env(url), on_event=script
+            )
+        rows = [
+            c
+            for c in turnlog_mod.TurnLog(repo).history("t")
+            if c.stage == turnlog_mod.REPAIR_ATTEMPT and c.payload.get("phase") == "baseline"
+        ]
+        assert len(rows) == 1
+        assert rows[0].payload["proven"] == {"total": "DIVERGENT"}
+
+    def test_a_deletion_by_a_killed_attempt_is_still_caught_after_the_restart(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The scenario in full: the attempt deletes the diverging function and the process dies
+        before judging it. The restart proves a tree with nothing left to diverge — and must not
+        report that as a clean run."""
+        self._forbid(repo, "t")
+
+        proofs = {"n": 0}
+        real_prove = __import__("tempest.prove", fromlist=["run_prove"]).run_prove
+
+        def die_on_the_second_proof(cfg: Any) -> Any:
+            proofs["n"] += 1
+            if proofs["n"] == 2:
+                raise KeyboardInterrupt("killed after the repair edit, before judging it")
+            return real_prove(cfg)
+
+        fake = FakeAnthropic()
+        script = _Script(fake, [_write(_CHANGED), _write("# the function is gone\n"), None])
+        monkeypatch.setattr("tempest.agent.orchestrator.run_prove", die_on_the_second_proof)
+        with fake_anthropic_server(fake) as url, pytest.raises(KeyboardInterrupt):
+            run_task(
+                _spec(repo, max_turns=1, max_repair_attempts=2), env=_env(url), on_event=script
+            )
+        monkeypatch.undo()
+
+        fresh = FakeAnthropic()
+        with fake_anthropic_server(fresh) as url:
+            run = run_task(
+                _spec(repo, max_turns=1, max_repair_attempts=2),
+                env=_env(url),
+                on_event=_OneEdit(fresh),
+            )
+
+        assert run.repair is not None, "the loop ran; reporting None would hide it"
+        assert not run.repair.succeeded
+        assert "total" in run.repair.reason
+        assert "did not survive" in run.repair.reason
+
+
+class _Script:
+    """A model that performs a fixed sequence of edits, one per conversation turn."""
+
+    def __init__(self, fake: FakeAnthropic, edits: list[dict[str, Any] | None]) -> None:
+        self.fake = fake
+        self.edits = list(edits)
+        self.fake.tool_uses = [self.edits[0]] if self.edits and self.edits[0] else []
+        if not self.fake.tool_uses:
+            self.fake.reply_text = "nothing to do"
+
+    def __call__(self, kind: str, _detail: str) -> None:
+        if kind != "tool":
+            return
+        self.edits.pop(0)
+        nxt = self.edits[0] if self.edits else None
+        if nxt:
+            self.fake.tool_uses = [nxt]
+        else:
+            self.fake.tool_uses = []
+            self.fake.reply_text = "done"
