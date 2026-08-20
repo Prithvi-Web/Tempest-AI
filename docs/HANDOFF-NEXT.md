@@ -1,55 +1,61 @@
-# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19 after the Phase 20
-# review; Phase 19 COMPLETE and CI-confirmed; **PHASE 20 IS CODE-COMPLETE AND PUSHED at `070f046`,
-# and its CI run is 6/7 with ONE job red for a reason that is almost certainly not the code —
-# read §0 FIRST, it is the only thing standing between here and "Phase 20 complete".**)
+# HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20 after the Phase 20
+# review; Phase 19 COMPLETE and CI-confirmed; **PHASE 20 IS COMPLETE AND CI-CONFIRMED — the one
+# red job settled itself as a transient runner fault; read §0 for why that is a measurement and
+# not an assumption, then go to §1a CARRIED.**)
 
-## 0. START HERE — the one red CI job on `070f046`
+## 0. SETTLED — the red `desktop` job on `070f046` did not reproduce (2026-08-20)
 
-**Do this before anything else, and do not start Phase 21 until it is settled.**
+**Nothing to do here. Do not re-run it, do not pin the runner, do not re-read the old evidence
+table.** This section is kept because the *reasoning* is reusable, not because the item is open.
 
-Run <https://github.com/Prithvi-Web/Tempest-AI/actions/runs/32315935235> — 6 of 7 jobs green.
-`ci / desktop` FAILED after 1m, at its very FIRST cargo command:
+`ci / desktop` failed on run `32315935235` (`070f046`) inside the first minute of its first cargo
+command — `quote`, `proc-macro2` and `serde_core` build scripts exiting **126**, *"cannot execute
+binary file"*: an architecture mismatch on the runner, not a compile error.
 
-```
-error: failed to run custom build command for `quote v1.0.47`
-  process didn't exit successfully: .../target/debug/build/quote-*/build-script-build (exit 126)
-  --- stderr
-  .../build-script-build: cannot execute binary file
-```
+It was settled without the owner clicking anything, by an experiment **stronger than the re-run
+that was planned**. `3860c23` (a documentation commit) was pushed on top of `070f046`, and CI ran
+on it: **run `32317420375`, 7 of 7 green**, `desktop` included — step 10
+`cargo clippy --workspace --all-targets -- -D warnings`, the exact step that had exited 101,
+**passed**, as did `cargo test --workspace`, `typecheck` and the E2E leg.
 
-...and identically for `proc-macro2` and `serde_core`. Exit 126 + "cannot execute binary file"
-means the build-script executable cargo had just produced could not be run — an architecture
-mismatch on the runner, not a compile error.
+The reason that is decisive, and checkable in one command each:
 
-**The evidence that this is NOT the code, gathered before writing this:**
+| Claim | Command | Result |
+|---|---|---|
+| `3860c23` touches only `docs/` | `git diff --name-only 070f046 3860c23` | `docs/DECISIONS.md`, `docs/HANDOFF-NEXT.md` |
+| every non-`docs` tree object is **identical** | `git ls-tree <c> \| grep -v docs \| git hash-object --stdin` | `0b33d572…` on **both** commits |
+| a **different** runner ran it | job `runner_name` | `1000000612` vs the failing `1000000607` |
 
-| Fact | How it was checked |
-|---|---|
-| `target/` is not in the repo | `git ls-files \| grep -c src-tauri/target` → **0** |
-| no cargo cache exists in CI | no cache step anywhere in `ci.yml` |
-| `Cargo.toml`/`Cargo.lock` are untouched since the last green run | `git diff --stat 30f970a..HEAD -- '*Cargo.toml' '*Cargo.lock'` → **empty** |
-| cargo COMPILES FINE on macos-latest in the SAME run | `contract-check` (also `macos-latest`, also `dtolnay/rust-toolchain@stable`, also after `build-server.sh`) ran `cargo install cargo-typify` + `make gen-contracts` and **passed in 3m** |
-| the failure is in DEPENDENCY build scripts | it happens before a single line of Tempest code compiles |
-| the same commit is green locally | `make verify` MAKE_EXIT=0 (1273 passed / 100.00%), `cargo test --workspace` 115 passed, `clippy -D warnings` exit 0, `pnpm tauri build` BUILD_EXIT=0 |
+Identical source bytes + a fresh runner + green = transient infrastructure fault. A re-run replays
+a job inside the original run's context; a new push gets a new allocation and a new checkout, so
+this answered the question the re-run was meant to answer, with a stronger control.
 
-Also on that job: *"Node.js 20 is deprecated... being forced to run on Node.js 24"* — the runner
-image moved under us.
+**No code change and no CI change was made.** `runs-on` is unpinned and `-D warnings` is untouched:
+pinning a runner to work around a fault that happened once and did not recur on identical bytes
+would trade a real cross-arch signal for the look of stability (v2 failure mode 2). The evidence
+for pinning is a **second** occurrence.
 
-**FIRST ACTION: re-run the failed job** (Actions → that run → "Re-run failed jobs"). It is one
-click and it is definitive. Two outcomes:
+**Recurrence signature — recognise it in one look:** a `macos-latest` job dying inside the first
+minute of its first cargo command, `exit 126` + `cannot execute binary file`, from *dependency*
+build scripts, before any Tempest code compiles. If that happens again it IS reproducible, and the
+fix is to **pin the host** — `runs-on: macos-14` — and only that. **Not** `targets:` on
+`dtolnay/rust-toolchain`: `targets:` installs cross-compilation stdlibs affecting
+`target/<triple>/`, while a build script is always compiled for and run on the **host** triple and
+lands in `target/debug/build/<crate>-<hash>/build-script-build` — the exact path in the failing
+log, and `target/` here holds only `debug/`, `release/`, `tmp/`, no triple directory at all. An
+earlier draft of this section offered `targets:` as an equal alternative; it would have looked
+like diligence and changed nothing.
 
-* **It goes green** → the phase is settled; record it in ADR-0046 as a transient runner defect
-  and move to Phase 21. Nothing to fix.
-* **It fails again the same way** → it is reproducible and needs a real fix, most likely pinning
-  the runner (`runs-on: macos-14`) or making the toolchain arch explicit
-  (`dtolnay/rust-toolchain@stable` with `targets: aarch64-apple-darwin`). Diff the runner image
-  header of the failing job against `contract-check`'s in the same run — they carry the same
-  label but may not be the same image during a rollout. **Do not "fix" this by weakening the
-  job** (no `continue-on-error`, no dropping `-D warnings`): that is v2 failure mode 2.
-
-**Do not re-run `make verify` locally hoping it tells you something about this.** It is green on
-this exact commit and cannot see a runner-image problem — that is trap 44 in the other direction:
-a local green is evidence about this machine, and this failure is a fact about a GitHub runner.
+**Still open, and NOT settled by the above** — `actions/setup-node@v4`,
+`actions/upload-artifact@v4` and `astral-sh/setup-uv@v6` target Node 20 and are *"being forced to
+run on Node.js 24"*. The runner is absorbing a deprecation for us; when it stops, the affected
+jobs go red for a reason unrelated to Tempest. **The scope, counted rather than estimated:
+5 of the 7 jobs** — `desktop` (all three), `python` / `bench` / `contract-check` (two each),
+`node` (one); `forbidden-verdict-grep` and `compose-validate` use only `actions/checkout@v5`
+(already Node 24) and are unaffected. It is **10 `uses:` lines in `ci.yml` and 16 across all
+workflows**, not three. Queued in §4, deliberately not fixed in the session that found it — a
+workflow edit is only verifiable by a CI run, and that session must not leave an unverified
+workflow behind. Recorded in ADR-0046's closing section.
 
 
 
@@ -95,16 +101,28 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   + offline source · 20.3c completion budget + input storm · 20.3d local model runner + fallback
   · 20.3e behavioural risk indicator · **20.4a–d the review's confirmed fixes** · **20.5 the
   hover tooltip that makes `lsp_hover` reachable** · **20.6 the runners' settings surface**.
-  **All twelve Phase 20 commits are PUSHED — `origin/main == 070f046`, working tree clean.**
-  Everything through `30f970a` was CI-green 7/7; the run on `070f046` is 6/7 with `desktop` red
-  for the reason in §0.
-- **Test counts after Phase 20**: pytest **1273** at 100.00% · cargo **115** (was 84) · vitest
-  **86** desktop + 27 ts-sidecar · Playwright **48 passed** (was 42). Final `make verify`:
-  `MAKE_EXIT=0`, "verify: all live steps green".
-- **The §5 editor budgets are MET and the count is 6 of 13**: open file p50 15.4 ms (bar 40),
+  **All twelve Phase 20 commits are PUSHED, and the phase is CI-CONFIRMED.** Everything through
+  `30f970a` was CI-green 7/7; `070f046` came back 6/7 with `desktop` red; and `3860c23` — whose
+  non-`docs` tree object is the *same hash* as `070f046`'s — came back **7/7 green** on a fresh
+  runner (run `32317420375`). §0 has the full reasoning; the item is closed, not deferred.
+- **Test counts after the ADR-0047 bench-conditions work (2026-08-20)**: pytest **1329** at
+  100.00% (`MAKE_EXIT=0`, "all live steps green") · Linux denominator **1323**, 6 deselected,
+  100.00% (`LINUX_EXIT=0`) · cargo **115** in the workspace + **5** devtools (untouched — no
+  `.rs` changed this session) · vitest **86** desktop + **27** ts-sidecar · Playwright
+  **48 passed** · `parity --cli-vs-desktop` byte-identical · `ruff format --check` clean
+  repo-wide (281 files) · `mypy --strict` clean on 130 files, both platform views.
+  Phase 20 handed off at pytest **1273**; the delta is this session's tests.
+  **`make perf-gate`: `PERF_GATE_EXIT=0` — green for the first time (ADR-0047).**
+- **The §5 editor budgets were MET when last measured**: open file p50 15.4 ms (bar 40),
   keystroke p50 1.3 ms (bar 8), completion p50 4.1 ms (bar 120), all three p95s inside their
   bars. The input-storm test (900 keys at 15/s, zero drops, order-exact) passes. Those were
   Phase 20's stated exit gate.
+  **The live count is now 3 of 13, not 6, and nothing regressed.** `bench/editor-metrics.json`
+  predates HEAD, so the staleness guard discarded it exactly as designed and the three editor rows
+  read NOT-YET-MEASURED — the honest state for "the surface exists and nobody re-ran the
+  measurement". `make bench-editor` restores them, after which the count returns to 6 of 13. Do
+  **not** read the drop as a regression, and do not quote "6 of 13" without re-running the
+  measurement that earns it.
 - **Phase 20.1 + 20.1b are DONE** (ADR-0045). CodeMirror 6 behind `pathguard` — one enforcement
   point the Phase 21 orchestrator reuses; the editor is reachable from a proved target; the §5
   editor budgets are ARMED, so `perf_suite` reports **5 of 13** measurable (open file p50
@@ -255,11 +273,25 @@ with whether the program can be FOUND stated rather than left to a silent failur
 
 #### CARRIED — true today, and none of it is a defect being hidden
 
-- **The cold-launch baseline still needs one `make bench` on an idle machine.** It could not be
-  taken in the Phase 20 session because that session WAS the load. `make perf-gate` is RED on
-  `cold_launch` only: `0.3309s regressed 11.5% over baseline 0.2968s (bar 10%)`, while the
-  ABSOLUTE budget is met with wide margin (0.33 s against a 0.8 s p50). **Never re-baseline under
-  load** (v2 failure mode 2).
+- ~~**The cold-launch baseline needs one `make bench` on an idle machine.**~~ **CLOSED 2026-08-20
+  — `make perf-gate` is GREEN** (`PERF_GATE_EXIT=0`, "every measurable budget met"). Measured
+  `cold_launch_s = 0.3248` (three samples: 0.326 / 0.326 / 0.325) against the 0.2968 baseline =
+  **+9.43%, inside the 10% bar**, and 0.475 s inside the 0.8 s absolute budget. Full record and
+  caveats in **ADR-0047**.
+  **It was NOT closed by getting an idle machine — the machine could not be made idle, and that is
+  now a measured fact.** With TreeMap and Chrome closed, load decayed to a floor of 0.24–0.30/cpu
+  and stopped: `WindowServer` ~41% and `Claude Helper` ~14% are the Claude desktop app drawing the
+  session that is asking for the measurement. **On this Mac, with a session open, the 0.20 quiet
+  bar is unreachable.** That floor is exactly why three sessions recorded the same hypothesis and
+  none could test it, and it was invisible until `bench` started recording load.
+  It closed because the **one-sided rule** makes an idle machine unnecessary for a PASS: 0.3248 s
+  was taken at 0.256/cpu, over the bar, so it is an *upper bound*, and an upper bound of +9.43%
+  against a 10% bar proves there is no regression a fortiori. Two things stay true and are not
+  hidden: it passed by only **0.57 points**, and the baseline still records no conditions of its
+  own, so this is still a comparison against a reference of unknown provenance — which the gate
+  prints on every run and which stops being true the first time a baseline is taken with this
+  instrumentation.
+  **Never re-baseline under load** (v2 failure mode 2) — and note this did not need to.
 - **`perf-gate` runs in NO CI job.** The Makefile used to claim it "belongs to the perf flow and
   the CI bench job"; `grep -rn "perf_suite\|perf-gate" .github/` is empty and the comment now
   says so. Arming it in CI needs a committed `bench/baseline-linux.json` (without one the
@@ -287,22 +319,36 @@ with whether the program can be FOUND stated rather than left to a silent failur
   output into settings today and the CSP forbids injected script; that is the whole mitigation,
   and it is written down (ADR-0046) rather than assumed.
 
-### FIRST TASK for the next session — confirm CI on the pushed tip, then start Phase 21
+### FIRST TASK for the next session — the CI confirmation is DONE; measurement is what is left
 
-1. **Confirm CI is green on the Phase 20 tip once the owner has pushed it.** Six commits
-   (`da171eb` … `af58163`) are LOCAL at the time of writing; everything through `30f970a` is
-   pushed and was 7/7 green. A local `make verify` is evidence about one machine, and "Phase 20
-   is complete" is a claim about the repository (trap 44) — so the phase is settled by a
-   fresh-checkout run, not by this document.
+1. ~~Confirm CI on the Phase 20 tip.~~ **DONE 2026-08-20 — §0.** Run `32317420375` on `3860c23`
+   is **7/7 green**, on source bytes identical to `070f046`. Phase 20 is CI-confirmed. Do not
+   re-run `make verify` to "check" this: a local green is evidence about one machine (trap 44),
+   and the question was always about the repository.
+   For when you *do* need the local gates, the commands and the trap-40 rule are in §7:
    ```bash
    TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/verify.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/verify.log
-   grep -E "^MAKE_EXIT=" /tmp/verify.log
-   make verify-linux-denominator
+   grep -E "^MAKE_EXIT=" /tmp/verify.log      # read THIS line, never the task notification
    ```
-   **Read the logged exit line, never the task notification (trap 40)** — that trap fired again
-   during Phase 20: a run whose real exit was 2 arrived as "completed (exit code 0)". Then read
-   the CI conclusion itself; the check-run annotations carry the failing line without admin
-   rights: `curl -s .../check-runs/<id>/annotations`.
+   Reading CI needs no auth on this public repo, and no `gh` (it is not installed here). **Quote
+   the URL** — `?` is a zsh glob character and `NOMATCH` is on, so the unquoted form dies with
+   `zsh: no matches found` before curl ever starts (an earlier draft of this very block printed
+   it unquoted, three lines above its own warning that this shell is zsh):
+   ```bash
+   curl -s 'https://api.github.com/repos/Prithvi-Web/Tempest-AI/actions/runs?per_page=10'
+   ```
+   `.../runs/<id>/jobs` gives per-job and per-STEP conclusions — which is how the failing step was
+   identified without log access. Job *logs* are 403 without a token;
+   `check-runs/<id>/annotations` is public and carries the failing line (trap 12).
+   **Two things will bite you, both paid for on 2026-08-20 — see trap 49:**
+   *(a)* pipe `curl` straight into the parser. **Never `echo "$json" | …`** — this shell is zsh,
+   whose builtin `echo` expands `\n`, turning the escaped newline inside a JSON *string* into a
+   real control character and producing a bogus `Invalid control character` at a position that
+   drifts between polls. `printf '%s'` is the safe form.
+   *(b)* unauthenticated GitHub API is **60 requests/hour by IP**. Two concurrent 20-second
+   pollers exhaust it in ten minutes and then every call returns a 403 body that parses as JSON
+   and contains none of the fields you asked for. Poll **once**, at 60 s or slower, and check
+   `x-ratelimit-remaining` before believing a surprising answer.
 2. **Read §1a's CARRIED list before measuring anything**, then take the cold-launch bench on an
    idle machine and start Phase 21 (answer QV1 first — §4.4).
 
@@ -387,9 +433,29 @@ generation + gates, not discipline. When you touch ANY shape:
 
 ## 4. Remaining work, in recommended order
 
-0. **Confirm CI is green on the Phase 20 tip**, which the owner pushes. The local evidence is
-   in ADR-0046; a local green is evidence about one machine and "Phase 20 is complete" is a claim
-   about the repository (trap 44).
+0. ~~**Confirm CI is green on the Phase 20 tip.**~~ **DONE 2026-08-20** — run `32317420375` on
+   `3860c23`, **7/7 green**, on a tree whose non-`docs` object hash is identical to `070f046`'s.
+   Trap 44 is satisfied the way it demands: by a fresh-checkout run of the repository, not by a
+   local green. See §0.
+0a. **The Node 20 deprecation.** `actions/setup-node@v4`, `actions/upload-artifact@v4` and
+   `astral-sh/setup-uv@v6` target Node 20 and are *"being forced to run on Node.js 24"*. Nothing
+   is red today because the runner absorbs it; when it stops, the affected jobs go red for a
+   reason that has nothing to do with this code. **Counted, not estimated** (an earlier draft of
+   this bullet said "every job" and "three `uses:` lines"; both were false and a review caught
+   them):
+   ```bash
+   awk '/^  [a-zA-Z0-9_-]+:$/{j=$1} /uses:/{print j, $NF}' .github/workflows/ci.yml
+   grep -cE 'uses: (actions/setup-node@v4|actions/upload-artifact@v4|astral-sh/setup-uv@v6)' .github/workflows/ci.yml
+   ```
+   **5 of the 7 jobs** are affected — `desktop` uses all three, `python` / `bench` /
+   `contract-check` two each, `node` one — and `forbidden-verdict-grep` and `compose-validate`
+   use only `actions/checkout@v5`, which is already Node 24, so they cannot carry the warning and
+   cannot go red from it. The bump is **10 `uses:` lines in `ci.yml`, 16 across all workflows**
+   (`release.yml` holds the other 6). A session that changes three lines will believe it closed
+   this and the next run will still warn.
+   A workflow edit is **only verifiable by a CI run**, so it must be made by a session that can
+   then watch the run it caused, and must not be bundled into a push whose other content it could
+   mask. Do it as its own commit, first thing, and watch it.
 1. **Settle the cold-launch perf signal** — `make bench` on an idle machine (NO Claude session
    running; that is why it is still open), then `make perf-gate`. Never re-baseline to make it
    green. Then consider arming `perf-gate` in CI, which needs a committed
@@ -492,7 +558,10 @@ verification and repair must not overlap on the same file (§14) ·
 corrected ruler goes red, the ruler was the bug (§15) ·
 48 THE REVIEW OF A FIX IS NOT OPTIONAL BECAUSE THE FIX WAS CAREFUL — six lenses over the Phase 20
 fix wave found 18 more defects, four of them regressions the fixes themselves introduced, in code
-written by an author who had just read 37 findings about the same modules (§16)** ·
+written by an author who had just read 37 findings about the same modules (§16) ·
+49 A DIAGNOSIS YOU DID NOT RUN IS A GUESS, AND A GUESS IN A DOC IS A FALSE CLAIM — a plausible,
+wrong cause was written into this handoff as fact and caught only by running the command it
+recommended; the real cause was zsh's `echo` expanding `\n` inside JSON (§17)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -773,3 +842,83 @@ extra if time allows. The author of a fix has just read a list of everything tha
 the old code, which is the worst possible preparation for seeing what is wrong with the new. And
 run it *before* declaring the phase done — every one of these was found after a green
 `make verify` and would otherwise have shipped under a completion claim.
+
+
+---
+
+## 17. Trap 49 — a diagnosis you did not run is a guess, and a guess in a doc is a false claim
+
+This trap was written twice and was wrong both times, which is the best evidence for it.
+
+A CI-polling loop kept dying with `json.decoder.JSONDecodeError: Invalid control character at:
+line 81 column 97 (char 4047)`, at a position that drifted between polls (4047, then 4050). The
+cause written into this handoff, in the same commit that settled §0, was: *"commit messages carry
+raw newlines and the strict decoder dies on them — parse with `json.load(f, strict=False)`."*
+
+That sentence is plausible, it explains the symptom, it names a real Python flag, and **it is
+wrong**. It was caught within the minute, by running the very command it recommended: the payload
+parsed fine under `strict=True`, so the claim refuted itself.
+
+**The actual cause is the shell.** The failing loop did `R=$(curl -s …)` then `echo "$R" | python3`.
+A concurrent loop that piped `curl … | python3` directly never failed once, on the same endpoint,
+at the same moment — the tell that the difference was in the plumbing, not the payload. **This
+shell is zsh, and zsh's builtin `echo` expands backslash escapes by default** (bash's does not).
+GitHub sends a commit message as the two characters `\` `n` inside a JSON string, which is valid;
+zsh's `echo` turns them into one real newline, which is a control character inside a string
+literal, which is not. Reproduced in three lines:
+
+    $ printf '%s' '{"message":"docs: line one\n\nline two"}' > good.json
+    $ python3 -c "import json; json.load(open('good.json'))"        # OK
+    $ R=$(cat good.json); echo "$R" | python3 -c "import json,sys; json.load(sys.stdin)"
+    JSONDecodeError: Invalid control character at: line 1 column 27 (char 26)
+    $ printf '%s' "$R" | python3 -c "import json,sys; json.load(sys.stdin)"   # OK
+
+**How to apply.**
+1. **Run the diagnosis before you write it down.** This project treats a claim as a deliverable
+   (trap 39) and a doc comment as a claim (trap 45). A *cause* is a claim too, and the cost of
+   testing one is usually a single command. The near-miss here is the point: it happened in a
+   session whose entire first task was settling a false-looking failure, written by an author who
+   had just read traps 39, 44, 45 and 48.
+2. **When two callers of the same thing disagree, the difference is the evidence.** One loop
+   worked and one did not, against the same URL in the same minute. That fact alone excluded every
+   payload-based explanation, and it was visible before any hypothesis was formed.
+3. **`echo` is not portable and this machine is zsh.** Never `echo "$json"`. Pipe the producer
+   straight into the consumer, or use `printf '%s'`. The same expansion silently mangles Windows
+   paths, regexes and anything else carrying a backslash.
+4. **A drifting error offset tells you nothing. Do not read it as a clue.** This bullet
+   originally said the opposite — *"a drifting error position means the input is being rewritten,
+   not that the input is corrupt"* — and **that was false, and was itself an un-run diagnosis
+   written into the section whose entire subject is un-run diagnoses.** A review caught it; three
+   lines disprove it. A genuinely corrupt payload that nothing rewrites drifts too, as soon as any
+   preceding field changes length. **Run this — it is the whole refutation, and unlike the first
+   draft of this block it is output someone actually produced:**
+
+   ```bash
+   python3 -c "
+   import json
+   for pad in ('', 'xxxxx', 'xxxxxxxxxx'):
+       try: json.loads('{\"' + pad + 'k\":\"a\",\"m\":\"one' + chr(10) + 'TWO\"}')
+       except json.JSONDecodeError as e: print(e)
+   "
+   Invalid control character at: line 1 column 18 (char 17)
+   Invalid control character at: line 1 column 23 (char 22)
+   Invalid control character at: line 1 column 28 (char 27)
+   ```
+
+   The `try/except` is load-bearing and its absence is the defect the review caught: the first
+   draft of this bullet pasted the same three lines under a bare `json.loads` in a loop, which
+   raises on the *first* iteration and can only ever print one error and a traceback. The
+   arithmetic was right and the transcript was fiction — **an un-run snippet offered as the proof
+   that an un-run diagnosis is wrong**, inside the trap about un-run diagnoses. Third time in one
+   session. If this section ever prints output again, run it first.
+
+   And a live Actions run list *guarantees* drift whatever the cause — durations tick, statuses go
+   queued→in_progress→completed, the run count changes. So the offset moved for reasons that
+   exclude nothing, and the rule built on it would have sent the next reader hunting upstream of a
+   parser that was fine. **The thing that actually localised the bug was the difference between
+   two callers (point 2), not the offset.**
+5. Unrelated but paid for in the same ten minutes: the unauthenticated GitHub API allows **60
+   requests/hour per IP**. Two concurrent 20-second pollers exhausted it, after which every call
+   returned a 403 whose body is *valid JSON* carrying `message` and `documentation_url` and none
+   of the fields being read — a rate limit that looks exactly like a schema change. Check
+   `x-ratelimit-remaining` before believing a surprising answer.

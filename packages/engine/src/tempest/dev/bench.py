@@ -9,6 +9,7 @@ supervises, minus PyInstaller freezing):
 - `observation_5mb_ms` — getDivergence carrying a ~5 MB observation payload (median of 3)
 - `idle_rss_mb`        — resident set after the workload, idle
 - `idle_cpu_pct`       — CPU over a 5 s idle window
+- `conditions`         — what ELSE the machine was doing, so a number carries its own error bars
 - `open_file_ms`       — editor: request → document on screen (desktop E2E, Phase 20.1b)
 - `keystroke_ms`       — editor: keydown → the frame that shows it (desktop E2E, Phase 20.1b)
 - `completion_ms`      — editor: F11 → ghost text on screen (desktop E2E, Phase 20.3c)
@@ -151,6 +152,90 @@ def _measure(data_dir: Path, seed: dict[str, Any]) -> dict[str, float]:
     }
 
 
+#: The metrics `_measure` takes in THIS process, and therefore the only ones the load sample in
+#: `conditions` can speak for. The editor metrics are deliberately absent — see `conditions_block`.
+MEASURED_IN_PROCESS: frozenset[str] = frozenset(
+    {"cold_launch_s", "list10k_ms", "observation_5mb_ms", "idle_rss_mb", "idle_cpu_pct"}
+)
+
+
+def machine_conditions() -> dict[str, Any]:
+    """One sample of what else this machine was doing, as a fact with a stated source.
+
+    `os.getloadavg()[0]` is the 1-minute run-queue average — the standard "how contended is this
+    box" number. When it cannot be had the answer is a recorded `unavailable` **with the reason**,
+    never a `0.0`: a fabricated zero reads as a perfectly idle machine, which is the most
+    flattering lie this module could tell and precisely the failure it exists to prevent (L22).
+
+    **Two different failures, and an earlier version of this code caught only one.** CPython
+    defines `getloadavg` only under `HAVE_GETLOADAVG`, so on Windows the attribute *does not
+    exist* and the lookup raises `AttributeError` — which is **not** a subclass of `OSError`.
+    A bare `except OSError` therefore let the very platform this branch was written for crash
+    `make bench` at its first statement, before any measurement was taken, while the docstring
+    promised a recorded `unavailable`. Both are caught now, and both are tested. (Trap 45: the
+    prose explaining why something is safe is a claim, and this one was false.)
+
+    `cpu_count` rides along because a load average alone means nothing — 4.0 is idle on 32 cores
+    and saturated on 2. `os.cpu_count()` may itself answer `None`; that is carried through as
+    `None` rather than defaulted to 1, which would divide by 1 and call a quiet machine saturated.
+
+    This function records. It does NOT judge: what counts as "quiet" is `perf_suite`'s bar, so
+    that changing the bar does not require re-taking every measurement, and so that a measurement
+    file never carries a verdict its own author chose (trap 47).
+    """
+    cpu_count = os.cpu_count()
+    try:
+        load_1m = os.getloadavg()[0]
+    except (OSError, AttributeError) as exc:
+        # AttributeError is the Windows case (the symbol is absent, not failing); OSError is the
+        # documented failure where it exists. Catching only OSError crashed the former.
+        return {
+            "source": "unavailable",
+            "reason": f"{type(exc).__name__}: {exc}",
+            "load_avg_1m": None,
+            "cpu_count": cpu_count,
+        }
+    return {"source": "os.getloadavg", "load_avg_1m": round(load_1m, 3), "cpu_count": cpu_count}
+
+
+def conditions_block(*, background: dict[str, Any], final: dict[str, Any]) -> dict[str, Any]:
+    """Merge the two samples into the block `bench.json` carries, naming which one may be judged.
+
+    **Only the background sample is honest about foreign load.** It is taken before a single byte
+    of bench work happens; every later sample includes this process seeding `--runs` runs (10,000
+    by default), so a later reading cannot tell someone else's compile from our own `devseed`.
+    The final sample is recorded anyway — a large gap between the two is informative to a human —
+    but the gate is told, in the payload itself, that `background` is the one it may use.
+
+    A limitation this cannot see, stated rather than left implicit: load that STARTS after the
+    background sample is invisible here. The background reading answers "was the machine busy when
+    we began", which is the question that has actually been costing this project sessions.
+    """
+    block: dict[str, Any] = {
+        "source": background["source"],
+        "cpu_count": background.get("cpu_count"),
+        "load_avg_1m_background": background.get("load_avg_1m"),
+        "load_avg_1m_final": final.get("load_avg_1m"),
+        "judged_on": "load_avg_1m_background",
+        # WHICH METRICS THIS SAMPLE IS ABOUT. Not decoration: `open_file_ms`, `keystroke_ms` and
+        # `completion_ms` are NOT measured by this process. They are merged out of
+        # `bench/editor-metrics.json`, which `make bench-editor` writes in a separate Playwright
+        # run, gated only on a matching HEAD — so it can be hours old and taken under entirely
+        # different load. A sample taken here says nothing about that run, in either direction,
+        # and a gate that qualified those rows with it would be answering about the wrong process.
+        # `perf_suite` qualifies only the metrics named here.
+        "covers": sorted(MEASURED_IN_PROCESS),
+        "note": (
+            "the final sample includes this bench's own seeding work and cannot separate foreign "
+            "load from our own, so it is recorded and never judged on; load that starts after "
+            "the background sample is invisible to both"
+        ),
+    }
+    if "reason" in background:
+        block["reason"] = background["reason"]
+    return block
+
+
 def _editor_measurements(
     path: Path,
 ) -> tuple[dict[str, float], dict[str, list[float]], dict[str, Any] | None]:
@@ -231,6 +316,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # BEFORE anything: the only reading that is about the machine rather than about us.
+    background = machine_conditions()
+
     with tempfile.TemporaryDirectory(prefix="tempest-bench-") as tmp:
         data_dir = Path(tmp) / "data"
         print(f"bench: seeding {args.runs} runs + one 5 MB observation…", file=sys.stderr)
@@ -259,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         "python": platform.python_version(),
         "cpu_count": os.cpu_count(),
         "runs_seeded": args.runs,
+        "conditions": conditions_block(background=background, final=machine_conditions()),
         "metrics": metrics,
         "pending": ["desktop-e2e: webview first-paint + app-level cold launch"],
     }

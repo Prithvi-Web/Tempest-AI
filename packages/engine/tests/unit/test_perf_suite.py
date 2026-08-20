@@ -397,3 +397,548 @@ class TestCli:
         over = _metrics(open_file_ms=15.6, keystroke_ms=1.3, completion_ms=121.0)
         report = ps.evaluate(over, None, None)
         assert any("completion" in f for f in report.failures), report.failures
+
+
+#: What `tempest.dev.bench` measures in its OWN process, and therefore the only metrics its load
+#: sample can speak for. Mirrors `bench.MEASURED_IN_PROCESS`; asserted equal to it below, so the
+#: two cannot drift apart silently.
+_ENGINE_METRICS = [
+    "cold_launch_s",
+    "list10k_ms",
+    "observation_5mb_ms",
+    "idle_rss_mb",
+    "idle_cpu_pct",
+]
+#: A quiet machine: 0.4 runnable threads across 8 CPUs — 0.05/cpu, well under the bar.
+_QUIET: dict[str, object] = {
+    "source": "os.getloadavg",
+    "load_avg_1m_background": 0.4,
+    "cpu_count": 8,
+    "covers": _ENGINE_METRICS,
+}
+#: The owner's Mac as actually observed on 2026-08-20 while TreeMap and Chrome were running:
+#: load 3.96 on 8 CPUs — 0.495/cpu, nearly 2.5x the bar. Not a hypothetical.
+_LOADED: dict[str, object] = {
+    "source": "os.getloadavg",
+    "load_avg_1m_background": 3.96,
+    "cpu_count": 8,
+    "covers": _ENGINE_METRICS,
+}
+#: The same load, written by a `bench` that predates the `covers` key. Qualification must NOT
+#: engage: a sample that does not say what it measured speaks for nothing.
+_LOADED_NO_COVERS: dict[str, object] = {
+    "source": "os.getloadavg",
+    "load_avg_1m_background": 3.96,
+    "cpu_count": 8,
+}
+
+
+class TestLoadQualification:
+    """A measurement taken on a busy machine is an UPPER BOUND, and the gate says so.
+
+    The asymmetry is the whole idea and it is not a softening: background load can only make a
+    latency measurement *slower*, never faster. So
+
+    * a latency number that is **within** budget under load is a definitive PASS — the true
+      quiet-machine number can only be lower;
+    * a latency number that is **over** budget under load proves nothing, and calling it a
+      regression invites the one repair this project forbids: re-baselining to make it green.
+
+    States enumerated before the tests (trap 43): conditions absent · conditions present but the
+    source was unavailable · quiet · loaded · loaded-and-passing · loaded-and-failing-p50 ·
+    loaded-and-failing-p95 · loaded-and-regressed · cpu_count missing · cpu_count zero ·
+    load missing · a non-latency budget under load · a baseline with no recorded conditions.
+    """
+
+    def test_the_bar_is_provisional_and_the_code_says_so(self) -> None:
+        """The bar is a GUESS, and the constant's comment must keep saying that out loud.
+
+        An earlier version of this docstring read: *"25-30% background load was observed
+        producing +11.7% on cold_launch (ADR-0044) — the quiet bar sits below the lowest level at
+        which distortion has been OBSERVED here."* Every clause of that was wrong. ADR-0044 is
+        about a test asserting a false fact about the repo and contains no load measurement at
+        all (its only "load" is the word "loaders"); the +11.7% figure lives in
+        `docs/HANDOFF-NEXT.md`; "25-30% background load" is a CPU-utilisation estimate while this
+        constant is a run-queue depth per CPU, which is a different quantity; and no
+        (load-per-cpu, latency) pair has ever been recorded in this repository, because
+        `os.getloadavg` appeared nowhere in it until this module.
+
+        So this test pins the honesty of the label, not a number someone can nudge. The bar may
+        change when there is a curve to derive it from — but it may not quietly become
+        "empirical" without one.
+        """
+        assert ps.QUIET_LOAD_PER_CPU == 0.20
+        doc = ps.__doc__ or ""
+        import inspect
+
+        source = inspect.getsource(ps)
+        marker = source[
+            source.index("#: The 1-minute run-queue") : source.index("QUIET_LOAD_PER_CPU = ")
+        ]
+        assert "PROVISIONAL" in marker, "the bar must not be presented as measured"
+        assert "0.495" in marker, "it must name the one load figure this project has recorded"
+        # The refuted claim IS quoted in the comment — deliberately, so the history survives — so
+        # the test cannot simply forbid the phrase. What must never disappear is the refutation
+        # that follows it; without that, the quote reads as the claim.
+        assert "The citation was false" in marker
+        assert "no (load-per-cpu, latency) pair" in marker or "No such measurement exists" in marker
+        assert doc, "the module docstring is part of the same contract"
+
+    def test_the_one_load_figure_this_repo_has_recorded_is_over_the_bar(self) -> None:
+        """3.96 on 8 CPUs, sampled on the author's Mac with two heavy apps running, in the same
+        session where cold_launch read 0.3309s and 0.3762s against a 0.2968s baseline. That case
+        — the only one this project has ever written down — must classify as loaded, or the bar
+        is not doing the single job it was chosen for."""
+        assert ps.is_quiet(_LOADED) is False
+        assert ps.load_per_cpu(_LOADED) == pytest.approx(0.495)
+
+    def test_load_per_cpu_divides_by_the_cores_that_exist(self) -> None:
+        assert ps.load_per_cpu(_LOADED) == pytest.approx(3.96 / 8)
+
+    def test_quiet_and_loaded_are_told_apart(self) -> None:
+        assert ps.is_quiet(_QUIET) is True
+        assert ps.is_quiet(_LOADED) is False
+
+    def test_conditions_that_cannot_answer_say_unknown_rather_than_quiet(self) -> None:
+        """Unknown must never collapse into "quiet" — that is how a gate starts flattering
+        itself. Every degenerate shape answers None, and None disables qualification entirely
+        rather than enabling it."""
+        assert ps.is_quiet(None) is None
+        assert ps.is_quiet({"source": "unavailable", "load_avg_1m_background": None}) is None
+        assert ps.is_quiet({"source": "os.getloadavg", "cpu_count": 8}) is None
+        assert ps.is_quiet({"source": "os.getloadavg", "load_avg_1m_background": 1.0}) is None
+        assert (
+            ps.is_quiet({"source": "os.getloadavg", "load_avg_1m_background": 1.0, "cpu_count": 0})
+            is None
+        )
+        assert ps.load_per_cpu(None) is None
+
+    def test_a_value_within_budget_under_load_is_still_a_pass(self) -> None:
+        """Load can only inflate it, so an in-budget reading taken under load is a valid upper
+        bound — the quiet number can only be better. Refusing to pass here would be superstition,
+        not rigour."""
+        report = ps.evaluate(_metrics(), None, None, conditions=_LOADED)
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert row.p50_state == ps.MET
+        assert report.ok
+
+    def test_a_latency_budget_over_its_p50_under_load_is_inconclusive_not_over(self) -> None:
+        report = ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=_LOADED)
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert row.p50_state == ps.INCONCLUSIVE
+        assert not report.failures, "an unusable measurement is not a proved failure"
+        assert any("cold_launch" in i for i in report.inconclusive)
+
+    def test_inconclusive_is_not_ok_so_the_gate_still_goes_red(self) -> None:
+        """The exit code does NOT soften. Today a loaded cold_launch fails; after this change it
+        still fails — with a message naming the real problem (re-measure) instead of one that
+        invites re-baselining. Anything else would be v2 failure mode 2."""
+        report = ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=_LOADED)
+        assert not report.ok
+
+    def test_the_same_number_on_a_quiet_machine_is_a_plain_failure(self) -> None:
+        report = ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=_QUIET)
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert row.p50_state == ps.OVER
+        assert any("cold_launch" in f and "exceeds" in f for f in report.failures)
+        assert not report.inconclusive
+
+    def test_a_p95_over_budget_under_load_is_inconclusive_too(self) -> None:
+        samples = {"cold_launch_s": [0.3, 0.35, 0.4, 0.45, 9.0]}
+        report = ps.evaluate(_metrics(), samples, None, conditions=_LOADED)
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert row.p95_state == ps.INCONCLUSIVE
+        assert not report.failures
+
+    def test_a_regression_measured_under_load_is_inconclusive(self) -> None:
+        """This is the live one: cold_launch 0.3309 against a 0.2968 baseline, +11.5%, taken
+        while the machine was busy. It has been carried for three sessions as "probably load"."""
+        report = ps.evaluate(
+            _metrics(cold_launch_s=0.3309),
+            None,
+            {"cold_launch_s": 0.2968},
+            conditions=_LOADED,
+        )
+        assert not report.failures
+        assert any("regress" in i and "cold_launch" in i for i in report.inconclusive)
+        assert not report.ok
+
+    def test_the_same_regression_on_a_quiet_machine_is_a_real_failure(self) -> None:
+        report = ps.evaluate(
+            _metrics(cold_launch_s=0.3309),
+            None,
+            {"cold_launch_s": 0.2968},
+            conditions=_QUIET,
+        )
+        assert any("regressed" in f for f in report.failures)
+
+    def test_a_number_inside_the_regression_bar_under_load_is_not_flagged_at_all(self) -> None:
+        """Under load the reading is an upper bound; an upper bound inside the bar proves there
+        is no regression. Nothing to report."""
+        report = ps.evaluate(
+            _metrics(cold_launch_s=0.30),
+            None,
+            {"cold_launch_s": 0.2968},
+            conditions=_LOADED,
+        )
+        assert report.ok
+        assert not report.inconclusive
+
+    def test_a_non_latency_budget_is_not_qualified_and_the_report_says_why(self) -> None:
+        """Load does not simply inflate a memory figure, and it can FLATTER the sidecar's own
+        idle CPU share by starving it. Neither direction is established here, so those two rows
+        keep their plain verdict and the report states that they were not qualified — rather
+        than silently extending an argument that only holds for latency."""
+        report = ps.evaluate(_metrics(idle_rss_mb=999.0), None, None, conditions=_LOADED)
+        row = next(r for r in report.rows if r.budget.key == "idle_ram")
+        assert row.p50_state == ps.OVER
+        assert any("idle_ram" in f for f in report.failures)
+        assert any("NOT qualified by the load argument" in n for n in report.notes)
+        assert any("idle_ram" in n and "idle_cpu" in n for n in report.notes), (
+            "the note must NAME the rows it is about, so it cannot go stale silently"
+        )
+
+    def test_exactly_which_budgets_carry_the_one_sided_argument(self) -> None:
+        """Named, not counted — the set is the claim, and it may only grow when a row's metric
+        is genuinely a latency."""
+        assert {b.key for b in ps.BUDGETS if b.load_inflated} == {
+            "cold_launch",
+            "open_file",
+            "keystroke",
+            "completion",
+            "search",
+            "agent_first_token",
+            "incremental_proof",
+            "full_proof_10_files",
+            "diff_render_500",
+            "debugger_scrub",
+        }
+
+    def test_a_run_with_no_conditions_behaves_exactly_as_before_and_says_so(self) -> None:
+        """No silent behaviour change for a bench.json written before this existed — but the
+        report must not stay quiet about the fact that it cannot qualify anything."""
+        before = ps.evaluate(_metrics(cold_launch_s=1.2), None, None)
+        after = ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=None)
+        assert [r.p50_state for r in before.rows] == [r.p50_state for r in after.rows]
+        assert before.failures == after.failures
+        assert any("no machine conditions" in n for n in after.notes)
+
+    def test_a_quiet_run_states_the_load_it_was_taken_under(self) -> None:
+        report = ps.evaluate(_metrics(), None, None, conditions=_QUIET)
+        assert any("0.05" in n and "quiet" in n for n in report.notes)
+
+    def test_a_baseline_with_no_recorded_conditions_is_announced(self) -> None:
+        """The committed baseline was taken before any of this existed. Comparing against a
+        reference of unknown provenance is still worth doing — it is the project's recorded
+        number — but the gate must not present it as a like-for-like comparison."""
+        report = ps.evaluate(
+            _metrics(), None, {"cold_launch_s": 0.2968}, baseline_meta={"cpu_count": 8}
+        )
+        assert any("unknown provenance" in n for n in report.notes)
+
+    def test_a_baseline_from_a_different_machine_is_announced(self) -> None:
+        """Eight cores against sixteen is not a regression, it is a different computer."""
+        report = ps.evaluate(
+            _metrics(),
+            None,
+            {"cold_launch_s": 0.2968},
+            conditions=_QUIET,
+            baseline_meta={"cpu_count": 16},
+        )
+        # Not `"16" in n and "8" in n` — that passes for the sentence with the two numbers
+        # SWAPPED, which is the one thing this note exists to get right.
+        assert any("measured on 16 CPUs, this run on 8" in n for n in report.notes)
+
+    def test_an_inconclusive_row_is_never_counted_as_measured(self) -> None:
+        report = ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=_LOADED)
+        assert report.measured == 2  # idle_ram and idle_cpu; cold_launch is inconclusive
+        assert ps.INCONCLUSIVE in ps.render(report)
+
+    def test_the_rendered_summary_counts_inconclusive_rows_separately(self) -> None:
+        """Asserted against the ROWS line specifically.
+
+        The first version of this test asserted `"1 INCONCLUSIVE" in rendered`, which the
+        FINDINGS line satisfies on its own — so setting `inconclusive_rows = 0` left it green
+        while the summary printed "0 INCONCLUSIVE rows". A guard written for a counting bug that
+        cannot see the counting bug is worse than no guard, because it reads as coverage.
+        """
+        rendered = ps.render(
+            ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=_LOADED)
+        )
+        rows_line = next(ln for ln in rendered.splitlines() if "INCONCLUSIVE rows" in ln)
+        assert "1 INCONCLUSIVE rows" in rows_line
+        # and the other line is a different number's home, not a second copy of this one
+        findings_line = next(ln for ln in rendered.splitlines() if "INCONCLUSIVE finding" in ln)
+        assert findings_line != rows_line
+
+
+class TestLoadQualificationThroughTheCli:
+    def test_conditions_in_the_bench_file_are_read_and_applied(self, tmp_path: Path) -> None:
+        bench = tmp_path / "bench.json"
+        bench.write_text(
+            json.dumps(
+                {
+                    "platform": "darwin",
+                    "conditions": {
+                        "source": "os.getloadavg",
+                        "load_avg_1m_background": 3.96,
+                        "cpu_count": 8,
+                        "covers": _ENGINE_METRICS,
+                    },
+                    "metrics": _metrics(cold_launch_s=1.2),
+                }
+            )
+        )
+        assert ps.main(["--enforce-budgets", "--bench", str(bench)]) == 1
+
+    def test_the_inconclusive_exit_names_the_measurement_not_the_code(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The operator-facing difference: "re-measure on a quiet machine", never "regressed"."""
+        bench = tmp_path / "bench.json"
+        bench.write_text(
+            json.dumps(
+                {
+                    "platform": "darwin",
+                    "conditions": {
+                        "source": "os.getloadavg",
+                        "load_avg_1m_background": 3.96,
+                        "cpu_count": 8,
+                        "covers": _ENGINE_METRICS,
+                    },
+                    "metrics": _metrics(cold_launch_s=1.2),
+                }
+            )
+        )
+        assert ps.main(["--enforce-budgets", "--bench", str(bench)]) == 1
+        err = capsys.readouterr().err
+        assert "INCONCLUSIVE" in err
+        assert "re-measure on a quiet machine" in err
+        # The point of the whole message: it must NOT say "regressed". That word is what makes
+        # re-baselining look like the repair, and re-baselining is forbidden. Asserting only the
+        # presence of "quiet" left the forbidden wording free to come back.
+        assert "regressed" not in err
+
+    def test_a_malformed_conditions_block_is_ignored_rather_than_fatal(
+        self, tmp_path: Path
+    ) -> None:
+        bench = tmp_path / "bench.json"
+        bench.write_text(
+            json.dumps({"platform": "darwin", "metrics": _metrics(), "conditions": "not a dict"})
+        )
+        assert ps.main(["--enforce-budgets", "--bench", str(bench)]) == 0
+
+    def test_the_baseline_document_is_passed_through_for_provenance(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "bench.json").write_text(
+            json.dumps({"platform": "darwin", "metrics": _metrics()})
+        )
+        # The baseline matches, so nothing trips the bar — this test is about the NOTE, and a
+        # regression failure here would let it pass for the wrong reason.
+        (tmp_path / "baseline-darwin.json").write_text(
+            json.dumps({"cpu_count": 8, "metrics": {"cold_launch_s": 0.34}})
+        )
+        assert ps.main(["--enforce-budgets", "--bench", str(tmp_path / "bench.json")]) == 0
+        assert "unknown provenance" in capsys.readouterr().out
+
+
+class TestTheSummaryCountsWhatTheGateIsActuallyHolding:
+    """Found by breaking the gate on purpose (trap 47), not by reading it.
+
+    `cold_launch` at 0.3309s is comfortably inside its 0.8s p50 budget, so its ROW is MET. The
+    same number is 11.5% over the committed baseline, and under load that comparison is unusable.
+    The first version of this summary counted only rows whose STATE was inconclusive, and so
+    printed `0 INCONCLUSIVE` in the very run it was failing for — a gate reporting green about
+    something it never looked at, which is the exact shape it exists to prevent.
+    """
+
+    def test_a_met_row_can_still_carry_an_unusable_regression(self) -> None:
+        report = ps.evaluate(
+            _metrics(cold_launch_s=0.3309),
+            None,
+            {"cold_launch_s": 0.2968},
+            conditions=_LOADED,
+        )
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert row.p50_state == ps.MET, "0.3309s is inside the 0.8s budget"
+        assert len(report.inconclusive) == 1, "and yet the run is not usable"
+        assert not report.ok
+
+    def test_the_summary_does_not_print_zero_while_holding_a_finding(self) -> None:
+        rendered = ps.render(
+            ps.evaluate(
+                _metrics(cold_launch_s=0.3309),
+                None,
+                {"cold_launch_s": 0.2968},
+                conditions=_LOADED,
+            )
+        )
+        assert "0 INCONCLUSIVE finding" not in rendered
+        assert "1 INCONCLUSIVE finding" in rendered
+
+    def test_the_printed_row_counts_partition_the_table(self) -> None:
+        """Parsed out of `render()`, in the one input shape where they used to sum to 14.
+
+        The first version of this test tallied `p50_state` itself and never called `render()` —
+        structurally true for any implementation, including the one that printed 14 of 13. The
+        state that exposes it needs a row whose p50 is MET while its p95 is INCONCLUSIVE, which
+        needs raw samples; `cold_launch_s=1.2` with no samples can never reach it.
+        """
+        # p50 0.34 is inside the 0.8 budget; the p95 of these samples is 9.0, which is not.
+        report = ps.evaluate(
+            _metrics(),
+            {"cold_launch_s": [0.30, 0.31, 0.32, 0.33, 9.0]},
+            None,
+            conditions=_LOADED,
+        )
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert (row.p50_state, row.p95_state) == (ps.MET, ps.INCONCLUSIVE), "the shape under test"
+
+        rows_line = next(ln for ln in ps.render(report).splitlines() if "INCONCLUSIVE rows" in ln)
+        counts = [
+            int(n)
+            for n in re.findall(
+                r"(\d+) (?:of 13|armed|NOT-YET-MEA|INCONCLUSIVE r)",
+                rows_line.replace("NOT-YET-MEASURABLE", "NOT-YET-MEA"),
+            )
+        ]
+        assert sum(counts) == len(ps.BUDGETS) == 13, f"printed counts {counts} do not partition"
+
+    def test_a_p95_made_unusable_by_load_is_still_reported_somewhere(self) -> None:
+        """Counting rows on p50 alone must not make a p95 disappear — it moves to the findings
+        line and the table, and the gate still fails."""
+        report = ps.evaluate(
+            _metrics(),
+            {"cold_launch_s": [0.30, 0.31, 0.32, 0.33, 9.0]},
+            None,
+            conditions=_LOADED,
+        )
+        assert not report.ok
+        assert any("p95" in i for i in report.inconclusive)
+        assert "1 INCONCLUSIVE finding" in ps.render(report)
+
+    def test_a_clean_quiet_run_reports_zero_findings_honestly(self) -> None:
+        rendered = ps.render(ps.evaluate(_metrics(), None, None, conditions=_QUIET))
+        assert "0 INCONCLUSIVE finding" in rendered
+
+
+class TestTheStatesTheFirstReviewFoundUnpinned:
+    """Every test here exists because a review named a one-line mutation nothing would catch.
+
+    The lesson is trap 43's: line coverage said these lines ran. It could not say which STATES
+    were considered, and each of these was a state nobody had.
+    """
+
+    def test_the_quiet_bar_is_inclusive_and_the_note_says_so(self) -> None:
+        """`<=` vs `<` at exactly the bar. Changing it flips a run's verdict while the printed
+        note goes on claiming "at or under the bar" — a threshold whose inclusiveness is the one
+        thing about a threshold worth pinning, and the one thing that was not pinned."""
+        exactly = {
+            "source": "os.getloadavg",
+            "load_avg_1m_background": ps.QUIET_LOAD_PER_CPU * 8,
+            "cpu_count": 8,
+        }
+        assert ps.load_per_cpu(exactly) == pytest.approx(ps.QUIET_LOAD_PER_CPU)
+        assert ps.is_quiet(exactly) is True, "a run exactly ON the bar is quiet"
+        report = ps.evaluate(_metrics(), None, None, conditions=exactly)
+        assert any("at or under" in n for n in report.notes)
+        # and one hair over is not
+        over = dict(exactly, load_avg_1m_background=ps.QUIET_LOAD_PER_CPU * 8 + 0.001)
+        assert ps.is_quiet(over) is False
+
+    def test_a_boolean_is_not_a_load_average(self) -> None:
+        """`True` is an `int` in Python. Without the explicit bool guard a bench.json carrying
+        `"load_avg_1m_background": true` computes 1/8 = 0.125/cpu and is judged QUIET — the exact
+        direction `load_per_cpu`'s own docstring forbids. The guard shares a line with the numeric
+        check, so line coverage cannot see its absence."""
+        assert (
+            ps.load_per_cpu(
+                {"source": "os.getloadavg", "load_avg_1m_background": True, "cpu_count": 8}
+            )
+            is None
+        )
+        assert (
+            ps.load_per_cpu(
+                {"source": "os.getloadavg", "load_avg_1m_background": 1.0, "cpu_count": True}
+            )
+            is None
+        )
+        assert (
+            ps.is_quiet({"source": "os.getloadavg", "load_avg_1m_background": True, "cpu_count": 8})
+            is None
+        )
+
+    def test_a_baseline_that_DOES_record_conditions_is_not_warned_about(self) -> None:
+        """The suppression side of the provenance branch — the behaviour that is supposed to
+        change the day someone re-baselines on a quiet machine. Nothing pinned it, so replacing
+        the guard with `if True:` left every test green and the warning permanent."""
+        with_conditions = {
+            "cpu_count": 8,
+            "conditions": {
+                "source": "os.getloadavg",
+                "load_avg_1m_background": 0.4,
+                "cpu_count": 8,
+            },
+        }
+        report = ps.evaluate(
+            _metrics(), None, {"cold_launch_s": 0.34}, baseline_meta=with_conditions
+        )
+        assert not any("unknown provenance" in n for n in report.notes)
+        # and the negative control: the same call without them still warns
+        without = ps.evaluate(_metrics(), None, {"cold_launch_s": 0.34}, baseline_meta={})
+        assert any("unknown provenance" in n for n in without.notes)
+
+
+class TestTheLoadSampleOnlySpeaksForWhatItMeasured:
+    """`covers` — the fix for a real defect: the editor budgets were being qualified by a load
+    average sampled in a different process, minutes to days before their Playwright run.
+    """
+
+    def test_the_fixture_matches_what_bench_actually_records(self) -> None:
+        """If `bench.MEASURED_IN_PROCESS` gains or loses a metric, these tests must not keep
+        asserting against a list that no longer describes the producer."""
+        from tempest.dev.bench import MEASURED_IN_PROCESS
+
+        assert set(_ENGINE_METRICS) == set(MEASURED_IN_PROCESS)
+
+    def test_a_covered_duration_is_qualified(self) -> None:
+        report = ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=_LOADED)
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert row.p50_state == ps.INCONCLUSIVE
+
+    def test_an_UNCOVERED_duration_keeps_its_plain_verdict(self) -> None:
+        """`open_file_ms` comes from `make bench-editor`, which this sample never watched. A miss
+        there is a real miss until someone measures the conditions of THAT run."""
+        report = ps.evaluate(_metrics(open_file_ms=999.0), None, None, conditions=_LOADED)
+        row = next(r for r in report.rows if r.budget.key == "open_file")
+        assert row.p50_state == ps.OVER, "not excused by a load sample that never saw it"
+        assert any("open_file" in f and "exceeds" in f for f in report.failures)
+        assert any("does not COVER" in n for n in report.notes)
+
+    def test_a_block_with_no_covers_key_qualifies_nothing(self) -> None:
+        """Conservative by construction: a conditions block written before `covers` existed
+        covers nothing, so qualification simply does not engage — the same direction as
+        `is_quiet`'s unknown."""
+        assert ps.covered_metrics(_LOADED_NO_COVERS) == frozenset()
+        report = ps.evaluate(_metrics(cold_launch_s=1.2), None, None, conditions=_LOADED_NO_COVERS)
+        row = next(r for r in report.rows if r.budget.key == "cold_launch")
+        assert row.p50_state == ps.OVER
+
+    def test_a_malformed_covers_value_is_not_trusted(self) -> None:
+        for bad in ("cold_launch_s", 7, {"cold_launch_s": True}, None):
+            assert ps.covered_metrics(dict(_LOADED_NO_COVERS, covers=bad)) == frozenset()
+        # non-string entries are dropped, the rest survive
+        assert ps.covered_metrics(dict(_LOADED, covers=["cold_launch_s", 3, None])) == frozenset(
+            {"cold_launch_s"}
+        )
+
+    def test_the_note_naming_uncovered_rows_is_derived_not_hand_listed(self) -> None:
+        """A note that hard-codes row names goes stale the day a flag changes, and a stale note
+        in a gate's own output is the failure this module refuses. Cover everything and the note
+        must disappear."""
+        everything = dict(
+            _LOADED, covers=[b.metric for b in ps.BUDGETS if b.metric and b.load_inflated]
+        )
+        report = ps.evaluate(_metrics(), None, None, conditions=everything)
+        assert not any("does not COVER" in n for n in report.notes)

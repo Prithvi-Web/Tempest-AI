@@ -2121,3 +2121,209 @@ v2 failure mode 2, and this ADR would be the wrong place to start doing it.
 Until that re-run, the honest statement is: **Phase 20 is code-complete and locally verified on
 every gate; it is not yet CI-confirmed.** ADR-0044's rule stands — a local green is evidence about
 one machine, and "Phase 20 is complete" is a claim about the repository.
+
+### Settled — the `desktop` failure on `070f046` was a transient runner defect (2026-08-20)
+
+**It did not reproduce, and the re-test was stronger than the re-run the postscript asked for.**
+
+Before the owner clicked anything, `3860c23` (the §0 documentation commit) was pushed on top of
+`070f046`, and CI ran on it: **workflow run `32317420375`, 7 of 7 green**, `desktop` included.
+Step 10 — `cargo clippy --workspace --all-targets -- -D warnings`, the exact step that exited 101
+on `070f046` — **passed**, as did `cargo test --workspace`, `typecheck` and the E2E leg.
+
+That run is a better experiment than "Re-run failed jobs" would have been, because the bytes it
+compiled are provably the same ones:
+
+| Claim | How it was checked | Result |
+|---|---|---|
+| `3860c23` changes **only** `docs/` | `git diff --name-only 070f046 3860c23` | `docs/DECISIONS.md`, `docs/HANDOFF-NEXT.md` — nothing else |
+| every non-`docs` tree object is **identical** | `git ls-tree <c> \| grep -v docs \| git hash-object --stdin` on both commits | `0b33d57228bd462cb1bb272eea946aec7bf85435` — the same hash for both |
+| it ran on a **fresh** `macos-latest` allocation | runner `1000000612` (the failing job had `1000000607`) | different runner, fresh checkout, no cargo cache |
+
+A re-run replays a job inside the original run's context; a new push gets a new runner allocation
+and a new checkout. Identical source object + different runner + green is exactly the shape of a
+transient infrastructure fault, and it is the shape the postscript predicted.
+
+**Decision: no code change and no CI change.** `runs-on` is not pinned and `-D warnings` is not
+touched. Pinning a runner to work around a fault that occurred once, and did not recur on
+identical bytes, would trade a real cross-arch signal for the appearance of stability — the
+weakening this project refuses (v2 failure mode 2). The evidence for pinning is a *second*
+occurrence, not the first.
+
+**The recurrence signature, so the next session recognises it in one look instead of re-deriving
+it:** a `macos-latest` job failing inside the first minute of its first cargo command, with
+`exit 126` and `cannot execute binary file` from `quote` / `proc-macro2` / `serde_core` build
+scripts — dependency build scripts, before any Tempest code compiles. If that appears again, it
+IS reproducible — and the fix is to **pin the host**, `runs-on: macos-14`, and nothing else.
+**Not** `targets:` on `dtolnay/rust-toolchain`, which an earlier draft of this paragraph offered
+as an equal alternative: `targets:` installs cross-compilation standard libraries affecting
+artifacts under `target/<triple>/`, while a cargo build script is always compiled for and executed
+on the **host** triple and lands in the untriple'd
+`target/debug/build/<crate>-<hash>/build-script-build` — the exact path in the failing log.
+Checked here: that path exists, and `target/` contains only `debug/`, `release/` and `tmp/`, no
+triple directory at all. A remedy aimed at a directory the failure does not live in would have
+looked like diligence and changed nothing.
+
+**`PHASE 20 IS COMPLETE AND CI-CONFIRMED.`** ADR-0044's rule is satisfied the way it demands: not
+by a local green, but by a fresh-checkout run of the repository — 7/7 on source bytes identical
+to the phase tip.
+
+**One warning is still live and is NOT settled by this**: `actions/setup-node@v4`,
+`actions/upload-artifact@v4` and `astral-sh/setup-uv@v6` target Node 20 and are already "being
+forced to run on Node.js 24" by the runner — a deprecation the runner currently absorbs for us.
+When it stops absorbing it, the affected jobs go red for a reason that has nothing to do with
+Tempest. **Scope, counted rather than asserted: 5 of the 7 jobs** — `desktop` (all three),
+`python` / `bench` / `contract-check` (two each), `node` (one) — while `forbidden-verdict-grep`
+and `compose-validate` use only `actions/checkout@v5`, already Node 24, and cannot carry the
+warning at all. It is **10 `uses:` lines in `ci.yml`, 16 across all workflows**, not three. An
+earlier draft of this paragraph said "every job" and "three lines"; both were false, and the
+review of this settlement caught them — trap 48, applied to a settlement about false claims.
+Queued in HANDOFF-NEXT §4, not fixed here, because changing CI actions is a change only a CI run
+can verify and this session must not leave an unverified workflow behind.
+
+## ADR-0047 — A measurement that carries the conditions it was taken under, and two reviews that found 27 defects in the work that got it there (2026-08-20)
+
+**Status:** accepted · **Supersedes nothing; amends the CARRIED list in HANDOFF-NEXT §1a.**
+
+**Context.** `make perf-gate` had been RED on `cold_launch` for three sessions — `0.3309s regressed
+11.5% over baseline 0.2968s (bar 10%)` — while the absolute budget was met with wide margin
+(0.33 s against 0.8 s). Every session recorded the same hypothesis ("probably load, not drift")
+and the same remedy ("re-measure on an idle machine"), and every session failed to take the
+measurement because the session itself was the load. **The reason it could not be settled is that
+nothing anywhere recorded what conditions a measurement was taken under.** `bench.json` and
+`bench/baseline-darwin.json` were compared by `perf_suite` as though they came from the same
+machine in the same state; neither carried a single fact about the machine. That is trap 47's
+shape: a ruler with no error bars, and a question that therefore could not be answered by data —
+only re-argued.
+
+**Decision — record the conditions as FACTS, and let the gate own the JUDGEMENT.**
+
+`bench` writes a `conditions` block: `os.getloadavg()[0]` sampled **before any bench work**, the
+same sampled at the end, `cpu_count`, the source, and — see below — `covers`. It records; it does
+not judge. `perf_suite` owns `QUIET_LOAD_PER_CPU` and decides. The split is deliberate: changing
+the bar must not require re-taking every measurement, and a measurement file must never carry a
+verdict its own author chose.
+
+**The one-sided rule, which is why this makes the gate STRICTER rather than softer.** Background
+load can only make a *duration* slower, never faster. Therefore a latency budget that **passes**
+under load still binds — the quiet number can only be lower — while one that **misses** proves
+nothing and is reported `INCONCLUSIVE(load)`. Inconclusive is **not** a pass: `report.ok` is false
+and the exit code is exactly as red as before. What changes is the instruction the operator reads,
+from one that invites the forbidden repair ("regressed" → re-baseline) to one that names the real
+problem ("re-measure on a quiet machine; re-baselining to clear it is forbidden"). On a quiet
+machine the behaviour is byte-identical to before. A run recording no conditions behaves exactly
+as before and says so.
+
+**Three deliberate narrowings, each of which a review had to force.**
+
+1. **Only the BACKGROUND sample is judged on.** Every later sample includes this process seeding
+   its own store and cannot separate foreign load from our own work. The final sample is recorded
+   for a human and never judged on. Load that *starts* after the sample is invisible — stated in
+   the payload, not left implicit.
+2. **`covers` — the sample only speaks for what this process measured.** `open_file_ms`,
+   `keystroke_ms` and `completion_ms` are durations, and they are **not** measured by `make bench`:
+   they are merged from `bench/editor-metrics.json`, which `make bench-editor` writes in a separate
+   Playwright run gated only on a matching HEAD, so it can be hours old and taken under entirely
+   different load. Qualifying them with this sample would answer about the wrong process, in both
+   directions — hiding a real editor miss and excusing a fake one. They keep their plain verdict
+   and the report says why. Closing that gap means recording conditions in the editor leg too; it
+   is not built.
+3. **The bar is PROVISIONAL and labelled so, because it is a guess.** See below.
+
+**The bar's derivation was itself a false claim, and the code now says so.** The first version of
+`QUIET_LOAD_PER_CPU`'s comment called it "empirical, not aesthetic" and cited ADR-0044 for
+"~25-30% background load producing +11.7% on cold_launch". A review refuted all three parts:
+ADR-0044 contains no load measurement at all (its only match for "load" is the word *loaders*);
+"25-30% background load" is a CPU-**utilisation** estimate while the constant is a **run-queue
+depth** per CPU, and nothing justifies reading one as the other; and `os.getloadavg` appeared
+nowhere in this repository before this module, so no `(load-per-cpu, latency)` pair has ever been
+recorded here. The comment now states the bar is provisional, names the single load figure this
+project has actually written down (**3.96 on 8 CPUs = 0.495/cpu**, sampled while two heavy apps
+ran, in the same session `cold_launch` read 0.3309 s and 0.3762 s against a 0.2968 s baseline), and
+says plainly that it is not derived from a measured curve because there is not one. Recording the
+raw load with every run is what will eventually let a session replace the guess with a curve.
+A test pins the *label*, not the number: relabelling it "empirical" fails.
+
+### Two reviews, 171 agents, 27 confirmed defects — and the second one is why this ADR is honest
+
+| Wave | Agents | Findings | Confirmed | Of which regressions the fixes introduced |
+|---|---|---|---|---|
+| Over the §0 CI-settlement write-up | 78 | 37 | **9** | — |
+| Over the fixes to those nine, plus this (then unreviewed) code | 93 | 44 | **18** | **8** |
+
+The first wave found five distinct defects in a document whose entire subject was a false-looking
+CI failure: a scope claim ("every job… all seven go red") false for 2 of 7 jobs; "three `uses:`
+lines" when there are 10 in `ci.yml` and 16 across the workflows; a printed `curl` command that
+dies in zsh because `?per_page=10` was unquoted — three lines below its own warning that this
+shell is zsh; a remedy offering `targets:` on `dtolnay/rust-toolchain`, which cannot fix a build
+script's `exit 126` because build scripts are host artifacts in `target/debug/build/` and this
+tree has no triple directory at all; and **trap 49's own point 4**, an un-run diagnosis written
+into the trap about un-run diagnoses.
+
+The second wave found the fix for that last one had pasted a `>>>` transcript showing three error
+lines under a bare `json.loads` in a loop — which raises on the first iteration and can only print
+one. **The same failure, one layer down, in the same session.** It also found that `machine_conditions`
+caught only `OSError` while the platform its branch exists for (Windows, where CPython omits
+`getloadavg` entirely) raises `AttributeError`, which is not an `OSError` subclass — so `make bench`
+would have died at its first statement on the one platform the code was written for, while its
+docstring promised a recorded `unavailable`. And that four printed row counts summed to **14 of 13**
+budgets, because a row whose p50 was MET and whose p95 was inconclusive was counted twice.
+
+**Trap 48 held exactly: 8 of the 18 were regressions the fixes themselves introduced.**
+
+### The tests were then mutation-tested, and one gap survived the fix
+
+Nine mutations, each the one-line change a reviewer named. Eight were caught. The survivor was
+`except (OSError, AttributeError)` → `except OSError`: the *code* had been fixed but the *test*
+still monkeypatched a function that raises `OSError`, so the absent-attribute state was never
+exercised. `monkeypatch.delattr` closed it, and the mutation is now caught.
+
+**A fix is not verified by the test that motivated it. Run the mutation.** That is the reusable
+lesson, and it is why the producer half now has its own integration test: deleting the single line
+`"conditions": conditions_block(...)` from `bench.main` turned the whole feature into a silent
+no-op with the entire unit suite still green — the lines all ran, and the state "nobody wires them
+up" was not considered (trap 43).
+
+
+### The measurement, taken 2026-08-20 — and `perf-gate` is GREEN
+
+The carried item is closed, and **not** by getting an idle machine. It is closed because the
+one-sided rule made an idle machine unnecessary.
+
+```
+  cold launch #1: 0.326s   #2: 0.326s   #3: 0.325s
+  cold_launch_s = 0.3248   baseline 0.2968   regression +9.43%  (bar 10%)
+  background load 2.047 on 8 CPUs = 0.256/cpu   (quiet bar 0.20 — OVER it)
+  perf_suite: every measurable budget met (L22)          PERF_GATE_EXIT=0
+```
+
+**The machine could not be made quiet, and that itself is a measurement.** Load was watched for
+four minutes after `make verify` finished, with the two heavy applications already closed at the
+owner's hand. It decayed to a floor of **0.24–0.30/cpu and stopped**: `WindowServer` at ~41% and
+`Claude Helper` at ~14% are the Claude desktop app drawing the session that is asking for the
+measurement. **On this Mac, with this session open, the 0.20 bar is unreachable** — which is
+precisely why three sessions in a row recorded the same hypothesis and none of them could test it.
+Before this feature that floor was invisible; it is now a number.
+
+**Why the result binds anyway.** 0.3248 s was measured at 0.256/cpu, over the bar, so it is an
+*upper bound*: a quieter machine can only produce a lower number. An upper bound of +9.43% against
+a 10% bar therefore proves there is no regression, a fortiori. The gate reports `MET`, not
+`INCONCLUSIVE`, because the asymmetry runs that way — and that is the whole design earning its
+keep on the first real measurement it was asked to judge.
+
+**The honest caveats, stated because the number is close to its bar:**
+
+* It passed by **0.57 percentage points**. That is a pass, not a comfortable one. The *absolute*
+  budget — the one §5 actually cares about — is met with 0.475 s of headroom (0.3248 s against
+  0.8 s).
+* The baseline still records **no conditions of its own**, so this remains a comparison against a
+  reference of unknown provenance. The gate says so on every run. It stops being true the first
+  time someone commits a baseline taken with this instrumentation.
+* The hypothesis three sessions carried — "probably load, not drift" — is now **supported but not
+  proven**: 0.3309 s at unmeasured-but-higher load, 0.3248 s at 0.256/cpu. Two points on an
+  uncontrolled axis are a direction, not a curve. The way to prove it is the same way the bar gets
+  its evidence: more runs, with their conditions recorded.
+* `perf_suite` now reports **3 of 13** measured rather than 6. Nothing regressed: the editor
+  metrics in `bench/editor-metrics.json` predate HEAD, so the staleness guard discarded them
+  exactly as designed, and `open_file` / `keystroke` / `completion` correctly read
+  NOT-YET-MEASURED. `make bench-editor` restores them.
