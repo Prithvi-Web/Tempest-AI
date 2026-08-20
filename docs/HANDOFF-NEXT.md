@@ -1,6 +1,57 @@
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-19 after the Phase 20
-# review; Phase 19 COMPLETE and CI-confirmed; **PHASE 20 IS COMPLETE** — 20.1–20.6, its review
-# ran, and §1a now lists what is carried rather than what is missing. Phase 21 is next.)
+# review; Phase 19 COMPLETE and CI-confirmed; **PHASE 20 IS CODE-COMPLETE AND PUSHED at `070f046`,
+# and its CI run is 6/7 with ONE job red for a reason that is almost certainly not the code —
+# read §0 FIRST, it is the only thing standing between here and "Phase 20 complete".**)
+
+## 0. START HERE — the one red CI job on `070f046`
+
+**Do this before anything else, and do not start Phase 21 until it is settled.**
+
+Run <https://github.com/Prithvi-Web/Tempest-AI/actions/runs/32315935235> — 6 of 7 jobs green.
+`ci / desktop` FAILED after 1m, at its very FIRST cargo command:
+
+```
+error: failed to run custom build command for `quote v1.0.47`
+  process didn't exit successfully: .../target/debug/build/quote-*/build-script-build (exit 126)
+  --- stderr
+  .../build-script-build: cannot execute binary file
+```
+
+...and identically for `proc-macro2` and `serde_core`. Exit 126 + "cannot execute binary file"
+means the build-script executable cargo had just produced could not be run — an architecture
+mismatch on the runner, not a compile error.
+
+**The evidence that this is NOT the code, gathered before writing this:**
+
+| Fact | How it was checked |
+|---|---|
+| `target/` is not in the repo | `git ls-files \| grep -c src-tauri/target` → **0** |
+| no cargo cache exists in CI | no cache step anywhere in `ci.yml` |
+| `Cargo.toml`/`Cargo.lock` are untouched since the last green run | `git diff --stat 30f970a..HEAD -- '*Cargo.toml' '*Cargo.lock'` → **empty** |
+| cargo COMPILES FINE on macos-latest in the SAME run | `contract-check` (also `macos-latest`, also `dtolnay/rust-toolchain@stable`, also after `build-server.sh`) ran `cargo install cargo-typify` + `make gen-contracts` and **passed in 3m** |
+| the failure is in DEPENDENCY build scripts | it happens before a single line of Tempest code compiles |
+| the same commit is green locally | `make verify` MAKE_EXIT=0 (1273 passed / 100.00%), `cargo test --workspace` 115 passed, `clippy -D warnings` exit 0, `pnpm tauri build` BUILD_EXIT=0 |
+
+Also on that job: *"Node.js 20 is deprecated... being forced to run on Node.js 24"* — the runner
+image moved under us.
+
+**FIRST ACTION: re-run the failed job** (Actions → that run → "Re-run failed jobs"). It is one
+click and it is definitive. Two outcomes:
+
+* **It goes green** → the phase is settled; record it in ADR-0046 as a transient runner defect
+  and move to Phase 21. Nothing to fix.
+* **It fails again the same way** → it is reproducible and needs a real fix, most likely pinning
+  the runner (`runs-on: macos-14`) or making the toolchain arch explicit
+  (`dtolnay/rust-toolchain@stable` with `targets: aarch64-apple-darwin`). Diff the runner image
+  header of the failing job against `contract-check`'s in the same run — they carry the same
+  label but may not be the same image during a rollout. **Do not "fix" this by weakening the
+  job** (no `continue-on-error`, no dropping `-D warnings`): that is v2 failure mode 2.
+
+**Do not re-run `make verify` locally hoping it tells you something about this.** It is green on
+this exact commit and cannot see a runner-image problem — that is trap 44 in the other direction:
+a local green is evidence about this machine, and this failure is a fact about a GitHub runner.
+
+
 
 **Read this FIRST, before any other doc.** It supersedes the "live state" sections of every
 older handoff (they are history now). Then read, in order: `CLAUDE.md` (the Laws — now L1–**L26**
@@ -44,8 +95,9 @@ still open before Phase 20 can be CALLED complete — read §1a**)
   + offline source · 20.3c completion budget + input storm · 20.3d local model runner + fallback
   · 20.3e behavioural risk indicator · **20.4a–d the review's confirmed fixes** · **20.5 the
   hover tooltip that makes `lsp_hover` reachable** · **20.6 the runners' settings surface**.
-  Everything through `30f970a` was pushed and CI-green (7/7 on `6b417c4`, `05eb5c9`, `30f970a`);
-  the six commits after it are LOCAL and awaiting the owner's push (trap 13).
+  **All twelve Phase 20 commits are PUSHED — `origin/main == 070f046`, working tree clean.**
+  Everything through `30f970a` was CI-green 7/7; the run on `070f046` is 6/7 with `desktop` red
+  for the reason in §0.
 - **Test counts after Phase 20**: pytest **1273** at 100.00% · cargo **115** (was 84) · vitest
   **86** desktop + 27 ts-sidecar · Playwright **48 passed** (was 42). Final `make verify`:
   `MAKE_EXIT=0`, "verify: all live steps green".

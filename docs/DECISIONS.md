@@ -2088,3 +2088,36 @@ for the next change.
 **Trap 48 is the general lesson**: *the review of a fix is not optional because the fix was
 careful.* Eighteen of these were in code written specifically to be correct, by an author who
 had just read 37 findings about the same modules.
+
+
+### Postscript — the CI run on `070f046`, and what it is NOT evidence of
+
+All twelve commits were pushed. The run is **6 of 7 green**; `ci / desktop` failed after 1m at its
+first cargo command, with `quote`, `proc-macro2` and `serde_core` build scripts exiting 126 —
+"cannot execute binary file". That is an architecture mismatch on the runner: the executable cargo
+had just produced could not be run.
+
+Recorded as evidence rather than as a verdict, because the phase is not settled until it is
+re-run:
+
+* `target/` is not tracked (`git ls-files | grep -c src-tauri/target` → 0) and CI has no cargo
+  cache, so those build scripts were produced by that run.
+* `Cargo.toml` and `Cargo.lock` are byte-identical to the last 7/7-green run
+  (`git diff --stat 30f970a..HEAD` over both → empty).
+* **`contract-check` — same `macos-latest`, same `dtolnay/rust-toolchain@stable`, same
+  `build-server.sh`, and it compiles the very same proc-macro crates via `cargo install
+  cargo-typify` and `make gen-contracts` — passed in 3m in the SAME workflow run.**
+* The failure precedes any Tempest code compiling.
+* The same commit is green locally: `make verify` `MAKE_EXIT=0` (1273 passed, 100.00%),
+  `verify-linux-denominator` `MAKE_EXIT=0` (1267 passed, 100.00%), `cargo test --workspace` 115
+  passed, `clippy -D warnings` exit 0, parity byte-identical, `pnpm tauri build` exit 0,
+  `orphan_check` clear in 2.1 s.
+
+The next session's FIRST action is to re-run that job, not to change code. **If the answer is to
+change CI, it is to pin the runner or make the toolchain arch explicit — never
+`continue-on-error`, never dropping `-D warnings`.** A gate weakened to make a red build green is
+v2 failure mode 2, and this ADR would be the wrong place to start doing it.
+
+Until that re-run, the honest statement is: **Phase 20 is code-complete and locally verified on
+every gate; it is not yet CI-confirmed.** ADR-0044's rule stands — a local green is evidence about
+one machine, and "Phase 20 is complete" is a claim about the repository.
