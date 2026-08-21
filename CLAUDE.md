@@ -166,6 +166,71 @@ checklist-verified on three OSes. **"Looks fine" is not a passing state.** Adopt
 make great native software feel the way it does; never clone another vendor's chrome, icons, or
 trade dress (v2 failure mode 11).
 
+### v3 Convergence Laws (v3.0.0 master prompt §4 — additive; L1–L26 all still binding)
+
+> The v3 convergence — LibreChat vendored as the platform base, the shipped product a desktop
+> app — is governed by `docs/TEMPEST-V3-MASTER-PROMPT.md` (normative), with `docs/PLAN-V3.md`
+> (phases C0–C12), `docs/MERGE-CONTRACT.md` (subsystem dispositions), `docs/FEATURES-V3.md`
+> (the parity ledger), and ADR-0063…ADR-0076. The full statements of L27–L36 are master prompt
+> §4; the summaries here are binding, and each law's gate is listed with it there.
+
+**L27 — Upstream mergeability is a shipped feature.** `packages/platform/**` preserves
+LibreChat's directory structure and module boundaries; integration happens at declared seams
+(`packages/platform/*/tempest/`), never by editing their business logic in place; every
+unavoidable in-place edit is a ledger row (with its reason, and the upstream issue link if one
+exists) in `packages/platform/UPSTREAM.md`; a quarterly upstream merge is a gated obligation.
+Gate: `tempest.dev.upstream_check --max-inline-deltas 40 --ledger-complete`.
+
+**L28 — The proof gate survives adoption.** Every path by which an agent-authored change reaches
+a user labelled verified is subject to L16, with a real differential run traceable to a stored
+bundle. No `--skip-proof`, ever. `ProvenChange` keeps its single construction site and
+bundle-id-required constructor; every adopted path gets a forge test. Gate: `tempest.dev.gate_audit`.
+
+**L29 — Two agent runtimes is a bug, not an architecture.** One runtime (the Python
+orchestrator, ADR-0075), one tool registry (`agent_tools.rs`), reconciled before any feature is
+built on top. Gate: `tempest.dev.runtime_check`.
+
+**L30 — Every adopted feature declares its proof relationship.** Exactly one of `PROOF_NATIVE` /
+`PROOF_ADJACENT` / `PLATFORM` in `docs/FEATURES-V3.md`. A `PLATFORM` feature ships at full
+quality but may never claim proof, borrow the verdict vocabulary, or render inside evidence
+surfaces. Replaces L25's adoption test for the v3 scope. Gate: `tempest.dev.feature_ledger`.
+
+**L31 — Verdict vocabulary is reserved.** `DIVERGENT`, `EQUIVALENT_UNDER_BUDGET`, `UNPROVEN`,
+`ERROR` (and Phase 24's `WEAK_EVIDENCE`) are engine outputs; no adopted subsystem writes into a
+verdict, confidence, or risk field (L17 across the merge boundary), and none of LibreChat's
+confidence-shaped affordances may render in verdict type, colours, or typography. Model
+narration is visually distinct from evidence, everywhere, without exception. Gate:
+`tempest.dev.vocab_check --reserved-verdicts --platform-tree`.
+
+**L32 — Local-first survives the base swap.** L8/L9/L10 unchanged over the platform tree: full
+function with the network unplugged, local operation never requires login, and every telemetry
+surface (LibreChat telemetry, Langfuse, RUM, insights, error reporting) off by default and
+**provably inert, not merely unconfigured**.
+Gate: `tempest.dev.egress_check --platform-tree --deny-all --airplane-mode-full-function`.
+
+**L33 — The document store is never SSPL, and never a second datastore for proofs.** Proof data
+stays in engine SQLite; platform data lives in the ADR-0068 store; two stores is the accepted
+cost of L27, a third is forbidden; cross-store references are opaque ids declared in
+`docs/MERGE-CONTRACT.md`, never joins. Gate: `tempest.dev.store_check`.
+
+**L34 — Every process is supervised, and orphans are impossible.** Every child — Python engine,
+Node API, ts-sidecar, document store, language servers, local model, sandbox containers — is
+owned by `supervisor.rs` with process-group ownership, health checks, exponential-backoff
+restart, and teardown that survives `SIGKILL`. Gate:
+`tempest.dev.orphan_check --all-children --after-sigkill`.
+
+**L35 — Feature parity is measured, not asserted.** `docs/FEATURES-V3.md` is a machine-readable
+ledger; a feature is `ADOPTED` only when its verifying test ran green; the README publishes the
+percentage; 100% required at GA. Gate: `tempest.dev.parity_ledger`.
+
+**L36 — "Zero errors" is the seven zero-properties plus five more, or it is marketing.** L15's
+seven, across the platform tree, plus: zero untyped seams (five generated, drift-gated
+boundaries, master prompt §7), zero orphaned processes (L34), zero unclassified features
+(L30/L35), zero unattributed adoptions (`license_check` at the moment of adoption), and zero
+mystery states in the merged UI — every view reachable from the platform client implements
+loading, empty, error, partial, cancelled, stale, **and `UNPROVEN`** as a first-class state,
+never an error toast. Gate: the full `make verify-v3`.
+
 ---
 
 ## 5. Stack (fixed — deviations require an ADR in docs/DECISIONS.md)

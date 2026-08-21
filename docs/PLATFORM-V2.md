@@ -232,6 +232,15 @@ rejection has a stated reason. If you disagree, overturn it **with an ADR, not b
 and a future contributor reading this must be able to see why image generation is absent rather
 than "helpfully" adding it.
 
+> **OVERTURNED — 2026-08-21, v3 convergence (owner decision).** All six rejections below were
+> overturned exactly the way this section demands: with ADRs, not drift. Image generation →
+> ADR-0063 · TTS/STT → ADR-0065 · agent marketplace → ADR-0066 (**partial**: mandatory capability
+> signing is retained — the supply-chain threat named below is real and survives the overturn) ·
+> chat as the primary surface → ADR-0067 · MongoDB → ADR-0068 (the data model and wire protocol
+> only; the SSPL binary still never ships) · general-assistant framing → ADR-0069. The table is
+> retained verbatim below because its reasons are the constraints those ADRs carry forward.
+> Normative scope now: `docs/TEMPEST-V3-MASTER-PROMPT.md` §5, `docs/FEATURES-V3.md`.
+
 | Rejected | Why |
 |---|---|
 | **Image generation** (DALL·E, Flux, Stable Diffusion, GPT-Image) | Zero proof story, zero relationship to code correctness. Pure surface area. It is the single clearest signal that a product has lost its thesis. |
@@ -261,3 +270,11 @@ behavioral decision tree. *Same code, completely different product.*
 general-purpose assistant platform, and general-purpose is the exact opposite of what makes
 Tempest defensible. If the chat panel ever becomes the primary surface, or if a single adopted
 feature ships without proof-native wiring, we have drifted. Re-read L25.
+
+> **v3 note (2026-08-21).** Chat as the primary surface is now the design (ADR-0067), and this
+> failure mode is **upgraded, not deleted**: ADR-0067 names the structural mechanisms — L28
+> (every path proof-gated, forge test per path), L31 (verdict vocabulary reserved, lint-proven),
+> L35 (parity ledger tracks proof features at the same rigour), and master prompt §13.2 (a week
+> with no proof work landed is drift, said out loud) — that keep chat-primary from becoming
+> exactly this failure. L25's adoption test is superseded by L30's honest classification
+> (`PROOF_NATIVE` / `PROOF_ADJACENT` / `PLATFORM`), gated by `feature_ledger`.
