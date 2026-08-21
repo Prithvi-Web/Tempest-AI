@@ -30,6 +30,10 @@ jobs:
       - run: uv run ruff format --check
       - run: uv run mypy --strict packages/engine/src packages/api/src
       - run: uv run python -m tempest.dev.redaction_check --planted-secrets
+      # The C-phase convergence gates (docs/PLAN-V3.md; one make target so CI and local
+      # cannot drift): platform-tree attribution (L36.11), the store law (L33), and
+      # upstream mergeability (L27) — guarding the 4,200-file vendored tree on every push.
+      - run: make verify-convergence
       - name: pytest
         run: |
           set -o pipefail
