@@ -1,0 +1,882 @@
+import { RetentionMode } from 'librechat-data-provider';
+import type { DeleteResult, FilterQuery, Model } from 'mongoose';
+import type { AppConfig, IMessage } from '~/types';
+import { createTempChatExpirationDate } from '~/utils/tempChatRetention';
+import { createFallbackRetentionDate } from '~/utils/retention';
+import { tenantSafeBulkWrite } from '~/utils/tenantBulkWrite';
+import logger from '~/config/winston';
+
+/** Simple UUID v4 regex to replace zod validation */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Exclusion projection for message reads that feed the chat client (the
+ * conversation GET and shared-link reads). Every excluded field is either
+ * server-internal (ids, replay signatures, legacy summarization state) or a
+ * web_search SERP vertical no citation marker or UI can address: markers
+ * resolve `search|image|news|video|ref|file` through organic/images/
+ * topStories/videos/references (all kept — `news` markers read topStories,
+ * never the `news` collection). The JSON export mirrors this cache, so
+ * fields removed here also leave user exports.
+ */
+export const CLIENT_MESSAGE_SELECT: string = [
+  '-_id',
+  '-__v',
+  '-user',
+  '-clientId',
+  '-invocationId',
+  '-conversationSignature',
+  '-summary',
+  '-summaryTokenCount',
+  '-contextMeta',
+  '-langfuseSampled',
+  '-langfuseDestinationIds',
+  '-metadata.thoughtSignatures',
+  '-attachments.web_search.knowledgeGraph',
+  '-attachments.web_search.peopleAlsoAsk',
+  '-attachments.web_search.relatedSearches',
+  '-attachments.web_search.shopping',
+  '-attachments.web_search.places',
+  '-attachments.web_search.news',
+  '-attachments.web_search.organic.sitelinks',
+  '-attachments.web_search.organic.highlights',
+  '-attachments.web_search.topStories.highlights',
+].join(' ');
+
+interface MessageQueryOptions {
+  limit?: number;
+  sort?: Record<string, 1 | -1> | false;
+}
+
+export type SubagentTaskResultClaim =
+  | { status: 'not_found' }
+  | { status: 'claimed'; message: IMessage }
+  | { status: 'acquired'; message: IMessage };
+
+export type SubagentThreadViewMessageRecord = Pick<
+  IMessage,
+  | 'messageId'
+  | 'parentMessageId'
+  | 'isCreatedByUser'
+  | 'text'
+  | 'createdAt'
+  | 'error'
+  | 'subagentTask'
+> & { textProjectionTruncated?: boolean };
+
+export interface MessageMethods {
+  saveMessage(
+    ctx: { userId: string; isTemporary?: boolean; interfaceConfig?: AppConfig['interfaceConfig'] },
+    params: Partial<IMessage> & { newMessageId?: string },
+    metadata?: { context?: string },
+  ): Promise<IMessage | null | undefined>;
+  bulkSaveMessages(
+    messages: Array<Partial<IMessage>>,
+    overrideTimestamp?: boolean,
+  ): Promise<unknown>;
+  recordMessage(params: {
+    user: string;
+    endpoint?: string;
+    messageId: string;
+    conversationId?: string;
+    parentMessageId?: string;
+    [key: string]: unknown;
+  }): Promise<IMessage | null>;
+  updateMessageText(userId: string, params: { messageId: string; text: string }): Promise<void>;
+  updateToolCallResult(params: {
+    userId: string;
+    messageId: string;
+    conversationId: string;
+    toolCallId: string;
+    agentId?: string;
+    output?: string;
+    attachments?: unknown[];
+    markBackgrounded?: boolean;
+  }): Promise<{ matched: boolean; unfinished: boolean }>;
+  updateMessage(
+    userId: string,
+    message: Partial<IMessage> & { newMessageId?: string },
+    metadata?: { context?: string },
+  ): Promise<Partial<IMessage>>;
+  claimSubagentTaskResult(params: {
+    userId: string;
+    conversationId: string;
+    taskId: string;
+    kind: 'manual' | 'wakeup';
+    claimId: string;
+  }): Promise<SubagentTaskResultClaim>;
+  releaseSubagentTaskResultClaim(params: {
+    userId: string;
+    conversationId: string;
+    taskId: string;
+    kind: 'manual' | 'wakeup';
+    claimId: string;
+  }): Promise<boolean>;
+  deleteMessagesSince(
+    userId: string,
+    params: { messageId: string; conversationId: string },
+  ): Promise<DeleteResult>;
+  getMessages(
+    filter: FilterQuery<IMessage>,
+    select?: string,
+    options?: MessageQueryOptions,
+  ): Promise<IMessage[]>;
+  getMessagesForSubagentThreadView(input: {
+    user: string;
+    conversationId: string;
+    tenantId?: string;
+    limit: number;
+    textCodePointLimit: number;
+  }): Promise<SubagentThreadViewMessageRecord[]>;
+  getMessage(params: { user: string; messageId: string }): Promise<IMessage | null>;
+  getMessagesByCursor(
+    filter: FilterQuery<IMessage>,
+    options?: {
+      sortField?: string;
+      sortOrder?: 1 | -1;
+      limit?: number;
+      cursor?: string | null;
+    },
+  ): Promise<{ messages: IMessage[]; nextCursor: string | null }>;
+  searchMessages(
+    query: string,
+    searchOptions: Partial<IMessage>,
+    hydrate?: boolean,
+  ): Promise<unknown>;
+  deleteMessages(filter: FilterQuery<IMessage>): Promise<DeleteResult>;
+}
+
+export function createMessageMethods(mongoose: typeof import('mongoose')): MessageMethods {
+  /**
+   * Saves a message in the database.
+   */
+  async function saveMessage(
+    {
+      userId,
+      isTemporary,
+      interfaceConfig,
+    }: {
+      userId: string;
+      isTemporary?: boolean;
+      interfaceConfig?: AppConfig['interfaceConfig'];
+    },
+    params: Partial<IMessage> & { newMessageId?: string },
+    metadata?: { context?: string },
+  ) {
+    if (!userId) {
+      throw new Error('User not authenticated');
+    }
+
+    const conversationId = params.conversationId as string | undefined;
+    if (!conversationId || !UUID_REGEX.test(conversationId)) {
+      logger.warn(
+        `Invalid conversation ID: ${conversationId} (context: ${metadata?.context ?? 'n/a'})`,
+      );
+      return;
+    }
+
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      const update: Record<string, unknown> = {
+        ...params,
+        user: userId,
+        messageId: params.newMessageId || params.messageId,
+      };
+
+      if (interfaceConfig?.retentionMode === RetentionMode.ALL) {
+        if (typeof isTemporary === 'boolean') {
+          update.isTemporary = isTemporary;
+        }
+        try {
+          update.expiredAt = createTempChatExpirationDate(interfaceConfig);
+        } catch (err) {
+          logger.error('Error creating temporary chat expiration date:', err);
+          logger.info(`---\`saveMessage\` context: ${metadata?.context}`);
+          update.expiredAt = createFallbackRetentionDate();
+        }
+      } else if (isTemporary === true) {
+        update.isTemporary = true;
+        try {
+          update.expiredAt = createTempChatExpirationDate(interfaceConfig);
+        } catch (err) {
+          logger.error('Error creating temporary chat expiration date:', err);
+          logger.info(`---\`saveMessage\` context: ${metadata?.context}`);
+          update.expiredAt = createFallbackRetentionDate();
+        }
+      } else if (isTemporary === false) {
+        update.isTemporary = false;
+        update.expiredAt = null;
+      }
+
+      if (update.tokenCount != null && isNaN(update.tokenCount as number)) {
+        logger.warn(
+          `Resetting invalid \`tokenCount\` for message \`${params.messageId}\`: ${update.tokenCount}`,
+        );
+        logger.info(`---\`saveMessage\` context: ${metadata?.context}`);
+        update.tokenCount = 0;
+      }
+      const message = await Message.findOneAndUpdate(
+        { messageId: params.messageId, user: userId },
+        update,
+        { upsert: true, new: true },
+      );
+
+      if (
+        interfaceConfig?.retentionMode === RetentionMode.ALL &&
+        typeof isTemporary !== 'boolean' &&
+        (message.isTemporary == null ||
+          (message.isTemporary === false && message.$isDefault('isTemporary')))
+      ) {
+        await Message.updateOne(
+          { _id: message._id, isTemporary: { $ne: false } },
+          { $set: { isTemporary: false } },
+        );
+        message.isTemporary = false;
+      }
+
+      return message.toObject();
+    } catch (err: unknown) {
+      logger.error('Error saving message:', err);
+      logger.info(`---\`saveMessage\` context: ${metadata?.context}`);
+
+      const mongoErr = err as { code?: number; message?: string };
+      if (mongoErr.code === 11000 && mongoErr.message?.includes('duplicate key error')) {
+        logger.warn(`Duplicate messageId detected: ${params.messageId}. Continuing execution.`);
+
+        try {
+          const Message = mongoose.models.Message as Model<IMessage>;
+          const existingMessage = await Message.findOne({
+            messageId: params.messageId,
+            user: userId,
+          });
+
+          if (existingMessage) {
+            return existingMessage.toObject();
+          }
+
+          return undefined;
+        } catch (findError) {
+          logger.warn(
+            `Could not retrieve existing message with ID ${params.messageId}: ${(findError as Error).message}`,
+          );
+          return undefined;
+        }
+      }
+
+      throw err;
+    }
+  }
+
+  /**
+   * Saves multiple messages in bulk.
+   */
+  async function bulkSaveMessages(
+    messages: Array<Record<string, unknown>>,
+    overrideTimestamp = false,
+  ) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      const bulkOps = messages.map((message) => ({
+        updateOne: {
+          filter: { messageId: message.messageId },
+          update: message,
+          timestamps: !overrideTimestamp,
+          upsert: true,
+        },
+      }));
+      const result = await tenantSafeBulkWrite(Message, bulkOps);
+      return result;
+    } catch (err) {
+      logger.error('Error saving messages in bulk:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Records a message in the database (no UUID validation).
+   */
+  async function recordMessage({
+    user,
+    endpoint,
+    messageId,
+    conversationId,
+    parentMessageId,
+    ...rest
+  }: {
+    user: string;
+    endpoint?: string;
+    messageId: string;
+    conversationId?: string;
+    parentMessageId?: string;
+    [key: string]: unknown;
+  }) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      const message = {
+        user,
+        endpoint,
+        messageId,
+        conversationId,
+        parentMessageId,
+        ...rest,
+      };
+
+      return await Message.findOneAndUpdate({ user, messageId }, message, {
+        upsert: true,
+        new: true,
+      });
+    } catch (err) {
+      logger.error('Error recording message:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Updates the text of a message.
+   */
+  async function updateMessageText(
+    userId: string,
+    { messageId, text }: { messageId: string; text: string },
+  ) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      await Message.updateOne({ messageId, user: userId }, { text });
+    } catch (err) {
+      logger.error('Error updating message text:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Patches a persisted tool_call content part in place and appends attachments,
+   * for results that settle after the turn's message was finalized (background
+   * tool calls). Atomic single update so two tasks completing concurrently on
+   * the same message cannot lose each other's attachments, and IDEMPOTENT
+   * (attachments dedupe by `file_id ?? filepath`, scoped to this tool call so
+   * sibling calls sharing a filename keep their own entries) so it can be
+   * re-applied to heal a later full-row save that reverted the patch.
+   *
+   * Returns `matched: false` when the message row does not exist yet (the
+   * dispatch turn has not finalized) and surfaces `unfinished` when the
+   * matched row is a mid-turn partial save (client disconnect) — the eventual
+   * finalize will overwrite the patch with in-memory content, so callers
+   * should keep re-applying until a finalized row is patched.
+   */
+  async function updateToolCallResult({
+    userId,
+    messageId,
+    conversationId,
+    toolCallId,
+    agentId,
+    output,
+    attachments,
+    markBackgrounded,
+  }: {
+    userId: string;
+    messageId: string;
+    conversationId: string;
+    toolCallId: string;
+    /** Scopes the part match when provider tool-call ids repeat across
+     *  agents in one response message (e.g. `call_0` per response); a part
+     *  without agent identity matches any caller (single-agent runs). */
+    agentId?: string;
+    output?: string;
+    attachments?: unknown[];
+    /**
+     * Stamps `backgrounded: true` onto the patched tool call. Replacing the
+     * dispatch-handle output with the settled task's stdout destroys the only
+     * signal renderers had that this call ran detached (the handle JSON and
+     * the live status-marker attachment are both transient), so the patch
+     * that erases it must persist a durable one alongside.
+     */
+    markBackgrounded?: boolean;
+  }): Promise<{ matched: boolean; unfinished: boolean }> {
+    const stages: Record<string, unknown>[] = [];
+    if (output !== undefined) {
+      stages.push({
+        $set: {
+          content: {
+            $map: {
+              input: { $ifNull: ['$content', []] },
+              as: 'part',
+              in: {
+                $cond: [
+                  {
+                    $and: [
+                      { $eq: ['$$part.type', 'tool_call'] },
+                      { $eq: ['$$part.tool_call.id', toolCallId] },
+                      ...(agentId != null
+                        ? [
+                            {
+                              $in: [
+                                { $ifNull: ['$$part.agentId', '$$part.tool_call.agentId'] },
+                                [null, agentId],
+                              ],
+                            },
+                          ]
+                        : []),
+                    ],
+                  },
+                  {
+                    $mergeObjects: [
+                      '$$part',
+                      {
+                        tool_call: {
+                          $mergeObjects: [
+                            '$$part.tool_call',
+                            {
+                              output: { $literal: output },
+                              ...(markBackgrounded === true ? { backgrounded: true } : {}),
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                  '$$part',
+                ],
+              },
+            },
+          },
+        },
+      });
+    }
+    if (attachments !== undefined && attachments.length > 0) {
+      /** Dedupe key mirrors the resume merge: `file_id ?? filepath`, so
+       *  download-fallback attachments (no `file_id`, only a filepath) stay
+       *  idempotent across re-applications instead of duplicating per poll. */
+      const attachmentKeys = attachments
+        .map((attachment) => {
+          const { file_id, filepath } = attachment as { file_id?: unknown; filepath?: unknown };
+          return typeof file_id === 'string' ? file_id : filepath;
+        })
+        .filter((key): key is string => typeof key === 'string');
+      stages.push({
+        $set: {
+          attachments: {
+            $concatArrays: [
+              {
+                $filter: {
+                  input: { $ifNull: ['$attachments', []] },
+                  as: 'existing',
+                  /** Replace only THIS tool call's prior entries: sibling calls
+                   *  can legitimately share a `file_id` (the filename claim is
+                   *  per-conversation), and the client anchors attachments to
+                   *  cards by `toolCallId`. */
+                  cond: {
+                    $not: [
+                      {
+                        $and: [
+                          {
+                            $in: [
+                              { $ifNull: ['$$existing.file_id', '$$existing.filepath'] },
+                              { $literal: attachmentKeys },
+                            ],
+                          },
+                          { $eq: ['$$existing.toolCallId', toolCallId] },
+                          /** Provider tool-call ids repeat across agents in
+                           *  handoff messages; a sibling agent's attachment
+                           *  under the same id/key must survive (missing
+                           *  agent identity = legacy wildcard). */
+                          ...(agentId != null
+                            ? [
+                                {
+                                  $in: [{ $ifNull: ['$$existing.agentId', null] }, [null, agentId]],
+                                },
+                              ]
+                            : []),
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
+              { $literal: attachments },
+            ],
+          },
+        },
+      });
+    }
+    if (stages.length === 0) {
+      return { matched: false, unfinished: false };
+    }
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      const result = await Message.findOneAndUpdate(
+        { messageId, user: userId, conversationId },
+        stages,
+        { new: true, projection: { unfinished: 1 } },
+      ).lean<{ unfinished?: boolean } | null>();
+      return { matched: result != null, unfinished: result?.unfinished === true };
+    } catch (err) {
+      logger.error('Error updating tool call result:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Updates a message and returns sanitized fields.
+   */
+  async function updateMessage(
+    userId: string,
+    message: { messageId: string; [key: string]: unknown },
+    metadata?: { context?: string },
+  ) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      const { messageId, ...update } = message;
+      const updatedMessage = await Message.findOneAndUpdate({ messageId, user: userId }, update, {
+        new: true,
+      });
+
+      if (!updatedMessage) {
+        throw new Error('Message not found or user not authorized.');
+      }
+
+      return {
+        messageId: updatedMessage.messageId,
+        conversationId: updatedMessage.conversationId,
+        parentMessageId: updatedMessage.parentMessageId,
+        sender: updatedMessage.sender,
+        text: updatedMessage.text,
+        isCreatedByUser: updatedMessage.isCreatedByUser,
+        tokenCount: updatedMessage.tokenCount,
+        feedback: updatedMessage.feedback,
+        endpoint: updatedMessage.endpoint,
+        langfuseSampled: updatedMessage.langfuseSampled,
+        langfuseDestinationIds: updatedMessage.langfuseDestinationIds,
+      };
+    } catch (err) {
+      logger.error('Error updating message:', err);
+      if (metadata?.context) {
+        logger.info(`---\`updateMessage\` context: ${metadata.context}`);
+      }
+      throw err;
+    }
+  }
+
+  /** Atomically assigns one durable terminal child result to either its
+   * explicit poller or one idempotent automatic wakeup delivery. */
+  async function claimSubagentTaskResult({
+    userId,
+    conversationId,
+    taskId,
+    kind,
+    claimId,
+  }: {
+    userId: string;
+    conversationId: string;
+    taskId: string;
+    kind: 'manual' | 'wakeup';
+    claimId: string;
+  }): Promise<SubagentTaskResultClaim> {
+    if (
+      taskId.length === 0 ||
+      taskId.length > 256 ||
+      conversationId.length === 0 ||
+      conversationId.length > 256 ||
+      (kind !== 'manual' && kind !== 'wakeup') ||
+      claimId.length === 0 ||
+      claimId.length > 128
+    ) {
+      throw new TypeError('Invalid subagent task result claim');
+    }
+    const Message = mongoose.models.Message as Model<IMessage>;
+    const messageId = `${taskId}:assistant`;
+    const terminal = ['completed', 'error', 'cancelled'];
+    const claim = {
+      kind,
+      claimId,
+      claimedAt: new Date(),
+    };
+    const claimable = {
+      $or: [
+        { 'subagentTask.resultClaim': { $exists: false } },
+        {
+          'subagentTask.resultClaim.kind': kind,
+          'subagentTask.resultClaim.claimId': claimId,
+        },
+        ...(kind === 'manual'
+          ? [
+              {
+                'subagentTask.resultClaim.kind': { $exists: false },
+                'subagentTask.resultClaim.claimId': claimId,
+              },
+            ]
+          : []),
+      ],
+    };
+    const projection = {
+      messageId: 1,
+      conversationId: 1,
+      parentMessageId: 1,
+      sender: 1,
+      text: 1,
+      error: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      subagentTask: 1,
+    };
+    const acquired = await Message.findOneAndUpdate(
+      {
+        user: userId,
+        conversationId,
+        messageId,
+        'subagentTask.status': { $in: terminal },
+        ...claimable,
+      },
+      { $set: { 'subagentTask.resultClaim': claim } },
+      { new: true, projection },
+    ).lean<IMessage | null>();
+    if (acquired != null) {
+      return { status: 'acquired', message: acquired };
+    }
+    const existing = await Message.findOne({
+      user: userId,
+      conversationId,
+      messageId,
+      'subagentTask.status': { $in: terminal },
+    })
+      .select(projection)
+      .lean<IMessage | null>();
+    return existing == null ? { status: 'not_found' } : { status: 'claimed', message: existing };
+  }
+
+  /** Releases only the exact consumer assignment. This is used when a
+   * pre-admission automatic continuation is definitively rejected, allowing a
+   * later manual poll (or the same delivery retry) to claim the durable result. */
+  async function releaseSubagentTaskResultClaim({
+    userId,
+    conversationId,
+    taskId,
+    kind,
+    claimId,
+  }: {
+    userId: string;
+    conversationId: string;
+    taskId: string;
+    kind: 'manual' | 'wakeup';
+    claimId: string;
+  }): Promise<boolean> {
+    if (
+      taskId.length === 0 ||
+      taskId.length > 256 ||
+      conversationId.length === 0 ||
+      conversationId.length > 256 ||
+      (kind !== 'manual' && kind !== 'wakeup') ||
+      claimId.length === 0 ||
+      claimId.length > 128
+    ) {
+      throw new TypeError('Invalid subagent task result claim release');
+    }
+    const Message = mongoose.models.Message as Model<IMessage>;
+    const result = await Message.updateOne(
+      {
+        user: userId,
+        conversationId,
+        messageId: `${taskId}:assistant`,
+        'subagentTask.resultClaim.kind': kind,
+        'subagentTask.resultClaim.claimId': claimId,
+      },
+      { $unset: { 'subagentTask.resultClaim': 1 } },
+    );
+    return result.modifiedCount === 1;
+  }
+
+  /**
+   * Deletes messages in a conversation since a specific message.
+   */
+  async function deleteMessagesSince(
+    userId: string,
+    { messageId, conversationId }: { messageId: string; conversationId: string },
+  ) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      const message = await Message.findOne({ messageId, user: userId }).lean<IMessage>();
+
+      if (message) {
+        const query = Message.find({ conversationId, user: userId });
+        return await query.deleteMany({
+          createdAt: { $gt: message.createdAt },
+        });
+      }
+      return undefined;
+    } catch (err) {
+      logger.error('Error deleting messages:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Retrieves messages from the database.
+   */
+  async function getMessages(
+    filter: FilterQuery<IMessage>,
+    select?: string,
+    options: MessageQueryOptions = {},
+  ) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      const query = Message.find(filter);
+      if (select) {
+        query.select(select);
+      }
+      if (options.sort !== false) {
+        query.sort(options.sort ?? { createdAt: 1 });
+      }
+      if (options.limit != null && options.limit > 0) {
+        query.limit(options.limit);
+      }
+
+      return await query.lean<IMessage[]>();
+    } catch (err) {
+      logger.error('Error getting messages:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Reads the fixed public child-thread projection and truncates text inside
+   * MongoDB so oversized persisted messages are never materialized by the API.
+   */
+  async function getMessagesForSubagentThreadView(input: {
+    user: string;
+    conversationId: string;
+    tenantId?: string;
+    limit: number;
+    textCodePointLimit: number;
+  }): Promise<SubagentThreadViewMessageRecord[]> {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      return await Message.aggregate<SubagentThreadViewMessageRecord>([
+        {
+          $match: {
+            user: input.user,
+            conversationId: input.conversationId,
+            ...(input.tenantId == null
+              ? { tenantId: { $exists: false } }
+              : { tenantId: input.tenantId }),
+          },
+        },
+        { $sort: { createdAt: -1, _id: -1 } },
+        { $limit: input.limit },
+        {
+          $project: {
+            _id: 0,
+            messageId: 1,
+            parentMessageId: 1,
+            isCreatedByUser: 1,
+            text: {
+              $substrCP: [{ $ifNull: ['$text', ''] }, 0, input.textCodePointLimit],
+            },
+            textProjectionTruncated: {
+              $gt: [{ $strLenCP: { $ifNull: ['$text', ''] } }, input.textCodePointLimit],
+            },
+            createdAt: 1,
+            error: 1,
+            subagentTask: 1,
+          },
+        },
+      ]);
+    } catch (err) {
+      logger.error('Error getting bounded subagent thread messages:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Retrieves a single message from the database.
+   */
+  async function getMessage({ user, messageId }: { user: string; messageId: string }) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      return await Message.findOne({ user, messageId }).lean<IMessage>();
+    } catch (err) {
+      logger.error('Error getting message:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Deletes messages from the database.
+   */
+  async function deleteMessages(filter: FilterQuery<IMessage>) {
+    try {
+      const Message = mongoose.models.Message as Model<IMessage>;
+      return await Message.deleteMany(filter);
+    } catch (err) {
+      logger.error('Error deleting messages:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Retrieves paginated messages with custom sorting and cursor support.
+   */
+  async function getMessagesByCursor(
+    filter: FilterQuery<IMessage>,
+    options: {
+      sortField?: string;
+      sortOrder?: 1 | -1;
+      limit?: number;
+      cursor?: string | null;
+    } = {},
+  ) {
+    const Message = mongoose.models.Message as Model<IMessage>;
+    const { sortField = 'createdAt', sortOrder = -1, limit = 25, cursor } = options;
+    const queryFilter = { ...filter };
+    if (cursor) {
+      queryFilter[sortField] = sortOrder === 1 ? { $gt: cursor } : { $lt: cursor };
+    }
+    const messages = await Message.find(queryFilter)
+      .sort({ [sortField]: sortOrder })
+      .limit(limit + 1)
+      .lean<IMessage[]>();
+
+    let nextCursor: string | null = null;
+    if (messages.length > limit) {
+      messages.pop();
+      const last = messages[messages.length - 1];
+      const cursorValue =
+        sortField === 'createdAt' ? last.createdAt : last[sortField as keyof IMessage];
+      nextCursor = String(cursorValue ?? '');
+    }
+    return { messages, nextCursor };
+  }
+
+  /**
+   * Performs a MeiliSearch query on the Message collection.
+   * Requires the meilisearch plugin to be registered on the Message model.
+   */
+  async function searchMessages(
+    query: string,
+    searchOptions: Record<string, unknown>,
+    hydrate?: boolean,
+  ) {
+    const Message = mongoose.models.Message as Model<IMessage> & {
+      meiliSearch?: (q: string, opts: Record<string, unknown>, h?: boolean) => Promise<unknown>;
+    };
+    if (typeof Message.meiliSearch !== 'function') {
+      throw new Error('MeiliSearch plugin not registered on Message model');
+    }
+    return Message.meiliSearch(query, searchOptions, hydrate);
+  }
+
+  return {
+    saveMessage,
+    bulkSaveMessages,
+    recordMessage,
+    updateMessageText,
+    updateToolCallResult,
+    updateMessage,
+    claimSubagentTaskResult,
+    releaseSubagentTaskResultClaim,
+    deleteMessagesSince,
+    getMessages,
+    getMessagesForSubagentThreadView,
+    getMessage,
+    getMessagesByCursor,
+    searchMessages,
+    deleteMessages,
+  };
+}

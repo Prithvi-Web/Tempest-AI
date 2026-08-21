@@ -20,10 +20,14 @@ reviewer can tell which is which without reading git history.
 
 - **Upstream:** https://github.com/danny-avila/LibreChat
 - **License:** MIT
-- **Adoption status:** **COPYING AUTHORIZED** (owner decision, 2026-08-18) — currently
-  **no code copied**; the derivation table below is empty and says so.
-- **Adoption decision record:** `docs/DECISIONS.md` ADR-0038 and its amendment; capabilities
-  and their proof-native wiring in `docs/PLATFORM-V2.md` (P1–P14).
+- **Adoption status:** **CODE DERIVED — VENDORED WHOLESALE** (v3 convergence, 2026-08-21).
+  Thirteen upstream trees vendored at commit `d602452c05ed767315a753264f02368c10f31e19` into
+  `packages/platform/`, byte-for-byte except the six brand-asset replacements recorded in
+  `packages/platform/UPSTREAM.md` (trademarks are not licensed by MIT). Upstream's `LICENSE`
+  travels with the vendored work at `packages/platform/LICENSE`.
+- **Adoption decision record:** `docs/DECISIONS.md` ADR-0064 (LibreChat is the base) and
+  ADR-0063…ADR-0076; per-subsystem dispositions in `docs/MERGE-CONTRACT.md`; original scope
+  ADR-0038 and its amendment, refusals overturned per the pointer note there.
 
 **What this means.** LibreChat is MIT, so copying and adapting its code is permitted — for
 commercial use, with modification, and with no copyleft obligation. The owner has authorized
@@ -46,13 +50,51 @@ is the one place where near-verbatim reuse is genuinely likely, and it is the pl
 careful about notices. L25 still governs: whatever arrives must be subordinated to the proof
 engine, never bolted on as a parallel product.
 
+> **v3 note (2026-08-21).** The paragraph above described the v2 posture (adopt capabilities,
+> re-implement in our stack). ADR-0064 changed the shape: the Node/React platform is now
+> vendored **whole** and runs as supervised sidecars/the webview of the desktop app — the code
+> does not need to "typecheck across the gap" because it keeps its own stack. L25's test is
+> superseded by L30's classification for the v3 scope (`CLAUDE.md`).
+
+**Attribution mechanics for wholesale-vendored trees.** The thirteen trees below are copied
+verbatim, so the notice travels the way upstream itself carries it: the complete MIT licence
+with LibreChat's copyright line at the vendored root (`packages/platform/LICENSE`), plus this
+section and the per-tree derivation rows. **Per-file headers are added only to files
+individually copied or closely adapted into Tempest's own trees** (outside
+`packages/platform/`) — inserting a header into ~4,200 vendored files would be a repo-wide
+inline edit that destroys the byte-for-byte property L27's upstream mergeability depends on,
+while adding nothing the tree-root licence does not already grant.
+
 | Tempest module | Derived from (upstream path @ commit) | Notes |
 |---|---|---|
-| *(none yet)* | — | copying authorized 2026-08-18; nothing derived so far |
+| `packages/platform/server/**` | `api/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/api/**` | `packages/api/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/data/**` | `packages/data-schemas/**` @ `d602452c` | vendored unmodified, byte-for-byte (ADR-0068) |
+| `packages/platform/provider/**` | `packages/data-provider/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/client/**` | `client/**` @ `d602452c` | unmodified except 6 brand-asset placeholder replacements (`packages/platform/UPSTREAM.md`) |
+| `packages/platform/client-pkg/**` | `packages/client/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/e2e/**` | `e2e/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/config/**` | `config/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/search/**` | `search/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/otel/**` | `otel/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/redis-config/**` | `redis-config/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/skill/**` | `skill/**` @ `d602452c` | vendored unmodified |
+| `packages/platform/LICENSE` | `LICENSE` @ `d602452c` | upstream MIT text, travels with the work |
 
-**Trademarks are not licensed.** The MIT grant covers code, not brand. No LibreChat name, mark,
-logo, or visual identity appears anywhere in Tempest, and nothing implies endorsement or
-affiliation.
+**LibreChat's own dependency obligations.** At the adopted commit upstream ships no
+third-party-licences file of its own; its dependency obligations are declared in the
+`package.json` manifests, which travel inside the vendored trees, and resolve to each
+dependency's own licence at install time. Nothing in the vendored source embeds another
+project's code without its own notice.
+
+**Trademarks are not licensed.** The MIT grant covers code, not brand. LibreChat's own visual
+identity (logo, favicons, touch icons) was **stripped in the vendoring commit** — replaced with
+neutral placeholders, itemized in `packages/platform/UPSTREAM.md` — so no LibreChat mark, logo,
+or trade dress exists in the tree or will ship in the product. The LibreChat *name* necessarily
+appears inside vendored source (package identifiers, imports, this attribution — uses the MIT
+notice itself requires); it is never used as product branding, and nothing implies endorsement
+or affiliation. Remaining text-level name surfaces inside the unshipped client are replaced in
+C3's identity pass before the client is ever built or shipped.
 
 **Related repository, separately licensed.** LibreChat's RAG API lives in its own repository
 (`danny-avila/rag_api`) under its own terms. Nothing from it is adopted; if that changes, it
