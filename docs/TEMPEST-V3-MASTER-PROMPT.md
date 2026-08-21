@@ -560,6 +560,12 @@ sidecar, behind one seam — subject to a measured spike at phase C1.**
 idle RAM, idle CPU, and p95 query latency for the ten hottest LibreChat queries, on the 4-core /
 16 GB reference profile. If any §10 budget is missed by more than 25%, the fallback engages:
 
+> **[C1 outcome, 2026-08-21 — the spike ran and the fallback IS engaged.]** The FerretDB 2.x
+> stack has no supported macOS installation path (no darwin release artifacts, no Homebrew, and
+> the from-source instructions require Docker — absent on the shipping machine), so the latency
+> table could not even be taken: installability failed upstream of every number. Full record and
+> the fallback's proxy measurements: ADR-0068 amendment in `docs/DECISIONS.md`.
+
 > **Fallback (pre-approved, no new ADR needed to choose it — only to record the measurement):**
 > keep the Mongoose *models* and *methods* as the public API, and implement a document-store
 > adapter over the engine's existing SQLite with a BSON-ish document table plus expression indices.

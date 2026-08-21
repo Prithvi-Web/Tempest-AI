@@ -74,7 +74,7 @@ wrong, not LibreChat.
 |---|---|---|
 | `models/`, `methods/`, `schema/`, `types/`, `admin/` | **VENDOR, byte-for-byte** | The entire §5.4 decision exists to make this row possible. Mongoose talks a wire protocol; it does not know what answers. |
 | `migrations/` | VENDOR | Must run green against the selected store. Up/down parity test is a C6 gate. |
-| *(fallback path only)* adapter over engine SQLite | PORT | Engages only if the C1 spike misses a §10 budget by >25%. If taken, this becomes the most important row in `UPSTREAM.md`'s delta ledger. |
+| *(fallback path)* adapter over engine SQLite | PORT | **ENGAGED at C1 (2026-08-21, ADR-0068 amendment):** the FerretDB stack has no supported macOS install (no darwin artifacts, source build requires Docker; this Mac has none), and the fallback's proxy p95 is ~500× inside the §10 budget. Built in C6; platform documents get their own SQLite file, never the proof store. This row is now the most important entry in `UPSTREAM.md`'s delta ledger. |
 
 ## Client — `client/` → `packages/platform/client/`, mounted as the desktop webview
 

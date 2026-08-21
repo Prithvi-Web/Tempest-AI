@@ -3975,3 +3975,71 @@ part of C4's gate.
 and gains LibreChat's endpoints. Where LibreChat supports a provider Tempest does not, it is added
 as configuration, not code. Where Tempest's two-wire abstraction cannot express a LibreChat endpoint,
 that is an ADR, not a special case.
+
+## ADR-0068 amendment — the C1 spike: measured, decisive, fallback ENGAGED (2026-08-21)
+
+**The spike this ADR mandated was executed at C1, and its pre-approved fallback clause fires.**
+Per the ADR's own terms, taking the fallback requires only that the measurement be recorded —
+this section is that record.
+
+**Finding 1 — the selected stack cannot be stood up on the shipping OS.** FerretDB 2.x
+requires PostgreSQL with the DocumentDB extension. Verified 2026-08-21 against the FerretDB
+documentation and the `FerretDB/documentdb` releases page: the supported installation methods
+are **Docker, Kubernetes, and DEB packages (Debian 11, PostgreSQL 15/16/17)** — RPM listed but
+"not currently available"; the latest release (`v0.107.0-ferretdb-2.7.0`) ships **43 assets
+with zero macOS/darwin artifacts**; there is no Homebrew formula; and the upstream repository's
+own build-from-source instructions begin with *"Ensure Docker is installed on your system."*
+The reference machine for this product — the macOS desktop it actually ships on (QV5: no
+Windows/Linux desktop exists) — has no Docker:
+
+```
+$ which docker
+docker not found
+```
+
+**Finding 2 — Docker cannot be made a requirement.** Standing the stack up in a container
+would make a container runtime a *hard dependency of the app's own datastore*. The product's
+containment law already refuses that posture for the **optional** sandbox rung (L6, ADR-0003:
+no runtime → honest refusal, never a requirement); requiring it merely to open chat history
+would be strictly worse. Shipping a self-maintained macOS port of an upstream-unsupported C
+extension (plus a bundled PostgreSQL, plus the FerretDB binary, re-validated at every quarterly
+upstream merge) is the remaining path, and it fails the straight-face test for a supervised
+desktop sidecar.
+
+**Consequence: the cold-launch / idle-RAM / idle-CPU / p95 table this ADR asked for could not
+be taken — installability failed upstream of every latency number.** That IS the spike result.
+
+**Finding 3 — the fallback's shape has decisive headroom (proxy measurement).** A
+document-table-over-SQLite micro-benchmark in the fallback's exact shape (JSON documents in
+SQLite, WAL, expression indices on the hot fields; 10k conversations + 100k messages; 2,000
+reps per shape; this machine — labeled a proxy: C6 takes the real number through the vendored
+Mongoose models):
+
+```
+bulk insert 110k docs: 0.43s
+doc by _id (conversation open)               p50   0.002 ms   p95   0.003 ms
+25 convos by user, sorted by updatedAt desc  p50   0.011 ms   p95   0.011 ms
+50 messages of a conversation, ordered       p50   0.014 ms   p95   0.020 ms
+single message insert + commit               p50   0.019 ms   p95   0.035 ms
+conversation title/updatedAt update + commit p50   0.028 ms   p95   0.036 ms
+file size: 44.5 MB for 110k docs
+```
+
+Against the §10 document-store budget (p50 5 ms / p95 20 ms) that is **~500× headroom at p95**,
+with **zero additional processes** — the idle-RAM row (550/800 MB, all sidecars) gets easier,
+not harder.
+
+**Decision recorded: the pre-approved fallback is ENGAGED.** LibreChat's Mongoose *models* and
+*methods* remain the public API (`packages/platform/data/` stays vendored byte-for-byte); a
+document-store adapter over engine SQLite (document table + expression indices) is built in
+C6. Consequences, per the ADR's own warnings:
+
+- Platform documents live in their **own SQLite file**, never the engine's proof store — L33's
+  two-store separation is logical, not vendor-based, and `store_check` continues to hold it.
+  Cross-store references stay opaque ids (`docs/MERGE-CONTRACT.md` table, unchanged).
+- The delta ledger for `packages/platform/data/` in `UPSTREAM.md` becomes the single most
+  important entry in that file, exactly as §5.4 predicted for this path.
+- FerretDB/DocumentDB remains a **config option for the unbuilt server mode** (ADR-0064's
+  free option) — on Linux servers the supported DEB path exists; nothing in this amendment
+  forecloses it there.
+- No SSPL binary ships under either path; `--no-sspl-binaries` is unaffected.

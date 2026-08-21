@@ -97,24 +97,63 @@ Measured against the tree at `a242dce`. Each item names its owner and the phase 
 
 ## Phase C1 — Vendor, attribute, and measure the store
 
-- [ ] Vendor LibreChat at a pinned commit into `packages/platform/{server,api,data,provider,client}`,
-      preserving their directory structure (L27).
-- [ ] **In the same commit:** strip every brand asset — logos, wordmarks, favicons, brand imagery,
+- [x] Vendor LibreChat at a pinned commit into `packages/platform/{server,api,data,provider,client}`,
+      preserving their directory structure (L27). **Done 2026-08-21, commit `ec1e9e0`: thirteen
+      trees @ upstream `d602452c05ed767315a753264f02368c10f31e19` (the five named + client-pkg,
+      e2e, config, search, otel, redis-config, skill, LICENSE — one SHA so the client and its
+      shared package cannot skew), 4,194 files, ~50 MB. Zero whole-word `SAFE` in vendored
+      .py/.ts/.tsx (CI grep unaffected); zero vendored .py (ruff/mypy scope unaffected);
+      explicit pnpm/uv workspaces mean nothing vendored joins any build.**
+- [x] **In the same commit:** strip every brand asset — logos, wordmarks, favicons, brand imagery,
       brand colour tokens — so they are never in the tree. MIT does not license trademarks.
-- [ ] **In the same commit:** `THIRD_PARTY_LICENSES.md` gains the derivation table rows (source path,
+      **Done in `ec1e9e0`: six own-brand files replaced in place with neutral generated
+      placeholders (same filenames — references stay valid, upstream changes surface as merge
+      conflicts); itemized in UPSTREAM.md. Gate grep zero. Text-level identity is C3's restyle;
+      the client is not built or shipped before then. Provider logos retained (nominative use).**
+- [x] **In the same commit:** `THIRD_PARTY_LICENSES.md` gains the derivation table rows (source path,
       adopted SHA, disposition, modification summary) and LibreChat's own dependency obligations are
-      merged into ours.
-- [ ] Extend `tempest.dev.license_check` to `packages/platform/**`, with unit pins that each prove a
-      **failure** on a violating tree (the existing 18 pins are the pattern).
-- [ ] Write `packages/platform/UPSTREAM.md`: adopted SHA, merge procedure, empty delta ledger.
-- [ ] Build `tempest.dev.upstream_check --max-inline-deltas 40 --ledger-complete`.
-- [ ] Build `tempest.dev.store_check --no-sspl-binaries --no-proof-data-in-document-store`.
-- [ ] **The datastore spike (ADR-0068).** Stand up FerretDB 2.x + embedded PostgreSQL + DocumentDB
+      merged into ours. **Done in `ec1e9e0`: 13 rows @ `d602452c`; upstream MIT travels at
+      `packages/platform/LICENSE`; upstream ships no third-party-licences file of its own —
+      its dependency obligations are the manifests, which travel in the vendored trees.**
+- [x] Extend `tempest.dev.license_check` to `packages/platform/**`, with unit pins that each prove a
+      **failure** on a violating tree (the existing 18 pins are the pattern). **Done, commit
+      `7dc41ca`: checks 6–9 (platform LICENSE, pinned UPSTREAM.md, boundary-aware derivation
+      rows per vendored tree, brand assets by name AND bytes); 13 new pins; real-tree run:
+      "zero missing notices", exit 0.**
+- [x] Write `packages/platform/UPSTREAM.md`: adopted SHA, merge procedure, empty delta ledger.
+      **Done in `ec1e9e0` (+ `01c4af2` writing the vendor-baseline SHA, which a commit cannot
+      contain for itself): adopted SHA, tree mapping, merge procedure, brand-strip list, empty
+      inline-delta ledger.**
+- [x] Build `tempest.dev.upstream_check --max-inline-deltas 40 --ledger-complete`. **Done,
+      `7dc41ca`: pinned origin + resolvable baseline required; drift = committed AND
+      working-tree deltas under `packages/platform/**`; every non-seam/non-UPSTREAM.md delta
+      must be a ledger row and every row a real delta (stale rows fail); 18 pins on real git
+      repos. Real-tree run: "0 inline delta(s) against a cap of 40 … mergeability intact", exit 0.**
+- [x] Build `tempest.dev.store_check --no-sspl-binaries --no-proof-data-in-document-store`.
+      **Done, `7dc41ca`: no mongod/mongos/mongosh by stem, no SSPL licence text, no RUNTIME
+      dep on the mongod downloader (devDependencies allowed — test tooling never ships), no
+      pymongo/motor/mongoengine import in the engine, cross-store table declared; 18 pins.
+      Real-tree run: "L33 holds", exit 0. All three gates + the brand grep now run as
+      `make verify-convergence`, inside `make verify` and the CI python job (`9c5b246`).**
+- [x] **The datastore spike (ADR-0068).** Stand up FerretDB 2.x + embedded PostgreSQL + DocumentDB
       on the 4-core/16 GB reference profile. Measure and paste: cold launch → interactive, idle RAM
-      (all sidecars), idle CPU, and p95 for the ten hottest LibreChat queries.
-- [ ] Record the measurement in ADR-0068. If any §10 budget is missed by >25%, engage the
+      (all sidecars), idle CPU, and p95 for the ten hottest LibreChat queries. **Executed
+      2026-08-21 with the decisive finding UPSTREAM of the latency table: the stack cannot be
+      stood up on the shipping OS. DocumentDB ships Docker/K8s/DEB only (43 release assets,
+      zero darwin; no Homebrew; source build's stated prerequisite is Docker), and this Mac has
+      no Docker (`docker: command not found`) — nor may the app's own datastore REQUIRE a
+      container runtime the containment law itself treats as optional (L6/ADR-0003). Fallback
+      proxy measured instead: document-table-over-SQLite, 110k docs, five hot shapes, p95
+      0.003–0.036 ms vs the §10 budget of 20 ms (~500× headroom, zero extra processes). Full
+      record: ADR-0068 amendment.**
+- [x] Record the measurement in ADR-0068. If any §10 budget is missed by >25%, engage the
       pre-approved fallback (Mongoose models/methods over an engine-SQLite document adapter) and
       record that instead. **No new ADR needed to take the fallback — only to record the numbers.**
+      **Recorded — ADR-0068 amendment (2026-08-21): fallback ENGAGED. Mongoose models/methods
+      stay the public API; the SQLite document adapter is built in C6; platform documents get
+      their own SQLite file, never the proof store (L33 separation is logical, not vendor-based);
+      FerretDB remains a config option for the unbuilt server mode on Linux.
+      `docs/MERGE-CONTRACT.md` data-layer fallback row updated to ENGAGED.**
 
 **Gate:**
 ```bash
