@@ -212,7 +212,13 @@ are not.
       `must_not_change`, because an agent can write files.
 - [x] **P9** retrieved content as hostile input — `redteam --injection`, 30/30 invariants held
       under a model scripted as ALREADY CAPTURED.
-- [ ] **F12** composer with proof preview (desktop UI).
+- [~] **F12** composer with proof preview. **ENGINE HALF DONE** (ADR-0061): `tempest/compose`
+      splits a change into per-hunk pieces with stable ids, attributes a proved bundle back to
+      the hunk that caused it, proves a selected subset ON ITS OWN, and re-proves a toggle
+      incrementally over call-graph-affected files. Gate: `compose_bench --files 500
+      --selection 10`, 11/11; toggle 617 ms against F12's 2 s budget (6.9x faster than a full
+      re-prove). **The desktop UI is NOT built** — no composer view, no hunk rows, no
+      virtualized diff, and the 300 ms / 60 fps render budgets are unmeasured.
 - [x] **F16 SERVER** — `python -m tempest.mcp`: `prove`, `explain_behavior`, `minimize_repro`,
       `check_intent_contract` over stdio JSON-RPC. Gate: `mcp_check`, 16/16 invariants over a real
       pipe. The recorded Claude-Code demo is an OWNER action and the gate says so.

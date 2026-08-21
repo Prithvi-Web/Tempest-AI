@@ -76,9 +76,15 @@ run mcp_check --server
 # Tempest's own client, which is the only place both halves of F16 meet.
 run mcp_client_check
 
+# F12's ENGINE gate (Phase 23, ADR-0061): a 500-file changeset split into per-hunk pieces, a
+# subset proved on its own rather than filtered out of the whole change's evidence, and a toggle
+# re-proved incrementally. Correctness only — the timings it prints are for `make perf-gate`,
+# because a budget asserted inside a correctness suite goes red when a laptop is busy.
+run compose_bench --files 500 --selection 10
+
 failed=0
 for name in agent_bench intent_bench repair_bench resume_test subagent_bench retrieval_bench \
-            escape_suite redteam mcp_check mcp_client_check; do
+            escape_suite redteam mcp_check mcp_client_check compose_bench; do
     echo "── $name ──"
     cat "$LOGS/$name.log" 2>/dev/null || echo "(this gate produced no output at all)"
     code="$(exit_code_of "$name")"

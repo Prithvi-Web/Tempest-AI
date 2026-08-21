@@ -31,10 +31,11 @@ grep -E "^MAKE_EXIT=" /tmp/verify.log      # read THIS line, never the task noti
 ./scripts/agent-gates.sh                   # the eight benchmark gates on their own, ~8 minutes
 ```
 
-`verify-agent` now runs **ten** gates: `agent_bench --tasks 50` · `intent_bench` ·
+`verify-agent` now runs **eleven** gates: `agent_bench --tasks 50` · `intent_bench` ·
 `repair_bench` · `resume_test --kill-mid-proof --sleep-mid-stream` · **`subagent_bench --depth 8`**
 · `retrieval_bench` · `escape_suite --surface agent-terminal` · `redteam --injection` (now
-**35/35**, with an MCP-response channel) · `mcp_check` · **`mcp_client_check`**.
+**35/35**, with an MCP-response channel) · `mcp_check` · **`mcp_client_check`** ·
+**`compose_bench --files 500 --selection 10`**.
 
 ### CI was RED on the first push of this work — one defect, 37 symptoms (ADR-0058, trap 56)
 
@@ -709,7 +710,11 @@ DIVERGENT must fund the search, or it is measuring the sampler (§25) ·
 58 A DEADLINE AROUND A BLOCKING READ IS NOT A DEADLINE — the MCP client checked `time.monotonic()`
 each time round a loop whose body was `readline()`, so a server that never answers blocked for
 ever and the timeout never got a turn to fire. Bound the READ (`select` with the remaining time),
-never the loop around it (§26)** ·
+never the loop around it (§26) ·
+59 GIT COALESCES HUNKS CLOSER TOGETHER THAN TWICE ITS CONTEXT — a fixture with two changes six
+lines apart produces ONE hunk under `--unified=3`, and four "two hunks" assertions failed for a
+reason about diff formatting rather than about the code under test. A fixture that means "two
+hunks" has to separate them by more than 2x context (§27)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -1404,7 +1409,7 @@ deadline = time.monotonic() + timeout_s
 while True:
     if time.monotonic() > deadline:
         raise McpTimeout(...)
-    line = self._proc.stdout.readline()      # <- blocks for ever
+    line = self._proc.stdout.readline()  # <- blocks for ever
 ```
 
 Every element of a timeout is present: a deadline, a check, an exception with a good message. It
@@ -1430,3 +1435,23 @@ It was caught within a minute by the test written for that exact server (`SILENT
    never the risk.
 4. It is trap 45's shape — *a guard's ARGUMENT is not a proof of the guard* — applied to time
    rather than to permissions.
+
+---
+
+## 27. Trap 59 — git coalesces hunks closer together than twice its context
+
+A composer fixture changed a function on line 2 and a constant on line 9, and asserted two hunks.
+`git diff --unified=3` emits **one**: when two changes are closer than twice the context, the
+context overlaps and git merges them into a single hunk. Four assertions failed at once, all of
+them about a property of git's output format rather than about the code under test.
+
+**How to apply.**
+1. **A fixture that means "two hunks" must separate them by more than 2x context** — with the
+   default 3, that is at least seven unchanged lines. The bench and the tests both insert spacer
+   functions for exactly this reason, with a comment saying why so nobody "tidies" them away.
+2. **Select hunks by what they CONTAIN, never by a line number.** `next(h for h in hunks if
+   "CONSTANT = 2" in h.patch)` survives a fixture edit; `min(h.head_lines) > 5` breaks silently
+   into a `StopIteration` the moment the layout moves.
+3. The general shape: **when a test asserts on tool output, the tool's formatting rules are part
+   of the assertion.** This is trap 57's sibling — there the budget was part of the assertion,
+   here the diff format is.

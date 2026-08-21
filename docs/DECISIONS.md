@@ -3378,3 +3378,81 @@ number that sounds like ten.
 `python -m tempest.dev.mcp_client_check` — 11/11, wired into `scripts/agent-gates.sh`, which now
 runs **ten** gates. Its last invariant is the one neither half could check alone: Tempest's own
 MCP server, driven by Tempest's own MCP client, over a real pipe.
+
+---
+
+## ADR-0061 — F12's engine half: a hunk that carries its own behaviour (2026-08-21)
+
+**Status:** accepted · F12's desktop UI is NOT built and this ADR does not claim it
+
+F12 is described as "Cursor-class, with a twist": a multi-file composer whose diff has a **third
+column** — the behavioural impact of each hunk. The twist is the whole feature. Without it F12 is
+a diff viewer, and diff viewers exist.
+
+### Three operations, deliberately separate
+
+`hunks_for` splits a real `git diff` into individually applyable pieces, each carrying its own
+patch text so a subset can be handed to `git apply` — the mechanism `git add -p` uses, rather than
+a line-splicing scheme of our own that would disagree with git about what a change is. Ids are a
+digest of path + patch bytes, so a UI can remember an accept/reject decision across a re-diff
+without holding an index that renumbering would silently repoint.
+
+`impact` maps a proved bundle back onto those hunks by asking which SYMBOLS each hunk's changed
+lines fall inside. A hunk touching no executable symbol gets `UNPROVEN` **with a reason**, never a
+blank: "no evidence" and "no divergence" are different facts, and a column that blurred them would
+let a reader supply their own optimism. Several targets in one hunk are summarised by taking the
+strongest claim, not the average — any DIVERGENT wins, then any UNPROVEN — because averaging
+evidence is how a divergence gets diluted into a reassuring word.
+
+`apply_selection` materializes a chosen subset as its own commit.
+
+### Why a subset is PROVED rather than filtered
+
+The tempting shortcut is to prove the whole diff once and report a subset's verdict by dropping
+the targets the user rejected. It is wrong in the direction that matters: **hunks interact**.
+Rejecting the hunk that adds a guard while accepting the one that relies on it produces a tree
+neither proof ever executed, and reporting the full run's verdict for it would be a claim about
+code that never ran (L16). So a selection is materialized and proved on its own, and the gate
+checks the property that failure would break — that a verdict never appears on a hunk the proof
+did not cover.
+
+### The incremental half, and the argument it rests on
+
+F12's budget is a toggle under two seconds for a ten-file selection. A full re-prove of that
+selection measures **4230 ms** on this machine — 2.1x over. `reprove` proves only what a toggle
+can have changed and carries the rest, at **617 ms**: 6.9x faster, inside the budget.
+
+Carrying a record forward is reusing real evidence — the same bytes, the same inputs, the same
+execution — but the claim it supports is now about a different head, and that claim rests on an
+ARGUMENT rather than on a fresh run. The argument is stated and enforced: a target may be carried
+only if its file's bytes are identical **and nothing it can reach has changed**. Same-bytes alone
+is not enough — a function whose source never moved behaves differently when a module it imports
+did, which is precisely why F12 says *call-graph-affected targets* and not *changed files*.
+
+The closure walks module-level imports with `ast` to a **fixed point**, not one hop (A→B→C with C
+changed must mark A), and is deliberately conservative: a file whose imports cannot be parsed is
+treated as depending on everything. Re-proving more than necessary costs time; re-proving less
+carries a verdict past a change nobody looked at. `Incremental` reports `reproved` and `carried`
+separately, because a reader deciding whether to accept a change is entitled to know which rows
+were executed just now and which are being reused.
+
+### What is NOT done
+
+**The desktop UI.** No composer view, no hunk rows, no virtualized diff, and F12's other two
+budgets — a 500-file changeset rendering under 300 ms at 60 fps — are unmeasured because there is
+nothing to measure. What the engine contributes to that budget IS measured: 62 ms to split five
+hundred files, 58 ms to attribute a bundle across a thousand hunks. `docs/PLAN-V2.md` marks F12
+`[~]` rather than `[x]`, and the gate prints only what it proved.
+
+### Gate
+
+`python -m tempest.dev.compose_bench --files 500 --selection 10` — 11/11 invariants, wired into
+`scripts/agent-gates.sh`, which now runs **eleven** gates. Asserting timings inside a correctness
+suite would make it go red whenever the laptop was busy — the same line `14-editor-budgets.spec.ts`
+already draws — so the gate PRINTS its numbers and `--enforce-budget` checks them on a quiet
+machine.
+
+**`make perf-gate` does not read `bench/compose-metrics.json`.** `perf_suite` judges the fixed §5
+table, and F12's rows are not in it because two of its three budgets are about a UI that does not
+exist. The first draft of this ADR said the file was "for perf-gate to judge", which would have
+been a sentence with nothing behind it (trap 45); arming those rows belongs with the composer view.
