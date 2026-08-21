@@ -8,10 +8,9 @@
 - **Upstream licence:** MIT (`packages/platform/LICENSE`, vendored verbatim from the adopted commit)
 - **Adopted commit:** d602452c05ed767315a753264f02368c10f31e19
 - **Adopted date:** 2026-08-21 (upstream commit of the same day: "🪪 fix: Support MCP Server Titles With Hyphens (#15094)")
-- **Vendor baseline:** PENDING — written by the follow-up commit immediately after the vendoring
-  commit lands, because a commit cannot contain its own hash. The baseline is the commit in THIS
-  repository against which `upstream_check` diffs `packages/platform/**`; it moves only on a
-  vendoring or upstream-merge commit.
+- **Vendor baseline:** ec1e9e05830d22caebb4dc77e4861f74db051272 — the vendoring commit in THIS repository, against which
+  `upstream_check` diffs `packages/platform/**`. It moves only on a vendoring or upstream-merge
+  commit.
 
 ## Tree mapping (upstream path → this repository)
 
