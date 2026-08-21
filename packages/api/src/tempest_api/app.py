@@ -10,6 +10,7 @@ from tempest_api.db import create_engine_and_factory, database_url
 from tempest_api.db.local_store import check_not_newer, prepare_local_store
 from tempest_api.errors import install_error_handlers
 from tempest_api.routers import (
+    compose,
     divergences,
     health,
     local,
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(targets.router)
     app.include_router(divergences.router)
     app.include_router(local.router)
+    app.include_router(compose.router)
     app.include_router(search.router)
     app.include_router(logs.router)
     app.include_router(sync.router)

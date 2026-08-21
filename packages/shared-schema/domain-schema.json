@@ -106,6 +106,105 @@
       "title": "CancelAccepted",
       "type": "object"
     },
+    "ComposeRequest": {
+      "description": "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff.",
+      "properties": {
+        "accepted": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "hunk ids to include; null means every hunk",
+          "title": "Accepted"
+        },
+        "base": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Base",
+          "type": "string"
+        },
+        "head": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Head",
+          "type": "string"
+        },
+        "max_inputs": {
+          "default": 50,
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Max Inputs",
+          "type": "integer"
+        },
+        "repo_path": {
+          "minLength": 1,
+          "title": "Repo Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_path",
+        "base",
+        "head"
+      ],
+      "title": "ComposeRequest",
+      "type": "object"
+    },
+    "ComposeView": {
+      "description": "Every hunk in the change, plus what this particular selection was proved to do.",
+      "properties": {
+        "bundle_id": {
+          "default": "",
+          "title": "Bundle Id",
+          "type": "string"
+        },
+        "carried_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Carried Paths",
+          "type": "array"
+        },
+        "hunks": {
+          "items": {
+            "$ref": "#/$defs/HunkRow"
+          },
+          "title": "Hunks",
+          "type": "array"
+        },
+        "rejected_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rejected Ids",
+          "type": "array"
+        },
+        "reproved_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reproved Paths",
+          "type": "array"
+        },
+        "selection_head": {
+          "title": "Selection Head",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hunks",
+        "selection_head"
+      ],
+      "title": "ComposeView",
+      "type": "object"
+    },
     "DiagnosticBundle": {
       "description": "A written, redacted diagnostic archive. `filename` is a bare name inside the data\ndir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path.",
       "properties": {
@@ -405,6 +504,69 @@
         "schema_version"
       ],
       "title": "HealthResponse",
+      "type": "object"
+    },
+    "HunkRow": {
+      "description": "One row of the composer: what changed, and what the engine found it does.",
+      "properties": {
+        "accepted": {
+          "title": "Accepted",
+          "type": "boolean"
+        },
+        "changed_line_coverage": {
+          "title": "Changed Line Coverage",
+          "type": "number"
+        },
+        "divergence_count": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Divergence Count",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "patch": {
+          "title": "Patch",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "qualnames": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Qualnames",
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "summary",
+        "patch",
+        "accepted",
+        "verdict",
+        "qualnames",
+        "divergence_count",
+        "changed_line_coverage"
+      ],
+      "title": "HunkRow",
       "type": "object"
     },
     "Lang": {

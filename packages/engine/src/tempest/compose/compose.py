@@ -217,6 +217,22 @@ def _lines_of(body: list[str], head_start: int, base_start: int) -> tuple[set[in
     return head_lines, base_lines
 
 
+def sources_at(repo: Path, ref: str, paths: tuple[str, ...]) -> dict[str, str]:
+    """The text of each path AS OF `ref`.
+
+    Not the working tree, and not the selection's tree. A hunk's `head_lines` are line numbers in
+    the head REVISION, so resolving them against any other tree resolves them against a different
+    file that happens to share a name — and the symbol a change is attributed to would be
+    whichever one those line numbers happened to land in.
+    """
+    out: dict[str, str] = {}
+    for path in paths:
+        done = _git(repo, "show", f"{ref}:{path}", check=False)
+        if done.returncode == 0:
+            out[path] = done.stdout
+    return out
+
+
 def symbols_touched(head_source: str, hunk: Hunk) -> tuple[str, ...]:
     """The symbols whose bodies contain this hunk's changed head lines."""
     if not hunk.head_lines:

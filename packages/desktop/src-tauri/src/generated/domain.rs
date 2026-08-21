@@ -368,6 +368,153 @@ impl CancelAccepted {
         Default::default()
     }
 }
+#[doc = "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ComposeRequest\","]
+#[doc = "  \"description\": \"Show me this change as rows, with `accepted` applied.\\n\\n`accepted=None` means \\\"all of them\\\" — the state the composer opens in. An empty LIST is a\\ndifferent request: it means the user has rejected everything, and the honest answer to that\\nis a proof of the baseline against itself, not a proof of the whole diff.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"base\","]
+#[doc = "    \"head\","]
+#[doc = "    \"repo_path\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"accepted\": {"]
+#[doc = "      \"title\": \"Accepted\","]
+#[doc = "      \"description\": \"hunk ids to include; null means every hunk\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"array\","]
+#[doc = "          \"items\": {"]
+#[doc = "            \"type\": \"string\""]
+#[doc = "          }"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"base\": {"]
+#[doc = "      \"title\": \"Base\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"maxLength\": 200,"]
+#[doc = "      \"minLength\": 1"]
+#[doc = "    },"]
+#[doc = "    \"head\": {"]
+#[doc = "      \"title\": \"Head\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"maxLength\": 200,"]
+#[doc = "      \"minLength\": 1"]
+#[doc = "    },"]
+#[doc = "    \"max_inputs\": {"]
+#[doc = "      \"title\": \"Max Inputs\","]
+#[doc = "      \"default\": 50,"]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"repo_path\": {"]
+#[doc = "      \"title\": \"Repo Path\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"minLength\": 1"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ComposeRequest {
+    #[doc = "hunk ids to include; null means every hunk"]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub accepted: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+    pub base: Base,
+    pub head: Head,
+    #[serde(default = "defaults::default_u64::<i32, 50>")]
+    pub max_inputs: i32,
+    pub repo_path: RepoPath,
+}
+impl ComposeRequest {
+    pub fn builder() -> builder::ComposeRequest {
+        Default::default()
+    }
+}
+#[doc = "Every hunk in the change, plus what this particular selection was proved to do."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ComposeView\","]
+#[doc = "  \"description\": \"Every hunk in the change, plus what this particular selection was proved to do.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"hunks\","]
+#[doc = "    \"selection_head\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"bundle_id\": {"]
+#[doc = "      \"title\": \"Bundle Id\","]
+#[doc = "      \"default\": \"\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"carried_paths\": {"]
+#[doc = "      \"title\": \"Carried Paths\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"hunks\": {"]
+#[doc = "      \"title\": \"Hunks\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/HunkRow\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"rejected_ids\": {"]
+#[doc = "      \"title\": \"Rejected Ids\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"reproved_paths\": {"]
+#[doc = "      \"title\": \"Reproved Paths\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"selection_head\": {"]
+#[doc = "      \"title\": \"Selection Head\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ComposeView {
+    #[serde(default)]
+    pub bundle_id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub carried_paths: ::std::vec::Vec<::std::string::String>,
+    pub hunks: ::std::vec::Vec<HunkRow>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub rejected_ids: ::std::vec::Vec<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub reproved_paths: ::std::vec::Vec<::std::string::String>,
+    pub selection_head: ::std::string::String,
+}
+impl ComposeView {
+    pub fn builder() -> builder::ComposeView {
+        Default::default()
+    }
+}
 #[doc = "A written, redacted diagnostic archive. `filename` is a bare name inside the data\ndir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -1180,6 +1327,95 @@ impl ::std::default::Default for HttpValidationError {
 }
 impl HttpValidationError {
     pub fn builder() -> builder::HttpValidationError {
+        Default::default()
+    }
+}
+#[doc = "One row of the composer: what changed, and what the engine found it does."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"HunkRow\","]
+#[doc = "  \"description\": \"One row of the composer: what changed, and what the engine found it does.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"accepted\","]
+#[doc = "    \"changed_line_coverage\","]
+#[doc = "    \"divergence_count\","]
+#[doc = "    \"id\","]
+#[doc = "    \"patch\","]
+#[doc = "    \"path\","]
+#[doc = "    \"qualnames\","]
+#[doc = "    \"summary\","]
+#[doc = "    \"verdict\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"accepted\": {"]
+#[doc = "      \"title\": \"Accepted\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"changed_line_coverage\": {"]
+#[doc = "      \"title\": \"Changed Line Coverage\","]
+#[doc = "      \"type\": \"number\""]
+#[doc = "    },"]
+#[doc = "    \"divergence_count\": {"]
+#[doc = "      \"title\": \"Divergence Count\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"id\": {"]
+#[doc = "      \"title\": \"Id\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"patch\": {"]
+#[doc = "      \"title\": \"Patch\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"path\": {"]
+#[doc = "      \"title\": \"Path\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"qualnames\": {"]
+#[doc = "      \"title\": \"Qualnames\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"reason\": {"]
+#[doc = "      \"title\": \"Reason\","]
+#[doc = "      \"default\": \"\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"summary\": {"]
+#[doc = "      \"title\": \"Summary\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"verdict\": {"]
+#[doc = "      \"$ref\": \"#/$defs/Verdict\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct HunkRow {
+    pub accepted: bool,
+    pub changed_line_coverage: f64,
+    pub divergence_count: i32,
+    pub id: ::std::string::String,
+    pub patch: ::std::string::String,
+    pub path: ::std::string::String,
+    pub qualnames: ::std::vec::Vec<::std::string::String>,
+    #[serde(default)]
+    pub reason: ::std::string::String,
+    pub summary: ::std::string::String,
+    pub verdict: Verdict,
+}
+impl HunkRow {
+    pub fn builder() -> builder::HunkRow {
         Default::default()
     }
 }
@@ -4215,6 +4451,220 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct ComposeRequest {
+        accepted: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+            ::std::string::String,
+        >,
+        base: ::std::result::Result<super::Base, ::std::string::String>,
+        head: ::std::result::Result<super::Head, ::std::string::String>,
+        max_inputs: ::std::result::Result<i32, ::std::string::String>,
+        repo_path: ::std::result::Result<super::RepoPath, ::std::string::String>,
+    }
+    impl ::std::default::Default for ComposeRequest {
+        fn default() -> Self {
+            Self {
+                accepted: Ok(Default::default()),
+                base: Err("no value supplied for base".to_string()),
+                head: Err("no value supplied for head".to_string()),
+                max_inputs: Ok(super::defaults::default_u64::<i32, 50>()),
+                repo_path: Err("no value supplied for repo_path".to_string()),
+            }
+        }
+    }
+    impl ComposeRequest {
+        pub fn accepted<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.accepted = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for accepted: {e}"));
+            self
+        }
+        pub fn base<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Base>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.base = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for base: {e}"));
+            self
+        }
+        pub fn head<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Head>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.head = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for head: {e}"));
+            self
+        }
+        pub fn max_inputs<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.max_inputs = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for max_inputs: {e}"));
+            self
+        }
+        pub fn repo_path<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::RepoPath>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.repo_path = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for repo_path: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ComposeRequest> for super::ComposeRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ComposeRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                accepted: value.accepted?,
+                base: value.base?,
+                head: value.head?,
+                max_inputs: value.max_inputs?,
+                repo_path: value.repo_path?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ComposeRequest> for ComposeRequest {
+        fn from(value: super::ComposeRequest) -> Self {
+            Self {
+                accepted: Ok(value.accepted),
+                base: Ok(value.base),
+                head: Ok(value.head),
+                max_inputs: Ok(value.max_inputs),
+                repo_path: Ok(value.repo_path),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct ComposeView {
+        bundle_id: ::std::result::Result<::std::string::String, ::std::string::String>,
+        carried_paths:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        hunks: ::std::result::Result<::std::vec::Vec<super::HunkRow>, ::std::string::String>,
+        rejected_ids:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        reproved_paths:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        selection_head: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for ComposeView {
+        fn default() -> Self {
+            Self {
+                bundle_id: Ok(Default::default()),
+                carried_paths: Ok(Default::default()),
+                hunks: Err("no value supplied for hunks".to_string()),
+                rejected_ids: Ok(Default::default()),
+                reproved_paths: Ok(Default::default()),
+                selection_head: Err("no value supplied for selection_head".to_string()),
+            }
+        }
+    }
+    impl ComposeView {
+        pub fn bundle_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.bundle_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for bundle_id: {e}"));
+            self
+        }
+        pub fn carried_paths<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.carried_paths = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for carried_paths: {e}"));
+            self
+        }
+        pub fn hunks<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::HunkRow>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.hunks = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for hunks: {e}"));
+            self
+        }
+        pub fn rejected_ids<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.rejected_ids = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for rejected_ids: {e}"));
+            self
+        }
+        pub fn reproved_paths<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.reproved_paths = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for reproved_paths: {e}"));
+            self
+        }
+        pub fn selection_head<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.selection_head = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for selection_head: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ComposeView> for super::ComposeView {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ComposeView,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                bundle_id: value.bundle_id?,
+                carried_paths: value.carried_paths?,
+                hunks: value.hunks?,
+                rejected_ids: value.rejected_ids?,
+                reproved_paths: value.reproved_paths?,
+                selection_head: value.selection_head?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ComposeView> for ComposeView {
+        fn from(value: super::ComposeView) -> Self {
+            Self {
+                bundle_id: Ok(value.bundle_id),
+                carried_paths: Ok(value.carried_paths),
+                hunks: Ok(value.hunks),
+                rejected_ids: Ok(value.rejected_ids),
+                reproved_paths: Ok(value.reproved_paths),
+                selection_head: Ok(value.selection_head),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct DiagnosticBundle {
         bytes: ::std::result::Result<i32, ::std::string::String>,
         filename: ::std::result::Result<::std::string::String, ::std::string::String>,
@@ -4921,6 +5371,173 @@ pub mod builder {
         fn from(value: super::HttpValidationError) -> Self {
             Self {
                 detail: Ok(value.detail),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct HunkRow {
+        accepted: ::std::result::Result<bool, ::std::string::String>,
+        changed_line_coverage: ::std::result::Result<f64, ::std::string::String>,
+        divergence_count: ::std::result::Result<i32, ::std::string::String>,
+        id: ::std::result::Result<::std::string::String, ::std::string::String>,
+        patch: ::std::result::Result<::std::string::String, ::std::string::String>,
+        path: ::std::result::Result<::std::string::String, ::std::string::String>,
+        qualnames:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+        reason: ::std::result::Result<::std::string::String, ::std::string::String>,
+        summary: ::std::result::Result<::std::string::String, ::std::string::String>,
+        verdict: ::std::result::Result<super::Verdict, ::std::string::String>,
+    }
+    impl ::std::default::Default for HunkRow {
+        fn default() -> Self {
+            Self {
+                accepted: Err("no value supplied for accepted".to_string()),
+                changed_line_coverage: Err(
+                    "no value supplied for changed_line_coverage".to_string()
+                ),
+                divergence_count: Err("no value supplied for divergence_count".to_string()),
+                id: Err("no value supplied for id".to_string()),
+                patch: Err("no value supplied for patch".to_string()),
+                path: Err("no value supplied for path".to_string()),
+                qualnames: Err("no value supplied for qualnames".to_string()),
+                reason: Ok(Default::default()),
+                summary: Err("no value supplied for summary".to_string()),
+                verdict: Err("no value supplied for verdict".to_string()),
+            }
+        }
+    }
+    impl HunkRow {
+        pub fn accepted<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.accepted = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for accepted: {e}"));
+            self
+        }
+        pub fn changed_line_coverage<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<f64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.changed_line_coverage = value.try_into().map_err(|e| {
+                format!("error converting supplied value for changed_line_coverage: {e}")
+            });
+            self
+        }
+        pub fn divergence_count<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.divergence_count = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for divergence_count: {e}"));
+            self
+        }
+        pub fn id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for id: {e}"));
+            self
+        }
+        pub fn patch<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.patch = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for patch: {e}"));
+            self
+        }
+        pub fn path<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.path = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for path: {e}"));
+            self
+        }
+        pub fn qualnames<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.qualnames = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for qualnames: {e}"));
+            self
+        }
+        pub fn reason<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.reason = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for reason: {e}"));
+            self
+        }
+        pub fn summary<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.summary = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for summary: {e}"));
+            self
+        }
+        pub fn verdict<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::Verdict>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.verdict = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for verdict: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<HunkRow> for super::HunkRow {
+        type Error = super::error::ConversionError;
+        fn try_from(value: HunkRow) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                accepted: value.accepted?,
+                changed_line_coverage: value.changed_line_coverage?,
+                divergence_count: value.divergence_count?,
+                id: value.id?,
+                patch: value.patch?,
+                path: value.path?,
+                qualnames: value.qualnames?,
+                reason: value.reason?,
+                summary: value.summary?,
+                verdict: value.verdict?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::HunkRow> for HunkRow {
+        fn from(value: super::HunkRow) -> Self {
+            Self {
+                accepted: Ok(value.accepted),
+                changed_line_coverage: Ok(value.changed_line_coverage),
+                divergence_count: Ok(value.divergence_count),
+                id: Ok(value.id),
+                patch: Ok(value.patch),
+                path: Ok(value.path),
+                qualnames: Ok(value.qualnames),
+                reason: Ok(value.reason),
+                summary: Ok(value.summary),
+                verdict: Ok(value.verdict),
             }
         }
     }

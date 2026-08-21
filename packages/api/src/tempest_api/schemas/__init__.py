@@ -5,6 +5,7 @@ exported through OpenAPI wherever a schema references them. API-owned enums (`Ru
 `ErrorCode`) live in `tempest_api.schemas.enums`.
 """
 
+from tempest_api.schemas.compose import ComposeRequest, ComposeView, HunkRow
 from tempest_api.schemas.divergences import DivergenceDetail, DivergenceSummary
 from tempest_api.schemas.enums import ErrorCode, RunStatus
 from tempest_api.schemas.errors import ErrorBody, ErrorEnvelope
@@ -27,6 +28,8 @@ from tempest_api.schemas.watch import WatchRun, WatchStartRequest, WatchStatus
 __all__ = [
     "AiKeyTestResult",
     "CancelAccepted",
+    "ComposeRequest",
+    "ComposeView",
     "DiagnosticBundle",
     "DivergenceDetail",
     "DivergenceSummary",
@@ -35,6 +38,7 @@ __all__ = [
     "ErrorCode",
     "ErrorEnvelope",
     "HealthResponse",
+    "HunkRow",
     "LocalProveRequest",
     "Page",
     "RunCreate",

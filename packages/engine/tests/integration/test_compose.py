@@ -492,3 +492,20 @@ class TestIncrementalReproof:
         )
         assert stale not in step.records
         assert all(r.file_path == "app.py" for r in step.records)
+
+
+class TestReadingTheHeadRevision:
+    """Attribution resolves a hunk's line numbers, so it must read the tree those numbers are
+    about. The working tree is a different file that happens to share a name."""
+
+    def test_the_text_comes_from_the_ref_not_the_working_tree(self, repo: Path) -> None:
+        (repo / "app.py").write_text("# a local edit nobody committed\n", encoding="utf-8")
+        _, head = _refs(repo)
+        got = compose.sources_at(repo, head, ("app.py",))
+        assert "return sum(xs) + 1" in got["app.py"]
+        assert "nobody committed" not in got["app.py"]
+
+    def test_a_path_absent_from_the_ref_is_omitted_not_invented(self, repo: Path) -> None:
+        _, head = _refs(repo)
+        got = compose.sources_at(repo, head, ("app.py", "never_existed.py"))
+        assert set(got) == {"app.py"}

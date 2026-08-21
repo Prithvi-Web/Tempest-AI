@@ -104,6 +104,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/local/compose": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compose Change
+         * @description Split a change into hunks, prove the accepted subset, and return both together.
+         */
+        post: operations["composeChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/local/demo": {
         parameters: {
             query?: never;
@@ -518,6 +538,53 @@ export interface components {
             run_id: number;
         };
         /**
+         * ComposeRequest
+         * @description Show me this change as rows, with `accepted` applied.
+         *
+         *     `accepted=None` means "all of them" — the state the composer opens in. An empty LIST is a
+         *     different request: it means the user has rejected everything, and the honest answer to that
+         *     is a proof of the baseline against itself, not a proof of the whole diff.
+         */
+        ComposeRequest: {
+            /**
+             * Accepted
+             * @description hunk ids to include; null means every hunk
+             */
+            accepted?: string[] | null;
+            /** Base */
+            base: string;
+            /** Head */
+            head: string;
+            /**
+             * Max Inputs
+             * @default 50
+             */
+            max_inputs: number;
+            /** Repo Path */
+            repo_path: string;
+        };
+        /**
+         * ComposeView
+         * @description Every hunk in the change, plus what this particular selection was proved to do.
+         */
+        ComposeView: {
+            /**
+             * Bundle Id
+             * @default
+             */
+            bundle_id: string;
+            /** Carried Paths */
+            carried_paths?: string[];
+            /** Hunks */
+            hunks: components["schemas"]["HunkRow"][];
+            /** Rejected Ids */
+            rejected_ids?: string[];
+            /** Reproved Paths */
+            reproved_paths?: string[];
+            /** Selection Head */
+            selection_head: string;
+        };
+        /**
          * DiagnosticBundle
          * @description A written, redacted diagnostic archive. `filename` is a bare name inside the data
          *     dir's `diagnostics/` folder — the host reveals it by joining, never by trusting a path.
@@ -630,6 +697,34 @@ export interface components {
              * @constant
              */
             status: "ok";
+        };
+        /**
+         * HunkRow
+         * @description One row of the composer: what changed, and what the engine found it does.
+         */
+        HunkRow: {
+            /** Accepted */
+            accepted: boolean;
+            /** Changed Line Coverage */
+            changed_line_coverage: number;
+            /** Divergence Count */
+            divergence_count: number;
+            /** Id */
+            id: string;
+            /** Patch */
+            patch: string;
+            /** Path */
+            path: string;
+            /** Qualnames */
+            qualnames: string[];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Summary */
+            summary: string;
+            verdict: components["schemas"]["Verdict"];
         };
         /**
          * Lang
@@ -1214,6 +1309,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    composeChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ComposeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComposeView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };
