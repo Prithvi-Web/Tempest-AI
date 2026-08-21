@@ -18,6 +18,18 @@ It checks five things, and every one of them is proven to fail on a violating tr
 5. **Every named project is credited in the README**, where users and reviewers actually look.
 
 L25: adopted code carries its attribution at the moment of adoption, not at release.
+
+`--platform-tree` (C1, L36.11) extends the gate over the vendored platform tree, and each of
+these is likewise proven to fail on a violating tree:
+
+6. **`packages/platform/LICENSE` exists and is the upstream MIT text** with a real copyright
+   holder — the notice travels with the vendored work, at the root of the tree it covers.
+7. **`packages/platform/UPSTREAM.md` exists and pins the adopted upstream commit** (40-hex).
+   A vendored tree whose origin cannot be named cannot be merged, diffed, or audited.
+8. **Every top-level vendored tree has a derivation row** in `THIRD_PARTY_LICENSES.md` —
+   vendoring without attribution in the same commit is the debt this gate exists to prevent.
+9. **No brand asset survives under `packages/platform/client/public`** — no image whose name or
+   bytes match the upstream brand. MIT licenses code, never trademarks.
 """
 
 import argparse
@@ -189,6 +201,93 @@ def _check_third_party(root: Path, fail: list[str]) -> list[str]:
     return named
 
 
+#: The upstream brand string, matched case-insensitively over asset names AND bytes: an SVG
+#: wordmark, a metadata title, or a renamed logo all carry it somewhere.
+_BRAND = re.compile(rb"librechat", re.IGNORECASE)
+_IMAGE_SUFFIXES = {".svg", ".png", ".ico", ".icns", ".webp", ".gif", ".jpg", ".jpeg"}
+
+
+def _derivation_first_cells(body: str) -> list[str]:
+    """First-column cells of every derivation table row, fences excluded (same discipline as
+    `_sections`: the stub template's table must never read as real attribution)."""
+    cells: list[str] = []
+    for _, lines, _ in _sections(body):
+        for raw in lines:
+            line = raw.strip()
+            if not line.startswith("|") or line.startswith("|---"):
+                continue
+            first = line.strip("|").split("|")[0].strip()
+            if first and first not in _PLACEHOLDER_CELLS:
+                cells.append(first.strip("`"))
+    return cells
+
+
+def _check_platform_tree(root: Path, fail: list[str]) -> None:
+    """C1 checks 6-9: the vendored tree carries its licence, its origin, its attribution rows,
+    and no upstream brand assets."""
+    platform = root / "packages" / "platform"
+    if not platform.is_dir():
+        fail.append(
+            "packages/platform: missing — --platform-tree asserts a vendored platform "
+            "tree and there is none to check"
+        )
+        return
+
+    lic = platform / "LICENSE"
+    if not lic.is_file():
+        fail.append(
+            "packages/platform/LICENSE: missing — the upstream MIT text must travel at the "
+            "root of the tree it covers"
+        )
+    else:
+        body = lic.read_text(encoding="utf-8", errors="replace")
+        for marker in _MIT_MARKERS:
+            if marker not in body:
+                fail.append(f"packages/platform/LICENSE: not an MIT licence — missing {marker!r}")
+        if _COPYRIGHT.search(body) is None:
+            fail.append("packages/platform/LICENSE: no `Copyright (c) <year> <holder>` line")
+
+    upstream = platform / "UPSTREAM.md"
+    if not upstream.is_file():
+        fail.append(
+            "packages/platform/UPSTREAM.md: missing — a vendored tree whose origin is "
+            "unrecorded cannot be merged, diffed, or audited (L27)"
+        )
+    elif not re.search(
+        r"- \*\*Adopted commit:\*\* [0-9a-f]{40}\b", upstream.read_text(encoding="utf-8")
+    ):
+        fail.append(
+            "packages/platform/UPSTREAM.md: no `- **Adopted commit:** <40-hex>` line — "
+            "the pin is the whole point of the file"
+        )
+
+    notices = root / "THIRD_PARTY_LICENSES.md"
+    attributed = (
+        _derivation_first_cells(notices.read_text(encoding="utf-8")) if notices.is_file() else []
+    )
+    for entry in sorted(platform.iterdir(), key=lambda p: p.name):
+        if entry.name == "UPSTREAM.md":
+            continue  # ours, not vendored
+        rel = f"packages/platform/{entry.name}"
+        # Boundary-aware: a row for `client-pkg/**` must not read as attribution for `client`.
+        if not any(cell == rel or cell.startswith(rel + "/") for cell in attributed):
+            fail.append(
+                f"{rel}: vendored without a derivation row in THIRD_PARTY_LICENSES.md — "
+                "attribution lands in the same commit as the code, never later"
+            )
+
+    public = platform / "client" / "public"
+    if public.is_dir():
+        for asset in sorted(public.rglob("*")):
+            if not asset.is_file():
+                continue
+            rel_asset = asset.relative_to(root)
+            if _BRAND.search(asset.name.encode()):
+                fail.append(f"{rel_asset}: brand asset by NAME — trademarks are not licensed")
+            elif asset.suffix.lower() in _IMAGE_SUFFIXES and _BRAND.search(asset.read_bytes()):
+                fail.append(f"{rel_asset}: brand asset by CONTENT — trademarks are not licensed")
+
+
 def _check_readme_credits(root: Path, named: list[str], fail: list[str]) -> None:
     path = root / "README.md"
     if not path.is_file():
@@ -204,6 +303,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--third-party-notices", action="store_true", required=True)
     parser.add_argument(
+        "--platform-tree",
+        action="store_true",
+        help="also gate the vendored packages/platform tree (C1, L36.11)",
+    )
+    parser.add_argument(
         "--root", default=None, help="repository root to check (default: this repository)"
     )
     args = parser.parse_args(argv)
@@ -214,6 +318,8 @@ def main(argv: list[str] | None = None) -> int:
     _check_package_metadata(root, fail)
     named = _check_third_party(root, fail)
     _check_readme_credits(root, named, fail)
+    if args.platform_tree:
+        _check_platform_tree(root, fail)
 
     for name in named:
         print(f"  third-party notice     {name}")

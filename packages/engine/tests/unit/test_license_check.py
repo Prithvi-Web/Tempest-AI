@@ -161,3 +161,110 @@ class TestCli:
         (tree / "LICENSE").mkdir()
         assert license_check.main(["--third-party-notices", "--root", str(tree)]) == 1
         shutil.rmtree(tree / "LICENSE")
+
+
+_PLATFORM_MIT = (
+    "MIT License\n\nCopyright (c) 2026 LibreChat\n\n"
+    "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+)
+
+
+@pytest.fixture
+def platform_tree(tree: Path) -> Path:
+    """`tree` extended with a vendored platform tree that PASSES --platform-tree, for tests to
+    then break one property at a time (C1 checks 6-9)."""
+    platform = tree / "packages" / "platform"
+    (platform / "server").mkdir(parents=True)
+    (platform / "server" / "app.js").write_text("vendored\n")
+    assets = platform / "client" / "public" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "logo.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>\n')
+    (platform / "LICENSE").write_text(_PLATFORM_MIT)
+    (platform / "UPSTREAM.md").write_text("- **Adopted commit:** " + "d" * 40 + "\n")
+    (tree / "THIRD_PARTY_LICENSES.md").write_text(
+        "# Third-Party Licenses\n\n"
+        "## LibreChat\n\n"
+        "- **Upstream:** https://github.com/danny-avila/LibreChat\n"
+        "- **License:** MIT\n"
+        "- **Adoption status:** CODE DERIVED (vendored wholesale)\n\n"
+        "| Tempest module | Derived from | Notes |\n"
+        "|---|---|---|\n"
+        "| `packages/platform/server/**` | `api/**` @ d602452c | vendored |\n"
+        "| `packages/platform/client/**` | `client/**` @ d602452c | vendored |\n"
+        "| `packages/platform/LICENSE` | `LICENSE` @ d602452c | travels with the work |\n\n"
+        "```\nMIT License\n\nCopyright (c) 2026 LibreChat\n\nPermission is hereby granted\n```\n"
+    )
+    return tree
+
+
+def _platform_run(root: Path) -> int:
+    return license_check.main(["--third-party-notices", "--platform-tree", "--root", str(root)])
+
+
+class TestPlatformTree:
+    def test_a_complete_platform_tree_passes(self, platform_tree: Path) -> None:
+        assert _platform_run(platform_tree) == 0
+
+    def test_the_flag_asserts_a_platform_tree_exists(self, tree: Path) -> None:
+        """--platform-tree against a repo with nothing vendored is a broken claim, not a pass."""
+        assert _platform_run(tree) == 1
+
+    def test_without_the_flag_the_platform_checks_do_not_run(self, platform_tree: Path) -> None:
+        (platform_tree / "packages" / "platform" / "LICENSE").unlink()
+        assert license_check.main(["--third-party-notices", "--root", str(platform_tree)]) == 0
+
+    def test_missing_platform_license_fails(self, platform_tree: Path) -> None:
+        (platform_tree / "packages" / "platform" / "LICENSE").unlink()
+        assert _platform_run(platform_tree) == 1
+
+    def test_non_mit_platform_license_fails(self, platform_tree: Path) -> None:
+        (platform_tree / "packages" / "platform" / "LICENSE").write_text("GPL v3\n")
+        assert _platform_run(platform_tree) == 1
+
+    def test_platform_license_without_a_holder_fails(self, platform_tree: Path) -> None:
+        stripped = _PLATFORM_MIT.replace("Copyright (c) 2026 LibreChat\n", "")
+        (platform_tree / "packages" / "platform" / "LICENSE").write_text(stripped)
+        assert _platform_run(platform_tree) == 1
+
+    def test_missing_upstream_md_fails(self, platform_tree: Path) -> None:
+        (platform_tree / "packages" / "platform" / "UPSTREAM.md").unlink()
+        assert _platform_run(platform_tree) == 1
+
+    def test_upstream_md_without_a_pinned_commit_fails(self, platform_tree: Path) -> None:
+        (platform_tree / "packages" / "platform" / "UPSTREAM.md").write_text(
+            "- **Adopted commit:** HEAD\n"
+        )
+        assert _platform_run(platform_tree) == 1
+
+    def test_a_vendored_tree_without_a_derivation_row_fails(self, platform_tree: Path) -> None:
+        """Attribution lands in the same commit as the code — a new tree needs a new row."""
+        orphan = platform_tree / "packages" / "platform" / "unattributed"
+        orphan.mkdir()
+        (orphan / "x.js").write_text("x\n")
+        assert _platform_run(platform_tree) == 1
+
+    def test_attribution_matching_is_boundary_aware(self, platform_tree: Path) -> None:
+        """A row for `client-pkg/**` must not read as attribution for the bare `client` tree."""
+        notices = platform_tree / "THIRD_PARTY_LICENSES.md"
+        body = notices.read_text().replace(
+            "| `packages/platform/client/**` | `client/**` @ d602452c | vendored |",
+            "| `packages/platform/client-pkg/**` | `packages/client/**` @ d602452c | vendored |",
+        )
+        notices.write_text(body)
+        assert _platform_run(platform_tree) == 1
+
+    def test_a_brand_asset_by_name_fails(self, platform_tree: Path) -> None:
+        assets = platform_tree / "packages" / "platform" / "client" / "public" / "assets"
+        (assets / "librechat-logo.png").write_bytes(b"\x89PNG\r\n")
+        assert _platform_run(platform_tree) == 1
+
+    def test_a_brand_asset_by_content_fails(self, platform_tree: Path) -> None:
+        assets = platform_tree / "packages" / "platform" / "client" / "public" / "assets"
+        (assets / "logo.svg").write_text("<svg><title>Libre" + "Chat</title></svg>\n")
+        assert _platform_run(platform_tree) == 1
+
+    def test_the_brand_string_in_a_non_image_file_is_not_flagged(self, platform_tree: Path) -> None:
+        """The C1 gate greps images; robots.txt naming the upstream is attribution, not brand."""
+        public = platform_tree / "packages" / "platform" / "client" / "public"
+        (public / "robots.txt").write_text("# based on Libre" + "Chat\n")
+        assert _platform_run(platform_tree) == 0

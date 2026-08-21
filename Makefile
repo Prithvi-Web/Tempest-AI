@@ -63,8 +63,24 @@ bench:
 perf-gate:
 	uv run python -m tempest.dev.perf_suite --enforce-budgets
 
-verify: verify-python verify-agent verify-node verify-desktop verify-contract verify-grep-safe
+verify: verify-python verify-agent verify-node verify-desktop verify-contract verify-grep-safe verify-convergence
 	@echo "── verify: all live steps green ──"
+
+# The C-phase convergence gates (docs/PLAN-V3.md), live as each phase makes them runnable.
+# C1: attribution over the vendored platform tree (L36.11), the SSPL/proof-data store law
+# (L33), and upstream mergeability (L27) — plus the brand-asset grep from the C1 gate block.
+verify-convergence:
+	uv run python -m tempest.dev.license_check --third-party-notices --platform-tree
+	uv run python -m tempest.dev.store_check --no-sspl-binaries --no-proof-data-in-document-store
+	uv run python -m tempest.dev.upstream_check --max-inline-deltas 40 --ledger-complete
+	@! grep -ri "librechat" packages/platform/client/public packages/desktop/src \
+		--include='*.svg' --include='*.png' \
+		|| (echo 'brand asset found — MIT does not license trademarks'; exit 1)
+
+# The v3 definition-of-done umbrella (master prompt §9). It composes `verify` — which now
+# carries the convergence gates — and grows one gate at a time as each C-phase lands its own.
+verify-v3: verify
+	@echo "── verify-v3: every live convergence gate green ──"
 
 # Tri-boundary generation (CLAUDE.md §9b): Pydantic → openapi.json → domain-schema.json →
 # typify (Rust) + tauri-specta (TS bindings). Committed output, diffed by verify-contract.
