@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv build --package tempest-engine --out-dir dist
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: python-dist
           path: dist/*
@@ -64,7 +64,7 @@ jobs:
         run: |
           cd packages/desktop/src-tauri/target/release/bundle/macos
           ditto -c -k --keepParent Tempest.app Tempest-macOS-unsigned.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: macos-app
           path: packages/desktop/src-tauri/target/release/bundle/macos/Tempest-macOS-unsigned.zip
@@ -73,7 +73,7 @@ jobs:
     needs: [python-dist, install-check, macos-app]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           merge-multiple: true
           path: artifacts
@@ -82,7 +82,7 @@ jobs:
           cd artifacts
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/*
           generate_release_notes: true
