@@ -7,6 +7,7 @@ import {
   commands,
   type AiKeyStatus,
   type AiKeyTestResult_Serialize,
+  type ComposeView,
   type DiagnosticBundle,
   type LocalProveRequest,
   type RunCreated,
@@ -66,6 +67,46 @@ export function useListRuns(
         "listRuns",
         commands.listRuns(filters.verdict ?? null, filters.cursor ?? null, filters.limit ?? null),
       ),
+  });
+}
+
+/** F12's composer (ADR-0061): the change as rows, each carrying what the engine found it does.
+ *
+ * Keyed by the SELECTION, so toggling a hunk is a key change and TanStack refetches — which is
+ * the whole interaction. `accepted === null` is the state the view opens in (every hunk); an
+ * empty array is the user having rejected everything, and the two are different questions.
+ *
+ * `enabled` gates on a repo path because the first render has none, and a composer that fired a
+ * proof against an empty path would spend seconds discovering that.
+ */
+export function useComposeChange(args: {
+  repoPath: string;
+  base: string;
+  head: string;
+  accepted: string[] | null;
+  maxInputs?: number;
+}) {
+  const request = {
+    repo_path: args.repoPath,
+    base: args.base,
+    head: args.head,
+    accepted: args.accepted,
+    max_inputs: args.maxInputs ?? 50,
+  };
+  return useQuery<ComposeView>({
+    queryKey: ["composeChange", request],
+    queryFn: () => unwrap("composeChange", commands.composeChange(request)),
+    enabled: Boolean(args.repoPath && args.base && args.head),
+    // A proof is expensive and deterministic for a given selection: never re-run it because a
+    // window regained focus. The only thing that should refetch is the user changing the
+    // selection, and that changes the key.
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+    // Toggling a hunk changes the query KEY, and a new key has no data — so without this the
+    // whole list unmounts and the user stares at a blank panel until the re-proof lands. Keeping
+    // the previous answer on screen while the next one is computed is the difference between a
+    // composer and a form that reloads. `isFetching` is what tells them it is still moving.
+    placeholderData: (previous) => previous,
   });
 }
 

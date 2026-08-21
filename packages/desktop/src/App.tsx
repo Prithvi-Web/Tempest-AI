@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { events } from "./generated/bindings";
 import { useGetHealth } from "./hooks";
 import { routeHref, useRoute, type Route } from "./router";
+import { ComposerView } from "./views/ComposerView";
 import { DivergenceView } from "./views/DivergenceView";
 import { EditorView } from "./views/EditorView";
 import { LogsView } from "./views/LogsView";
@@ -15,11 +16,13 @@ import { WatchView } from "./views/WatchView";
 import { TargetView } from "./views/TargetView";
 
 /** SF-Symbol-inspired strokes, inlined so the app stays fully offline (L8). */
-function Icon({ name }: { name: "runs" | "prove" | "watch" | "logs" | "settings" }) {
+function Icon({ name }: { name: "runs" | "prove" | "watch" | "composer" | "logs" | "settings" }) {
   const paths: Record<string, string> = {
     runs: "M3 5h12M3 9h12M3 13h8",
     prove: "M9 3v12M3 9h12",
     watch: "M9 4.5a4.5 4.5 0 1 1-4.5 4.5M9 4.5V2M9 4.5 6.6 6M9 9l2.6 1.5",
+    // Three stacked rows with a mark against each: hunks, and the column that judges them.
+    composer: "M3 4h7M3 9h7M3 14h7M13 4l1.5 1.5L17 3M13 9l1.5 1.5L17 8M13 14l1.5 1.5L17 13",
     logs: "M4 3h10v12H4zM6.5 6h5M6.5 9h5M6.5 12h3",
     settings:
       "M9 6.2A2.8 2.8 0 1 1 9 11.8 2.8 2.8 0 0 1 9 6.2zM9 2v2M9 14v2M2 9h2M14 9h2M4 4l1.4 1.4M12.6 12.6L14 14M14 4l-1.4 1.4M5.4 12.6L4 14",
@@ -41,7 +44,7 @@ function NavItem({
   route: Route;
   current: boolean;
   navigate: (r: Route) => void;
-  icon: "runs" | "prove" | "watch" | "logs" | "settings";
+  icon: "runs" | "prove" | "watch" | "composer" | "logs" | "settings";
   label: string;
 }) {
   return (
@@ -139,6 +142,13 @@ export function App() {
           <NavItem route={{ view: "runs" }} current={section === "runs"} navigate={navigate} icon="runs" label="Runs" />
           <NavItem route={{ view: "prove" }} current={section === "prove"} navigate={navigate} icon="prove" label="New proof" />
           <NavItem route={{ view: "watch" }} current={section === "watch"} navigate={navigate} icon="watch" label="Watch" />
+          <NavItem
+            route={{ view: "composer" }}
+            current={section === "composer"}
+            navigate={navigate}
+            icon="composer"
+            label="Composer"
+          />
           <NavItem route={{ view: "logs" }} current={section === "logs"} navigate={navigate} icon="logs" label="Logs" />
           <NavItem
             route={{ view: "settings" }}
@@ -167,6 +177,7 @@ export function App() {
         {route.view === "divergence" && <DivergenceView id={route.id} navigate={navigate} />}
         {route.view === "prove" && <ProveView navigate={navigate} />}
         {route.view === "watch" && <WatchView navigate={navigate} />}
+        {route.view === "composer" && <ComposerView />}
         {route.view === "logs" && <LogsView navigate={navigate} />}
         {route.view === "settings" && <SettingsView />}
         {route.view === "editor" && (

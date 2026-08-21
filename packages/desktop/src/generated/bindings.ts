@@ -15,6 +15,15 @@ export const commands = {
 	getDivergence: (divergenceId: number) => typedError<DivergenceDetail_Serialize, SidecarFailure>(__TAURI_INVOKE("get_divergence", { divergenceId })),
 	getDivergenceRepro: (divergenceId: number) => typedError<ReproSource, SidecarFailure>(__TAURI_INVOKE("get_divergence_repro", { divergenceId })),
 	startLocalProve: (request: LocalProveRequest) => typedError<RunCreated, SidecarFailure>(__TAURI_INVOKE("start_local_prove", { request })),
+	/**
+	 *  F12's composer: split a change into hunks, prove the accepted subset, return both (ADR-0061).
+	 * 
+	 *  `async` because it is not fast. A composer toggle is a sub-second INCREMENTAL re-proof, but the
+	 *  first call of a session proves the whole accepted selection and can take seconds — and a
+	 *  synchronous Tauri command holds the main thread, which is the one that paints. The sidecar
+	 *  already does the work off its own event loop; this keeps the webview responsive while it does.
+	 */
+	composeChange: (request: ComposeRequest_Deserialize) => typedError<ComposeView_Serialize, SidecarFailure>(__TAURI_INVOKE("compose_change", { request })),
 	searchDivergences: (q: string, limit: number | null) => typedError<SearchResults, SidecarFailure>(__TAURI_INVOKE("search_divergences", { q, limit })),
 	/**
 	 *  Every divergence Tempest has RECORDED for one symbol (Phase 20.3e, the risk badge).
@@ -350,6 +359,409 @@ export type Base = string;
 export type CancelAccepted = {
 	cancelling: boolean,
 	run_id: number,
+};
+
+/**
+ * Show me this change as rows, with `accepted` applied.
+ * 
+ * `accepted=None` means "all of them" — the state the composer opens in. An empty LIST is a
+ * different request: it means the user has rejected everything, and the honest answer to that
+ * is a proof of the baseline against itself, not a proof of the whole diff.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "ComposeRequest",
+ *   "description": "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff.",
+ *   "type": "object",
+ *   "required": [
+ *     "base",
+ *     "head",
+ *     "repo_path"
+ *   ],
+ *   "properties": {
+ *     "accepted": {
+ *       "title": "Accepted",
+ *       "description": "hunk ids to include; null means every hunk",
+ *       "anyOf": [
+ *         {
+ *           "type": "array",
+ *           "items": {
+ *             "type": "string"
+ *           }
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "base": {
+ *       "title": "Base",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "head": {
+ *       "title": "Head",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "max_inputs": {
+ *       "title": "Max Inputs",
+ *       "default": 50,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "repo_path": {
+ *       "title": "Repo Path",
+ *       "type": "string",
+ *       "minLength": 1
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type ComposeRequest = ComposeRequest_Serialize | ComposeRequest_Deserialize;
+
+/**
+ * Show me this change as rows, with `accepted` applied.
+ * 
+ * `accepted=None` means "all of them" — the state the composer opens in. An empty LIST is a
+ * different request: it means the user has rejected everything, and the honest answer to that
+ * is a proof of the baseline against itself, not a proof of the whole diff.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "ComposeRequest",
+ *   "description": "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff.",
+ *   "type": "object",
+ *   "required": [
+ *     "base",
+ *     "head",
+ *     "repo_path"
+ *   ],
+ *   "properties": {
+ *     "accepted": {
+ *       "title": "Accepted",
+ *       "description": "hunk ids to include; null means every hunk",
+ *       "anyOf": [
+ *         {
+ *           "type": "array",
+ *           "items": {
+ *             "type": "string"
+ *           }
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "base": {
+ *       "title": "Base",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "head": {
+ *       "title": "Head",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "max_inputs": {
+ *       "title": "Max Inputs",
+ *       "default": 50,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "repo_path": {
+ *       "title": "Repo Path",
+ *       "type": "string",
+ *       "minLength": 1
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type ComposeRequest_Deserialize = {
+	/** hunk ids to include; null means every hunk */
+	accepted?: string[] | null,
+	base: Base,
+	head: Head,
+	max_inputs?: number,
+	repo_path: RepoPath,
+};
+
+/**
+ * Show me this change as rows, with `accepted` applied.
+ * 
+ * `accepted=None` means "all of them" — the state the composer opens in. An empty LIST is a
+ * different request: it means the user has rejected everything, and the honest answer to that
+ * is a proof of the baseline against itself, not a proof of the whole diff.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "ComposeRequest",
+ *   "description": "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff.",
+ *   "type": "object",
+ *   "required": [
+ *     "base",
+ *     "head",
+ *     "repo_path"
+ *   ],
+ *   "properties": {
+ *     "accepted": {
+ *       "title": "Accepted",
+ *       "description": "hunk ids to include; null means every hunk",
+ *       "anyOf": [
+ *         {
+ *           "type": "array",
+ *           "items": {
+ *             "type": "string"
+ *           }
+ *         },
+ *         {
+ *           "type": "null"
+ *         }
+ *       ]
+ *     },
+ *     "base": {
+ *       "title": "Base",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "head": {
+ *       "title": "Head",
+ *       "type": "string",
+ *       "maxLength": 200,
+ *       "minLength": 1
+ *     },
+ *     "max_inputs": {
+ *       "title": "Max Inputs",
+ *       "default": 50,
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "repo_path": {
+ *       "title": "Repo Path",
+ *       "type": "string",
+ *       "minLength": 1
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type ComposeRequest_Serialize = {
+	/** hunk ids to include; null means every hunk */
+	accepted?: string[] | null,
+	base: Base,
+	head: Head,
+	max_inputs: number,
+	repo_path: RepoPath,
+};
+
+/**
+ * Every hunk in the change, plus what this particular selection was proved to do.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "ComposeView",
+ *   "description": "Every hunk in the change, plus what this particular selection was proved to do.",
+ *   "type": "object",
+ *   "required": [
+ *     "hunks",
+ *     "selection_head"
+ *   ],
+ *   "properties": {
+ *     "bundle_id": {
+ *       "title": "Bundle Id",
+ *       "default": "",
+ *       "type": "string"
+ *     },
+ *     "carried_paths": {
+ *       "title": "Carried Paths",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "hunks": {
+ *       "title": "Hunks",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/HunkRow"
+ *       }
+ *     },
+ *     "rejected_ids": {
+ *       "title": "Rejected Ids",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "reproved_paths": {
+ *       "title": "Reproved Paths",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "selection_head": {
+ *       "title": "Selection Head",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type ComposeView = ComposeView_Serialize | ComposeView_Deserialize;
+
+/**
+ * Every hunk in the change, plus what this particular selection was proved to do.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "ComposeView",
+ *   "description": "Every hunk in the change, plus what this particular selection was proved to do.",
+ *   "type": "object",
+ *   "required": [
+ *     "hunks",
+ *     "selection_head"
+ *   ],
+ *   "properties": {
+ *     "bundle_id": {
+ *       "title": "Bundle Id",
+ *       "default": "",
+ *       "type": "string"
+ *     },
+ *     "carried_paths": {
+ *       "title": "Carried Paths",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "hunks": {
+ *       "title": "Hunks",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/HunkRow"
+ *       }
+ *     },
+ *     "rejected_ids": {
+ *       "title": "Rejected Ids",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "reproved_paths": {
+ *       "title": "Reproved Paths",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "selection_head": {
+ *       "title": "Selection Head",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type ComposeView_Deserialize = {
+	bundle_id?: string,
+	carried_paths?: string[],
+	hunks: HunkRow[],
+	rejected_ids?: string[],
+	reproved_paths?: string[],
+	selection_head: string,
+};
+
+/**
+ * Every hunk in the change, plus what this particular selection was proved to do.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "ComposeView",
+ *   "description": "Every hunk in the change, plus what this particular selection was proved to do.",
+ *   "type": "object",
+ *   "required": [
+ *     "hunks",
+ *     "selection_head"
+ *   ],
+ *   "properties": {
+ *     "bundle_id": {
+ *       "title": "Bundle Id",
+ *       "default": "",
+ *       "type": "string"
+ *     },
+ *     "carried_paths": {
+ *       "title": "Carried Paths",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "hunks": {
+ *       "title": "Hunks",
+ *       "type": "array",
+ *       "items": {
+ *         "$ref": "#/$defs/HunkRow"
+ *       }
+ *     },
+ *     "rejected_ids": {
+ *       "title": "Rejected Ids",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "reproved_paths": {
+ *       "title": "Reproved Paths",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "selection_head": {
+ *       "title": "Selection Head",
+ *       "type": "string"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type ComposeView_Serialize = {
+	bundle_id: string,
+	carried_paths?: string[],
+	hunks: HunkRow[],
+	rejected_ids?: string[],
+	reproved_paths?: string[],
+	selection_head: string,
 };
 
 /**
@@ -966,6 +1378,91 @@ export type HealthResponse = {
  */
 export type HoverInfo = {
 	contents: string,
+};
+
+/**
+ * One row of the composer: what changed, and what the engine found it does.
+ * 
+ *  <details><summary>JSON schema</summary>
+ * 
+ *  ```json
+ * {
+ *   "title": "HunkRow",
+ *   "description": "One row of the composer: what changed, and what the engine found it does.",
+ *   "type": "object",
+ *   "required": [
+ *     "accepted",
+ *     "changed_line_coverage",
+ *     "divergence_count",
+ *     "id",
+ *     "patch",
+ *     "path",
+ *     "qualnames",
+ *     "summary",
+ *     "verdict"
+ *   ],
+ *   "properties": {
+ *     "accepted": {
+ *       "title": "Accepted",
+ *       "type": "boolean"
+ *     },
+ *     "changed_line_coverage": {
+ *       "title": "Changed Line Coverage",
+ *       "type": "number"
+ *     },
+ *     "divergence_count": {
+ *       "title": "Divergence Count",
+ *       "type": "integer",
+ *       "maximum": 2147483647.0,
+ *       "minimum": -2147483648.0
+ *     },
+ *     "id": {
+ *       "title": "Id",
+ *       "type": "string"
+ *     },
+ *     "patch": {
+ *       "title": "Patch",
+ *       "type": "string"
+ *     },
+ *     "path": {
+ *       "title": "Path",
+ *       "type": "string"
+ *     },
+ *     "qualnames": {
+ *       "title": "Qualnames",
+ *       "type": "array",
+ *       "items": {
+ *         "type": "string"
+ *       }
+ *     },
+ *     "reason": {
+ *       "title": "Reason",
+ *       "default": "",
+ *       "type": "string"
+ *     },
+ *     "summary": {
+ *       "title": "Summary",
+ *       "type": "string"
+ *     },
+ *     "verdict": {
+ *       "$ref": "#/$defs/Verdict"
+ *     }
+ *   }
+ * }
+ *  ```
+ *  </details>
+ */
+export type HunkRow = {
+	accepted: boolean,
+	changed_line_coverage: number | null,
+	divergence_count: number,
+	id: string,
+	patch: string,
+	path: string,
+	qualnames: string[],
+	reason?: string,
+	summary: string,
+	verdict: Verdict,
 };
 
 /**

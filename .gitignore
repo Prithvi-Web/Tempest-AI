@@ -44,6 +44,7 @@ packages/desktop/src-tauri/target/
 bench/bench.json
 bench/editor-metrics.json
 bench/compose-metrics.json
+bench/composer-metrics.json
 bench/soak.json
 bench/soak-8h.log
 

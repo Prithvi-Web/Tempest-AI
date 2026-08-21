@@ -57,6 +57,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_divergence,
             commands::get_divergence_repro,
             commands::start_local_prove,
+            commands::compose_change,
             commands::search_divergences,
             commands::divergences_for_symbol,
             commands::cancel_run,

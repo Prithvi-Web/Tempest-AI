@@ -3456,3 +3456,68 @@ machine.
 table, and F12's rows are not in it because two of its three budgets are about a UI that does not
 exist. The first draft of this ADR said the file was "for perf-gate to judge", which would have
 been a sentence with nothing behind it (trap 45); arming those rows belongs with the composer view.
+
+---
+
+## ADR-0062 — F12's composer view, and the two bugs its own tests found (2026-08-21)
+
+**Status:** accepted · **Phase 23 is complete**
+
+ADR-0061 built the engine that makes F12's third column possible. This is the surface, and it
+crosses all four boundaries: a Pydantic schema and route, `make gen-contracts` carrying the shapes
+into Rust and TypeScript, a Tauri command, a React view, and an e2e spec that drives the real
+sidecar against a real repository.
+
+### The column is the feature, so the schema will not let a UI omit it
+
+`verdict` is required and its vocabulary is the engine's (L2); there is no nullable "impact"
+field. An optional column is a column a UI eventually leaves blank, and a blank cell beside a code
+change reads as reassurance nobody produced. A hunk that touches nothing executable says
+`UNPROVEN` **with a reason in words**, and coverage renders as `—` rather than `0%` — two
+different absences, neither of them a measurement.
+
+### Intent is local and instant; evidence lags and says so
+
+The first draft drove the checkbox from `row.accepted`, the server's account of the selection it
+proved. Clicking then did nothing until a proof came back, which the e2e caught by failing to
+uncheck a box. The checkbox now follows the user's own state and updates on the click; the third
+column keeps showing the PREVIOUS selection's verdicts, dimmed, with a title saying so, until the
+new proof lands. Dimmed rather than hidden: the old verdict is still true about the old selection,
+and blanking it would replace a fact with nothing.
+
+The same failure had a second half. Toggling changes the query key, and a new key has no data — so
+the whole list unmounted on every toggle and the user stared at a blank panel. `placeholderData`
+keeps the previous answer on screen while the next is computed, which is the difference between a
+composer and a form that reloads.
+
+### The budget spec was passing on an empty page
+
+Worse than a wrong number. The spec read its row count AFTER the toggle that unmounted the list,
+recorded `rows_mounted: 0` and `scroll_p95: -1`, and both sailed past `toBeLessThan` — green about
+a page it never looked at (trap 47's shape, now trap 60). Every budget assertion now has a LOWER
+bound first, because an assertion that a missing thing is small is not an assertion.
+
+With that fixed, on this machine: **1000 hunks, 23 rows mounted, render 6.7 ms** against F12's
+300 ms, **scroll p95 0.1 ms** against the 16.7 ms that 60 fps allows.
+
+### Two honest limits, stated on screen rather than in a doc
+
+**The composer proves with a small input budget** (12 per symbol) because it re-proves on every
+toggle, and a budget that makes one toggle take a minute makes the feature unusable. The honesty
+is in the vocabulary, not the number: `EQUIVALENT_UNDER_BUDGET` says exactly what it is, and the
+count line names the budget so nobody reads a fast answer as a thorough one.
+
+**The render budget is measured with the proof taken out of it, by the fixture.** F12's 300 ms is
+about rendering five hundred files' worth of hunks, not proving them — proving that is minutes and
+would swamp the number by three orders of magnitude. So every change in the bench fixture is a
+module-level constant: a thousand real rows with real verdict columns, and nothing for the engine
+to execute. An earlier draft claimed to achieve this with `accepted: []` and did not, because rows
+only exist after the first compose (trap 45, caught in review of my own comment).
+
+### Gate
+
+`e2e/19-composer.spec.ts` — 3 specs, in `make verify`. `e2e/20-composer-budgets.spec.ts` — tagged
+`@bench` and excluded from `make verify` for the same reason `14-editor-budgets` is, run by
+`make bench-editor`. It asserts its budgets rather than only writing them, because unlike the
+editor rows these have no `perf_suite` entry yet and a number nothing reads is a number nobody
+checks.

@@ -16,8 +16,8 @@ a session once already today (§0a).
 | 20 | COMPLETE (ADR-0045/0046) |
 | **21** | **COMPLETE** — F1, F2, F3, P2, all four gates green and in `make verify` (ADR-0051/0052/0053) |
 | **22** | **COMPLETE** — the hybrid index, F13 and F4, `retrieval_bench` green (ADR-0054) |
-| **23** | **ONE ITEM LEFT: F12.** F14, F15/P3, P9, F16 server (ADR-0055/0056); **P4** subagents (ADR-0059); **F16 client + P5** (ADR-0060). The multi-file composer with proof preview is a desktop-UI feature and is NOT started |
-| 24, 25 | **NOT STARTED** |
+| **23** | **COMPLETE** — F14, F15/P3, P9, F16 server (ADR-0055/0056); P4 subagents (ADR-0059); F16 client + P5 (ADR-0060); F12 composer, engine and surface (ADR-0061/0062). The exit gate's fourth part, a recorded Claude Code MCP demo, is an OWNER action |
+| **24, 25** | **NOT STARTED** — F9 + WEAK_EVIDENCE, F10; then F7, F8, F6 |
 
 ### The gates, and how to run every one of them
 
@@ -716,7 +716,11 @@ never the loop around it (§26) ·
 59 GIT COALESCES HUNKS CLOSER TOGETHER THAN TWICE ITS CONTEXT — a fixture with two changes six
 lines apart produces ONE hunk under `--unified=3`, and four "two hunks" assertions failed for a
 reason about diff formatting rather than about the code under test. A fixture that means "two
-hunks" has to separate them by more than 2x context (§27)** ·
+hunks" has to separate them by more than 2x context (§27) ·
+60 AN ASSERTION THAT A MISSING THING IS SMALL IS NOT AN ASSERTION — the composer budget spec read
+its row count after a re-render had unmounted the list, recorded `rows_mounted: 0` and
+`scroll_p95: -1`, and both passed `toBeLessThan`. Every upper-bound check needs a LOWER bound
+beside it, or an empty page satisfies the whole spec (§28)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -1457,3 +1461,34 @@ them about a property of git's output format rather than about the code under te
 3. The general shape: **when a test asserts on tool output, the tool's formatting rules are part
    of the assertion.** This is trap 57's sibling — there the budget was part of the assertion,
    here the diff format is.
+
+---
+
+## 28. Trap 60 — an assertion that a missing thing is small is not an assertion
+
+The composer's budget spec measured a 1000-hunk render and passed. Its output:
+
+```json
+{ "composer_rows_mounted": 0, "composer_render_ms": 2.1, "composer_scroll_p95_ms": -1 }
+```
+
+Zero rows. A scroll time of minus one — the sentinel the measurement returns when it cannot find
+the viewport at all. And the assertions were `expect(mounted).toBeLessThan(40)` and
+`expect(scrollMs).toBeLessThan(16.7)`, so **both were satisfied by the absence of the thing being
+measured**. The spec was green about a page it never looked at.
+
+The cause was a real bug in the view — toggling a hunk changed the query key, a new key has no
+data, so the whole list unmounted — and the spec read its row count after the toggle. Two defects
+that hid each other: the UI blanked the page, and the measurement could not tell a blank page from
+a fast one.
+
+**How to apply.**
+1. **Every upper-bound assertion gets a lower bound beside it.** `expect(x).toBeGreaterThan(0)`
+   before `expect(x).toBeLessThan(budget)`. A budget check on a value that can be absent, zero or
+   a sentinel is a check that gets weaker exactly when something has gone wrong.
+2. **A sentinel return (-1, null, "") must never flow into a comparison.** Assert the measurement
+   HAPPENED, then assert what it says.
+3. **Take a measurement before the thing you are measuring can invalidate it**, or take it twice
+   and compare. This read the count after an interaction that destroyed the subject.
+4. It is trap 47 one layer down: there a GATE measured the wrong thing, here a BUDGET measured
+   nothing at all, and both reported green.

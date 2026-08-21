@@ -18,6 +18,7 @@ describe("parseRoute", () => {
     expect(parseRoute("?view=prove")).toEqual({ view: "prove" });
     expect(parseRoute("?view=logs")).toEqual({ view: "logs" });
     expect(parseRoute("?view=watch")).toEqual({ view: "watch" });
+    expect(parseRoute("?view=composer")).toEqual({ view: "composer" });
     expect(parseRoute("?view=settings")).toEqual({ view: "settings" });
   });
 
@@ -69,6 +70,7 @@ describe("parseRoute", () => {
       { view: "prove" },
       { view: "logs" },
       { view: "watch" },
+      { view: "composer" },
       { view: "settings" },
       { view: "run", id: 5 },
       { view: "target", id: 6 },

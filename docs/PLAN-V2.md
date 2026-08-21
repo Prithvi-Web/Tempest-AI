@@ -197,12 +197,16 @@ python -m tempest.dev.retrieval_bench --questions 40 --require-citations
 # prints that caveat itself. The 500k-LOC number in §5 is NOT measured and is not claimed.
 ```
 
-## Phase 23 — Coding surface + MCP both directions + P3, P4, P5, P9  ⚠️ PART ONE ONLY (ADR-0055)
+## Phase 23 — Coding surface + MCP both directions + P3, P4, P5, P9 ✅ COMPLETE 2026-08-21 (ADR-0055, ADR-0056, ADR-0059..0062)
 
-**Landed 2026-08-20: F14, F15/P3 and P9.** F12, F16, P4 and P5 are NOT started and the phase is
-NOT complete. Two of the exit gate's four parts are met (the injection suite, and a Proof Skill's
-floor holding when the model is told to ignore it); the MCP demo and the eight nested subagents
-are not.
+**Complete 2026-08-21.** F14, F15/P3, P9 and F16's server landed 2026-08-20; P4 (ADR-0059),
+F16's client + P5 (ADR-0060) and F12 (ADR-0061 engine, ADR-0062 surface) landed 2026-08-21.
+
+Three of the exit gate's four parts are met and measured: the injection suite is 35/35 **including
+MCP-response payloads**, eight nested subagents run with independent verdicts and correct budget
+accounting, and a Proof Skill's floor holds when the model is told to ignore it. The fourth — a
+recorded Claude Code ↔ Tempest MCP demo — is an OWNER action: it needs a second product and a
+person to watch it, and no hermetic gate can assert it (ADR-0055, ADR-0060).
 
 - [x] **F14** sandboxed agent terminal — the same tier ladder the runners use; no tier, no
       command; the repository read-only under T1 because an agent's writes belong in `write_file`
@@ -212,13 +216,15 @@ are not.
       `must_not_change`, because an agent can write files.
 - [x] **P9** retrieved content as hostile input — `redteam --injection`, 30/30 invariants held
       under a model scripted as ALREADY CAPTURED.
-- [~] **F12** composer with proof preview. **ENGINE HALF DONE** (ADR-0061): `tempest/compose`
-      splits a change into per-hunk pieces with stable ids, attributes a proved bundle back to
-      the hunk that caused it, proves a selected subset ON ITS OWN, and re-proves a toggle
-      incrementally over call-graph-affected files. Gate: `compose_bench --files 500
-      --selection 10`, 11/11; toggle 617 ms against F12's 2 s budget (6.9x faster than a full
-      re-prove). **The desktop UI is NOT built** — no composer view, no hunk rows, no
-      virtualized diff, and the 300 ms / 60 fps render budgets are unmeasured.
+- [x] **F12** composer with proof preview — COMPLETE (ADR-0061 engine, ADR-0062 surface).
+      `tempest/compose` splits a change into per-hunk pieces with stable ids, attributes a proved
+      bundle back to the hunk that caused it, proves a selected subset ON ITS OWN, and re-proves a
+      toggle incrementally over call-graph-affected files. `POST /v1/local/compose` +
+      `compose_change` carry it across all four boundaries into a windowed React view.
+      Gates: `compose_bench --files 500 --selection 10` 11/11 · `19-composer.spec.ts` 3/3 in
+      `make verify` · `20-composer-budgets.spec.ts` @bench: 1000 hunks, 23 rows mounted,
+      render 6.7 ms (budget 300), scroll p95 0.1 ms (budget 16.7); toggle re-proof 617 ms
+      (budget 2 s).
 - [x] **F16 SERVER** — `python -m tempest.mcp`: `prove`, `explain_behavior`, `minimize_repro`,
       `check_intent_contract` over stdio JSON-RPC. Gate: `mcp_check`, 16/16 invariants over a real
       pipe. The recorded Claude-Code demo is an OWNER action and the gate says so.
@@ -235,9 +241,9 @@ are not.
 
 
 
-- [ ] **F12** composer with proof preview; **F14** sandboxed agent terminal; **F15** project
+- [x] **F12** composer with proof preview; **F14** sandboxed agent terminal; **F15** project
       memory & behavioral rules; **F16** MCP client + server.
-- [ ] **P3 Proof Skills** (declared contracts, mutation floors, forbidden divergence classes —
+- [x] **P3 Proof Skills** (declared contracts, mutation floors, forbidden divergence classes —
       engine-enforced); **P4 subagents** (own shadow worktree, own verdict);
       **P5 MCP client** production-grade; **P9 web search** with retrieved content treated as
       hostile input.

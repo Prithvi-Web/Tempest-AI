@@ -9,7 +9,8 @@ use std::sync::Arc;
 use serde_json::{json, Map, Value};
 
 use crate::generated::domain::{
-    AiKeyTestResult, CancelAccepted, DiagnosticBundle, DivergenceDetail, HealthResponse,
+    AiKeyTestResult, CancelAccepted, ComposeRequest, ComposeView, DiagnosticBundle,
+    DivergenceDetail, HealthResponse,
     LocalProveRequest, LogRecordOut, PageRunSummary, RunCreated, RunDetail, RunEventOut,
     SearchResults, SettingsIn, SettingsOut, SymbolDivergences, SyncReport, TargetDetail,
     UiErrorRecorded, UiErrorReport, Verdict, WatchStartRequest, WatchStatus,
@@ -395,6 +396,21 @@ pub fn start_local_prove(
     // (cancellation included: the same probe sees CANCELLED and emits the final event).
     watcher.track(created.run_id);
     Ok(created)
+}
+
+/// F12's composer: split a change into hunks, prove the accepted subset, return both (ADR-0061).
+///
+/// `async` because it is not fast. A composer toggle is a sub-second INCREMENTAL re-proof, but the
+/// first call of a session proves the whole accepted selection and can take seconds — and a
+/// synchronous Tauri command holds the main thread, which is the one that paints. The sidecar
+/// already does the work off its own event loop; this keeps the webview responsive while it does.
+#[tauri::command(async)]
+#[specta::specta]
+pub fn compose_change(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    request: ComposeRequest,
+) -> CmdResult<ComposeView> {
+    call_typed(&state, "composeChange", json!({"body": request}))
 }
 
 #[tauri::command]

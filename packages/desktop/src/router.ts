@@ -10,6 +10,7 @@ export type Route =
   | { view: "prove" }
   | { view: "logs" }
   | { view: "watch" }
+  | { view: "composer" }
   | { view: "settings" }
   // The editor names a project and a file inside it. Both are strings, so both are encoded on
   // the way out and decoded on the way in — a path contains `/`, `&` and `#` routinely, and a
@@ -30,6 +31,7 @@ export function parseRoute(search: string): Route {
   if (view === "prove") return { view: "prove" };
   if (view === "logs") return { view: "logs" };
   if (view === "watch") return { view: "watch" };
+  if (view === "composer") return { view: "composer" };
   if (view === "settings") return { view: "settings" };
   if (view === "editor") {
     const repo = params.get("repo");
@@ -46,6 +48,7 @@ export function routeHref(route: Route): string {
   if (route.view === "prove") return "?view=prove";
   if (route.view === "logs") return "?view=logs";
   if (route.view === "watch") return "?view=watch";
+  if (route.view === "composer") return "?view=composer";
   if (route.view === "settings") return "?view=settings";
   if (route.view === "editor") {
     const repo = encodeURIComponent(route.repo);

@@ -157,6 +157,7 @@ const COMMANDS = {
   get_divergence: (a) => ["getDivergence", { divergence_id: a.divergenceId }],
   get_divergence_repro: (a) => ["getDivergenceRepro", { divergence_id: a.divergenceId }],
   start_local_prove: (a) => ["startLocalProve", { body: a.request }],
+  compose_change: (a) => ["composeChange", { body: a.request }],
   cancel_run: (a) => ["cancelRun", { run_id: a.runId }],
   search_divergences: (a) => ["searchDivergences", omitNulls({ q: a.q, limit: a.limit })],
   divergences_for_symbol: (a) =>

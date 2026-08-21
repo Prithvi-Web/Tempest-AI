@@ -49,6 +49,7 @@ const RESULT_SCHEMAS: Record<string, object> = {
     properties: { content_type: { type: "string" }, text: { type: "string" } },
   },
   startLocalProve: def("RunCreated"),
+  composeChange: def("ComposeView"),
   // Host-level type (commands.rs AiKeyStatus, like ReproSource): {configured, last4} is ALL
   // the webview may ever learn about the stored key (L9).
   aiKeyStatus: AI_KEY_STATUS,

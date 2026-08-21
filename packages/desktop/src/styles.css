@@ -967,3 +967,91 @@ main li,
      recorded something — so the state it is in almost always was the one that failed. */
   color: var(--ink-secondary-strong);
 }
+
+/* F12 composer (ADR-0061). `--composer-row` and ROW_HEIGHT in ComposerView.tsx are ONE number in
+   two languages: windowing computes a row's position arithmetically, so a row that renders taller
+   than the constant says would drift further out of place with every screen scrolled. */
+:root {
+  --composer-row: 44px;
+}
+
+.composer-lede {
+  max-width: 60ch;
+  color: var(--muted);
+}
+
+.composer-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-block: 1rem;
+}
+
+.composer-count {
+  color: var(--muted);
+}
+
+/* Bounded on purpose: windowing needs a viewport with a height to compute against, and an
+   unbounded list would mount every row and lose the whole point. */
+.composer-viewport {
+  height: 60vh;
+  min-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  contain: strict;
+}
+
+.composer-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.composer-row {
+  display: grid;
+  grid-template-columns: 2rem minmax(12rem, 1.2fr) minmax(14rem, auto) minmax(0, 2fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding-inline: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.composer-where {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-impact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.composer-divergences,
+.composer-coverage {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.composer-reason {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The third column while the next selection is still being proved. Dimmed rather than hidden:
+   the previous verdict is still true about the previous selection, and blanking it would replace
+   a fact with nothing. */
+.composer-impact.stale {
+  opacity: 0.55;
+}
