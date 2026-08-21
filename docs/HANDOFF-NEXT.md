@@ -16,7 +16,7 @@ a session once already today (§0a).
 | 20 | COMPLETE (ADR-0045/0046) |
 | **21** | **COMPLETE** — F1, F2, F3, P2, all four gates green and in `make verify` (ADR-0051/0052/0053) |
 | **22** | **COMPLETE** — the hybrid index, F13 and F4, `retrieval_bench` green (ADR-0054) |
-| **23** | **PART ONE ONLY** — F14, F15/P3, P9 and F16's SERVER half (ADR-0055/0056). F12, P4, P5 and the MCP client are NOT started |
+| **23** | **ONE ITEM LEFT: F12.** F14, F15/P3, P9, F16 server (ADR-0055/0056); **P4** subagents (ADR-0059); **F16 client + P5** (ADR-0060). The multi-file composer with proof preview is a desktop-UI feature and is NOT started |
 | 24, 25 | **NOT STARTED** |
 
 ### The gates, and how to run every one of them
@@ -31,9 +31,10 @@ grep -E "^MAKE_EXIT=" /tmp/verify.log      # read THIS line, never the task noti
 ./scripts/agent-gates.sh                   # the eight benchmark gates on their own, ~8 minutes
 ```
 
-`verify-agent` now runs **eight** gates: `agent_bench --tasks 50` · `intent_bench` ·
-`repair_bench` · `resume_test --kill-mid-proof --sleep-mid-stream` · `retrieval_bench` ·
-`escape_suite --surface agent-terminal` · `redteam --injection` · `mcp_check`.
+`verify-agent` now runs **ten** gates: `agent_bench --tasks 50` · `intent_bench` ·
+`repair_bench` · `resume_test --kill-mid-proof --sleep-mid-stream` · **`subagent_bench --depth 8`**
+· `retrieval_bench` · `escape_suite --surface agent-terminal` · `redteam --injection` (now
+**35/35**, with an MCP-response channel) · `mcp_check` · **`mcp_client_check`**.
 
 ### CI was RED on the first push of this work — one defect, 37 symptoms (ADR-0058, trap 56)
 
@@ -700,7 +701,15 @@ every gate, because nothing reads a docstring against the type beside it (§23) 
 fixture builders wrote `.tempest-first-party` EMPTY, so every fixture repository was classified as
 a USER repo and sent down the tier ladder; macOS hands that ladder a working Seatbelt, the ubuntu
 runner hands it a Docker whose image nothing builds, and 37 tests came back UNPROVEN the first
-time they ran there (§24)** ·
+time they ran there (§24) ·
+57 A FIXTURE'S INPUT BUDGET IS PART OF ITS ASSERTION — a proof given four inputs reported
+EQUIVALENT_UNDER_BUDGET for `sum(xs) + 3`, which looks exactly like the engine blessing a
+behaviour change and is in fact the engine being honest; six inputs find it. A test that expects
+DIVERGENT must fund the search, or it is measuring the sampler (§25) ·
+58 A DEADLINE AROUND A BLOCKING READ IS NOT A DEADLINE — the MCP client checked `time.monotonic()`
+each time round a loop whose body was `readline()`, so a server that never answers blocked for
+ever and the timeout never got a turn to fire. Bound the READ (`select` with the remaining time),
+never the loop around it (§26)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -1356,3 +1365,68 @@ fixed; the eleven other builders of the same shape were never grepped for.
    `TEMPEST_DEV=1` "back" and deletes `TEMPEST_NO_SEATBELT` outright destroys the state of every
    test after it. `monkeypatch` restores what was actually there; hand-written teardown restores
    what someone assumed was there.
+
+---
+
+## 25. Trap 57 — a fixture's INPUT BUDGET is part of its assertion
+
+A new subagent test set `max_inputs=4` and asserted `DIVERGENT`. Two of eight subagents came back
+`EQUIVALENT_UNDER_BUDGET` for a body of `sum(xs) + 3` — which reads exactly like the engine
+blessing a behaviour change, the single worst bug this product could have.
+
+It was not. Sequential runs, fresh repositories, cleared caches and a direct look at the
+materialized worktrees all said the same thing: base was `sum(xs)`, head was `sum(xs) + 3`, four
+inputs ran, all four agreed. At `max_inputs=6` the same change is `DIVERGENT`. **The first four
+generated inputs simply do not distinguish those two functions**, and `EQUIVALENT_UNDER_BUDGET`
+means precisely that — *"N inputs across M covered branches produced identical behavior. This is
+not 'correct.'"* (L2). The engine was right and the fixture was underfunded.
+
+**How to apply.**
+1. **`EQUIVALENT_UNDER_BUDGET` in a test that wanted `DIVERGENT` is a budget bug first and an
+   engine bug second.** Raise `max_inputs` and re-run before touching the engine. Half an hour
+   went into this one on the assumption it was the reverse.
+2. **A fixture change that looks free is not.** `sum(xs) + 1` (the corpus body everywhere else)
+   is found at four inputs; `+ 3` is not. Picking a "more distinct" constant to make bundles
+   differ silently moved the test past what its budget could find.
+3. **Do not weaken the assertion to match the observation.** The fix is to fund the search, never
+   to accept `EQUIVALENT` as a pass — that would be a suite that agrees with whatever it is told.
+4. Its sibling is trap 43: 100% coverage proves which LINES ran, not which STATES were considered.
+   This one is about which INPUTS were tried, and it is the same failure one layer down.
+
+---
+
+## 26. Trap 58 — a deadline around a blocking read is not a deadline
+
+The first MCP stdio transport looked bounded:
+
+```python
+deadline = time.monotonic() + timeout_s
+while True:
+    if time.monotonic() > deadline:
+        raise McpTimeout(...)
+    line = self._proc.stdout.readline()      # <- blocks for ever
+```
+
+Every element of a timeout is present: a deadline, a check, an exception with a good message. It
+bounds **nothing**. `readline()` returns when a line arrives, and against a server that never
+answers it never returns — so the check at the top of the loop never runs a second time. The
+client hangs for ever holding a subprocess, and the code reads like it cannot.
+
+It was caught within a minute by the test written for that exact server (`SILENT`, which sleeps
+30s and answers nothing), because the test suite timed out instead of the client.
+
+**How to apply.**
+1. **Bound the READ, not the loop around it.** `select`/`poll` with the remaining time as the
+   timeout, then read what is ready. The transport now buffers bytes itself and finds newlines in
+   the buffer, which is also what makes the byte cap bite *while* a flood is arriving rather than
+   after it has been read into memory.
+2. **The same shape hides everywhere**: `recv()`, `readline()`, `queue.get()`, `wait()`,
+   `proc.communicate()`, `input()`. If the call inside a timed loop can block indefinitely, the
+   loop is decoration. Ask of every timeout: *which call actually returns early when the deadline
+   passes?* If the answer is "none of them", there is no timeout.
+3. **Write the peer that does nothing.** Silence is the case nobody builds a fixture for, and it
+   is the one that hangs. `_fake_mcp` scripts silent, closing, flooding, noisy and lying servers
+   precisely because a client tested only against a well-behaved peer has tested the half that was
+   never the risk.
+4. It is trap 45's shape — *a guard's ARGUMENT is not a proof of the guard* — applied to time
+   rather than to permissions.

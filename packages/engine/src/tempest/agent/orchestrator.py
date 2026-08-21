@@ -200,6 +200,11 @@ class TaskSpec:
     #: Which ledger scopes this task's spending belongs to. `task` is the per-task cap; the
     #: session and day scopes are how "per session" and "per day" in L21 are enforced.
     cost_session: str = "default"
+    #: Which key the TASK-scope cap is counted under. `None` means this task's own id, which is
+    #: right for every task a user starts. A SUBAGENT sets it to its root's id (P4): a delegated
+    #: run is part of the work the user asked for, not a new allowance, and eight children each
+    #: charging their own task key would turn one per-task cap into nine (L21).
+    cost_task_key: str | None = None
     #: The wall-clock bound on ONE model call (L15.4). Explicit rather than inherited: a turn
     #: loop whose only time bound is a library default is bounded by something nobody chose, and
     #: `resume_test --sleep-mid-stream` needs to be able to choose it.
@@ -416,7 +421,7 @@ def _converse(
                     model=answer.model,
                     input_tokens=answer.usage.input_tokens,
                     output_tokens=answer.usage.output_tokens,
-                    task=spec.task_id,
+                    task=spec.cost_task_key or spec.task_id,
                     session=spec.cost_session,
                     day=_today(),
                 )

@@ -112,7 +112,8 @@ verify-python:
 	uv run python -m tempest.dev.license_check --third-party-notices  # Phase 19.1 (L25 attribution)
 	uv run python -m tempest.dev.provider_matrix --min-providers 12   # Phase 19.5 (P1 breadth)
 
-# Phase 21's exit gate (PLAN-V2 §21, ADR-0053) and Phase 22's (§22, ADR-0054): F1's verdict
+# Phase 21's exit gate (PLAN-V2 §21, ADR-0053), Phase 22's (§22, ADR-0054) and P4's
+# (§23, ADR-0059 — eight nested subagents, one budget, one cancellation): F1's verdict
 # coverage, F2's classification accuracy, F3's repair rate and refused cheats, P2's survival of a
 # SIGKILL mid-proof, F13's retrieval — 40 questions, 15 of which source text cannot answer — and
 # F14's containment (the escape suite run through the agent terminal itself), and P9's injection

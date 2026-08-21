@@ -216,9 +216,16 @@ are not.
 - [x] **F16 SERVER** — `python -m tempest.mcp`: `prove`, `explain_behavior`, `minimize_repro`,
       `check_intent_contract` over stdio JSON-RPC. Gate: `mcp_check`, 16/16 invariants over a real
       pipe. The recorded Claude-Code demo is an OWNER action and the gate says so.
-- [ ] **F16 CLIENT** — consuming other MCP servers (with P5).
-- [ ] **P4** subagents with their own shadow worktree and verdict.
-- [ ] **P5** production-grade MCP client.
+- [x] **F16 CLIENT** — consuming other MCP servers (with P5). Stdio + HTTP, bounded by a byte
+      cap and a REAL deadline, default-deny tool policy, OAuth client-credentials. Gate:
+      `mcp_client_check` 11/11 (ADR-0060). NOT done: 10 real servers + authorization-code OAuth
+      (owner action).
+- [x] **P4** subagents with their own shadow worktree and verdict — and ONE budget between them.
+      Gate: `subagent_bench --depth 8`, 13/13 invariants (ADR-0059). A model cannot spawn one:
+      that is a boundary-D tool and belongs with F17.
+- [x] **P5** production-grade MCP client — transports, approval model, and every MCP response
+      treated as attacker-controlled input; `redteam --injection` now carries an MCP channel
+      and is 35/35 (ADR-0060).
 
 
 

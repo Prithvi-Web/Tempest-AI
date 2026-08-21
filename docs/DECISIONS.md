@@ -3229,3 +3229,152 @@ Two tests had to be told which machine they are about, and the distinction is th
 **No product behaviour changed.** The engine's only edits are a constant made public and a comment;
 the sandbox ladder, the verdicts and the laws are untouched. The 37 tests were always wrong about
 which backend they were exercising — they now say so instead of finding out on a different OS.
+
+---
+
+## ADR-0059 — P4: subagents are a primitive, not a second agent (2026-08-21)
+
+**Status:** accepted · closes P4; Phase 23's remaining items are F12, F16-client and P5
+
+A subagent is not a second agent. It is the same agent doing a narrower piece of the same task,
+and every property that makes the parent's answer worth reading has to survive the delegation.
+`tempest/agent/subagents.py` is built around the four ways that fails.
+
+### Its own worktree, because otherwise the verdict is about somebody else's change
+
+A child's task id is `parent/name`, which `shadow.create` slugs into a distinct worktree. Two
+subagents editing one tree would still return two `AgentRun` objects with two verdicts, and both
+verdicts would be meaningless — neither could say which change its evidence was about. So the
+gate counts **worktrees and bundle ids**, not runs.
+
+That distinction has teeth: eight children making the *same* edit produce the same git commit —
+same content, same parent, same message, same second — and therefore the same bundle id. A gate
+asserting "eight distinct bundles" would fail for a reason that has nothing to do with isolation,
+and one asserting "eight runs" would pass without proving any. Every subagent in the gate and the
+tests therefore makes a **different** edit, so the evidence can actually tell them apart.
+
+### Its own verdict, and deliberately no ninth claim
+
+Every child runs the whole loop and ends on a `ProvenChange` from `run_prove`. There is no
+aggregate verdict and no `succeeded` field, and the absence is the design: eight independent
+proofs do not compose into a ninth claim, and "the fleet succeeded" is a sentence no bundle backs
+(L1). `verdicts()` returns what each child found and leaves the reading to the caller.
+
+### One budget, because the arithmetic is not hypothetical
+
+The per-task cap is keyed by task id. Eight children with eight ids would be **eight full
+allowances** — a fleet quietly multiplying the cap the user set. `TaskSpec.cost_task_key` is new:
+`None` means "this task's own id", which is right for every task a user starts, and a subagent
+sets it to its root's. The gate reads the ledger **by key**: the root carries the whole spend and
+every child key carries nothing.
+
+### Cancellation that reaches the grandchildren
+
+The whole tree runs inside one `CancelScope`, which `runner._spawn` already picks up through its
+context variable. A cancelled fleet kills the workers of whatever is executing and refuses every
+subagent that has not started — **on the record, with a reason**, never by returning fewer results
+than were asked for. The child that was mid-proof comes back REFUSED rather than with a verdict:
+its workers died before a bundle existed, and without a bundle there is nothing it may be said to
+have found. Reporting that child as EQUIVALENT would be inventing the most dangerous possible
+answer out of an absence of evidence.
+
+### Least privilege is enforced, not documented
+
+A child may narrow its grants and may never widen them. A delegation that can hand itself a
+capability the user never gave the parent is a privilege-escalation primitive with a friendly
+name, and the fact that the *caller* wrote it does not make it the *user's* decision.
+
+### What is deliberately NOT here
+
+**A model cannot spawn a subagent.** P4's stated purpose is the missing execution primitive for
+F17 (fleet) and F7 (de-slop), where each atomic refactor step becomes an independently-proven
+subagent — that is a caller deciding to delegate. Letting the MODEL delegate is a boundary-D
+change: a new tool in `agent_tools.rs`, with its own approval semantics and its own drift-gated
+schema, supervised by a fleet UI that does not exist yet. It belongs with F17 in Phase 26. This
+ADR records the split rather than leaving a reader to infer that P4 shipped half of something.
+
+**Subagents run one at a time.** Concurrency is not an oversight: two proofs at once contend for
+the same cores, and a verdict is a measurement — `resume_test` already refuses to make wall-clock
+claims under load for exactly this reason. A scheduler that understands machine capacity is F17's.
+
+### Gate
+
+`python -m tempest.dev.subagent_bench --depth 8`, wired into `scripts/agent-gates.sh`, making
+nine gates in `make verify`.
+
+---
+
+## ADR-0060 — F16's client half and P5: consuming a server you do not trust (2026-08-21)
+
+**Status:** accepted · closes F16-client and P5 as far as a hermetic gate can; F12 is what remains
+of Phase 23
+
+`mcp_check` proved Tempest can BE an oracle. This is the other direction, and it is the direction
+with an adversary in it: **an MCP server's response is attacker-controlled input** (T1/T6). Not
+"input from a partner" — the same category as a web page, because a server can be malicious,
+compromised, or merely relaying a hostile issue title somebody else typed.
+
+### What the client is built around
+
+**Bounds before features.** A hostile server's cheapest attack is not a clever string, it is an
+infinite one. Every response is read under a byte cap AND a wall-clock deadline, the tool list is
+capped, and a stdio server is owned as a process GROUP so killing the client cannot leave a
+subprocess of a subprocess holding a credential.
+
+The deadline is worth its own paragraph, because the first version did not have one. It called
+`readline()` inside a loop that checked a deadline — which is not a deadline: `readline()` blocks
+until a line arrives, so a server that simply never answers hangs the client for ever and the
+timeout never gets a turn to fire. The test written for exactly that server found it on its first
+run (trap 58). The transport now reads bytes through `select` with the remaining time as its
+timeout, buffers lines itself, and checks the cap against the BUFFER rather than a completed line
+— so a server streaming without ever sending a newline is stopped while it streams.
+
+**Policy before the request, never after.** `ToolPolicy` decides allow/deny/prompt per
+(server, tool), defaults to DENY, and is consulted before a single byte is written. Refusing after
+a response has arrived is not refusing; the effect already happened. The gate checks this the only
+way it can be checked — the loopback server records every request it receives, and a denied call
+must leave that list empty.
+
+**Advertising is not permission.** A server offering a tool does not thereby acquire the right to
+be called. A client that lists tools and then calls whatever came back has delegated its
+capability model to the thing it does not trust.
+
+**A result is DATA, and says so.** `call_tool` does not return a string. It returns a
+`ToolResponse` whose text reaches a prompt only through `as_untrusted_note()`, which stamps it
+with the server and tool it came from and states in the envelope that it is not an instruction.
+The module is explicit that this is a shape and not a defence — no envelope stops a model that
+ignores it. What makes injection unprofitable is that the verdict, the classification and the tool
+boundary are not on a path a model can reach, which is what `redteam` proves by scripting an agent
+that has *already* obeyed.
+
+### The injection suite gained its fourth channel
+
+Phase 23's exit gate asks for `redteam --injection` green **including MCP-response payloads**. It
+now is: each of the five payloads makes a round trip through a REAL scripted MCP server and comes
+back through the REAL client before it reaches the agent. 30/30 invariants became **35/35** — the
+five new rows are "mcp channel delivered", which exists because a channel that silently fails to
+arrive would let every other invariant pass while testing nothing (the empty-marker class,
+trap 56).
+
+**Where the response is delivered, stated plainly.** The agent has no tool that CALLS an MCP
+server. That is a boundary-D declaration in `agent_tools.rs` with its own approval semantics, and
+it belongs with the surface that would approve it. So the response is appended to the task prompt
+— which is exactly where a tool result lands once a model has made the call. The channel under
+test is "attacker-controlled text reaches the model's context", and this delivers it there by the
+same route. The gate's own output says so rather than implying the agent is calling servers today.
+
+### What is NOT claimed
+
+P5's gate reads *"connect to 10 real MCP servers including OAuth ones"*. That needs ten vendors'
+servers, real credentials, and a browser for the authorization-code flow. It is an **owner
+action** and no hermetic gate can assert it. What is proved: the client-credentials flow a
+headless client can actually complete, end to end against a loopback authorization server,
+including that the token is fetched **once** and reused. The authorization-code flow needs the
+desktop surface and is not implemented. `mcp_client_check` prints this rather than reporting a
+number that sounds like ten.
+
+### Gates
+
+`python -m tempest.dev.mcp_client_check` — 11/11, wired into `scripts/agent-gates.sh`, which now
+runs **ten** gates. Its last invariant is the one neither half could check alone: Tempest's own
+MCP server, driven by Tempest's own MCP client, over a real pipe.

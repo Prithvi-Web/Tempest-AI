@@ -29,6 +29,18 @@ INTERNAL_ERROR = -32603
 #: answer is "no" — but a caller needs to tell it apart from a malformed request.
 TOOL_REFUSED = -32000
 
+#: Code → the name the spec gives it, for CLIENT-side messages. A bare `-32601` in an error a
+#: person has to read is a number they then have to look up; the name is the difference between
+#: "the server is broken" and "we asked for a method it does not have".
+PROTOCOL_ERRORS: dict[int, str] = {
+    PARSE_ERROR: " (parse error)",
+    INVALID_REQUEST: " (invalid request)",
+    METHOD_NOT_FOUND: " (method not found)",
+    INVALID_PARAMS: " (invalid params)",
+    INTERNAL_ERROR: " (internal error)",
+    TOOL_REFUSED: " (tool refused)",
+}
+
 
 @dataclass(frozen=True)
 class Request:

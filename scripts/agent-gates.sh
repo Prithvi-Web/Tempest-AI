@@ -43,6 +43,13 @@ wait
 
 run resume_test --kill-mid-proof --sleep-mid-stream
 
+# P4's exit gate (Phase 23, ADR-0059): eight NESTED subagents, each with its own shadow worktree
+# and its own engine verdict, all charging ONE task budget, and a cancellation that reaches the
+# child which is mid-proof rather than only the ones queued behind it. Sequential and after
+# resume_test for the same reason resume_test is: it runs eight real differential proofs, and a
+# proof racing three other benchmarks for the same cores is a measurement taken under load.
+run subagent_bench --depth 8
+
 # Phase 22's exit gate. It builds a real index over a real fixture repository and executes it,
 # so it belongs with the agent gates rather than with the unit suite — but it is fast (seconds)
 # and independent, so it rides along here instead of paying for its own runner.
@@ -64,9 +71,14 @@ run redteam --injection
 # DIVERGENT — that needs a second product and a person to watch it, and the gate says so itself.
 run mcp_check --server
 
+# F16's CLIENT half and P5's gate (ADR-0060): real servers over real pipes, including the ones
+# that never answer, close mid-request, flood, or lie — plus Tempest's own MCP server driven by
+# Tempest's own client, which is the only place both halves of F16 meet.
+run mcp_client_check
+
 failed=0
-for name in agent_bench intent_bench repair_bench resume_test retrieval_bench escape_suite \
-            redteam mcp_check; do
+for name in agent_bench intent_bench repair_bench resume_test subagent_bench retrieval_bench \
+            escape_suite redteam mcp_check mcp_client_check; do
     echo "── $name ──"
     cat "$LOGS/$name.log" 2>/dev/null || echo "(this gate produced no output at all)"
     code="$(exit_code_of "$name")"
