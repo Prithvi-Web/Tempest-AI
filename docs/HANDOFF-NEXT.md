@@ -720,7 +720,11 @@ hunks" has to separate them by more than 2x context (§27) ·
 60 AN ASSERTION THAT A MISSING THING IS SMALL IS NOT AN ASSERTION — the composer budget spec read
 its row count after a re-render had unmounted the list, recorded `rows_mounted: 0` and
 `scroll_p95: -1`, and both passed `toBeLessThan`. Every upper-bound check needs a LOWER bound
-beside it, or an empty page satisfies the whole spec (§28)** ·
+beside it, or an empty page satisfies the whole spec (§28) ·
+61 A TEST THAT NEEDS TO WIN A RACE IS A TEST THAT WILL LOSE ONE — the cancellation test observed
+teardown via a BrokenPipe from the fake peer, but 200 small frames fit in the socket buffer, so
+under load the peer finished writing first and no write ever failed. Make the peer BLOCK until
+the fact is established rather than hoping it is (§29)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -1492,3 +1496,36 @@ a fast one.
    and compare. This read the count after an interaction that destroyed the subject.
 4. It is trap 47 one layer down: there a GATE measured the wrong thing, here a BUDGET measured
    nothing at all, and both reported green.
+
+---
+
+## 29. Trap 61 — a test that needs to win a race is a test that will lose one
+
+`test_cancellation_closes_the_upstream_connection` passed eight times out of eight in isolation
+and failed once inside a full run. It asserts something true and important — cancelling a stream
+tears the upstream connection down, rather than merely hiding the tokens — and it observed that
+by having the fake peer record a `BrokenPipeError` on its next write.
+
+That observation is a race. The peer writes 200 frames of about eight bytes each in a tight loop;
+1.6 KB fits inside the socket buffer, so the peer can finish every write before the client has
+finished unwinding. No write fails, `closed_early` stays unset, and a test about CANCELLATION goes
+red for a reason about buffer sizes. Under load the peer wins more often, which is exactly why it
+only ever fails in a full suite.
+
+The fix does not weaken the assertion — it makes it stronger. The peer now stops after its first
+frame and waits on an event the test sets **only once the client has raised and unwound**, so the
+next write is guaranteed to meet a closed socket. "The connection stayed open" can now only mean
+the client genuinely failed to tear it down.
+
+**How to apply.**
+1. **If a test's observation depends on which side is scheduled first, it is a coin flip with a
+   good reputation.** Find the ordering the assertion needs and ENFORCE it with a barrier —
+   an event, a lock, a blocking read — rather than hoping for it.
+2. **Small payloads hide teardown bugs.** Anything that fits in a buffer is written whether or not
+   the peer is listening. A test that needs a write to FAIL must make sure a write actually
+   happens after the failure condition exists.
+3. **A flake that only fails in the full suite is a flake about LOAD**, and reproducing it by
+   running the test alone is how it survives for months. Reason about the mechanism instead.
+4. **Never fix this class by raising the timeout.** `wait(timeout=5)` was already generous; the
+   event was never going to be set. A longer wait would have bought a rarer failure, not a
+   correct test.

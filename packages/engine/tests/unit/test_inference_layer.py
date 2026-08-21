@@ -32,6 +32,16 @@ class Peer:
         self.headers: list[dict[str, str]] = []
         self.paths: list[str] = []
         self.closed_early = threading.Event()
+        #: Arm to make "the client hung up MID-STREAM" a fact instead of a race.
+        #:
+        #: Without it the peer writes every frame in a tight loop, and 200 small frames fit
+        #: inside the socket buffer — so whether any write raises BrokenPipe depends on which
+        #: side wins a scheduling race. Under load the peer wins, no write ever fails,
+        #: `closed_early` stays unset, and a test about CANCELLATION fails for a reason about
+        #: buffer sizes (trap 61). Armed, the peer stops after its first frame until `resume`,
+        #: which the test sets only once the client has actually torn the connection down.
+        self.hold_after_first = threading.Event()
+        self.resume = threading.Event()
 
     def body(self) -> bytes:
         if self.wire == mp.WIRE_ANTHROPIC:
@@ -83,9 +93,13 @@ def serve(peer: Peer) -> Iterator[str]:
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
                 try:
-                    for frame in peer.sse_frames():
+                    for index, frame in enumerate(peer.sse_frames()):
                         self.wfile.write(frame)
                         self.wfile.flush()
+                        if index == 0 and peer.hold_after_first.is_set():
+                            # Hold the stream open until the test says the client has gone. The
+                            # timeout is a safety net, not a wait anybody expects to expire.
+                            peer.resume.wait(timeout=10)
                 except (BrokenPipeError, ConnectionResetError):
                     peer.closed_early.set()  # the client really hung up
                 return
@@ -244,6 +258,10 @@ class TestStreamingAndCancellation:
         provider = mp.get("openai")
         peer = Peer(provider.wire)
         peer.sse = [f"chunk{i} " for i in range(200)]
+        # The peer stops after frame 0 and waits, so the client's teardown is guaranteed to
+        # happen while the response is still open. Whether a broken pipe is observed is then a
+        # fact about cancellation rather than about who won a race to the socket buffer.
+        peer.hold_after_first.set()
         cancel = threading.Event()
         with serve(peer) as base:
             received = []
@@ -257,6 +275,9 @@ class TestStreamingAndCancellation:
                 ):
                     received.append(delta)
                     cancel.set()  # cancel after the very first delta
+            # Only now — the client has raised and unwound, so the socket is gone. The peer's
+            # next write is the observation.
+            peer.resume.set()
             assert peer.closed_early.wait(timeout=5), "the upstream connection stayed open"
         assert len(received) == 1, "cancellation did not stop the stream promptly"
 
