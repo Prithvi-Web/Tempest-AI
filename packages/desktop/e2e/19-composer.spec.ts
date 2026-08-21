@@ -33,12 +33,19 @@ function git(repo: string, ...args: string[]): void {
  * changes closer together than twice its context into one hunk (trap 59) — without them this
  * fixture would quietly be half the size it claims.
  */
-function composedRepo(files: number): string {
+function composedRepo(files: number, executable = true): string {
   const repo = mkdtempSync(path.join(tmpdir(), "tempest-composer-"));
   git(repo, "init", "-b", "main");
   writeFileSync(path.join(repo, ".tempest-first-party"), "tempest-first-party-fixture-v1\n");
+  // `executable: false` changes only module-level constants — still two hunks per file, still a
+  // full set of rows, but NOTHING for the engine to run. The windowing test uses it because it
+  // is about the DOM, not about proving: with executable changes a 25-file fixture takes 24 s on
+  // a fast laptop and over four minutes on a CI runner, and the test then fails on a timeout
+  // that has nothing to do with what it is checking (trap 62).
   const body = (i: number, offset: number) =>
-    `def total_${i}(xs):\n    return sum(xs) + ${offset}\n\n\n` +
+    (executable
+      ? `def total_${i}(xs):\n    return sum(xs) + ${offset}\n\n\n`
+      : `FIRST_${i} = ${offset}\n\n\n`) +
     [0, 1, 2, 3].map((n) => `def spacer_${i}_${n}():\n    return ${n}`).join("\n\n") +
     `\n\n\nCONSTANT_${i} = ${offset}\n`;
 
@@ -106,11 +113,10 @@ test("rejecting a hunk re-proves the smaller change rather than filtering eviden
 
 test("a large changeset mounts a screenful of rows, not all of them", async ({ page }) => {
   test.slow();
-  // 25 files -> 50 hunks. The property is that the DOM holds a screenful rather than the whole
-  // list, and 50 rows against a ~14-row viewport shows that as clearly as 1000 would; the proof
-  // underneath is real, and every file added to this fixture is real execution time spent
-  // re-demonstrating something the first twenty-five already showed.
-  const repo = composedRepo(25);
+  // 25 files -> 50 hunks against a ~14-row viewport, which shows the property as clearly as 1000
+  // would. Non-executable on purpose: this test is about the DOM, and paying for 50 real proofs
+  // to look at a scrollbar is how a spec that checks rendering fails on a proof timeout instead.
+  const repo = composedRepo(25, false);
 
   await compose(page, repo);
   await expect(page.getByTestId("composer-count")).toContainText("50 hunks");

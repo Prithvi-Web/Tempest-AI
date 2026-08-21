@@ -739,7 +739,12 @@ beside it, or an empty page satisfies the whole spec (§28) ·
 61 A TEST THAT NEEDS TO WIN A RACE IS A TEST THAT WILL LOSE ONE — the cancellation test observed
 teardown via a BrokenPipe from the fake peer, but 200 small frames fit in the socket buffer, so
 under load the peer finished writing first and no write ever failed. Make the peer BLOCK until
-the fact is established rather than hoping it is (§29)** ·
+the fact is established rather than hoping it is (§29) ·
+62 A UI TEST MUST NOT PAY FOR WORK IT IS NOT CHECKING — the composer's WINDOWING spec built a
+25-file executable fixture, so looking at a scrollbar cost 50 real differential proofs: 24 s on
+this laptop, over four minutes on a CI runner, and a red `desktop` job whose failure was a
+timeout rather than a defect. Make the fixture cheap in the dimension the test is not about
+(§30)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -1544,3 +1549,32 @@ the client genuinely failed to tear it down.
 4. **Never fix this class by raising the timeout.** `wait(timeout=5)` was already generous; the
    event was never going to be set. A longer wait would have bought a rarer failure, not a
    correct test.
+
+---
+
+## 30. Trap 62 — a UI test must not pay for work it is not checking
+
+`19-composer.spec.ts`'s windowing test asks one question: does a 50-row list mount a screenful of
+DOM or all of it? It built its fixture the same way its two neighbours did — 25 files with real
+behaviour changes — so answering that question cost **fifty real differential proofs**.
+
+On this laptop: 24 s, green. On the CI macOS runner: over four minutes, and the `desktop` job went
+red on a timeout. The failure said nothing about windowing, which is the only thing the test is
+about, and `make verify` could not have predicted it because the machine was faster.
+
+The fix is not a longer timeout. The fixture now changes module-level CONSTANTS only: still 25
+files, still 50 hunks, still a full set of rows to window — and nothing for the engine to execute,
+so the proof underneath is empty. 24 s became **2.3 s**, and the whole spec file went from 31.7 s
+to 10.7 s.
+
+**How to apply.**
+1. **Ask what the test is ABOUT, then make every other dimension cheap.** A rendering test needs
+   rows, not verdicts. A verdict test needs one file, not twenty-five. The neighbours in this same
+   file keep executable fixtures because they are about the verdict column — and they use two
+   files, not twenty-five.
+2. **A test that is fast on the dev machine and slow on CI is a test whose cost you have not
+   looked at.** Wall-clock on a laptop is not evidence about a runner with fewer, slower cores.
+3. **A timeout failure is rarely a timeout problem.** Raising it would have hidden a spec that
+   spent four minutes proving something it never inspected.
+4. Sibling of trap 57: there the input budget was too LOW for the assertion; here the fixture cost
+   was too HIGH for the question. Both are "the fixture is part of the test".
