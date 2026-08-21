@@ -10,12 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 auto-caches when package.json declares a `packageManager` (ours does), and that
+          # cache step needs pnpm BEFORE `corepack enable` puts it on PATH. Off keeps v4's
+          # behaviour; the only thing this bump changes is the Node the action runs on.
+          package-manager-cache: false
       - run: corepack enable
       - run: uv sync --all-packages
       # Without node deps the six ts-sidecar bridge tests silently skip and ts_sidecar.py
@@ -67,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
       - run: uv sync --all-packages
@@ -83,9 +87,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 auto-caches when package.json declares a `packageManager` (ours does), and that
+          # cache step needs pnpm BEFORE `corepack enable` puts it on PATH. Off keeps v4's
+          # behaviour; the only thing this bump changes is the Node the action runs on.
+          package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r typecheck
@@ -98,12 +106,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 auto-caches when package.json declares a `packageManager` (ours does), and that
+          # cache step needs pnpm BEFORE `corepack enable` puts it on PATH. Off keeps v4's
+          # behaviour; the only thing this bump changes is the Node the action runs on.
+          package-manager-cache: false
       - run: corepack enable
       - run: uv sync --all-packages
       - run: pnpm install --frozen-lockfile
@@ -155,12 +167,16 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 auto-caches when package.json declares a `packageManager` (ours does), and that
+          # cache step needs pnpm BEFORE `corepack enable` puts it on PATH. Off keeps v4's
+          # behaviour; the only thing this bump changes is the Node the action runs on.
+          package-manager-cache: false
       - uses: dtolnay/rust-toolchain@stable
       - run: corepack enable
       - run: uv sync --all-packages

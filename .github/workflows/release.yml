@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
       - run: uv build --package tempest-engine --out-dir dist
@@ -33,7 +33,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
       - run: uv tool install ./packages/engine
@@ -45,12 +45,16 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 auto-caches when package.json declares a `packageManager` (ours does), and that
+          # cache step needs pnpm BEFORE `corepack enable` puts it on PATH. Off keeps v4's
+          # behaviour; the only thing this bump changes is the Node the action runs on.
+          package-manager-cache: false
       - run: corepack enable
       - run: uv sync --all-packages
       - run: pnpm install --frozen-lockfile
