@@ -35,6 +35,37 @@ grep -E "^MAKE_EXIT=" /tmp/verify.log      # read THIS line, never the task noti
 `repair_bench` · `resume_test --kill-mid-proof --sleep-mid-stream` · `retrieval_bench` ·
 `escape_suite --surface agent-terminal` · `redteam --injection` · `mcp_check`.
 
+### CI was RED on the first push of this work — one defect, 37 symptoms (ADR-0058, trap 56)
+
+**Fixed, and the gate that missed it is fixed too.** `make verify` was green on macOS while
+`ci / python` failed on Linux with **37 failures and coverage at 99.44%**. Every one of them read
+`verdict=UNPROVEN, divergences=()` — not a wrong answer, *no* answer: nothing had been executed.
+
+Eleven fixture builders created `.tempest-first-party` and wrote an **empty string** into it. The
+trusted ProcessSandbox needs the marker's CONTENTS to match, so all eleven were classified as USER
+repositories and sent down the tier ladder — and **the ladder fails differently on every machine**:
+
+| Machine | Rung | What happened |
+|---|---|---|
+| this Mac | T2 Seatbelt | it **worked** — 12 commits green under a backend no fixture ever chose |
+| `ubuntu-latest` | **T1 Docker** | `docker info` succeeds so T1 is picked, and **nothing in this repo builds `tempest-sandbox:latest`** — the container never starts, nothing executes |
+| neither available | none | refused by Law L6 — the honest failure |
+
+T1 rather than "no tier" is **measured**: on that same red run
+`test_doctor_json_is_machine_readable` asserts `tier in ("T1","T2")` and passed, and T2 is
+macOS-only. (Trap 22 already said ubuntu runners ship a live Docker; nobody had joined that to the
+image never being built.)
+
+`mark_first_party` now writes the marker **and asserts that the selection actually changed**, on
+every OS, so macOS cannot hide this again. `make verify-linux-denominator` additionally exports
+`TEMPEST_NO_SEATBELT=1` — it used to reproduce Linux's test SET but not Linux's ENVIRONMENT. That
+flag forces the ladder to its weakest rung, which is not a copy of the runner's failure but a
+**strict superset** of it. **Run it before every push:**
+
+```bash
+make verify-linux-denominator          # the Linux CI python job, simulated on this machine
+```
+
 ### Two open items, deliberately, and neither is hidden
 
 1. **`preflight` is not wired into the turn loop.** L21 says *"cost is visible BEFORE it is
@@ -144,7 +175,8 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 
 ```
 MAKE_EXIT=0 — "verify: all live steps green"
-pytest      1753 passed · TOTAL 8137 stmts 0 miss, 2352 branch 0 partial — 100.00%
+pytest      1830 passed · TOTAL 8451 stmts 0 miss, 2428 branch 0 partial — 100.00%
+corpus_check 30/30 stable across 5 consecutive replays · redaction_check 24/24 contained
 agent_bench 55/55 · intent_bench 54/54, 0 false INTENDED
 repair_bench 22/28 (79%), 11/11 cheats refused, 0 miscounted
 resume_test 15/15 · retrieval_bench 40/40, 15/15 grounded, p95 0.2 ms
@@ -152,9 +184,28 @@ escape_suite --surface agent-terminal 27/27 · redteam 30/30 · mcp_check 16/16
 vitest 86 + 27 · Playwright 48 · contract drift-free · mypy --strict clean on both platform views
 ```
 
-*(The pytest and coverage figures above are from the `make verify` on `0c64a0c`. The three gates
-added after it — escape-suite-on-the-terminal, redteam, mcp_check — were each run and recorded at
-the commit that added them; the run in flight at hand-off covers all of it together.)*
+*(Every figure above is from ONE `make verify` run, taken after the ADR-0058 fix — not assembled
+from several commits, which is what the previous version of this block had to admit to.)*
+
+**And the same tree re-measured on the LINUX run — the one that was red:**
+
+```
+make verify-linux-denominator                       EXIT=0
+pytest      1823 passed · 1 skipped · 6 deselected
+coverage    TOTAL 8451 stmts 0 miss, 2428 branch 0 partial — 100.00%
+```
+
+**And the eight agent gates, re-run because five of their harnesses moved from Seatbelt to the
+trusted ProcessSandbox — every number unchanged, which is the point:**
+
+```
+./scripts/agent-gates.sh                            EXIT=0 · 8/8 gates exit 0
+agent_bench   55/55 verdicts backed by a bundle (100%, required 100%)
+intent_bench  54/54 correct (100%, required 90%) · false INTENDED 0 (required 0)
+repair_bench  22/28 genuine repairs (79%, required 60%) · 11/11 cheats refused · 0 miscounted
+resume_test   15/15 · retrieval_bench 40/40 cited, 15/15 grounded, p95 0.2 ms
+escape_suite  27/27 contained on T2 · redteam 30/30 · mcp_check 16/16
+```
 
 - **`make perf-gate` is GREEN** (ADR-0047), and the cold-launch caveat in §1a still stands: it
   passed by 0.57 points against a baseline that records no conditions of its own. **Never
@@ -644,7 +695,12 @@ deps-attached baseline against a deps-less shadow, so every changed file with a 
 was a "cheat"; being differential is not enough if the two worlds differ (§22) ·
 55 A DOCSTRING CAN PROMISE A PARAMETER THAT DOES NOT EXIST — "bounded … when a `Meter` is supplied"
 sat above a `TaskSpec` with no meter field for a whole phase, through two multi-agent reviews and
-every gate, because nothing reads a docstring against the type beside it (§23)** ·
+every gate, because nothing reads a docstring against the type beside it (§23) ·
+56 A MARKER FILE'S EXISTENCE IS NOT ITS CONTENTS, AND ONE OS CAN HIDE THE DIFFERENCE — eleven
+fixture builders wrote `.tempest-first-party` EMPTY, so every fixture repository was classified as
+a USER repo and sent down the tier ladder; macOS hands that ladder a working Seatbelt, the ubuntu
+runner hands it a Docker whose image nothing builds, and 37 tests came back UNPROVEN the first
+time they ran there (§24)** ·
 39 a tag is a claim too** — `v1.0.0` shipping `0.2.0` artifacts got past a rehearsed release
 workflow because the rehearsal proved the JOBS, never the NAME. Assert tag == version in the
 release job itself.
@@ -1254,3 +1310,49 @@ true-sounding claim. It was found by accident, reading the cost meter for anothe
    auditing item by item, because a list is where an item hides. Four of those five were real.
 3. This is trap 45's sibling. Trap 45 is a guard whose ARGUMENT is not a proof of the guard; this
    is a guard that does not exist at all, described in the present tense.
+
+---
+
+## 24. Trap 56 — a marker file's EXISTENCE is not its CONTENTS, and one OS can hide the difference
+
+Twelve commits went up with `make verify` green — 1753 tests, 100% coverage, eight agent gates.
+Linux CI failed **37 of them at once**, every failure reading:
+
+> `verdict=<Verdict.UNPROVEN>`, `divergences=()`
+
+Eleven fixture builders wrote `.tempest-first-party` **empty**. Selecting the trusted
+ProcessSandbox needs `TEMPEST_DEV=1` **and** a marker whose *contents* match; the file existing is
+not one of the conditions. So all eleven were treated as user repositories and sent down the tier
+ladder — and the ladder is a different machine on every machine. macOS always has T2 Seatbelt, so
+they ran under it and passed. The ubuntu runner picked T1 Docker (measured: `doctor`'s
+`tier in ("T1","T2")` assertion passed on the same red run, and T2 is macOS-only) — and nothing in
+this repository builds `tempest-sandbox:latest`, so the container never started and not one input
+was ever executed.
+
+A review had already caught this exact mistake in ONE module and named it trap 47. That module was
+fixed; the eleven other builders of the same shape were never grepped for.
+
+**How to apply.**
+1. **When a fixture asks for a mode, make the fixture ASSERT it got it.** `mark_first_party` now
+   writes the marker and then checks `select_sandbox_for_repo`, so the failure is loud on every
+   OS. An environment variable in a Makefile is defence in depth; this is the guard.
+2. **A defect found in one instance of a pattern is a defect in the pattern.** Before closing it,
+   `grep` for every other site that does the same thing. Eleven of twelve here were missed by
+   stopping at the first one.
+3. **Simulating CI's test SET is not simulating CI's ENVIRONMENT.**
+   `make verify-linux-denominator` deselected the macOS-only tests and still ran with Seatbelt
+   underneath it. It now exports `TEMPEST_NO_SEATBELT=1` — not a copy of the runner's failure (a
+   Mac cannot have Docker-with-no-image) but a strict superset of it.
+7. **A simulation flag must not reach the tests that report on THIS machine.** `doctor` says what
+   the machine it runs on can do; under an inherited `TEMPEST_NO_SEATBELT=1` its three healthy-machine
+   tests asserted that a Mac with a working Seatbelt has no sandbox. They now clear the flag; the
+   fourth, which wants a tier-less machine, sets it itself.
+4. **A degrade that lands on a STRONGER backend is still a silent degrade.** Nothing was unsafe
+   here; the tests simply never measured the thing they claimed to. Fail-safe is not fail-loud.
+5. **An autouse fixture must not share the test's `monkeypatch`** if any test calls
+   `monkeypatch.undo()` — `undo()` reverts everything on that object, the fixture's setup
+   included. Give the fixture a `pytest.MonkeyPatch.context()` of its own.
+6. **`try/finally` env restoration that writes a GUESS is a leak.** A `finally` that sets
+   `TEMPEST_DEV=1` "back" and deletes `TEMPEST_NO_SEATBELT` outright destroys the state of every
+   test after it. `monkeypatch` restores what was actually there; hand-written teardown restores
+   what someone assumed was there.

@@ -70,7 +70,12 @@ from tempest.targets.ts_sidecar import (
     ts_value_pools,
 )
 
-_FIRST_PARTY_MARKER = "tempest-first-party-fixture-v1"
+# The CONTENTS a `.tempest-first-party` file must carry, not merely its existence. Public
+# because every fixture builder in the tree needs to write exactly this — a marker file
+# whose bytes are retyped by hand is a marker file that eventually says nothing, and a
+# repository that is silently not first-party degrades to the tier ladder without a word
+# (ADR-0058).
+FIRST_PARTY_MARKER = "tempest-first-party-fixture-v1"
 
 
 @dataclass(frozen=True)
@@ -114,7 +119,7 @@ def select_sandbox_for_repo(repo: Path) -> SandboxSelection:
     marker = repo / ".tempest-first-party"
     if (
         marker.exists()
-        and marker.read_text(encoding="utf-8").strip() == _FIRST_PARTY_MARKER
+        and marker.read_text(encoding="utf-8").strip() == FIRST_PARTY_MARKER
         and os.environ.get("TEMPEST_DEV") == "1"
     ):
         return SandboxSelection(

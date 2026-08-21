@@ -3122,3 +3122,110 @@ different cap.
 **Still not done, and not claimed:** `preflight` — L21's *"cost is visible BEFORE it is spent"* —
 is implemented in the meter and is not wired into the turn loop, so a user is not yet shown an
 estimate before an expensive task. That belongs with the agent's UI surface, which does not exist.
+
+---
+
+## ADR-0058 — A marker file that was created but never written (2026-08-20)
+
+**Status:** accepted · fixes the first Linux CI run the Phase 21–23 test suite ever had
+
+Twelve commits — Phases 21, 22 and the first half of 23 — were pushed together. `make verify` was
+green on the author's Mac: 1753 tests, 100% coverage, eight agent gates. CI's `python` job came
+back with **37 failures and coverage at 99.44%**, and every single failure said the same thing:
+
+> `verdict=<Verdict.UNPROVEN>`, `divergences=()`
+
+Not a wrong answer. **No answer at all** — nothing had been executed.
+
+### The cause
+
+`select_sandbox_for_repo` treats a repository as a trusted first-party fixture when **two**
+conditions hold: `TEMPEST_DEV=1`, and a `.tempest-first-party` file whose **contents** equal
+`FIRST_PARTY_MARKER`. Eleven fixture builders created that file and wrote **an empty string** into
+it. The file's *existence* is not one of the two conditions, so all eleven were classified as
+**user repositories** and sent down the tier ladder instead: T1 Docker → T2 Seatbelt → nothing.
+
+**The ladder fails differently on every machine, and only one of the ways is quiet.**
+
+| Machine | Rung | What happened |
+|---|---|---|
+| the author's Mac | T2 Seatbelt | it **worked** — 12 commits of green, under a backend no fixture ever chose |
+| `ubuntu-latest` | **T1 Docker** | `docker info` succeeds, so T1 is selected — and **nothing in this repository builds `tempest-sandbox:latest`**, so the container never starts and nothing executes |
+| a machine with neither | none | refused outright by Law L6 — the honest failure |
+
+That the runner selected **T1 and not "no tier"** is measured, not assumed: on the same red run,
+`test_doctor_json_is_machine_readable` asserts `payload["sandbox"]["tier"] in ("T1", "T2")` and
+**passed**. T2 is macOS-only, so the runner had T1. (Trap 22 already recorded that ubuntu runners
+ship a live Docker; nothing had connected that fact to the image never being built.)
+
+Every proof therefore came back `UNPROVEN` with an empty divergence list, and the repair loop —
+which only runs when something diverged — never executed, taking 125 lines of `orchestrator.py`
+out of the coverage denominator with it. **One defect, 37 symptoms, two gate failures.**
+
+The eleven were the six agent/MCP integration modules and the five gate harnesses in
+`tempest/dev/`. `_agent_corpus.py` wrote the empty marker directly under a comment reading *"Marks
+the repo first-party so the trusted ProcessSandbox is used (ADR-0008) … Docker is not available in
+every CI leg"* — the intent was recorded correctly and the line beneath it did not carry it out.
+
+### The near-miss that should have ended it
+
+A review had already caught this exact mistake once, in `test_agent_load_check.py`, and named it
+trap 47 — *a fixture that does not establish the condition it names is a test measuring something
+else*. That module was fixed. **The other eleven builders of the same shape were never looked at**,
+and the fixture's docstring went on describing the empty marker as the state of the tree. Finding
+a defect in one instance of a pattern and not grepping for the pattern is how one bug becomes
+thirty-seven.
+
+### What was built
+
+- `FIRST_PARTY_MARKER` is now **public** in `tempest.prove`. A marker whose bytes are retyped by
+  hand is a marker that eventually says nothing.
+- `tempest/dev/_first_party.py::mark_first_party` writes the marker **and then calls
+  `select_sandbox_for_repo` and refuses, on every platform, if the selection did not change**. It
+  lives in shipped dev tooling rather than the test tree for the same reason `_fake_peer` does —
+  the gate harnesses are shipped modules and cannot import from tests — and
+  `tests/helpers_first_party.py` is a thin alias over it. This, not the environment variable, is
+  the primary guard: it fires in every run on every OS, including the macOS run that hid the
+  original.
+- All twelve fixture builders (the eleven plus `test_agent_load_check.py`) now call it.
+- Each of the six test modules sets `TEMPEST_DEV=1` **itself**, rather than inheriting it from
+  whatever the ambient shell exported, so running one module alone measures what CI measures.
+
+### Two defects found while fixing it, both in the fix
+
+Recorded because a fix that introduces bugs quietly is worse than the bug it replaces.
+
+1. **The first `_dev` fixture used the test's own `monkeypatch`.** Five resume tests call
+   `monkeypatch.undo()` to drop a `run_prove` patch mid-test — which also dropped the fixture's
+   `TEMPEST_DEV`, so the *resumed* proof fell back to the ladder and two tests failed in a new way.
+   The fixture now holds a `pytest.MonkeyPatch.context()` of its own. In CI this would never have
+   shown: `undo()` restores the prior value, and in CI the prior value is `1`.
+2. **`test_prove_without_sandbox_is_unproven_never_unsandboxed` restored a guess.** Its `finally`
+   set `TEMPEST_DEV=1` whatever it had been and *deleted* `TEMPEST_NO_SEATBELT` outright, so any
+   run that exported `TEMPEST_NO_SEATBELT=1` had it silently switched off from that test onward.
+   It now uses `monkeypatch`, which restores what was actually there.
+
+### The gate
+
+`make verify-linux-denominator` already deselected the macOS-only tests to reproduce Linux's test
+**set**. It did not reproduce Linux's **environment**: the run still had Seatbelt underneath it. It
+now exports `TEMPEST_NO_SEATBELT=1`, forcing the ladder to its weakest rung. That is deliberately
+**not** a byte-faithful copy of the runner's failure — a Mac cannot have Docker-with-no-image — but
+a **strict superset** of it: anything that needs any rung of the ladder now fails on the laptop,
+first and loudly.
+
+Two tests had to be told which machine they are about, and the distinction is the point:
+
+- `test_wheels_prove_under_t2_seatbelt` **skips** under the flag. Its subject is T2; a T2-less run
+  has nothing to say about it.
+- The three `doctor` tests **clear** the flag. `doctor` reports on *the machine it runs on*, so a
+  simulation of another machine must not reach it — otherwise they assert that a Mac with a working
+  Seatbelt has no sandbox, which is a faithful report about a machine that does not exist. The
+  fourth doctor test, the one that *wants* a tier-less machine, sets both flags itself; that is
+  where the decision belongs.
+
+### What is not claimed
+
+**No product behaviour changed.** The engine's only edits are a constant made public and a comment;
+the sandbox ladder, the verdicts and the laws are untouched. The 37 tests were always wrong about
+which backend they were exercising — they now say so instead of finding out on a different OS.

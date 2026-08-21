@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ import pytest
 from tempest.agent import contracts as contracts_mod
 from tempest.mcp import server as server_mod
 from tempest.mcp.protocol import METHOD_NOT_FOUND, Request, RpcError
+
+from ..helpers_first_party import mark_first_party
 
 _BASE = "def total(xs):\n    return sum(xs)\n"
 _DIVERGENT = "def total(xs):\n    return sum(xs) + 1\n"
@@ -52,7 +55,7 @@ def _repo(tmp_path: Path, head: str) -> tuple[Path, str, str]:
     repo.mkdir()
     _git(repo, "init", "-b", "main")
     (repo / "app.py").write_text(_BASE, encoding="utf-8")
-    (repo / ".tempest-first-party").write_text("", encoding="utf-8")
+    mark_first_party(repo)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "base")
     base = _git(repo, "rev-parse", "HEAD")
@@ -70,9 +73,17 @@ def _call(name: str, **arguments: Any) -> dict[str, Any]:
 
 
 @pytest.fixture(autouse=True)
-def _dev(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TEMPEST_DEV", "1")
-    monkeypatch.setenv("TEMPEST_NO_POWER_PAUSE", "1")
+def _dev() -> Iterator[None]:
+    """Half of what makes the fixture repository first-party (ADR-0008); `mark_first_party`
+    writes the other half and checks that both took. Set HERE rather than inherited from the
+    ambient shell, so this module measures the same backend on its own that it does in CI — and
+    on a MonkeyPatch of its OWN, because a test that calls `monkeypatch.undo()` to drop its own
+    patch would otherwise silently drop this one with it (which is precisely how the resume
+    tests lost the marker and fell back to the tier ladder mid-test)."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TEMPEST_DEV", "1")
+        mp.setenv("TEMPEST_NO_POWER_PAUSE", "1")
+        yield
 
 
 class TestTheSurface:

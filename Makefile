@@ -13,11 +13,23 @@ sync:
 	uv sync --all-packages
 	pnpm install --frozen-lockfile
 
-# The LINUX coverage denominator, simulated locally (traps 15/21): the exact suite Linux CI
-# runs (macOS-only tests deselected) must also reach 100%. Run before pushing coverage-heavy
-# changes; CI's python job is this run on real Linux.
+# The LINUX run, simulated locally (traps 15/21/56): the exact suite Linux CI runs (macOS-only
+# tests deselected) must also reach 100%. Run before pushing. CI's python job is this run on real
+# Linux.
+#
+# TEMPEST_NO_SEATBELT=1 is the half that was missing, and it cost thirty-seven tests (ADR-0058).
+# The target simulated Linux's test SET but not Linux's ENVIRONMENT: a macOS run still had T2
+# Seatbelt underneath it, so a fixture that quietly needed a sandbox tier passed here and then
+# executed NOTHING on the runner, where the ladder picks T1 Docker and no `tempest-sandbox:latest`
+# image is ever built. This flag forces the ladder to its weakest rung — no tier at all — which is
+# not a byte-faithful copy of CI's failure but a STRICT SUPERSET of it: anything that needs any
+# rung of the ladder fails here first, loudly, on a laptop.
+#
+# This is defence in depth, not the primary guard: `mark_first_party` asserts that each fixture
+# repository actually selected the trusted backend, and that fires in every run on every OS.
 verify-linux-denominator:
-	TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 uv run pytest packages/engine packages/api -q --cov \
+	TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 TEMPEST_NO_SEATBELT=1 \
+		uv run pytest packages/engine packages/api -q --cov \
 		--deselect packages/engine/tests/integration/test_escape_suite.py \
 		--deselect "packages/engine/tests/unit/test_report_and_cli.py::TestCliProve::test_user_repo_runs_under_t2_seatbelt_on_macos" \
 		--deselect "packages/engine/tests/unit/test_fix_exec_kill_discipline.py::TestRunnerKill::test_kill_of_an_exited_unreaped_child_falls_back_to_direct_kill" \

@@ -34,6 +34,7 @@ from typing import Any
 from tempest.agent import contracts as contracts_mod
 from tempest.agent.orchestrator import TaskSpec, run_task
 from tempest.dev._fake_peer import FakeAnthropic, fake_anthropic_server
+from tempest.dev._first_party import mark_first_party
 from tempest.inference.providers import get
 
 _BASE = "def total(xs):\n    return sum(xs)\n"
@@ -106,7 +107,7 @@ def _repo(root: Path, planted: str) -> Path:
     # The hostile text, sitting in the repository where an agent will read it — a vendored
     # README, a docstring, a comment in generated code. This is the retrieval channel.
     (repo / "NOTES.md").write_text(f"# Notes\n\n{planted}\n", encoding="utf-8")
-    (repo / ".tempest-first-party").write_text("", encoding="utf-8")
+    mark_first_party(repo)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "base")
     contracts_mod.save(

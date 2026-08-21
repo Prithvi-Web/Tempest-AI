@@ -12,6 +12,7 @@ broken one · no sandbox tier at all · a sandbox refusal that carries no reason
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,8 @@ import pytest
 from tempest.agent import shadow as shadow_mod
 from tempest.agent.orchestrator import TaskSpec, _modules_that_stopped_loading
 from tempest.execute.sandbox import SandboxSelection
-from tempest.prove import _FIRST_PARTY_MARKER
+
+from ..helpers_first_party import mark_first_party
 
 
 def _git(repo: Path, *args: str) -> None:
@@ -45,24 +47,28 @@ def repo(tmp_path: Path) -> Path:
     _git(root, "init", "-b", "main")
     (root / "app.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
     (root / "notes.txt").write_text("hello\n", encoding="utf-8")
-    (root / ".tempest-first-party").write_text(_FIRST_PARTY_MARKER, encoding="utf-8")
+    mark_first_party(root)
     _git(root, "add", "-A")
     _git(root, "commit", "-m", "base")
     return root
 
 
 @pytest.fixture(autouse=True)
-def _dev_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+def _dev_marker() -> Iterator[None]:
     """Select the trusted ProcessSandbox for these fixture repos.
 
     TWO things are required and the first draft of this fixture set only one of them: the env var
-    AND a marker file whose CONTENTS match `_FIRST_PARTY_MARKER`. The empty marker the repo
-    fixture writes does not match, so without this the selection fell through to the tier ladder
-    and the tests were exercising whatever backend the machine happened to offer. A review caught
-    it: a fixture that does not establish the condition it names is a test measuring something
-    else (trap 47).
+    AND a marker file whose CONTENTS match `FIRST_PARTY_MARKER`. A review caught it here first
+    (trap 47) — a fixture that does not establish the condition it names is a test measuring
+    something else — but the fix was applied only to this module, and the other eleven fixture
+    builders kept writing an EMPTY marker until Linux CI failed thirty-seven of them at once
+    (ADR-0058, trap 56). `mark_first_party` now writes the marker AND checks that it took.
+
+    On a MonkeyPatch of its own, so a test that calls `monkeypatch.undo()` cannot drop it.
     """
-    monkeypatch.setenv("TEMPEST_DEV", "1")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TEMPEST_DEV", "1")
+        yield
 
 
 def _spec(repo: Path) -> TaskSpec:
@@ -160,7 +166,7 @@ class TestOnlyWhatTheAGENTBroke:
         (root / "app.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
         # Broken BEFORE the agent ever ran, and committed that way.
         (root / "legacy.py").write_text("import a_dependency_nobody_has\n", encoding="utf-8")
-        (root / ".tempest-first-party").write_text(_FIRST_PARTY_MARKER, encoding="utf-8")
+        mark_first_party(root)
         _git(root, "add", "-A")
         _git(root, "commit", "-m", "base")
 
@@ -175,7 +181,7 @@ class TestOnlyWhatTheAGENTBroke:
         root.mkdir()
         _git(root, "init", "-b", "main")
         (root / "app.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
-        (root / ".tempest-first-party").write_text(_FIRST_PARTY_MARKER, encoding="utf-8")
+        mark_first_party(root)
         _git(root, "add", "-A")
         _git(root, "commit", "-m", "base")
 
@@ -193,7 +199,7 @@ class TestOnlyWhatTheAGENTBroke:
         (root / "app.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
         (root / "generated.py").write_text("X = 1\n", encoding="utf-8")
         (root / "tempest.toml").write_text('[ignore]\nglobs = ["generated.py"]\n', encoding="utf-8")
-        (root / ".tempest-first-party").write_text(_FIRST_PARTY_MARKER, encoding="utf-8")
+        mark_first_party(root)
         _git(root, "add", "-A")
         _git(root, "commit", "-m", "base")
 
@@ -223,7 +229,7 @@ class TestTheTwoProbesSeeTheSameWORLD:
             '[project]\nname = "demo"\nversion = "0.1.0"\n', encoding="utf-8"
         )
         (root / "app.py").write_text("def total(xs):\n    return sum(xs)\n", encoding="utf-8")
-        (root / ".tempest-first-party").write_text(_FIRST_PARTY_MARKER, encoding="utf-8")
+        mark_first_party(root)
         _git(root, "add", "-A")
         _git(root, "commit", "-m", "base")
         return root

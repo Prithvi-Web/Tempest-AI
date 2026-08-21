@@ -21,6 +21,7 @@ edit is behaviour-preserving · the edit is divergent.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from tempest.inference.providers import get
 from tempest.model import Verdict
 
 from ..helpers_fake_anthropic import FakeAnthropic, fake_anthropic_server
+from ..helpers_first_party import mark_first_party
 
 _BASE = "def total(xs):\n    return sum(xs)\n"
 
@@ -53,13 +55,26 @@ def _git(repo: Path, *args: str) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def _dev() -> Iterator[None]:
+    """Half of what makes the fixture repository first-party (ADR-0008); `mark_first_party`
+    writes the other half and checks that both took. Set HERE rather than inherited from the
+    ambient shell, so this module measures the same backend on its own that it does in CI — and
+    on a MonkeyPatch of its OWN, because a test that calls `monkeypatch.undo()` to drop its own
+    patch would otherwise silently drop this one with it (which is precisely how the resume
+    tests lost the marker and fell back to the tier ladder mid-test)."""
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("TEMPEST_DEV", "1")
+        yield
+
+
 @pytest.fixture
-def repo(tmp_path: Path) -> Path:
+def repo(tmp_path: Path, _dev: None) -> Path:
     root = tmp_path / "repo"
     root.mkdir()
     _git(root, "init", "-b", "main")
     (root / "app.py").write_text(_BASE, encoding="utf-8")
-    (root / ".tempest-first-party").write_text("", encoding="utf-8")
+    mark_first_party(root)
     _git(root, "add", "-A")
     _git(root, "commit", "-m", "base")
     return root

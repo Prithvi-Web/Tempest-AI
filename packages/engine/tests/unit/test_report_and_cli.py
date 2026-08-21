@@ -144,30 +144,21 @@ class TestCliProve:
         assert "generator" in result.output
         assert "NOT PROVEN" in result.output
 
-    def test_prove_without_sandbox_is_unproven_never_unsandboxed(self, tmp_path: Path) -> None:
+    def test_prove_without_sandbox_is_unproven_never_unsandboxed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # monkeypatch, not a hand-written finally: the old one RESTORED A GUESS — it set
+        # TEMPEST_DEV=1 whatever it had been and DELETED TEMPEST_NO_SEATBELT outright, so a run
+        # that exports TEMPEST_NO_SEATBELT=1 to simulate a tier-less Linux had it silently
+        # switched back off from this test onwards (ADR-0058).
         repo = _micro_repo(tmp_path, marker=False)
-        os.environ.pop("TEMPEST_DEV", None)
-        os.environ["TEMPEST_DOCKER"] = "/nonexistent/docker"  # deterministic on Docker-equipped CI
-        os.environ["TEMPEST_NO_SEATBELT"] = "1"  # force past T2 to reach the genuine no-tier path
-        try:
-            result = runner.invoke(
-                app,
-                [
-                    "prove",
-                    "--base",
-                    "base",
-                    "--head",
-                    "head",
-                    "--repo",
-                    str(repo),
-                    "--max-inputs",
-                    "6",
-                ],
-            )
-        finally:
-            os.environ["TEMPEST_DEV"] = "1"
-            del os.environ["TEMPEST_DOCKER"]
-            del os.environ["TEMPEST_NO_SEATBELT"]
+        monkeypatch.delenv("TEMPEST_DEV", raising=False)
+        monkeypatch.setenv("TEMPEST_DOCKER", "/nonexistent/docker")  # deterministic on CI
+        monkeypatch.setenv("TEMPEST_NO_SEATBELT", "1")  # force past T2 to the genuine no-tier path
+        result = runner.invoke(
+            app,
+            ["prove", "--base", "base", "--head", "head", "--repo", str(repo), "--max-inputs", "6"],
+        )
         assert result.exit_code == 0, result.output
         assert "UNPROVEN" in result.output
         assert "SANDBOX_UNAVAILABLE" in result.output

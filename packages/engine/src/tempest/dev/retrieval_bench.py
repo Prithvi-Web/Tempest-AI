@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from tempest.dev._first_party import mark_first_party
 from tempest.dev._retrieval_corpus import FILES
 from tempest.index import query
 from tempest.index.build import build_index
@@ -163,7 +164,7 @@ def make_repo(root: Path) -> Path:
     repo.mkdir(parents=True)
     for name, body in FILES:
         (repo / name).write_text(body, encoding="utf-8")
-    (repo / ".tempest-first-party").write_text("", encoding="utf-8")
+    mark_first_party(repo)
     _git(repo, "init", "-b", "main")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "fixture")

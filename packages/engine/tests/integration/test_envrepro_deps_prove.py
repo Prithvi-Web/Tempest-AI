@@ -8,6 +8,7 @@ proven through full `run_prove` — keyless, offline, hermetic (local wheelhouse
     the uv cache), the same repo proves DIVERGENT.
 """
 
+import os
 import subprocess
 import zipfile
 from pathlib import Path
@@ -153,6 +154,11 @@ class TestUnderTheRealSandbox:
 
         if _sys.platform != "darwin" or shutil.which("sandbox-exec") is None:
             pytest.skip("Seatbelt is macOS-only; the Linux T1 leg is CI's")
+        if os.environ.get("TEMPEST_NO_SEATBELT") == "1":
+            # `make verify-linux-denominator` forces the ladder past T2 so a macOS run cannot
+            # hide a fixture that quietly needs a tier Linux does not have (ADR-0058). This test
+            # is ABOUT T2, so a T2-less run has nothing to say about it.
+            pytest.skip("TEMPEST_NO_SEATBELT=1 forces past the tier this test exists to check")
         monkeypatch.delenv("TEMPEST_DEV", raising=False)
         monkeypatch.setenv("TEMPEST_DOCKER", "/nonexistent/docker")  # force past T1 to T2
         monkeypatch.setenv("UV_NO_INDEX", "1")

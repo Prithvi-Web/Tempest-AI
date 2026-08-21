@@ -25,6 +25,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+from tempest.dev._first_party import mark_first_party
+
 _BASE = "def total(xs):\n    return sum(xs)\n"
 #: A real behaviour change — what an agent must be told about.
 _DIVERGENT = "def total(xs):\n    return sum(xs) + 1\n"
@@ -96,7 +98,7 @@ def _repo(root: Path, head_source: str) -> tuple[Path, str, str]:
     repo.mkdir(parents=True)
     _git(repo, "init", "-b", "main")
     (repo / "app.py").write_text(_BASE, encoding="utf-8")
-    (repo / ".tempest-first-party").write_text("", encoding="utf-8")
+    mark_first_party(repo)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "base")
     base = _git(repo, "rev-parse", "HEAD")

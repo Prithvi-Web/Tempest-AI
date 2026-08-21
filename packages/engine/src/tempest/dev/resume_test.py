@@ -43,6 +43,7 @@ from tempest.agent import turnlog as turnlog_mod
 from tempest.agent.orchestrator import TaskAlreadyFinished, TaskSpec, run_task
 from tempest.bundle.bundle import read_bundle, run_verdict
 from tempest.dev._fake_peer import FakeAnthropic, fake_anthropic_server
+from tempest.dev._first_party import mark_first_party
 from tempest.inference.providers import get
 
 #: Wide enough that the proof takes seconds rather than milliseconds — the kill has to land
@@ -88,7 +89,7 @@ def _make_repo(root: Path) -> Path:
     repo.mkdir(parents=True)
     _git(repo, "init", "-b", "main")
     (repo / "app.py").write_text(_BASE, encoding="utf-8")
-    (repo / ".tempest-first-party").write_text("", encoding="utf-8")
+    mark_first_party(repo)
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "base")
     return repo

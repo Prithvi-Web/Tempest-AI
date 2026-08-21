@@ -30,6 +30,7 @@ from typing import Any
 
 from tempest.agent import contracts as contracts_mod
 from tempest.agent.orchestrator import AgentRun, TaskSpec, run_task
+from tempest.dev._first_party import mark_first_party
 from tempest.inference.providers import get
 
 _SUM = "def total(xs):\n    return sum(xs)\n"
@@ -774,7 +775,7 @@ def _repo_for(case: TaskCase) -> Iterator[Path]:
             extra.write_text(body, encoding="utf-8")
         # Marks the repo first-party so the trusted ProcessSandbox is used (ADR-0008). These are
         # our own fixtures, not user code, and Docker is not available in every CI leg.
-        (root / ".tempest-first-party").write_text("", encoding="utf-8")
+        mark_first_party(root)
         _git(root, "add", "-A")
         _git(root, "commit", "-m", "base")
         if case.has_contract:
