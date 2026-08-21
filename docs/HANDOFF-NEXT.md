@@ -177,19 +177,34 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 
 ```
 MAKE_EXIT=0 — "verify: all live steps green"
-pytest      1924 passed · TOTAL 9012 stmts 0 miss, 2586 branch 0 partial — 100.00%
+pytest      1936 passed · TOTAL 9070 stmts 0 miss, 2590 branch 0 partial — 100.00%
 corpus_check 30/30 stable across 5 consecutive replays · redaction_check 24/24 contained
 agent_bench 55/55 · intent_bench 54/54, 0 false INTENDED
 repair_bench 22/28 (79%), 11/11 cheats refused, 0 miscounted
 resume_test 15/15 · subagent_bench 13/13 · retrieval_bench 40/40, 15/15 grounded, p95 0.2 ms
 escape_suite --surface agent-terminal 27/27 · redteam 35/35 (four channels) · mcp_check 16/16
 mcp_client_check 11/11 · compose_bench 11/11 (toggle 617 ms vs 4230 ms full, 6.9x)
+desktop     86 unit · 51 e2e · composer @bench: 1000 hunks, 23 rows mounted,
+            render 6.7 ms (budget 300) · scroll p95 0.1 ms (budget 16.7)
 vitest 86 + 27 · Playwright 48 · contract drift-free · mypy --strict clean on both platform views
 ```
 
-*(Every figure above is from ONE `make verify` run on `b8b2028`, after ADR-0058 through
-ADR-0061 — not assembled from several commits, which is what an earlier version of this block
-had to admit to.)*
+*(Every figure above is from ONE `make verify` run, after ADR-0058 through ADR-0062. Its only
+red step was `verify-contract`, red because that run's own regenerated `bindings.ts` was not yet
+committed — the documented "uncommitted regen" case; re-run after committing: exit 0, tree clean.)*
+
+```
+make verify-linux-denominator   EXIT=0
+1929 passed · 1 skipped · 6 deselected — 9070 stmts 0 miss, 2590 branch 0 partial — 100.00%
+```
+
+**The app is rebuilt and installed from THIS work** — `/Applications/Tempest.app`, 0.2.0, built
+2026-08-21. `build-server.sh` (26M sidecar) → `parity --cli-vs-desktop` byte-identical →
+`pnpm tauri build` (37M) → ditto to /Applications → `orphan_check` 1.6 s against a 15 s bar.
+`composeChange`, `compose_change`, `subagent` and `mcp_client_check` are all present in the
+shipped binaries, so the bundle really is today's code. **The composer is the first Phase 21–23
+feature to reach the screen; there is still no agent surface (no chat panel, no agent runs from
+the UI) — that is Phase 26+.**
 
 **And the same tree re-measured on the LINUX run — the one that was red:**
 
