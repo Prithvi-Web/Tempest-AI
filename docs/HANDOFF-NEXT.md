@@ -177,17 +177,19 @@ pasting real gate output** — and never weaken a gate to make it pass (v2 failu
 
 ```
 MAKE_EXIT=0 — "verify: all live steps green"
-pytest      1830 passed · TOTAL 8451 stmts 0 miss, 2428 branch 0 partial — 100.00%
+pytest      1924 passed · TOTAL 9012 stmts 0 miss, 2586 branch 0 partial — 100.00%
 corpus_check 30/30 stable across 5 consecutive replays · redaction_check 24/24 contained
 agent_bench 55/55 · intent_bench 54/54, 0 false INTENDED
 repair_bench 22/28 (79%), 11/11 cheats refused, 0 miscounted
-resume_test 15/15 · retrieval_bench 40/40, 15/15 grounded, p95 0.2 ms
-escape_suite --surface agent-terminal 27/27 · redteam 30/30 · mcp_check 16/16
+resume_test 15/15 · subagent_bench 13/13 · retrieval_bench 40/40, 15/15 grounded, p95 0.2 ms
+escape_suite --surface agent-terminal 27/27 · redteam 35/35 (four channels) · mcp_check 16/16
+mcp_client_check 11/11 · compose_bench 11/11 (toggle 617 ms vs 4230 ms full, 6.9x)
 vitest 86 + 27 · Playwright 48 · contract drift-free · mypy --strict clean on both platform views
 ```
 
-*(Every figure above is from ONE `make verify` run, taken after the ADR-0058 fix — not assembled
-from several commits, which is what the previous version of this block had to admit to.)*
+*(Every figure above is from ONE `make verify` run on `b8b2028`, after ADR-0058 through
+ADR-0061 — not assembled from several commits, which is what an earlier version of this block
+had to admit to.)*
 
 **And the same tree re-measured on the LINUX run — the one that was red:**
 
