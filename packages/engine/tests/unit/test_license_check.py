@@ -309,3 +309,21 @@ class TestPlatformReviewPins:
             "Permission is hereby granted\n```\n"
         )
         assert license_check.main(["--third-party-notices", "--root", str(tree)]) == 1
+
+
+class TestFixWaveReviewPins:
+    """Pins for the trap-48 review of the fix wave itself (D3, D4)."""
+
+    def test_a_tilde_fenced_sha_does_not_satisfy_the_pin(self, platform_tree: Path) -> None:
+        """D3: a tilde-fenced doc example must not serve as the adopted-commit pin."""
+        (platform_tree / "packages" / "platform" / "UPSTREAM.md").write_text(
+            "~~~markdown\n- **Adopted commit:** " + "d" * 40 + "\n~~~\n"
+        )
+        assert _platform_run(platform_tree) == 1
+
+    def test_a_dot_directory_is_real_content_and_needs_a_row(self, platform_tree: Path) -> None:
+        """D4: only dot-FILES are junk; a vendored `.github/` tree still needs attribution."""
+        hidden = platform_tree / "packages" / "platform" / ".github"
+        hidden.mkdir()
+        (hidden / "workflow.yml").write_text("on: push\n")
+        assert _platform_run(platform_tree) == 1

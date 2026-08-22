@@ -54,8 +54,10 @@ def _repo_root() -> Path:
 
 
 def _git(root: Path, *args: str) -> str:
-    """Git with path quoting off: a `café.js` must round-trip byte-identically between the
-    diff output, the status output, and the ledger cell that declares it."""
+    """Git with path quoting off: a `café.js` round-trips between the diff output, the status
+    output, and the ledger cell that declares it. Pathological names embedding quotes or
+    newlines may still be C-quoted by porcelain; they surface as a mismatched, FAILING path —
+    fail-closed, and such a name inside a vendored tree is its own smell."""
     return subprocess.run(
         ["git", "-C", str(root), "-c", "core.quotePath=false", *args],
         capture_output=True,
@@ -65,21 +67,27 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _strip_fences(body: str) -> str:
-    """Drop fenced code blocks — CommonMark nesting: a fence of N backticks closes only on a
-    fence of at least N. A doc example inside a fence must never read as a live field or row."""
+    """Drop fenced code blocks — backtick AND tilde fences. Per CommonMark, a fence closes
+    only on the SAME character, at least as long as the opener, with nothing but whitespace
+    after it (an info string like ```python can OPEN a fence, never close one). A doc example
+    inside a fence must never read as a live field or row."""
     out: list[str] = []
-    open_fence = 0
+    fence_char = ""
+    fence_len = 0
     for line in body.splitlines():
         stripped = line.lstrip()
-        if stripped.startswith("```"):
-            ticks = len(stripped) - len(stripped.lstrip("`"))
-            if open_fence == 0:
-                open_fence = ticks
-            elif ticks >= open_fence:
-                open_fence = 0
+        if fence_len == 0:
+            opener = next((ch for ch in "`~" if stripped.startswith(ch * 3)), None)
+            if opener is None:
+                out.append(line)
+            else:
+                fence_char = opener
+                fence_len = len(stripped) - len(stripped.lstrip(opener))
             continue
-        if open_fence == 0:
-            out.append(line)
+        if stripped.startswith(fence_char):
+            run = len(stripped) - len(stripped.lstrip(fence_char))
+            if run >= fence_len and not stripped[run:].strip():
+                fence_len = 0
     return "\n".join(out)
 
 
@@ -161,9 +169,8 @@ def _changed_paths(root: Path, baseline: str) -> set[str]:
     ).splitlines():
         if not line.strip():
             continue
-        # `XY path` in porcelain v1. With rename detection off no `old -> new` arrows remain,
-        # but the split stays as a belt against a future git changing that default.
-        changed.add(line[3:].split(" -> ")[-1].strip().strip('"'))
+        # `XY path` in porcelain v1; with rename detection off no `old -> new` arrows exist.
+        changed.add(line[3:].strip().strip('"'))
     return changed
 
 

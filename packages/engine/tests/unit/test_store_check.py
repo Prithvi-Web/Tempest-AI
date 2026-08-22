@@ -167,10 +167,11 @@ class TestReviewPins:
         assert _run(tree) == 1
 
     def test_a_decoy_dependencies_string_cannot_mask_the_real_block(self, tree: Path) -> None:
-        """S2: the manifest is parsed as JSON first — a quoted decoy must not aim the check
-        at the wrong braces."""
+        """S2: the manifest is parsed as JSON first — an earlier NESTED `"dependencies"` block
+        (an npm `overrides` section) must not aim the textual slicer at the wrong braces.
+        This exact shape bypassed the pre-fix slicer; the pin discriminates old vs new."""
         (tree / "packages" / "platform" / "data" / "package.json").write_text(
-            '{"description": "see \\"dependencies\\": {} for details",'
+            '{"overrides": {"dependencies": {}},'
             ' "dependencies": {"mongodb-memory-server": "^9.0.0"}}'
         )
         assert _run(tree) == 1
@@ -225,4 +226,41 @@ class TestReviewPins:
         (tree / "packages" / "platform" / "data" / "LICENCE.md").write_text(
             "Server Side Public License\n"
         )
+        assert _run(tree) == 1
+
+
+class TestFixWavePins:
+    """Pins for the trap-48 review of the fix wave itself (D1, D5, D6)."""
+
+    def test_a_git_checkout_whose_index_cannot_be_read_fails_rather_than_fails_open(
+        self, tree: Path
+    ) -> None:
+        """D1: a vanished tracked-files union would silently reopen the dist/ blind spot —
+        a gate that cannot see is a failing gate, never a green one."""
+        (tree / ".git").mkdir()  # looks like a checkout; `git ls-files` exits non-zero
+        assert _run(tree) == 1
+
+    def test_a_relative_import_of_a_local_bson_module_is_not_the_client(self, tree: Path) -> None:
+        """D5: `from .bson import x` names an engine-LOCAL module (level == 1)."""
+        (tree / "packages" / "engine" / "src" / "tempest" / "rel.py").write_text(
+            "from .bson import decode\n"
+        )
+        assert _run(tree) == 0
+
+    def test_a_tracked_but_locally_deleted_server_binary_still_fails(self, tree: Path) -> None:
+        """D6: `git add mongod; git commit; rm mongod` must not turn the gate green on the
+        one machine where the walk cannot see what the repository ships."""
+        import subprocess
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", "-C", str(tree), *args], capture_output=True, check=True)
+
+        git("init", "-q")
+        git("config", "user.email", "pin@test")
+        git("config", "user.name", "pin")
+        binary = tree / "packages" / "platform" / "data" / "mongod"
+        binary.write_bytes(b"\x7fELF")
+        git("add", "-A")
+        git("commit", "-qm", "ship it")
+        binary.unlink()
         assert _run(tree) == 1

@@ -81,11 +81,32 @@ def _repo_root() -> Path:
     raise SystemExit("run from the tempest repository")
 
 
-def _scan_files(root: Path) -> list[Path]:
-    """The working-tree walk (skip-named dirs and symlinks excluded) unioned with every
-    git-tracked file, so tracked content cannot hide inside a skip-named directory. Symlinks
-    are skipped entirely: following one invites cycles and out-of-tree scans, and a symlink
-    cannot itself BE the SSPL binary."""
+def _tracked_rels(root: Path, fail: list[str]) -> list[str]:
+    """Relative paths of every git-tracked file. When the root looks like a git checkout but
+    `git ls-files` fails (dubious ownership, locked index, missing git), that is recorded as a
+    FAILURE — a silently vanished union would reopen the exact tracked-content-in-`dist/`
+    bypass this function exists to close. Fail closed, never fail open."""
+    tracked = subprocess.run(
+        ["git", "-C", str(root), "-c", "core.quotePath=false", "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+    )
+    if tracked.returncode != 0:
+        if (root / ".git").exists():
+            reason = (tracked.stderr or "no stderr").strip().splitlines()[0]
+            fail.append(
+                f"{root}: looks like a git checkout but `git ls-files` failed ({reason}) — "
+                "the tracked-content union cannot be proven, and a gate that cannot see "
+                "is a failing gate"
+            )
+        return []
+    return [rel for rel in tracked.stdout.split("\0") if rel]
+
+
+def _walk_files(root: Path) -> set[Path]:
+    """The working-tree walk: skip-named dirs and symlinks excluded. Symlinks are skipped
+    entirely — following one invites cycles and out-of-tree scans, and a symlink cannot
+    itself BE the SSPL binary."""
     out: set[Path] = set()
     stack = [root]
     while stack:
@@ -98,38 +119,47 @@ def _scan_files(root: Path) -> list[Path]:
                     stack.append(entry)
             else:
                 out.add(entry)
-    tracked = subprocess.run(
-        ["git", "-C", str(root), "-c", "core.quotePath=false", "ls-files", "-z"],
-        capture_output=True,
-        text=True,
-    )
-    if tracked.returncode == 0:
-        for rel in tracked.stdout.split("\0"):
-            path = root / rel
-            if rel and path.is_file() and not path.is_symlink():
-                out.add(path)
-    return sorted(out)
+    return out
 
 
 def _check_sspl(root: Path, fail: list[str]) -> None:
-    for path in _scan_files(root):
-        rel = path.relative_to(root)
-        stem = path.name.split(".")[0].lower()
+    tracked = _tracked_rels(root, fail)
+    tracked_set = set(tracked)
+    # The name check needs no bytes, so it runs over every TRACKED name even when the file is
+    # locally deleted — `git add mongod; rm mongod` must not turn the gate green on the one
+    # machine where the walk cannot see what the repository ships.
+    for rel in tracked:
+        stem = rel.rsplit("/", 1)[-1].split(".")[0].lower()
         if stem in _SSPL_NAMES:
-            fail.append(f"{rel}: a MongoDB server binary name in the tree — SSPL never ships")
-            continue
+            fail.append(f"{rel}: a MongoDB server binary name is tracked — SSPL never ships")
+    paths = _walk_files(root)
+    for rel in tracked:
+        path = root / rel
+        if path.is_file() and not path.is_symlink():
+            paths.add(path)
+    for path in sorted(paths):
+        rel_path = path.relative_to(root)
+        if str(rel_path) not in tracked_set:
+            stem = path.name.split(".")[0].lower()
+            if stem in _SSPL_NAMES:
+                fail.append(
+                    f"{rel_path}: a MongoDB server binary name in the tree — SSPL never ships"
+                )
+                continue
         name_upper = path.name.upper()
         if name_upper.startswith(("LICENSE", "LICENCE", "COPYING")) and _SSPL_TEXT in (
             path.read_text(encoding="utf-8", errors="replace")
         ):
-            fail.append(f"{rel}: carries the Server Side Public License text — SSPL never ships")
+            fail.append(
+                f"{rel_path}: carries the Server Side Public License text — SSPL never ships"
+            )
         if path.name == "package.json":
             deps = _runtime_dependencies(path.read_text(encoding="utf-8", errors="replace"))
             if deps is not None and _DOWNLOADER in deps:
                 fail.append(
-                    f"{rel}: runtime dependency on {_DOWNLOADER} — it downloads mongod onto "
-                    "every user's machine at install time (devDependencies is where test "
-                    "tooling belongs)"
+                    f"{rel_path}: runtime dependency on {_DOWNLOADER} — it downloads mongod "
+                    "onto every user's machine at install time (devDependencies is where "
+                    "test tooling belongs)"
                 )
 
 
@@ -176,6 +206,8 @@ def _static_client_import(source: str) -> str | None:
                     return alias.name.split(".")[0]
         elif (
             isinstance(node, ast.ImportFrom)
+            # level == 0: `from .bson import x` names an engine-LOCAL module, not the client.
+            and node.level == 0
             and node.module
             and node.module.split(".")[0] in _CLIENT_MODULES
         ):

@@ -230,21 +230,27 @@ _ADOPTED_LINE = re.compile(r"^\s*- \*\*Adopted commit:\*\* [0-9a-f]{40}\b", re.M
 
 
 def _strip_fences(body: str) -> str:
-    """Drop fenced blocks (CommonMark N-tick nesting) — a doc example inside a fence must
-    never satisfy a structural check. Same lesson `_sections` carries, applied to UPSTREAM.md."""
+    """Drop fenced blocks — backtick AND tilde fences. Per CommonMark, a fence closes only on
+    the SAME character, at least as long as the opener, with nothing but whitespace after it.
+    A doc example inside a fence must never satisfy a structural check — the `_sections`
+    lesson, applied to UPSTREAM.md."""
     out: list[str] = []
-    open_fence = 0
+    fence_char = ""
+    fence_len = 0
     for line in body.splitlines():
         stripped = line.lstrip()
-        if stripped.startswith("```"):
-            ticks = len(stripped) - len(stripped.lstrip("`"))
-            if open_fence == 0:
-                open_fence = ticks
-            elif ticks >= open_fence:
-                open_fence = 0
+        if fence_len == 0:
+            opener = next((ch for ch in "`~" if stripped.startswith(ch * 3)), None)
+            if opener is None:
+                out.append(line)
+            else:
+                fence_char = opener
+                fence_len = len(stripped) - len(stripped.lstrip(opener))
             continue
-        if open_fence == 0:
-            out.append(line)
+        if stripped.startswith(fence_char):
+            run = len(stripped) - len(stripped.lstrip(fence_char))
+            if run >= fence_len and not stripped[run:].strip():
+                fence_len = 0
     return "\n".join(out)
 
 
@@ -315,8 +321,10 @@ def _check_platform_tree(root: Path, fail: list[str]) -> None:
     for entry in sorted(platform.iterdir(), key=lambda p: p.name):
         if entry.name == "UPSTREAM.md":
             continue  # ours, not vendored
-        if entry.name.startswith("."):
-            continue  # Finder/tooling junk (.DS_Store) is not a vendored tree needing a row
+        if entry.name.startswith(".") and entry.is_file():
+            # Finder/tooling junk (.DS_Store) is not a vendored tree needing a row — but a
+            # dot-DIRECTORY (a future vendored .github/) is real content and still needs one.
+            continue
         rel = f"packages/platform/{entry.name}"
         # Boundary-aware: a row for `client-pkg/**` must not read as attribution for `client`.
         if not any(cell == rel or cell.startswith(rel + "/") for cell in attributed):

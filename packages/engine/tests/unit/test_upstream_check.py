@@ -302,3 +302,16 @@ class TestReviewPins:
         """Opening a folder in Finder must not redden the gate."""
         (repo / "packages" / "platform" / "server" / ".DS_Store").write_bytes(b"\x00junk")
         assert _run(repo) == 0
+
+
+class TestFixWavePins:
+    """Pins for the trap-48 review of the fix wave itself (D3)."""
+
+    def test_a_tilde_fenced_example_is_documentation_too(self, repo: Path) -> None:
+        """D3: CommonMark fences come in tildes as well as backticks — a tilde-fenced example
+        field must neither retarget the baseline nor read as an ambiguous duplicate."""
+        md = repo / "packages" / "platform" / "UPSTREAM.md"
+        md.write_text(
+            "~~~markdown\n- **Vendor baseline:** " + "b" * 40 + "\n~~~\n" + md.read_text()
+        )
+        assert _run(repo) == 0
