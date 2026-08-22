@@ -236,19 +236,56 @@ boundary E: seam-module diff → verify-contract exit 1 AND the live validator's
 
 ## Phase C3 — The merged shell
 
-- [ ] LibreChat's React client mounts in the Tauri webview. **One router, one state layer, one
+- [x] LibreChat's React client mounts in the Tauri webview. **One router, one state layer, one
       design system.** Tempest's `packages/desktop/src/views/**` and `editor/**` are absorbed into
       it. (Upstream ships Recoil *and* Jotai; adopt both as they stand — do not consolidate
       actively-developed code for zero user benefit. Adding a **third** is what is forbidden.)
-- [ ] `vocabulary.tsx` becomes the reserved-verdict rendering layer and the L31 enforcement point.
-- [ ] Restyle into Tempest's identity via the design-token seam — **not** by rewriting components.
+      **Done 2026-08-22 (`987684f` mount → `aadf3df` absorption, ADR-0077). ONE window, on by
+      default, named Tempest AI: client dist + theme ship as bundled resources, the Node sidecar
+      auto-spawns, and the scaffold second window is gone (`2c194f1`). The absorbed surface is a
+      react-router subtree at `/tempest/*` in the `client/tempest/views` seam — ten views +
+      editor + hooks ported to the client's own stack (Query v4, React 18), reached through
+      exactly two inline deltas (route entry + nav link), both ledgered. The root fix that
+      unblocked all of it: the bundle carried TWO Reacts (librechat-data-provider's query peer
+      auto-resolved react@19 beside the client's 18) — pinned in pnpm-workspace.yaml
+      (`858012b`); the handoff's chunk-order hypothesis was the symptom. Honesty note
+      (ADR-0077): the legacy webview survives behind `TEMPEST_LEGACY_WINDOW=1` ONLY until the
+      E2E suite re-targets the platform surface — a dated bridge, removal at C3 close.**
+- [x] `vocabulary.tsx` becomes the reserved-verdict rendering layer and the L31 enforcement point.
+      **Done: the seam copy keeps every never-guard (a new Python variant still breaks the
+      build) and is the only verdict renderer inside the client; `vocab_check` scans 4,056
+      vendored files clean around it.**
+- [x] Restyle into Tempest's identity via the design-token seam — **not** by rewriting components.
       A user must never be able to tell where one codebase ends and the other begins.
-- [ ] Auth becomes optional: local single-user mode short-circuits to an implicit local principal
+      **Done, with one real defect found and fixed (`2423351`): the seam re-declared the
+      primitive gray ramp inverted under `html.dark` while upstream's `.dark` layer already
+      inverts at the semantic level — the double inversion rendered a white chat pane in a dark
+      shell. One ramp, two derivations; the dark block now carries polarity-true values only,
+      plus `color-scheme` so native controls follow, plus a first-paint mode script at the
+      protocol (the vendored client only sets `html.dark` from an effect).**
+- [x] Auth becomes optional: local single-user mode short-circuits to an implicit local principal
       through a distinct code path with its own tests. **Never a bypass flag.**
-- [ ] Every telemetry surface (LibreChat telemetry, Langfuse, RUM, insights, error reporting) is off
+      **Done (`987684f` seam; `a4211cc` + `b190021` the measured boot surface): the client
+      boots authed with zero prompts against `local-api.mjs`'s ~30 endpoints, every shape read
+      from the vendored provider types. Three traps that cost real renders: the client requests
+      `/api/roles/USER` (uppercase) and reads `permissions[type][perm] === true` directly — an
+      empty permissions object hides every gated nav section; a PRESENT-but-empty `interface`
+      defeats the client's own defaults; `customFooter: ""` is what keeps the upstream wordmark
+      off the shipped surface. Conversations/prompts/presets answer truthfully empty until
+      their phases (C6/C7).**
+- [x] Every telemetry surface (LibreChat telemetry, Langfuse, RUM, insights, error reporting) is off
       by default and **provably inert**, each with its own `egress_check` case.
-- [ ] Build `tempest.dev.egress_check --platform-tree --deny-all --airplane-mode-full-function`.
-- [ ] Build `tempest.dev.vocab_check --reserved-verdicts --platform-tree`.
+      **Done (`0e8eada`): RUM, GTM, turnstile, Langfuse, OTel and the Sandpack bundler each
+      carry a pinned gating pattern (a drift tripwire — upstream restructuring the gate fails
+      the check and forces re-audit); the RUM bootstrap is pinned inert-by-construction; the
+      seam's STARTUP_CONFIG is pinned to carry no telemetry key at all.**
+- [x] Build `tempest.dev.egress_check --platform-tree --deny-all --airplane-mode-full-function`.
+      **Done (`0e8eada`): 113 surfaces audited, 79 pins each proven to FAIL on a violating
+      tree; the sidecar's import allowlist (node:net/fs/process + relatives only) proves it
+      cannot express an outbound call; wired into `verify-convergence`. The L10 escape-suite
+      leg keeps its original flags.**
+- [x] Build `tempest.dev.vocab_check --reserved-verdicts --platform-tree`.
+      **Done 2026-08-21 (`9039787`), in `verify-convergence` + CI since.**
 
 **Gate:**
 ```bash
@@ -257,6 +294,28 @@ python -m tempest.dev.vocab_check  --reserved-verdicts --platform-tree
 python -m tempest.dev.perf_suite   --enforce-budgets     # cold launch, merged-app row
 # every route renders with zero console errors; screenshots attached
 ```
+
+**Gate outcomes (2026-08-22, pasted from the session log):**
+
+- `egress_check`: *113 platform surfaces audited — every telemetry and egress surface off by
+  default, the sidecar unable to express an outbound call, and the boot surface fully answered
+  with the network unplugged (L32 holds)* — exit 0, and green again inside the full
+  `make verify` below.
+- `vocab_check`: *4056 vendored source files scanned — zero reserved verdict tokens, zero
+  verdict-shaped field writes outside the seams (L31 holds)* — exit 0.
+- **Merged-app cold launch** (the §10 row, measured by the new `make bench-merged` against the
+  installed bundle, best-of-3 at HEAD): **0.575 s** against 1.2 s p50 / 2.0 s p95; earlier
+  same-night launches sampled 0.611–0.673 s. The measurement point is the shell's first
+  `/api/config` fetch — the webview up and asking for its world.
+- **Console sweep**: the webview's console tap (every uncaught error, rejection, and
+  console.error forwarded to host stderr) stayed at **zero lines** through boot and a full
+  interactive pass — chat landing, every sidebar section, all six Tempest sub-views, Settings,
+  and the sidebar toggle. Two real defects the sweep caught first are fixed and ledgered
+  (`13896d2`). Screenshots taken at each step; the two-window scaffold is gone.
+- `make verify` on this tree: **MAKE_EXIT=0** — pytest 2112 passed, 100.00% on 9,070
+  statements + 2,590 branches; agent gates all green; cargo 115+8+5; vitest 27+86; desktop
+  E2E 51 passed; all five convergence gates green (license, store, upstream 6/40 inline
+  deltas, vocab, egress).
 
 ---
 
