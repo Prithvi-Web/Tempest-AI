@@ -24,6 +24,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Boundary B deep validation (ADR-0077): the schema net the legacy webview ran in dev builds
+// lives in the bridge now — every engine reply is validated before the page sees it, and
+// /admin/corrupt-next + /admin/contract-ledger let the 07 spec prove the net CATCHES.
+import { checkContract, corruptNext, ledger } from "./contract-net.mjs";
+
 const PORT = Number(process.env.E2E_BRIDGE_PORT ?? 39755);
 // Optional per-call trace (E2E_BRIDGE_LOG=/path): one line per invoke with latency and
 // outcome — the first thing to reach for when a spec sees the UI stall.
@@ -212,6 +217,31 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { sidecarAlive: true });
     return;
   }
+  // Boundary B net staging (ADR-0077): script exactly ONE corrupted reply, so the 07 spec can
+  // prove the schema net catches drift rather than merely running. The corruption happens on
+  // the bridge side of the wire — the ENGINE's reply is real; what is being tested is the net.
+  if (req.method === "POST" && req.url === "/admin/corrupt-next") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      try {
+        const body = JSON.parse(raw);
+        if (typeof body.operation !== "string" || body.operation === "") {
+          json(res, 400, { error: { code: -32602, message: "operation (string) is required" } });
+          return;
+        }
+        corruptNext(body.operation);
+        json(res, 200, { armed: body.operation });
+      } catch (err) {
+        json(res, 400, { error: { code: -32700, message: String(err) } });
+      }
+    });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/admin/contract-ledger") {
+    json(res, 200, { violations: ledger });
+    return;
+  }
   // Phase 20.1: `read_project_file` is a HOST command with no sidecar behind it, so the bridge
   // performs a genuine read from a real fixture project. The guard's RULES (traversal,
   // credentials, symlink escapes, binary) are pinned by 26 Rust tests in pathguard.rs; what this
@@ -265,8 +295,16 @@ const server = http.createServer(async (req, res) => {
         const t0 = Date.now();
         trace(`> ${operation} ${JSON.stringify(params).slice(0, 120)}`);
         const data = await call(operation, params);
+        // The Boundary B net (contract-net.mjs): an off-contract reply becomes an in-band
+        // error the view renders as a failure — never data the view renders as truth.
+        const verdict = checkContract(operation, data);
+        if (!verdict.ok) {
+          trace(`< ${operation} CONTRACT ${verdict.failure.message.slice(0, 100)}`);
+          json(res, 200, { error: verdict.failure });
+          return;
+        }
         trace(`< ${operation} ok ${Date.now() - t0}ms ${JSON.stringify(data).slice(0, 80)}`);
-        json(res, 200, { data });
+        json(res, 200, { data: verdict.data });
       } catch (err) {
         const failure =
           err && typeof err === "object" && "code" in err
