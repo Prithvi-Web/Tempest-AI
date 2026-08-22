@@ -69,10 +69,12 @@ verify: verify-python verify-agent verify-node verify-desktop verify-contract ve
 # The C-phase convergence gates (docs/PLAN-V3.md), live as each phase makes them runnable.
 # C1: attribution over the vendored platform tree (L36.11), the SSPL/proof-data store law
 # (L33), and upstream mergeability (L27) — plus the brand-asset grep from the C1 gate block.
+# C3: the reserved-verdict vocabulary lint over the vendored tree (L31).
 verify-convergence:
 	uv run python -m tempest.dev.license_check --third-party-notices --platform-tree
 	uv run python -m tempest.dev.store_check --no-sspl-binaries --no-proof-data-in-document-store
 	uv run python -m tempest.dev.upstream_check --max-inline-deltas 40 --ledger-complete
+	uv run python -m tempest.dev.vocab_check --reserved-verdicts --platform-tree
 	@! grep -ri "librechat" packages/platform/client/public packages/desktop/src \
 		--include='*.svg' --include='*.png' \
 		|| (echo 'brand asset found — MIT does not license trademarks'; exit 1)
