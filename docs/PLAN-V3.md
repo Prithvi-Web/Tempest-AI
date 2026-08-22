@@ -321,16 +321,46 @@ python -m tempest.dev.perf_suite   --enforce-budgets     # cold launch, merged-a
 
 ## Phase C4 — One provider router (ADR-0076)
 
-- [ ] LibreChat's provider configuration schema, model-spec metadata, per-endpoint parameter UI, and
+- [x] LibreChat's provider configuration schema, model-spec metadata, per-endpoint parameter UI, and
       reasoning UI mapped onto `tempest/inference/`.
+      **Done 2026-08-22 (`267350a` + `c2efc6b` + `5af38d1`), mechanics stated exactly: the engine's
+      `GET /v1/platform/catalog` builds upstream's own `/api/endpoints` + `/api/models` shapes from
+      the ONE registry, and the `tempest://` protocol answers the client from it — the selector the
+      user sees IS the router the engine spends through. Model-spec metadata is ADOPTED from
+      upstream's `defaultModels` tables at the vendored commit (anthropic 16 / OpenAI 22 / Gemini
+      10, refreshed at upstream merges, never invented); metadata-less providers use upstream's own
+      discovery mechanics — local runners probed live at loopback (keyless, offline-safe, L23),
+      keyed remotes probed only when the user configured that key (the `verify_key` BYOK egress
+      surface, L10; a hit-counting peer pins the ABSENCE of the keyless request). Parameter and
+      reasoning UI light up from the client's own per-type tables (`custom`/`anthropic`) — zero
+      client edits. Honest scope note: user-authored `librechat.yaml` custom-endpoint entries join
+      when the real Config service lands (C6/C10); until then "adding a provider" is ADR-0076's own
+      mechanism — one registry row, no feature code.**
 - [ ] Adaptive provider smoothing and delta batching adopted onto the single router.
-- [ ] `credentials.ts` replaced by the OS keychain path (`keychain.rs`). No plaintext key storage,
+      **Deliberately open: its surface is the STREAMED chat turn, which arrives with the C5 agent
+      runtime — smoothing adopted before any stream exists would be decoration. Carried to C5.**
+- [x] `credentials.ts` replaced by the OS keychain path (`keychain.rs`). No plaintext key storage,
       no exception for dev builds.
-- [ ] Caps enforced at the router. Cost meter remains the single spend-enforcement point and still
-      ships **no price list**.
-- [ ] **19.5b:** migrate `harness/llm.py` and `report/narrative.py` onto the unified client; drop the
-      `anthropic` SDK dependency.
-- [ ] Raise `provider_matrix` floor to `--min-providers 16`.
+      **Done (`c2efc6b`/`5af38d1`): the protocol intercepts `/api/keys` and answers from the OS
+      keychain — presence, storage, revocation — under accounts NAMED BY the provider's env var,
+      so the host carries no registry copy and `engine_env` enumerates what exists at spawn
+      (attribute-only search; values never in a response, error, or log). Upstream's exact wire
+      shapes (`expiresAt: null` / literal `"never"` / bare 201/204), byte-matched after the live
+      boot caught a guessed shape crashing the sidebar hook. The pre-C4 single-item install keeps
+      answering for anthropic until any write migrates it. `credentials.ts` never enters the
+      serving path — REPLACE, per the merge contract.**
+- [x] Caps enforced at the router. Cost meter remains the single spend-enforcement point and still
+      ships **no price list**. **Held and re-proven this phase — both gate tests named below ran
+      green in this session's log and inside the full suite.**
+- [x] **19.5b:** migrate `harness/llm.py` and `report/narrative.py` onto the unified client; drop the
+      `anthropic` SDK dependency. **Done (`2e7715f`): both call sites one-to-one onto the stdlib
+      client; `TEMPEST_SYNTHESIS_BASE_URL` stays the public knob, aliased onto the router's
+      per-provider override, so all 19 fake-peer unit tests and 19 integration/API tests passed
+      UNCHANGED. One disclosed behavior change: the SDK's retry is gone — a transient synthesis
+      failure declines one attempt sooner into the same UNPROVEN terminal state. Open since
+      Phase 19.**
+- [x] Raise `provider_matrix` floor to `--min-providers 16`. **Done: module default + Makefile;
+      the registry already held 16 — the gate now says so.**
 
 **Gate:**
 ```bash
@@ -339,6 +369,21 @@ grep -rn "^import anthropic\|from anthropic" packages/engine/src && exit 1 || tr
 # cap test: 8 threads against a cap admitting 2 → exactly 2. Paste output.
 # dollar cap with no user-supplied rate RAISES rather than passing. Paste output.
 ```
+
+**Gate outcomes (2026-08-22, pasted from the session log):**
+
+- `provider_matrix --min-providers 16`: *16 providers, every request path exercised against a
+  real peer — adding a provider is one row, not one integration* — exit 0.
+- SDK grep over `packages/engine/src`: **zero imports** (and `anthropic>=0.116` is gone from
+  pyproject; the frozen sidecar was rebuilt without it).
+- Cap test: `TestConcurrency::test_a_fleet_cannot_slip_two_charges_past_one_cap` — 8 threads
+  against a cap admitting 2, `len(accepted) == 2` and `len(errors) == 6` — **PASSED**.
+- Rate test: `TestAnUnevaluableLimitNeverPasses::test_a_dollar_cap_without_a_rate_raises_rather_
+  than_passing` — `pytest.raises(RateUnknown, "cannot be evaluated")` — **PASSED**.
+- The shipped binary's catalog, probed over its real stdio: 16 endpoints / 16 model lists / 16
+  provider rows; anthropic first (16 adopted models, `claude-fable-5` leading), OpenAI 22,
+  Gemini 10; locals and keyless remotes honestly empty. Full app boot with the bridge:
+  **zero console errors, zero 404s**, merged cold launch 708 ms.
 
 ---
 
