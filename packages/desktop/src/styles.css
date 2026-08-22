@@ -439,7 +439,9 @@ tr.rowlink:hover {
 }
 
 .chip.DIVERGENT {
-  color: var(--divergent);
+  /* On-soft ink (defect fix, landed in both copies per the ADR-0077 freeze): the raw
+     verdict red measures 4.25:1 on its own dark chip; the on-soft pairing token clears it. */
+  color: var(--divergent-on-soft);
   background: var(--divergent-soft);
 }
 

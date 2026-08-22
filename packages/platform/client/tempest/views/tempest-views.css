@@ -570,7 +570,10 @@ html.dark .tempest-views {
 }
 
 .tempest-views .chip.DIVERGENT {
-  color: var(--divergent);
+  /* The on-soft ink, not the raw verdict red: #FF453A on its own dark chip measures 4.25:1
+     at 11px/600 — the palette's own `--divergent-on-soft` exists for exactly this pairing
+     (6.34:1 dark, 6.11:1 light). Same reserved family, readable in both polarities. */
+  color: var(--divergent-on-soft);
   background: var(--divergent-soft);
 }
 

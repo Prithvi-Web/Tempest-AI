@@ -616,6 +616,48 @@ mod tests {
     }
 
     #[test]
+    fn serve_index_injects_identity_mode_tap_and_glass_in_order() {
+        let base =
+            std::env::temp_dir().join(format!("tempest-index-test-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(
+            base.join("index.html"),
+            "<html><head><meta name=\"description\" content=\"LibreChat - An open source chat application with support for multiple AI models\" /><title>LibreChat</title></head><body></body></html>",
+        )
+        .unwrap();
+        let reply = serve_index(&base);
+        assert_eq!(reply.status(), 200);
+        let html = String::from_utf8(reply.body().clone()).unwrap();
+
+        // Identity rewrites: no LibreChat name survives in the served page's head text.
+        assert!(html.contains("<title>Tempest AI</title>"));
+        assert!(html.contains("the assistant that shows you the evidence"));
+        assert!(!html.contains("LibreChat"));
+
+        // The mode script seeds dark on first run and toggles the class before paint.
+        assert!(html.contains("localStorage.setItem('color-theme','dark')"));
+        // The console tap reaches the host.
+        assert!(html.contains("/api/__console"));
+        // The theme loads LAST in <head> so the seam wins every cascade tie.
+        let theme_at = html.find("/tempest-theme.css").expect("theme link injected");
+        let head_end = html.find("</head>").expect("head survives");
+        assert!(theme_at < head_end);
+
+        // macOS only: the vibrancy class and both drag surfaces (the overlay-titlebar
+        // window is undraggable without them — a silent regression here ships a window
+        // that cannot be moved).
+        if cfg!(target_os = "macos") {
+            assert!(html.contains("classList.add('tempest-vibrancy')"));
+            assert_eq!(html.matches("data-tauri-drag-region").count(), 1); // the injector source
+            assert!(html.contains("height:10px"));
+            assert!(html.contains("width:76px;height:38px"));
+        } else {
+            assert!(!html.contains("tempest-vibrancy"));
+        }
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
     fn tempest_assets_serve_from_the_seam_and_refuse_traversal() {
         let base = std::env::temp_dir().join(format!("tempest-assets-test-{}", std::process::id()));
         let dist = base.join("dist");

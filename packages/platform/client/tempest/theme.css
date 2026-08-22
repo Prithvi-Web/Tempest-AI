@@ -46,9 +46,9 @@
   --gray-650: 56 66 90;
   --gray-700: 43 52 74;
   --gray-800: 14 20 36;     /* light ink · dark page ground (#0E1424) */
-  --gray-850: 19 27 48;     /* dark surface (#131B30) */
-  --gray-875: 12 18 33;     /* dark bg (#0C1221) */
-  --gray-900: 8 13 25;      /* dark sunken (#080D19) */
+  --gray-850: 11 16 30;     /* dark sidebar surface (#0B101E) — below 800, like upstream's */
+  --gray-875: 9 14 26;      /* dark bg (#090E1A) */
+  --gray-900: 6 10 20;      /* dark sunken (#060A14) */
 
   /* ── one accent, Tempest's own electric blue (#2762E8 / dark #4D94FF) ────────────── */
   --brand-purple: 39 98 232;          /* upstream's brand accents inherit the Tempest accent */
@@ -69,7 +69,10 @@
   --border-light: 20 35 70;
   --border-light-alpha: 0.1;
   --border-medium: 20 35 70;
-  --border-medium-alt: 20 35 70;
+  /* -alt has NO alpha companion in the Tailwind wrapper (createTailwindColors maps it as a
+   * plain cssVar), so the ink triplet rendered as a SOLID 15:1 line. Pre-composited to what
+   * the hairline actually looks like over the light surface. */
+  --border-medium-alt: 217 220 225;
   --border-medium-alpha: 0.16;
   --border-heavy: 20 35 70;
   --border-heavy-alpha: 0.24;
@@ -135,7 +138,7 @@ html.dark {
   --link-hover: 108 168 255;
   --link-visited: 108 168 255;
   --surface-submit: 39 98 232;        /* filled controls keep the deeper blue so white ink clears */
-  --surface-submit-hover: 58 116 245;
+  --surface-submit-hover: 45 104 238; /* white on it: 4.85:1 — one step brighter fails AA */
   --ring-primary: 77 148 255;
 
   /* Dark hairlines are lit edges in the accent's family — a cold starlight blue, not plain
@@ -143,7 +146,8 @@ html.dark {
   --border-light: 143 176 255;
   --border-light-alpha: 0.14;
   --border-medium: 143 176 255;
-  --border-medium-alt: 143 176 255;
+  /* pre-composited (no alpha companion — see the light block): the hairline over #0B101E */
+  --border-medium-alt: 40 51 80;
   --border-medium-alpha: 0.22;
   --border-heavy: 143 176 255;
   --border-heavy-alpha: 0.3;
@@ -170,7 +174,7 @@ html.dark {
    * drag light-mode ink with it, and re-declaring the ramp inside `html.dark` is the
    * double-inversion bug documented above. Each value below restores the WEIGHT upstream
    * intended (its gray-650/600/500 in Tempest's hue), landing the ladder on the storm-navy
-   * elevation steps: #080D19 ground · #0C1221 base · #16223E elevated · #1E2C50 raised. */
+   * elevation steps: #060A14 ground · #090E1A base · #16223E elevated · #1E2C50 raised. */
   --surface-hover: 30 44 80;            /* raised — #1E2C50 */
   --surface-hover-alt: 36 52 94;        /* #24345E */
   --surface-active: 47 66 116;          /* #2F4274 */
@@ -186,6 +190,13 @@ html.dark {
   /* A dialog has to lift off the page ground; the base step is barely above the ground and
    * reads as a region rather than as a window. */
   --surface-dialog: 22 34 62;           /* #16223E */
+
+  /* Upstream derives dark --surface-tertiary from gray-700, which the navy ramp places
+   * ABOVE the re-cut --surface-hover — every tertiary-surfaced control darkened on hover,
+   * and 11px text-tertiary on it measured 4.28:1. Pinned to the elevated step: the ladder
+   * re-orders (tertiary < hover < hover-alt < active) and the pairing clears at 5.44:1. */
+  --surface-tertiary: 22 34 62;         /* #16223E */
+  --surface-tertiary-alt: 22 34 62;
 }
 
 /* Native form controls, scrollbars and the UA canvas follow the app's mode, not the
@@ -410,20 +421,27 @@ body {
  * A reader who asked for reduced transparency gets solid surfaces back at the end. */
 
 :is([role='dialog'], [role='menu'], [role='listbox']) {
-  background-color: rgb(255 255 255 / 0.78);
+  background-color: rgb(255 255 255 / 0.82);
   -webkit-backdrop-filter: blur(28px) saturate(160%);
   backdrop-filter: blur(28px) saturate(160%);
 }
 
+/* The dark tint is the DIALOG step, not the page bg: a glass sheet tinted with the ground
+ * it floats over composites to ~1.07:1 against that ground and loses its lift. */
 html.dark :is([role='dialog'], [role='menu'], [role='listbox']) {
-  background-color: rgb(12 18 33 / 0.78);
+  background-color: rgb(22 34 62 / 0.85);
 }
 
 /* The window grounds, thinned over the material. The body keeps real alpha as the safety
  * ground: if the material ever fails to attach, the window still reads as a dark navy pane
- * rather than a hole to the desktop. */
+ * rather than a hole to the desktop.
+ *
+ * The alphas are ACCESSIBILITY FLOORS, measured against the worst wallpaper (pure white
+ * behind dark glass, pure black behind light): tertiary text and links on every glass
+ * surface stay ≥4.5:1 with no help from the material's own attenuation. Reading surfaces
+ * earn their legibility first; the glass lives in what remains. */
 html.tempest-vibrancy body {
-  background-color: rgb(255 255 255 / 0.66);
+  background-color: rgb(255 255 255 / 0.8);
 }
 
 html.tempest-vibrancy.dark body {
@@ -431,32 +449,33 @@ html.tempest-vibrancy.dark body {
 }
 
 html.tempest-vibrancy .bg-presentation {
-  background-color: rgb(var(--gray-50) / 0.52);
+  background-color: rgb(var(--gray-50) / 0.9);
 }
 
 html.tempest-vibrancy.dark .bg-presentation {
-  background-color: rgb(var(--gray-800) / 0.5);
+  background-color: rgb(var(--gray-800) / 0.7);
 }
 
 /* The sidebar is the classic translucent rail — the one surface where the desktop clearly
  * glows through, exactly as Finder and Music treat theirs. */
 html.tempest-vibrancy .bg-surface-primary-alt {
-  background-color: rgb(255 255 255 / 0.42);
+  background-color: rgb(255 255 255 / 0.85);
 }
 
 html.tempest-vibrancy.dark .bg-surface-primary-alt {
-  background-color: rgb(var(--gray-850) / 0.44);
+  background-color: rgb(var(--gray-850) / 0.7);
 }
 
-/* The composer is frosted over the conversation it acts on. */
+/* The composer is frosted over the conversation it acts on. Its tint is the PAGE ground,
+ * not gray-700 — that base is itself too light for tertiary ink at any alpha. */
 html.tempest-vibrancy .bg-surface-chat {
-  background-color: rgb(255 255 255 / 0.6);
+  background-color: rgb(255 255 255 / 0.9);
   -webkit-backdrop-filter: blur(20px) saturate(150%);
   backdrop-filter: blur(20px) saturate(150%);
 }
 
 html.tempest-vibrancy.dark .bg-surface-chat {
-  background-color: rgb(var(--gray-700) / 0.42);
+  background-color: rgb(var(--gray-800) / 0.72);
 }
 
 /* The window is full-bleed under an overlay titlebar on macOS: the traffic lights float over
