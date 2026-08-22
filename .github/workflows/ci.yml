@@ -136,6 +136,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # tauri-build requires the externalBin staged before any cargo step compiles
       - run: ./packages/desktop/build-server.sh
+      # tauri's context macro resolves the bundled resources at compile time — the platform
+      # client dist must exist before any cargo step, exactly like the staged externalBin.
+      - run: make platform-client-dist
       - run: cargo clippy --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace --all-targets -- -D warnings
       - run: cargo test --manifest-path packages/desktop/src-tauri/Cargo.toml --workspace
       - run: pnpm --filter @tempest/desktop typecheck
@@ -199,6 +202,9 @@ jobs:
       - run: cargo install cargo-typify --locked
       # tauri-build requires the externalBin staged before any cargo step compiles
       - run: ./packages/desktop/build-server.sh
+      # tauri's context macro resolves the bundled resources at compile time — the platform
+      # client dist must exist before any cargo step, exactly like the staged externalBin.
+      - run: make platform-client-dist
       - run: make gen-contracts
       - run: |
           git diff --exit-code packages/shared-schema \

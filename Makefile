@@ -40,6 +40,15 @@ verify-linux-denominator:
 # for `make bench` to merge. Deliberately NOT in `make verify`: these are timings, and a
 # correctness suite that fails because a laptop was busy stops being trusted (the same reasoning
 # that keeps perf-gate out). Run it before `make bench` when you want the editor budgets armed.
+# C3: the vendored client build chain, in dependency order (provider → client-pkg → client).
+# Everything any cargo step needs before it compiles: tauri's context macro resolves the
+# bundle resources at compile time, so packages/platform/client/dist must EXIST — on a fresh
+# checkout that means building it, exactly like build-server.sh stages the externalBin.
+platform-client-dist:
+	pnpm --filter librechat-data-provider build
+	pnpm --filter @librechat/client build
+	pnpm --filter @librechat/frontend exec vite build --config tempest/vite.config.mjs
+
 bench-editor:
 	cd packages/desktop && TEMPEST_NO_POWER_PAUSE=1 npx playwright test --grep @bench
 

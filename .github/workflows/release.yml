@@ -59,6 +59,9 @@ jobs:
       - run: uv sync --all-packages
       - run: pnpm install --frozen-lockfile
       - run: ./packages/desktop/build-server.sh
+      # The bundle's resources include the platform client dist — build it, or the release
+      # would fail at the resource resolve (and must never ship an empty client).
+      - run: make platform-client-dist
       - run: cd packages/desktop && pnpm tauri build
       - name: zip the unsigned app
         run: |
