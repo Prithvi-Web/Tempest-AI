@@ -28,6 +28,7 @@ from pathlib import Path
 
 from tempest.execute.sandbox import Sandbox
 from tempest.harness.synth import SynthesisFailure, synthesize
+from tempest.inference import client as model_client
 
 _DEFAULT_MODEL = "claude-sonnet-5"
 _MAX_ADAPTER_TOKENS = 2048
@@ -93,21 +94,17 @@ def verify_key() -> KeyCheck:
             detail="no API key is configured — add one above, then test it.",
             model=None,
         )
-    import anthropic
-
     model = os.environ.get("TEMPEST_SYNTHESIS_MODEL", _DEFAULT_MODEL)
-    client = anthropic.Anthropic(
-        base_url=os.environ.get("TEMPEST_SYNTHESIS_BASE_URL") or None,
-        max_retries=0,
-        timeout=20.0,
-    )
     try:
-        client.messages.create(
+        model_client.complete(
+            "anthropic",
+            [model_client.Message("user", "ping")],
+            env=_synthesis_env(),
             model=model,
             max_tokens=1,
-            messages=[{"role": "user", "content": "ping"}],
+            timeout=20.0,
         )
-    except anthropic.APIError as err:
+    except model_client.ModelError as err:
         return KeyCheck(
             ok=False,
             detail=f"the key was rejected or unreachable — {err.__class__.__name__}: {err}",
@@ -176,37 +173,50 @@ def synthesize_instance_adapter(
     return InstanceAdapter(module=adapter_module, qualname="adapter", from_cache=from_cache)
 
 
+def _synthesis_env() -> dict[str, str]:
+    """The unified client's env, with the synthesis base-URL knob carried onto its wire.
+
+    `TEMPEST_SYNTHESIS_BASE_URL` predates the unified client (ADR-0024) and is the name the
+    settings surface and the fake-peer tests speak; the router's own per-provider override is
+    `TEMPEST_MODEL_BASE_URL_ANTHROPIC` (providers.py). The alias keeps the public vocabulary
+    while there is exactly ONE wire implementation underneath (ADR-0076, 19.5b).
+    """
+    env = dict(os.environ)
+    override = env.get("TEMPEST_SYNTHESIS_BASE_URL")
+    if override:
+        env["TEMPEST_MODEL_BASE_URL_ANTHROPIC"] = override
+    return env
+
+
 def _ask_model(
     module: str, owner_class: str, method: str, head_source: str
 ) -> str | SynthesisDeclined:
-    import anthropic
-
-    client = anthropic.Anthropic(
-        base_url=os.environ.get("TEMPEST_SYNTHESIS_BASE_URL") or None,
-        max_retries=1,
-        timeout=60.0,
-    )
+    # One attempt, deliberately: the unified client never retries (the SDK's max_retries=1
+    # is gone with it). A transient failure declines, and a declined synthesis reports the
+    # target UNPROVEN — the same terminal state as before, reached one attempt sooner.
     try:
-        response = client.messages.create(
-            model=os.environ.get("TEMPEST_SYNTHESIS_MODEL", _DEFAULT_MODEL),
-            max_tokens=_MAX_ADAPTER_TOKENS,
-            system=_SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
+        response = model_client.complete(
+            "anthropic",
+            [
+                model_client.Message(
+                    "user",
+                    (
                         f"Target: method `{method}` of class `{owner_class}` in module "
                         f"`{module}`.\nModule source:\n```python\n{head_source}\n```\n"
                         f"Write the adapter module. Import the class as "
                         f"`from {module} import {owner_class}`."
                     ),
-                }
+                )
             ],
+            env=_synthesis_env(),
+            model=os.environ.get("TEMPEST_SYNTHESIS_MODEL", _DEFAULT_MODEL),
+            max_tokens=_MAX_ADAPTER_TOKENS,
+            system=_SYSTEM_PROMPT,
+            timeout=60.0,
         )
-    except anthropic.APIError as err:
+    except model_client.ModelError as err:
         return SynthesisDeclined(detail=f"model call failed: {err.__class__.__name__}: {err}")
-    text = "".join(block.text for block in response.content if block.type == "text")
-    return text
+    return response.text
 
 
 def _extract_adapter_code(reply: str) -> str | SynthesisDeclined:

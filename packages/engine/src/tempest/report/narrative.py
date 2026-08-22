@@ -15,6 +15,8 @@ plain-English explanation of what changed. Hard lines, each pinned by test:
 
 import os
 
+from tempest.inference import client as model_client
+
 _MODEL_ENV = "TEMPEST_SYNTHESIS_MODEL"
 _BASE_URL_ENV = "TEMPEST_SYNTHESIS_BASE_URL"
 _DEFAULT_MODEL = "claude-sonnet-5"
@@ -47,32 +49,33 @@ def narrate_divergence(
     """Plain English from the evidence, or None (keyless, disabled, or any API failure)."""
     if not narratives_enabled():
         return None
-    import anthropic
-
-    client = anthropic.Anthropic(
-        base_url=os.environ.get(_BASE_URL_ENV) or None,
-        max_retries=1,
-        timeout=30.0,
-    )
+    env = dict(os.environ)
+    override = env.get(_BASE_URL_ENV)
+    if override:
+        # The synthesis base-URL knob (ADR-0024's public vocabulary) carried onto the
+        # unified client's per-provider override — one wire implementation (19.5b).
+        env["TEMPEST_MODEL_BASE_URL_ANTHROPIC"] = override
     try:
-        response = client.messages.create(
-            model=os.environ.get(_MODEL_ENV, _DEFAULT_MODEL),
-            max_tokens=_MAX_NARRATIVE_TOKENS,
-            system=_SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
+        response = model_client.complete(
+            "anthropic",
+            [
+                model_client.Message(
+                    "user",
+                    (
                         f"Function: `{symbol}`\n"
                         f"Divergence class: {divergence_class}\n"
                         f"Input: args={args_literal} kwargs={kwargs_literal}\n"
                         f"Old revision observed: {base_summary}\n"
                         f"New revision observed: {head_summary}\n"
                     ),
-                }
+                )
             ],
+            env=env,
+            model=os.environ.get(_MODEL_ENV, _DEFAULT_MODEL),
+            max_tokens=_MAX_NARRATIVE_TOKENS,
+            system=_SYSTEM_PROMPT,
+            timeout=30.0,
         )
-    except anthropic.APIError:
+    except model_client.ModelError:
         return None  # readability must never take a run down — the evidence stands alone
-    text = "".join(block.text for block in response.content if block.type == "text").strip()
-    return text or None
+    return response.text.strip() or None
