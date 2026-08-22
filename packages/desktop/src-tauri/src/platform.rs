@@ -65,6 +65,33 @@ fn contract_error(kind: &str, why: impl std::fmt::Display) -> PlatformError {
 /// exceed it. The name carries OUR pid so two app instances can never unlink or bind each
 /// other's live socket; `prepare_socket()` sweeps siblings whose embedded pid is dead, so a
 /// SIGKILL'd run's file cannot accumulate.
+/// Locate a Node runtime for the platform sidecar. `TEMPEST_PLATFORM_NODE` wins and, like
+/// the dist override, an explicit-but-broken value resolves to None rather than silently
+/// hunting elsewhere. Then PATH — which for a Finder-launched app is the login shell's
+/// minimal `/usr/bin:/bin:…`, hence the final probe of the standard install prefixes.
+/// Bundling a runtime (deleting this lookup) is a tracked PLAN-V3 item, not a comment.
+pub fn resolve_node() -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var("TEMPEST_PLATFORM_NODE") {
+        if !explicit.is_empty() {
+            let path = PathBuf::from(explicit);
+            return path.is_file().then_some(path);
+        }
+    }
+    let binary = if cfg!(windows) { "node.exe" } else { "node" };
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join(binary);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    ["/usr/local/bin/node", "/opt/homebrew/bin/node", "/usr/bin/node"]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|p| p.is_file())
+}
+
 pub fn socket_dir() -> PathBuf {
     #[cfg(unix)]
     let owner = unsafe { libc::getuid() };

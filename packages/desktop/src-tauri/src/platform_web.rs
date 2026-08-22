@@ -24,11 +24,21 @@ use serde_json::json;
 
 use crate::supervisor::Supervisor;
 
-/// Where the built client lives. Env-provided while the platform surface is an opt-in
-/// preview; when C3 completes and the client becomes the primary webview, this moves into
-/// the app's bundled resources like the boundary seam did.
-pub fn dist_dir() -> Option<PathBuf> {
-    std::env::var("TEMPEST_PLATFORM_WEB_DIST").ok().map(PathBuf::from).filter(|p| p.is_dir())
+/// Where the built client lives. The bundled resource (`platform/client-dist/`) is the
+/// product path; `TEMPEST_PLATFORM_WEB_DIST` overrides it for development against a fresh
+/// build without re-bundling. An explicit-but-broken override resolves to None rather than
+/// silently falling back to the stale bundled copy — a misconfiguration must surface.
+pub fn dist_dir<R: tauri::Runtime, M: tauri::Manager<R>>(app: &M) -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var("TEMPEST_PLATFORM_WEB_DIST") {
+        if !explicit.is_empty() {
+            let path = PathBuf::from(explicit);
+            return path.is_dir().then_some(path);
+        }
+    }
+    app.path()
+        .resolve("platform/client-dist", tauri::path::BaseDirectory::Resource)
+        .ok()
+        .filter(|p| p.is_dir())
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -76,9 +86,9 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
             // console.error in the webview reaches the host's stderr via /api/__console —
             // the instrument behind the C3 "zero console errors" gate, and the difference
             // between diagnosing a webview crash and guessing at one.
-            let tap = "<script>(function(){var post=function(kind,text){try{fetch('/api/__console',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:kind,text:String(text).slice(0,4000)})})}catch(e){}};window.addEventListener('error',function(e){post('error',(e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||'')+(e.error&&e.error.stack?'\\n'+e.error.stack:''))});window.addEventListener('unhandledrejection',function(e){var r=e.reason;post('unhandledrejection',r&&r.stack?r.stack:String(r))});var orig=console.error;console.error=function(){post('console.error',Array.prototype.map.call(arguments,function(a){return a&&a.stack?a.stack:String(a)}).join(' | '));return orig.apply(console,arguments)}})();</script>";
+            let tap = "<script>(function(){var post=function(kind,text){try{fetch('/api/__console',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:kind,text:String(text).slice(0,4000)})})}catch(e){}};window.addEventListener('error',function(e){post('error',(e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||'')+(e.error&&e.error.stack?'\\n'+e.error.stack:''))});window.addEventListener('unhandledrejection',function(e){var r=e.reason;post('unhandledrejection',r&&r.stack?(r.message?r.message+'\\n':'')+r.stack:String(r))});var orig=console.error;console.error=function(){post('console.error',Array.prototype.map.call(arguments,function(a){return a&&a.stack?(a.message?a.message+'\\n':'')+a.stack:String(a)}).join(' | '));return orig.apply(console,arguments)}})();</script>";
             let body = body
-                .replace("<title>LibreChat</title>", "<title>Tempest</title>")
+                .replace("<title>LibreChat</title>", "<title>Tempest AI</title>")
                 .replacen("<head>", &format!("<head>{tap}"), 1)
                 .replace(
                     "</head>",

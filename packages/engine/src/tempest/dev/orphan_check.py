@@ -31,7 +31,7 @@ import tempfile
 import time
 from pathlib import Path
 
-_DEFAULT_APP = Path("/Applications/Tempest.app/Contents/MacOS/tempest-desktop")
+_DEFAULT_APP = Path("/Applications/Tempest AI.app/Contents/MacOS/tempest-desktop")
 _SIDECAR_DEADLINE_S = 40.0
 _CLEANUP_DEADLINE_S = 15.0
 
@@ -111,7 +111,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     if not args.app.is_file():
-        raise SystemExit(f"app binary not found: {args.app} — build and install Tempest.app")
+        raise SystemExit(f"app binary not found: {args.app} — build and install "Tempest AI.app"")
 
     env = dict(os.environ)
     if args.all_children:

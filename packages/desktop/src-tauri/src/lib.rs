@@ -103,7 +103,7 @@ pub fn run() {
             let body = request.body().clone();
             // Off the main thread: the /api arm blocks on a boundary-E round trip.
             std::thread::spawn(move || {
-                let reply = match platform_web::dist_dir() {
+                let reply = match platform_web::dist_dir(&app) {
                     Some(dist) => {
                         let supervisor =
                             app.try_state::<platform::Platform>().map(|p| Arc::clone(&p.0));
@@ -113,7 +113,9 @@ pub fn run() {
                         .status(503)
                         .header("content-type", "text/plain; charset=utf-8")
                         .body(
-                            b"TEMPEST_PLATFORM_WEB_DIST is not set or not a directory".to_vec(),
+                            b"no platform client dist: the bundled resource is missing and \
+                              TEMPEST_PLATFORM_WEB_DIST is unset or not a directory"
+                                .to_vec(),
                         )
                         .expect("static response"),
                 };
@@ -183,34 +185,61 @@ pub fn run() {
                 }
             });
 
-            // Boundary E (PLAN-V3 C2): the Node platform sidecar, OPT-IN until C3 mounts the
-            // client — nothing user-facing consumes it yet, and an idle Node process would be
-            // RAM spent on ceremony. `TEMPEST_PLATFORM_NODE` overrides the interpreter (the
-            // orphan gate passes an explicit path); bundling a runtime is C3's decision.
-            if std::env::var("TEMPEST_PLATFORM_SIDECAR").as_deref() == Ok("1") {
-                let node = std::env::var("TEMPEST_PLATFORM_NODE")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|_| PathBuf::from("node"));
-                match app
-                    .path()
-                    .resolve("platform/server/tempest/boundary.mjs", tauri::path::BaseDirectory::Resource)
-                {
-                    Ok(script) if script.is_file() => {
-                        // prepare_socket creates the private per-user 0700 socket directory
-                        // and sweeps dead siblings; the supervisor itself never touches dirs.
-                        // An explicit TEMPEST_PLATFORM_SOCKET wins: the orphan gate names the
-                        // path itself so its later file assertion is a pairing, not a
-                        // duplicated constant that could drift.
-                        let socket = match std::env::var("TEMPEST_PLATFORM_SOCKET") {
-                            Ok(explicit) if !explicit.is_empty() => PathBuf::from(explicit),
-                            _ => match platform::prepare_socket() {
-                                Ok(socket) => socket,
-                                Err(err) => {
-                                    eprintln!("[tempest] platform socket dir failed: {err}");
-                                    return Ok(());
-                                }
-                            },
-                        };
+            // ONE window (owner decision, PLAN-V3 C3): the merged platform client is the
+            // product surface, on by default. It needs two things this machine must provide
+            // until a Node runtime is bundled: the built client (bundled resource, or
+            // TEMPEST_PLATFORM_WEB_DIST for development) and a Node interpreter
+            // (TEMPEST_PLATFORM_NODE, then PATH, then the standard install locations a
+            // Finder-launched app cannot see through its minimal PATH). The pre-merge
+            // desktop webview survives only as an explicit TEMPEST_LEGACY_WINDOW=1 escape
+            // hatch while its views are absorbed, and as the fallback when the platform
+            // surface cannot start — every fallback names its cause on stderr, never a
+            // silently different app (L15.3). TEMPEST_PLATFORM_SIDECAR=0 is the kill switch.
+            let legacy_forced = std::env::var("TEMPEST_LEGACY_WINDOW").as_deref() == Ok("1");
+            let sidecar_off = std::env::var("TEMPEST_PLATFORM_SIDECAR").as_deref() == Ok("0");
+            let dist_present = platform_web::dist_dir(app.handle()).is_some();
+            let node = platform::resolve_node();
+            let script = app
+                .path()
+                .resolve(
+                    "platform/server/tempest/boundary.mjs",
+                    tauri::path::BaseDirectory::Resource,
+                )
+                .ok()
+                .filter(|p| p.is_file());
+            let mut platform_ready = false;
+            if legacy_forced {
+                eprintln!(
+                    "[tempest] TEMPEST_LEGACY_WINDOW=1 — opening the pre-merge desktop webview"
+                );
+            } else if sidecar_off {
+                eprintln!("[tempest] TEMPEST_PLATFORM_SIDECAR=0 — platform surface disabled");
+            } else if !dist_present {
+                eprintln!(
+                    "[tempest] platform client dist not found (no bundled resource, no \
+                     TEMPEST_PLATFORM_WEB_DIST) — falling back to the legacy window"
+                );
+            } else if node.is_none() {
+                eprintln!(
+                    "[tempest] no Node runtime found (TEMPEST_PLATFORM_NODE, PATH, standard \
+                     locations) — falling back to the legacy window"
+                );
+            } else if script.is_none() {
+                eprintln!(
+                    "[tempest] boundary.mjs is not bundled — falling back to the legacy window"
+                );
+            } else if let (Some(node), Some(script)) = (node, script) {
+                // prepare_socket creates the private per-user 0700 socket directory
+                // and sweeps dead siblings; the supervisor itself never touches dirs.
+                // An explicit TEMPEST_PLATFORM_SOCKET wins: the orphan gate names the
+                // path itself so its later file assertion is a pairing, not a
+                // duplicated constant that could drift.
+                let socket = match std::env::var("TEMPEST_PLATFORM_SOCKET") {
+                    Ok(explicit) if !explicit.is_empty() => Ok(PathBuf::from(explicit)),
+                    _ => platform::prepare_socket(),
+                };
+                match socket {
+                    Ok(socket) => {
                         let platform_supervisor =
                             Supervisor::new(platform::spawn_config(node, script, socket));
                         app.manage(platform::Platform(Arc::clone(&platform_supervisor)));
@@ -219,49 +248,40 @@ pub fn run() {
                                 eprintln!("[tempest] platform sidecar failed to start: {err}");
                             }
                         });
+                        platform_ready = true;
                     }
-                    Ok(script) => eprintln!(
-                        "[tempest] platform sidecar requested but {script:?} is not bundled — \
-                         not spawning"
-                    ),
                     Err(err) => eprintln!(
-                        "[tempest] platform sidecar requested but the resource path did not \
-                         resolve: {err}"
+                        "[tempest] platform socket dir failed: {err} — falling back to the \
+                         legacy window"
                     ),
                 }
             }
 
-            // C3 (in flight): the platform surface as an opt-in preview window while the
-            // absorption completes. When C3 closes, this becomes the ONE webview.
-            if std::env::var("TEMPEST_PLATFORM_SIDECAR").as_deref() == Ok("1")
-                && platform_web::dist_dir().is_some()
-            {
-                let platform_window = WebviewWindowBuilder::new(
+            if platform_ready {
+                WebviewWindowBuilder::new(
                     app,
-                    "platform",
+                    "main",
                     WebviewUrl::CustomProtocol(
                         "tempest://localhost/".parse().expect("static url parses"),
                     ),
                 )
-                .title("Tempest")
+                .title("Tempest AI")
                 .inner_size(1280.0, 860.0)
-                .min_inner_size(760.0, 520.0);
-                if let Err(err) = platform_window.build() {
-                    eprintln!("[tempest] platform preview window failed: {err}");
-                }
+                .min_inner_size(760.0, 520.0)
+                .build()?;
+            } else {
+                let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+                    .title("Tempest AI")
+                    .inner_size(1180.0, 800.0)
+                    .min_inner_size(760.0, 520.0);
+                // Native macOS chrome: traffic lights inset over the sidebar, no title text —
+                // the webview's fixed drag-strip keeps the window draggable (§3.1).
+                #[cfg(target_os = "macos")]
+                let window = window
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true);
+                window.build()?;
             }
-
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title("Tempest")
-                .inner_size(1180.0, 800.0)
-                .min_inner_size(760.0, 520.0);
-            // Native macOS chrome: traffic lights inset over the sidebar, no title text —
-            // the webview's fixed drag-strip keeps the window draggable (§3.1).
-            #[cfg(target_os = "macos")]
-            let window = window
-                .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true);
-            window.build()?;
             Ok(())
         })
         .build(tauri::generate_context!())

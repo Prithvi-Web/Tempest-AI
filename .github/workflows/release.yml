@@ -63,7 +63,7 @@ jobs:
       - name: zip the unsigned app
         run: |
           cd packages/desktop/src-tauri/target/release/bundle/macos
-          ditto -c -k --keepParent Tempest.app Tempest-macOS-unsigned.zip
+          ditto -c -k --keepParent "Tempest AI.app" Tempest-macOS-unsigned.zip
       - uses: actions/upload-artifact@v6
         with:
           name: macos-app
@@ -89,5 +89,5 @@ jobs:
           body: |
             Install (any OS, from source): `uv tool install "git+https://github.com/Prithvi-Web/Tempest-AI#subdirectory=packages/engine"`
             macOS app is **unsigned** (GitHub-only distribution, ADR-0021): right-click → Open
-            on first launch, or `xattr -d com.apple.quarantine Tempest.app`.
+            on first launch, or `xattr -d com.apple.quarantine "Tempest AI.app"`.
             Verify downloads against `SHA256SUMS.txt`.
