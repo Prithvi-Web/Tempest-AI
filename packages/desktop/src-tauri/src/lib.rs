@@ -91,6 +91,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 }
 
 pub fn run() {
+    platform_web::mark_process_start(std::time::Instant::now());
     let specta = specta_builder();
     tauri::Builder::default()
         // The mounted platform client's world (C3): static dist + theme seam + /api over

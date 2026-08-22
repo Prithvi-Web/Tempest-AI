@@ -111,7 +111,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     if not args.app.is_file():
-        raise SystemExit(f"app binary not found: {args.app} — build and install "Tempest AI.app"")
+        raise SystemExit(f"app binary not found: {args.app} — build and install 'Tempest AI.app'")
 
     env = dict(os.environ)
     if args.all_children:

@@ -17,12 +17,24 @@
 //! router expects.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 
 use crate::supervisor::Supervisor;
+
+/// Set once by the host at startup; the first `/api/config` serve prints the elapsed time
+/// as the merged-app cold-launch number (§10). A `OnceLock` rather than a constructor
+/// argument because `handle` is called from a protocol closure that owns nothing.
+static PROCESS_START: OnceLock<Instant> = OnceLock::new();
+static COLD_LAUNCH_PRINTED: AtomicBool = AtomicBool::new(false);
+
+/// Record the host's start instant for the cold-launch instrument. Idempotent.
+pub fn mark_process_start(start: Instant) {
+    let _ = PROCESS_START.set(start);
+}
 
 /// Where the built client lives. The bundled resource (`platform/client-dist/`) is the
 /// product path; `TEMPEST_PLATFORM_WEB_DIST` overrides it for development against a fresh
@@ -173,6 +185,16 @@ pub fn handle(
     path: &str,
     body: &[u8],
 ) -> tauri::http::Response<Vec<u8>> {
+    if path == "/api/config" && !COLD_LAUNCH_PRINTED.swap(true, Ordering::Relaxed) {
+        // The §10 merged-app cold-launch instrument: process start → the authed shell
+        // fetching its world. One line, once, on stderr — bench_merged reads it.
+        if let Some(started) = PROCESS_START.get() {
+            eprintln!(
+                "[tempest-perf] merged_cold_launch_ms={}",
+                started.elapsed().as_millis()
+            );
+        }
+    }
     if path == "/api/__console" {
         // The webview's console tap — host-side visibility, never forwarded to the sidecar.
         let line = String::from_utf8_lossy(body);
