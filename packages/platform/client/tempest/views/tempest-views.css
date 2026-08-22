@@ -1,13 +1,22 @@
 /* Tempest desktop — Apple-grade design language (HANDOFF-WORLD-CLASS §3.1), scoped to the
  * absorbed route subtree (C3).
  *
- * Principles: system type stack, three text sizes (title 17/600 · body 13/400 · caption
- * 11/400), neutral surfaces on an 8pt grid, hairline separators, 10px card radii. Color is
- * RESERVED for verdicts (the product's vocabulary — L2) plus one accent for primary actions.
- * Light and dark palettes are both first-class via prefers-color-scheme; every color lives in
- * a token here and nowhere else. Motion is 160ms ease-out and fully disabled under
- * prefers-reduced-motion. Monospace appears ONLY where the content is evidence: SHAs, inputs,
- * repro scripts, log records.
+ * Principles: system type stack, a four-step text ladder (large title 20/600 · section 15/600 ·
+ * body 13/400 · caption 11/400), neutral surfaces on an 8pt grid, hairline separators, one
+ * radius ladder (6 small · 8 control · 10 card · pill). Color is RESERVED for verdicts (the
+ * product's vocabulary — L2) plus one accent for primary actions. Light and dark palettes are
+ * both first-class via prefers-color-scheme; every color, radius, elevation and duration lives
+ * in a token here and nowhere else. Motion is ease-out at two speeds — 140ms for the feedback
+ * under a pointer, 180ms for a view arriving — and fully disabled under prefers-reduced-motion.
+ * Monospace appears ONLY where the content is evidence: SHAs, inputs, repro scripts, log
+ * records.
+ *
+ * The ladder was re-cut in C4. title/body/caption put a view's <h1> at 17px and a section's <h2>
+ * at bolded body, so a page had no top and its sections did not open: the two headings were
+ * separated from their content by weight alone. 20/15/13/11 is the native ladder — a view title,
+ * a section, its content, its metadata — and each step carries its own optical tracking, because
+ * SF tightens as it grows and one value across 11→20px is loose at the top or cramped at the
+ * bottom. The old 17px step is retired rather than left defined and unused.
  *
  * SCOPED, because this stylesheet no longer owns the document. Every rule is a descendant of
  * `.tempest-views` and the token blocks define their custom properties there rather than on
@@ -27,6 +36,9 @@
   background: var(--bg);
   color: var(--ink);
   font: var(--text-body);
+  /* Body tracking for the whole subtree. Sizes that depart from 13px restate it (the caption
+     group below, the headings, the table header); everything else inherits one value. */
+  letter-spacing: -0.008em;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -36,9 +48,21 @@
   /* type */
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
-  --text-title: 600 17px/1.3 var(--font-ui);
-  --text-body: 400 13px/1.55 var(--font-ui);
+  --text-large-title: 600 20px/1.25 var(--font-ui);
+  --text-section: 600 15px/1.35 var(--font-ui);
+  --text-body: 400 13px/1.46 var(--font-ui);
   --text-caption: 400 11px/1.45 var(--font-ui);
+
+  /* geometry — one ladder, and the same numbers the client seam hands the vendored tree
+     (tempest/theme.css §2), so a dialog over there and a card in here are cut alike */
+  --radius-small: 6px;   /* badges, inline editor controls */
+  --radius-control: 8px; /* buttons, fields, code blocks, the editor host */
+  --radius-card: 10px;   /* cards, panels, tables, settings groups */
+  --radius-pill: 999px;  /* chips, progress bars, the switch track */
+
+  /* motion — the feedback under a pointer is faster than a view arriving */
+  --motion-fast: 140ms;
+  --motion-normal: 180ms;
 
   /* light palette */
   --bg: #f5f5f7;
@@ -58,6 +82,14 @@
   --sidebar-bg: rgba(246, 246, 248, 0.84);
   --hover: rgba(0, 0, 0, 0.045);
   --active: rgba(0, 0, 0, 0.08);
+
+  /* Elevation, per scheme, because a shadow is not polarity-neutral: in light a surface is
+     separated by darkness under it, in dark by a lit edge on it. The 0.5px spread ring is a
+     true hairline on a 2x display — a 1px border at this scale is a fat one. */
+  --elevation-popover:
+    0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.06),
+    0 8px 24px -6px rgba(0, 0, 0, 0.18);
+  --elevation-thumb: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.26);
 
   /* verdict vocabulary (L2) — the ONLY saturated colors in the app */
   --divergent: #d70015;
@@ -105,6 +137,13 @@
     --hover: rgba(255, 255, 255, 0.055);
     --active: rgba(255, 255, 255, 0.1);
 
+    /* A black shadow under a dark surface separates nothing; the hairline flips to a lit edge
+       and the ambient shadow deepens to carry the lift that the edge no longer can. */
+    --elevation-popover:
+      0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4),
+      0 12px 32px -8px rgba(0, 0, 0, 0.6);
+    --elevation-thumb: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.6);
+
     /* code — dark scheme */
     --code-ink: #e6e6ea;
     --code-keyword: #d9a2f0;
@@ -140,14 +179,50 @@
   }
 }
 
+/* The ring is the accent at 82% — unmistakable, but not so solid it reads as a border — held
+ * 2px off the control so it never sits on the element's own edge. */
 .tempest-views :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 82%, transparent);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+/* An outline follows the element's border-radius, so a square element gets a square ring; this
+ * rounds the ones that have no radius of their own. It is `:where()`d down to (0,1,0)
+ * deliberately: at the plain (0,2,0) of `.tempest-views :focus-visible` it outranked
+ * `.tempest-views button` (0,1,1) and every control visibly changed shape — 8px corners
+ * snapping to 4px — at the moment it took keyboard focus. */
+.tempest-views :where(:focus-visible) {
+  border-radius: var(--radius-small);
 }
 
 .tempest-views a {
   color: inherit;
+}
+
+/* Interruptible, quiet, and colour-only: nothing here animates layout, so a pointer leaving
+ * mid-transition has nothing to unwind. `:where()` keeps it at (0,1,0) so the rules that ask
+ * for more — the button's press, the switch's knob — replace it wholesale rather than
+ * compositing with it. */
+.tempest-views
+  :where(a, button, input, select, summary, [role='button'], [role='menuitem'], [role='tab']) {
+  transition:
+    color var(--motion-fast) ease-out,
+    background-color var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out,
+    opacity var(--motion-fast) ease-out;
+}
+
+/* 11px wants no tracking at all: SF's optical sizes open up as they shrink, and the body's
+ * -0.008em closes caption text into a smudge. */
+.tempest-views .brand span,
+.tempest-views .crumbs,
+.tempest-views .sidebar-foot,
+.tempest-views label,
+.tempest-views .settings-group .group-note,
+.tempest-views .setting-row .setting-value,
+.tempest-views .forced,
+.tempest-views .editor-host .cm-risk-badge {
+  letter-spacing: 0;
 }
 
 /* Keyboard-only affordance (§3.3): invisible until focused, then the first Tab stop. */
@@ -157,7 +232,7 @@
   top: 10px;
   z-index: 10;
   padding: 6px 12px;
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   background: var(--accent);
   color: var(--accent-ink);
   text-decoration: none;
@@ -221,10 +296,12 @@
   padding: 0 10px 14px;
 }
 
+/* The section size, but kept as its own declaration: this is a two-line lockup and 1.2 is what
+ * holds the wordmark against its subtitle — `--text-section`'s 1.35 is prose leading. */
 .tempest-views .brand strong {
   display: block;
   font: 600 15px/1.2 var(--font-ui);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.012em;
 }
 
 .tempest-views .brand span {
@@ -234,25 +311,35 @@
   color: var(--ink-secondary);
 }
 
+/* 2px, not 4: a native sidebar's rows read as one list with the pills nearly touching, and at
+ * 4px each row floated as its own object. */
 .tempest-views .sidebar nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .tempest-views .nav-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 10px;
-  border-radius: 7px;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
   text-decoration: none;
   color: var(--ink);
-  transition: background 160ms ease-out;
+  transition:
+    background-color var(--motion-fast) ease-out,
+    color var(--motion-fast) ease-out;
 }
 
 .tempest-views .nav-item:hover {
   background: var(--hover);
+}
+
+/* The press lands before the route does, so the click has an answer even when the view behind
+ * it takes a frame to arrive. */
+.tempest-views .nav-item:active {
+  background: var(--active);
 }
 
 .tempest-views .nav-item.current {
@@ -285,7 +372,7 @@
 .tempest-views .content > main {
   max-width: 880px;
   margin: 0 auto;
-  animation: view-in 180ms ease-out;
+  animation: view-in var(--motion-normal) ease-out;
 }
 
 @keyframes view-in {
@@ -301,15 +388,26 @@
 
 /* ── type + status colors ─────────────────────────────────────────────────────────────── */
 
+/* The view's title, and the only thing at this size on the page. */
 .tempest-views h1 {
-  font: var(--text-title);
-  letter-spacing: -0.01em;
-  margin: 0 0 4px;
+  font: var(--text-large-title);
+  letter-spacing: -0.015em;
+  margin: 0 0 6px;
 }
 
+/* A section heading. At 13px/600 it was body text in bold — legible, but it could not open a
+ * section, because nothing about it was larger than what it introduced. */
 .tempest-views h2 {
-  font: 600 13px/1.4 var(--font-ui);
+  font: var(--text-section);
+  letter-spacing: -0.011em;
   margin: 28px 0 8px;
+}
+
+/* UI text is tight (13/1.46) because rows, chips and controls are measured in it. Prose is not:
+ * a paragraph read left to right gets the leading back. */
+.tempest-views main p,
+.tempest-views main li {
+  line-height: 1.55;
 }
 
 .tempest-views .dim {
@@ -333,7 +431,13 @@
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
-  margin: 2px 0 6px;
+  margin: 2px 0 10px;
+}
+
+/* A title inside the status row is a title BAR: its own bottom margin would push it off the
+ * centre line it shares with the search field and the chips beside it. */
+.tempest-views .statusline h1 {
+  margin: 0;
 }
 
 .tempest-views .crumbs {
@@ -355,15 +459,20 @@
 .tempest-views .pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 9px; /* clears the dot's halo, which extends 3px past the dot itself */
 }
 
+/* A status dot with a halo of its own colour — the native way an indicator reads as lit rather
+ * than as a bullet. The halo is `currentColor` too, so the engine state stays the one thing
+ * saying what it is; this adds no colour of its own. */
 .tempest-views .pill::before {
   content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-pill);
   background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
 }
 
 /* ── cards + tables ───────────────────────────────────────────────────────────────────── */
@@ -371,7 +480,7 @@
 .tempest-views .card {
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   overflow: hidden;
   margin: 12px 0;
 }
@@ -382,7 +491,7 @@
   border-spacing: 0;
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   overflow: hidden;
   margin: 12px 0;
 }
@@ -395,18 +504,28 @@
   margin: 8px 0 0;
 }
 
+/* A column label, not a sentence: 11px uppercase at +0.06em is what tells the eye this row is
+ * the key to the ones below it without spending a rule, a weight, or a colour on saying so.
+ * `--ink-secondary` measures 6.35:1 on `--surface`, which is the only ground a header sits on. */
 .tempest-views th {
   text-align: left;
-  font: var(--text-caption);
+  font: 600 11px/1.4 var(--font-ui);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--ink-secondary);
-  font-weight: 500;
-  padding: 9px 14px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--hairline);
+  font-variant-numeric: tabular-nums;
 }
 
+/* 10px against a 19px line gives a 40px row — dense enough to compare a screenful of runs,
+ * open enough to click one. Tabular figures everywhere, not only in `.num`: a SHA prefix, a
+ * duration and a count all sit in columns, and proportional digits make a column crawl as it
+ * updates. The longhand follows the shorthand deliberately — `font:` resets font-variant. */
 .tempest-views td {
-  padding: 10px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--hairline);
+  font-variant-numeric: tabular-nums;
 }
 
 .tempest-views tbody tr:last-child td {
@@ -415,7 +534,7 @@
 
 .tempest-views tr.rowlink {
   cursor: pointer;
-  transition: background 160ms ease-out;
+  transition: background-color var(--motion-fast) ease-out;
 }
 
 .tempest-views tr.rowlink:hover {
@@ -434,10 +553,12 @@
 
 /* ── verdict chips (enum text is the verdict vocabulary — never restyled into prose) ──── */
 
+/* Geometry and type only — the colour values below are the reserved vocabulary (L31) and are
+ * carried across verbatim from the desktop surface. */
 .tempest-views .chip {
   display: inline-block;
   padding: 2px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font: 600 11px/1.5 var(--font-ui);
   letter-spacing: 0.02em;
 }
@@ -472,7 +593,7 @@
 .tempest-views .panel {
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
   padding: 16px 18px;
   margin: 12px 0;
 }
@@ -491,7 +612,7 @@
   font-size: 12px;
   background: var(--surface-sunken);
   border: 1px solid var(--hairline);
-  border-radius: 7px;
+  border-radius: var(--radius-control);
   padding: 10px 12px;
   overflow-x: auto;
   white-space: pre;
@@ -505,7 +626,7 @@
 
 .tempest-views .bar {
   height: 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   border: 1px solid var(--hairline);
   position: relative;
@@ -516,7 +637,7 @@
 .tempest-views .bar > i {
   position: absolute;
   inset: 0 auto 0 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--unproven);
 }
 
@@ -526,27 +647,34 @@
 
 /* ── controls ─────────────────────────────────────────────────────────────────────────── */
 
+/* 5px against a 19px line is a 31px control — the height a native app gives a regular button,
+ * and small enough that a row of them reads as chrome rather than as content. */
 .tempest-views button,
 .tempest-views input,
 .tempest-views select {
   font: var(--text-body);
+  /* Restated, not inherited: WebKit's UA sheet resets `letter-spacing` on form controls, so a
+     button's label would otherwise sit looser than the text it stands next to. */
+  letter-spacing: -0.008em;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--hairline-strong);
-  border-radius: 7px;
-  padding: 6px 12px;
+  border-radius: var(--radius-control);
+  padding: 5px 12px;
 }
 
 .tempest-views button {
   cursor: pointer;
   transition:
-    background 160ms ease-out,
-    opacity 160ms ease-out,
+    background-color var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out,
+    opacity var(--motion-fast) ease-out,
     transform 120ms ease-out;
 }
 
+/* 0.98, not 0.97: the press has to be felt, not watched. */
 .tempest-views button:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .tempest-views button:hover {
@@ -601,7 +729,7 @@
 .tempest-views input[type="search"],
 .tempest-views .statusline input[type="search"] {
   width: 240px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface-sunken);
   border-color: transparent;
 }
@@ -619,11 +747,13 @@
 
 /* ── settings groups ──────────────────────────────────────────────────────────────────── */
 
+/* Same box as `.panel`, and now the same padding: two containers that look alike from a metre
+ * away but measure differently up close is the kind of drift a design system exists to stop. */
 .tempest-views .settings-group {
   background: var(--surface);
   border: 1px solid var(--hairline);
-  border-radius: 10px;
-  padding: 18px 20px;
+  border-radius: var(--radius-card);
+  padding: 16px 18px;
   margin: 14px 0;
 }
 
@@ -669,8 +799,11 @@
   color: var(--ink);
 }
 
+/* A right-aligned readout that changes as a slider moves: proportional digits would make the
+ * column breathe on every step. */
 .tempest-views .setting-row .setting-value {
   font: var(--text-caption);
+  font-variant-numeric: tabular-nums;
   color: var(--ink-secondary);
   min-width: 72px;
   text-align: right;
@@ -680,7 +813,7 @@
   font: var(--text-caption);
   color: var(--unproven);
   background: var(--unproven-soft);
-  border-radius: 5px;
+  border-radius: var(--radius-small);
   padding: 2px 7px;
   white-space: nowrap;
 }
@@ -690,15 +823,15 @@
   width: 40px;
   height: 24px;
   flex: none;
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--hairline-strong);
   background: var(--surface-sunken);
   position: relative;
   padding: 0;
   cursor: pointer;
   transition:
-    background 160ms ease-out,
-    border-color 160ms ease-out;
+    background-color var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out;
 }
 
 .tempest-views input.switch::after {
@@ -708,10 +841,10 @@
   left: 2px;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
-  transition: transform 160ms ease-out;
+  box-shadow: var(--elevation-thumb);
+  transition: transform var(--motion-fast) ease-out;
 }
 
 .tempest-views input.switch:checked {
@@ -735,7 +868,7 @@
   height: 4px;
   padding: 0;
   border: none;
-  border-radius: 2px;
+  border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   cursor: pointer;
 }
@@ -744,10 +877,10 @@
   appearance: none;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--surface);
   border: 1px solid var(--hairline-strong);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--elevation-thumb);
 }
 
 .tempest-views input.slider:disabled {
@@ -803,7 +936,7 @@
   height: calc(100vh - 168px);
   min-height: 240px;
   border: 1px solid var(--hairline);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   overflow: hidden;
   background: var(--surface);
 }
@@ -882,7 +1015,7 @@
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--hairline-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   padding: 2px 6px;
 }
 
@@ -890,7 +1023,7 @@
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--hairline-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-small);
   background-image: none;
 }
 
@@ -898,7 +1031,7 @@
   background: var(--surface);
   color: var(--ink);
   border: 1px solid var(--hairline-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .tempest-views .editor-host .cm-tooltip-autocomplete > ul > li[aria-selected] {
@@ -928,9 +1061,11 @@
  * `problem` is a fact about a server that IS configured — never rendered as documentation. */
 .tempest-views .editor-host .cm-tooltip {
   border: 1px solid var(--hairline-strong);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--surface);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  /* Was a single flat 18%-black drop, which in dark mode was a shadow nobody could see holding
+     up a card nobody could find the edge of. The token flips with the scheme. */
+  box-shadow: var(--elevation-popover);
 }
 
 .tempest-views .editor-host .cm-tempest-hover {
@@ -955,7 +1090,7 @@
 .tempest-views .editor-host .cm-risk-badge {
   margin-left: 8px;
   padding: 0 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-small);
   font: var(--text-caption);
   font-style: normal;
   white-space: nowrap;
@@ -990,9 +1125,16 @@
   --composer-row: 44px;
 }
 
+/* The composer arrived carrying token names from a different stylesheet — `--muted`, `--border`,
+ * `--mono`. None of the three is declared anywhere in this file or the client's, so every rule
+ * that used one resolved to an invalid var() and was thrown away at computed-value time: the
+ * lede and the reason column rendered in body ink instead of secondary, and the row separators
+ * did not render at all. That failure is silent by construction — an unresolved var() is not a
+ * parse error and nothing logs it — so the names are corrected here to the ones this surface
+ * actually defines rather than the tokens being invented to match. */
 .tempest-views .composer-lede {
   max-width: 60ch;
-  color: var(--muted);
+  color: var(--ink-secondary);
 }
 
 .tempest-views .composer-form {
@@ -1004,7 +1146,8 @@
 }
 
 .tempest-views .composer-count {
-  color: var(--muted);
+  color: var(--ink-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Bounded on purpose: windowing needs a viewport with a height to compute against, and an
@@ -1013,8 +1156,8 @@
   height: 60vh;
   min-height: 320px;
   overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
   contain: strict;
 }
 
@@ -1034,12 +1177,13 @@
   align-items: center;
   gap: 0.75rem;
   padding-inline: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hairline);
   box-sizing: border-box;
 }
 
 .tempest-views .composer-where {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--font-mono);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1053,12 +1197,12 @@
 
 .tempest-views .composer-divergences,
 .tempest-views .composer-coverage {
-  color: var(--muted);
+  color: var(--ink-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .tempest-views .composer-reason {
-  color: var(--muted);
+  color: var(--ink-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

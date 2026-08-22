@@ -11,10 +11,22 @@
  * neutral graphite surfaces; hairline separators via triplet+alpha; color reserved for
  * meaning with ONE accent for primary actions; light and dark both first-class. Verdict
  * colors do NOT appear here — platform surfaces never borrow the proof vocabulary (L31).
+ *
+ * ── how the cascade works here, because every edit depends on it ──────────────────────────
+ * Upstream declares its light semantics on `html` (0,0,1) and its dark semantics on `.dark`
+ * (0,1,0). This file's `:root` is ALSO (0,1,0) and loads later, so a token written in `:root`
+ * beats upstream's `.dark` value as well. **Anything set in `:root` that upstream also sets in
+ * `.dark` must be restated in `html.dark` (0,1,1) or dark mode silently inherits the light
+ * value.** Overriding a token ONLY in `html.dark` is safe and leaves the light derivation
+ * untouched — that is how the dark surface fixes below are expressed.
+ *
+ * Every declaration is plain, un-preprocessed CSS: the protocol handler serves this file
+ * verbatim, so there is no PostCSS, no nesting transform, and no autoprefixer behind it.
  */
 
+/* ═══ 1 · primitive ramp → Tempest graphite (no blue cast, no dead grays) ═══════════════ */
+
 :root {
-  /* ── primitive ramp → Tempest graphite (no blue cast, no dead grays) ─────────────── */
   --white: 255 255 255;
   --black: 29 29 31;
   --gray-20: 236 236 238;   /* surface-sunken */
@@ -42,6 +54,11 @@
   --surface-submit: 0 113 227;        /* the primary action is the accent, not a green */
   --surface-submit-hover: 0 96 194;
 
+  /* The keyboard ring is the accent, not a gray. Upstream points `--ring-primary` at
+   * gray-500, so 60+ focus affordances render as a neutral outline that reads as a border
+   * rather than as focus; on this platform the ring IS the accent, in both modes. */
+  --ring-primary: 0 113 227;
+
   /* ── hairline borders: black at Tempest's alpha, not solid grays ─────────────────── */
   --border-light: 0 0 0;
   --border-light-alpha: 0.1;
@@ -53,6 +70,48 @@
   --border-xheavy: 0 0 0;
   --border-xheavy-alpha: 0.34;
 }
+
+/* ═══ 2 · appearance tokens — radii, elevation, motion, type ════════════════════════════
+ *
+ * `@librechat/client`'s theme registry exposes these as first-class appearance properties
+ * (client-pkg/src/theme/registry.ts) and the Tailwind preset turns each into a utility
+ * (`rounded-theme-*`, `shadow-theme-surface`, `duration-theme-*`, `font-theme-ui`). They are
+ * the vendored system's own knobs, so tuning them is a token change and not an override.
+ * Upstream declares them on `html` only — not in `.dark` — so a single `:root` block serves
+ * both modes; the one that is polarity-dependent (elevation) is restated in `html.dark`.
+ */
+:root {
+  /* ONE radius ladder for the whole app — 8 control · 10 surface · 14 large — the same
+   * numbers the proof surface uses (views/tempest-views.css). A dialog in the client and a
+   * card in a Tempest view are then cut from one system. Upstream ships 12/16/24, which
+   * reads as a web app's soft-corner default rather than as a native window. */
+  --theme-control-radius: 0.5rem;
+  --theme-surface-radius: 0.625rem;
+  --theme-large-surface-radius: 0.875rem;
+
+  /* Elevation is a hairline plus two shadows: the 0.5px spread ring is what separates the
+   * surface at rest (a true hairline on a 2x display, where a 1px border is a fat one), the
+   * contact shadow seats it, and the wide ambient shadow carries the lift. Upstream's pair of
+   * flat 10%-black shadows greys the edge instead of separating it. */
+  --theme-elevation-surface:
+    0 0 0 0.5px rgb(0 0 0 / 0.05), 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -6px rgb(0 0 0 / 0.14);
+
+  /* Micro-feedback is faster than a view change, and both sit inside the 120–180ms window a
+   * quiet interface lives in. Drives every `duration-theme-*` utility. */
+  --theme-motion-fast: 140ms;
+  --theme-motion-normal: 180ms;
+
+  /* The registry's type token joins the system stack (see §4) so `font-theme-ui` cannot
+   * reintroduce the bundled webfont through the back door. */
+  --theme-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI",
+    sans-serif;
+
+  /* Selection tint. Kept as an alpha rather than a color so it stays the accent in both
+   * modes and only its weight changes with polarity. */
+  --tempest-selection-alpha: 0.22;
+}
+
+/* ═══ 3 · dark mode ════════════════════════════════════════════════════════════════════ */
 
 html.dark {
   /* Tempest dark accents only. The primitive --gray ramp is deliberately NOT re-declared
@@ -71,6 +130,7 @@ html.dark {
   --link-visited: 50 153 255;
   --surface-submit: 10 132 255;
   --surface-submit-hover: 50 153 255;
+  --ring-primary: 10 132 255;
 
   --border-light: 255 255 255;
   --border-light-alpha: 0.12;
@@ -81,6 +141,44 @@ html.dark {
   --border-heavy-alpha: 0.28;
   --border-xheavy: 255 255 255;
   --border-xheavy-alpha: 0.38;
+
+  /* A dark selection tint has to carry more alpha to read at all against a dark ground. */
+  --tempest-selection-alpha: 0.32;
+
+  /* Dark elevation inverts its hairline: black-on-black is invisible, so the separating ring
+   * becomes a low-alpha white and the ambient shadow deepens to hold the lift. */
+  --theme-elevation-surface:
+    0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4),
+    0 12px 32px -8px rgb(0 0 0 / 0.55);
+
+  /* ── dark interaction fills: SEMANTIC repairs, not a second ramp ───────────────────────
+   *
+   * The graphite ramp's mid slots (500/600/650) are ~15% lighter than upstream's because in
+   * LIGHT mode they are ink — `--gray-500` has to clear 4.5:1 as secondary text on white.
+   * Upstream's `.dark` block re-uses those same slots as interaction FILLS, so every hover,
+   * active and header surface in dark comes out one full step too bright: a hovered row read
+   * as #48484c and a selected one as #6e6e73 — a mid-gray block glowing inside a #1c1c1e
+   * shell. The fix belongs in the semantic layer and nowhere else; re-tuning the ramp would
+   * drag light-mode ink with it, and re-declaring the ramp inside `html.dark` is the
+   * double-inversion bug documented above. Each value below restores the WEIGHT upstream
+   * intended (its gray-650/600/500 in Tempest's hue), landing the ladder on the native dark
+   * elevation steps: #161618 ground · #1c1c1e base · #2c2c2e elevated · #3a3a3e raised. */
+  --surface-hover: 57 57 61;            /* was gray-650 → #48484c */
+  --surface-hover-alt: 66 66 70;        /* was gray-600 → #5f5f64 */
+  --surface-active: 89 89 94;           /* was gray-500 → #6e6e73 */
+  --surface-composer-hover: 66 66 70;   /* was gray-600 → #5f5f64 */
+  --header-primary: 44 44 46;           /* was gray-700 → #3a3a3e; the bar is elevated, not raised */
+  --header-hover: 66 66 70;             /* was gray-600 → #5f5f64 */
+  --header-button-hover: 57 57 61;      /* was gray-700 → #3a3a3e */
+
+  /* The composer and code grounds sit at the elevated step, above the #161618 page and below
+   * the raised controls on `--surface-tertiary` (left as derived: #3a3a3e is already the
+   * native raised value). */
+  --surface-chat: 44 44 46;             /* was gray-700 → #3a3a3e */
+
+  /* A dialog has to lift off the page ground; #1c1c1e is barely above #161618 and reads as a
+   * region rather than as a window. */
+  --surface-dialog: 44 44 46;           /* was gray-875 → #1c1c1e */
 }
 
 /* Native form controls, scrollbars and the UA canvas follow the app's mode, not the
@@ -93,7 +191,14 @@ html.dark {
   color-scheme: dark;
 }
 
-/* ── system type stack — the platform never ships a webfont it doesn't need ─────────── */
+/* ═══ 4 · type ═════════════════════════════════════════════════════════════════════════ */
+
+/* The platform never ships a webfont it doesn't need. Three declarations are needed, not one:
+ * Tailwind's preflight sets the family on `html`, and every `font-sans` / `font-mono` /
+ * `font-theme-ui` utility re-declares it on the element itself, where inheritance cannot
+ * reach. Without the utility rules the app renders in bundled Inter wherever a component
+ * spelled the family out — which is most of the chrome. Same specificity as the utility, and
+ * this file loads last, so it wins the tie without `!important`. */
 html,
 body {
   font-family:
@@ -102,33 +207,181 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+.font-sans,
+.font-theme-ui {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+}
+
 code,
 pre,
 kbd,
-samp {
+samp,
+.font-mono {
   font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
 }
 
-/* ── quiet physical details: selection, scrollbars, focus ───────────────────────────── */
-::selection {
-  background: rgb(var(--accent-primary) / 0.22);
+/* SF Mono sets optically larger than SF Pro at the same size, so a SHA quoted inside a sentence
+ * towers over the words around it. 12/13ths puts it back on the sentence's weight. Relative, so
+ * it composes with the reader's font-size preference instead of overriding it, and at zero
+ * specificity so any component that sized its own code still wins. Block code (`pre`) is left
+ * alone — a listing is read on its own terms, not against a line of prose. */
+:where(code, kbd, samp) {
+  font-size: 0.9231em;
 }
 
+:where(pre code) {
+  font-size: inherit;
+}
+
+/* The ground is always painted: a transparent body shows the UA canvas through every
+ * translucent surface above it, and the canvas is not a designed color.
+ *
+ * 13px/1.46 is what the proof surface already calls body (views/tempest-views.css), so text the
+ * client never sized explicitly now matches it instead of falling to the browser's 16px — which
+ * was the absence of a decision, not a decision. Tailwind's `text-*` utilities are rem units
+ * keyed to `html`, so this moves only the text that had no size of its own. */
+body {
+  background-color: rgb(var(--surface-primary));
+  color: rgb(var(--text-primary));
+  font-size: 13px;
+  line-height: 1.46;
+  letter-spacing: -0.008em;
+}
+
+/* ── optical tracking ramp ────────────────────────────────────────────────────────────────
+ *
+ * SF tightens as it grows; a single tracking value across a 12→36px range is either loose at
+ * the top or cramped at the bottom. Each rule is wrapped in `:where()` so it carries ZERO
+ * specificity: it is a default that any explicit `tracking-*` utility a component already
+ * chose overrides, in both directions, without this file having to know which those are.
+ * Element rules come first and the size utilities after, so `<h1 class="text-2xl">` gets the
+ * value for what it actually renders at. */
+:where(h4) {
+  letter-spacing: -0.014em;
+}
+
+:where(h3) {
+  letter-spacing: -0.017em;
+}
+
+:where(h2) {
+  letter-spacing: -0.019em;
+}
+
+:where(h1) {
+  letter-spacing: -0.021em;
+}
+
+:where(.text-xs) {
+  letter-spacing: 0;
+}
+
+:where(.text-sm) {
+  letter-spacing: -0.006em;
+}
+
+:where(.text-base) {
+  letter-spacing: -0.011em;
+}
+
+:where(.text-lg) {
+  letter-spacing: -0.014em;
+}
+
+:where(.text-xl) {
+  letter-spacing: -0.017em;
+}
+
+:where(.text-2xl) {
+  letter-spacing: -0.019em;
+}
+
+:where(.text-3xl) {
+  letter-spacing: -0.021em;
+}
+
+:where(.text-4xl, .text-5xl) {
+  letter-spacing: -0.022em;
+}
+
+/* Numbers that sit in a column — counts, tokens, costs, timestamps — must not dance as they
+ * update. Proportional figures are right everywhere else, so this is scoped to the two
+ * places a column exists in the vendored markup. */
+:where(td, th) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══ 5 · quiet physical details: selection, scrollbars, focus ═════════════════════════ */
+
+::selection {
+  background: rgb(var(--accent-primary) / var(--tempest-selection-alpha));
+}
+
+/* macOS overlay scrollbars: a narrow thumb inset from its gutter by a transparent border, so
+ * the bar never crowds the content it is scrolling. The standard `scrollbar-width` /
+ * `scrollbar-color` properties are deliberately NOT set — where a WebKit build supports them
+ * they take precedence and disable these pseudo-elements outright, trading a tuned scrollbar
+ * for the UA's. */
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgb(var(--border-heavy) / var(--border-heavy-alpha));
-  border-radius: 4px;
+  background-color: rgb(var(--border-heavy) / var(--border-heavy-alpha));
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  min-height: 28px; /* a short thumb on a long document still has to be grabbable */
 }
 
-*::-webkit-scrollbar-track {
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--border-xheavy) / var(--border-xheavy-alpha));
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
   background: transparent;
 }
 
+/* The ring is the accent at 80% — solid enough to be unmistakable, soft enough not to read as
+ * a border — held off the element by 2px so it never sits on top of the control's own edge.
+ * Vendored components that declare their own `focus-visible:ring-*` are (0,2,0) and still
+ * win; this is the default for everything that declares nothing. */
 :focus-visible {
-  outline: 2px solid rgb(var(--accent-primary) / 0.85);
-  outline-offset: 1px;
+  outline: 2px solid rgb(var(--accent-primary) / 0.8);
+  outline-offset: 2px;
+}
+
+/* ═══ 6 · motion — interruptible and quiet ═════════════════════════════════════════════ */
+
+/* Color-only transitions on the things a pointer actually lands on. `:where()` keeps this at
+ * zero specificity so any `transition-*` utility a component chose replaces it wholesale
+ * rather than compositing with it; nothing here animates layout, so an interrupted hover has
+ * nothing to unwind. */
+:where(a, button, summary, [role='button'], [role='menuitem'], [role='option'], [role='tab']) {
+  transition:
+    color var(--theme-motion-fast) ease-out,
+    background-color var(--theme-motion-fast) ease-out,
+    border-color var(--theme-motion-fast) ease-out,
+    opacity var(--theme-motion-fast) ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 1ms rather than 0: a zero-duration transition fires no `transitionend`, and a component
+   * waiting for one would hang instead of being instant. Zeroing the two motion tokens quiets
+   * every `duration-theme-*` utility in the vendored tree along with the rule above. */
+  :root {
+    --theme-motion-fast: 1ms;
+    --theme-motion-normal: 1ms;
+  }
+
+  /* Restated rather than left to the token: a runtime theme applies its appearance values as
+   * INLINE properties on the document element (client-pkg applyResolvedTheme), which outranks
+   * the block above — so a theme carrying its own motion values must not be able to reintroduce
+   * movement for a reader who asked for none. */
+  :where(a, button, summary, [role='button'], [role='menuitem'], [role='option'], [role='tab']) {
+    transition-duration: 1ms;
+  }
 }
