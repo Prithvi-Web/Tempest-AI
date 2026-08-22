@@ -67,7 +67,11 @@ test("the caught failure is reported into the engine's obslog, visibly", async (
   await expect(page.getByTestId("editor-chunk-failed")).toBeVisible({ timeout: 15_000 });
 
   // The boundary's componentDidCatch sent the typed report; the REAL engine recorded it.
-  // "editor-chunk" is the source string EditorChunkBoundary reports under.
+  // "editor-chunk" is the source string EditorChunkBoundary reports under. `.first()`
+  // because the store accumulates one row per staged failure across this file's tests (and
+  // the client retries a failed chunk once), and any one of them proves the path.
   await page.locator(".sidebar").getByRole("link", { name: "Logs" }).click();
-  await expect(page.getByRole("row", { name: /editor-chunk/ })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("row", { name: /editor-chunk/ }).first()).toBeVisible({
+    timeout: 15_000,
+  });
 });
