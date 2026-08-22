@@ -48,6 +48,10 @@ platform-client-dist:
 	pnpm --filter librechat-data-provider build
 	pnpm --filter @librechat/client build
 	pnpm --filter @librechat/frontend exec vite build --config tempest/vite.config.mjs
+	# Upstream's own second build half: vite's publicDir is off in build mode, so
+	# public/assets/** (favicons, the login logo, provider art) reaches dist/ only through
+	# this copy. Skipping it shipped a dist with zero images — every assets/* URL 404'd.
+	pnpm --filter @librechat/frontend exec node scripts/post-build.cjs
 
 bench-editor:
 	cd packages/desktop && TEMPEST_NO_POWER_PAUSE=1 npx playwright test --grep @bench

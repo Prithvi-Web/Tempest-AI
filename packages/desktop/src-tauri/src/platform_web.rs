@@ -106,6 +106,10 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
             let tap = "<script>(function(){var post=function(kind,text){try{fetch('/api/__console',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:kind,text:String(text).slice(0,4000)})})}catch(e){}};window.addEventListener('error',function(e){post('error',(e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||'')+(e.error&&e.error.stack?'\\n'+e.error.stack:''))});window.addEventListener('unhandledrejection',function(e){var r=e.reason;post('unhandledrejection',r&&r.stack?(r.message?r.message+'\\n':'')+r.stack:String(r))});var orig=console.error;console.error=function(){post('console.error',Array.prototype.map.call(arguments,function(a){return a&&a.stack?(a.message?a.message+'\\n':'')+a.stack:String(a)}).join(' | '));return orig.apply(console,arguments)}})();</script>";
             let body = body
                 .replace("<title>LibreChat</title>", "<title>Tempest AI</title>")
+                .replace(
+                    "content=\"LibreChat - An open source chat application with support for multiple AI models\"",
+                    "content=\"Tempest AI — the assistant that shows you the evidence\"",
+                )
                 .replacen("<head>", &format!("<head>{mode}{tap}"), 1)
                 .replace(
                     "</head>",
