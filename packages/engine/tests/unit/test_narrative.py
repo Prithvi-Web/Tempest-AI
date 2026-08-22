@@ -37,6 +37,21 @@ class TestNarratives:
         assert narratives_enabled() is False
         assert _narrate() is None
 
+    def test_the_router_level_override_works_without_the_synthesis_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """19.5b's other face: TEMPEST_SYNTHESIS_BASE_URL is an ALIAS, not the mechanism.
+        With only the unified client's own per-provider override set, the call still lands
+        on the peer — proving the alias-absent arm routes through the same one wire."""
+        fake = FakeAnthropic()
+        fake.reply_text = "Same wire, no alias."
+        with fake_anthropic_server(fake) as url:
+            monkeypatch.setenv("ANTHROPIC_API_KEY", PLANTED_KEY)
+            monkeypatch.delenv("TEMPEST_SYNTHESIS_BASE_URL", raising=False)
+            monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_ANTHROPIC", url)
+            got = _narrate()
+        assert got == "Same wire, no alias."
+
     def test_narrative_comes_back_and_the_request_is_evidence_only(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

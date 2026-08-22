@@ -29,6 +29,20 @@ class TestKeyless:
 
 
 class TestLivePing:
+    def test_the_router_level_override_works_without_the_synthesis_alias(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The alias-absent arm: only the unified client's own per-provider override set —
+        the ping still lands on the peer through the one wire (19.5b)."""
+        fake = FakeAnthropic()
+        with fake_anthropic_server(fake) as url:
+            monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-" + "ant-" + "planted-for-tests")
+            monkeypatch.delenv("TEMPEST_SYNTHESIS_BASE_URL", raising=False)
+            monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_ANTHROPIC", url)
+            result = verify_key()
+        assert result.ok is True
+        assert len(fake.requests) == 1
+
     def test_a_working_key_reports_the_model_that_answered(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
