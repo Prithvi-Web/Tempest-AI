@@ -68,7 +68,7 @@ test("@bench composer render and scroll budgets", async ({ page }) => {
   test.setTimeout(600_000);
   const repo = bigRepo();
 
-  await page.goto("/?view=composer");
+  await page.goto("/tempest/composer");
   await expect(page.getByRole("heading", { name: "Composer" })).toBeVisible();
   await page.locator('input[name="repo"]').fill(repo);
   await page.locator('input[name="base"]').fill("base");

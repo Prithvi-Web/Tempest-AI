@@ -9,29 +9,36 @@
  */
 import { expect, test } from "./fixtures";
 
-test("landmarks: primary nav, per-view main, live engine status", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
+test("landmarks: the subtree's nav, per-view main, live engine status", async ({ page }) => {
+  await page.goto("/tempest");
+  // "Primary" belonged to the webview that owned the whole window; inside the platform client
+  // the subtree's rail is one navigation among the client's own, named for what it is.
+  await expect(page.getByRole("navigation", { name: "Tempest" })).toBeVisible();
   await expect(page.locator("main")).toHaveCount(1);
   const status = page.locator(".sidebar-foot");
   await expect(status).toHaveAttribute("role", "status");
   await expect(status).toHaveAttribute("aria-live", "polite");
 });
 
-test("the skip link is the first Tab stop and moves focus into the content", async ({
+test("the skip link surfaces on focus and moves focus into the content", async ({
   page,
 }) => {
-  await page.goto("/");
-  await page.keyboard.press("Tab");
+  // The webview owned the window, so the skip link was the FIRST Tab stop of the page. Inside
+  // the platform client the host shell's chrome tabs first — the window's tab order is the
+  // client's to arrange, not this subtree's. What remains the subtree's own claim, asserted
+  // here: its skip link surfaces when focused and lands focus on the subtree's content
+  // landmark (#tempest-main-content — the absorbed id, prefixed against collision).
+  await page.goto("/tempest");
   const skip = page.locator(".skip-link");
+  await skip.focus();
   await expect(skip).toBeFocused();
   await expect(skip).toBeVisible(); // it surfaces only while focused
   await page.keyboard.press("Enter");
-  await expect(page.locator("#main-content")).toBeFocused();
+  await expect(page.locator("#tempest-main-content")).toBeFocused();
 });
 
 test("after in-app navigation, focus lands on the new view's title", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/tempest");
   await page.locator(".sidebar").getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeFocused();
   // …and the whole app is drivable from the keyboard from there: Tab reaches a real control.
@@ -42,7 +49,7 @@ test("after in-app navigation, focus lands on the new view's title", async ({ pa
 
 test("prefers-reduced-motion kills the view transition", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
+  await page.goto("/tempest");
   const animation = await page
     .locator("main")
     .evaluate((el) => getComputedStyle(el).animationName);
@@ -55,33 +62,54 @@ test("prefers-reduced-motion kills the view transition", async ({ page }) => {
   // added to CI, which is the entire reason it was added (trap 44). Naming the state explicitly
   // is what makes this a test about the stylesheet rather than about the machine.
   await page.emulateMedia({ reducedMotion: "no-preference" });
-  await page.goto("/");
+  await page.goto("/tempest");
   const restored = await page
     .locator("main")
     .evaluate((el) => getComputedStyle(el).animationName);
   expect(restored).toBe("view-in");
 });
 
-test("no view forces horizontal scroll at 200% zoom", async ({ page }) => {
+test("no view forces horizontal scroll at 200% zoom, tables excepted by design", async ({
+  page,
+}) => {
+  // Platform delta, stated. The legacy stylesheet put `overflow-wrap: anywhere` on every table
+  // cell, so at 200% zoom columns collapsed to fit and nothing scrolled sideways. The seam's
+  // C4 pass reversed that FOR TABLE CELLS on purpose — its own comment: inside the platform
+  // client the content column is permanently narrower, and mid-word breaks in system columns
+  // read as damage ("DIVERGE NT"); headers and verdict chips keep their words whole
+  // (tempest-views.css, the 200%-zoom section). The bar that survives, asserted here: every
+  // view's non-table content still fits — a DATA TABLE is the only surface allowed to exceed
+  // the column, and only because whole words were chosen over sideways scroll.
   await page.setViewportSize({ width: 590, height: 400 });
   for (const url of [
-    "/",
-    "/?view=prove",
-    "/?view=watch",
-    "/?view=logs",
-    "/?view=settings",
+    "/tempest",
+    "/tempest/prove",
+    "/tempest/watch",
+    "/tempest/logs",
+    "/tempest/settings",
     // The editor route, with a repo that does not exist: the REFUSAL surface is a view like any
     // other and must not overflow either. The view shipped outside this loop entirely, which is
     // how it also shipped with no stylesheet.
-    "/?view=editor&repo=%2Fnope&file=main.py",
+    "/tempest/editor?repo=%2Fnope&file=main.py",
   ]) {
     await page.goto(url);
     await expect(page.locator("main")).toBeVisible();
     const overflow = await page.evaluate(() => {
       const content = document.querySelector(".content");
-      if (!content) return -1;
-      return content.scrollWidth - content.clientWidth;
+      if (!content) return { page: -1, sansTables: -1 };
+      const whole = content.scrollWidth - content.clientWidth;
+      // The same measurement with the tables' width taken out of the layout: what remains is
+      // every other surface's claim, and that claim is unchanged from the desktop bar.
+      const tables = Array.from(content.querySelectorAll("table")) as HTMLElement[];
+      const saved = tables.map((t) => t.style.display);
+      for (const t of tables) t.style.display = "none";
+      const sansTables = content.scrollWidth - content.clientWidth;
+      tables.forEach((t, i) => (t.style.display = saved[i] ?? ""));
+      return { page: whole, sansTables };
     });
-    expect(overflow, `${url} must not overflow horizontally at 200% zoom`).toBeLessThanOrEqual(0);
+    expect(
+      overflow.sansTables,
+      `${url}: non-table content must not overflow horizontally at 200% zoom`,
+    ).toBeLessThanOrEqual(0);
   }
 });

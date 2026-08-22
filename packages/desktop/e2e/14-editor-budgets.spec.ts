@@ -59,7 +59,7 @@ async function bigProject() {
 }
 
 function url(repo: string, file: string): string {
-  return `/?view=editor&repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`;
+  return `/tempest/editor?repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`;
 }
 
 test("measures the §5 editor budgets and writes them for perf_suite @bench", async ({ page }) => {

@@ -7,7 +7,7 @@ import { expect, test } from "./fixtures";
 test("log records from the real proves render, and the level filter filters", async ({
   page,
 }) => {
-  await page.goto("/?view=logs");
+  await page.goto("/tempest/logs");
   await expect(page.getByRole("heading", { name: "LOGS" })).toBeVisible();
 
   // The earlier proves wrote real records; ALL LEVELS must show them.

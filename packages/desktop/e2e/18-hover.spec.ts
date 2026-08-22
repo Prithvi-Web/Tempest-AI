@@ -26,7 +26,7 @@ async function openEditor(page: import("@playwright/test").Page) {
   const repo = await mkdtemp(join(tmpdir(), "tempest-e2e-hover-"));
   await mkdir(join(repo, ".git"), { recursive: true });
   await writeFile(join(repo, "sample.py"), SOURCE, "utf8");
-  await page.goto(`/?view=editor&repo=${encodeURIComponent(repo)}&file=sample.py`);
+  await page.goto(`/tempest/editor?repo=${encodeURIComponent(repo)}&file=sample.py`);
   const content = page.getByTestId("editor-host").locator(".cm-content");
   await expect(content).toBeVisible({ timeout: 30_000 });
   return { repo, content };

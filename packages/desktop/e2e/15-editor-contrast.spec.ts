@@ -61,7 +61,7 @@ for (const scheme of ["light", "dark"] as const) {
     );
 
     await page.emulateMedia({ colorScheme: scheme });
-    await page.goto(`/?view=editor&repo=${encodeURIComponent(repo)}&file=sample.py`);
+    await page.goto(`/tempest/editor?repo=${encodeURIComponent(repo)}&file=sample.py`);
     const content = page.getByTestId("editor-host").locator(".cm-content");
     await expect(content).toBeVisible({ timeout: 30_000 });
 
@@ -223,7 +223,7 @@ test("the find panel is themed and the app's global input rule does not reach in
   await writeFile(join(repo, "sample.py"), "def greet(name):\n    return name\n", "utf8");
 
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto(`/?view=editor&repo=${encodeURIComponent(repo)}&file=sample.py`);
+  await page.goto(`/tempest/editor?repo=${encodeURIComponent(repo)}&file=sample.py`);
   const content = page.getByTestId("editor-host").locator(".cm-content");
   await expect(content).toBeVisible({ timeout: 30_000 });
 

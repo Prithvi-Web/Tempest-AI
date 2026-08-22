@@ -8,24 +8,24 @@ import { expect, test } from "./fixtures";
 test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
 test("target and divergence views carry the full evidence chain", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/tempest");
   // Open the DIVERGENT run from 02 (newest first is not guaranteed — pick by chip).
   await page.locator("tbody tr", { has: page.locator(".chip.DIVERGENT") }).first().click();
-  await expect(page).toHaveURL(/view=run&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/runs\/\d+/);
 
   // Into a divergent target.
   await page
     .locator("tbody tr", { has: page.locator(".chip.DIVERGENT") })
     .first()
     .click();
-  await expect(page).toHaveURL(/view=target&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/targets\/\d+/);
   await expect(page.getByRole("heading", { name: "changed-line coverage" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "inputs" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "divergences" })).toBeVisible();
 
   // Into the divergence itself.
   await page.locator("tbody tr", { has: page.locator(".chip.DIVERGENT") }).first().click();
-  await expect(page).toHaveURL(/view=divergence&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/divergences\/\d+/);
   await expect(page.getByText("minimized input")).toBeVisible();
   await expect(page.getByText("observed behavior, identical conditions")).toBeVisible();
   await expect(page.getByText("BASE", { exact: true })).toBeVisible();

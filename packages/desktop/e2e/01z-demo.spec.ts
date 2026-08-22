@@ -15,12 +15,12 @@ test("one click reaches a real divergence in under 90 seconds", async ({ page })
   test.slow(); // a real differential prove runs inside this test
   const started = Date.now();
 
-  await page.goto("/");
+  await page.goto("/tempest");
   await expect(page.getByText("No runs yet.")).toBeVisible();
   await page.getByRole("button", { name: "Try a demo proof" }).click();
 
   // Straight into the ordinary run view — the demo is a run, not a tour.
-  await expect(page).toHaveURL(/view=run&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/runs\/\d+/);
   await expect(page.locator(".statusline .chip").first()).toHaveText("DIVERGENT", {
     timeout: 90_000,
   });
@@ -32,8 +32,8 @@ test("one click reaches a real divergence in under 90 seconds", async ({ page })
 
   // The evidence chain is real: divergence → minimized input → repro text.
   await page.locator("tbody tr", { has: page.locator(".chip.DIVERGENT") }).first().click();
-  await expect(page).toHaveURL(/view=target&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/targets\/\d+/);
   await page.locator("tbody tr", { has: page.locator(".chip.DIVERGENT") }).first().click();
-  await expect(page).toHaveURL(/view=divergence&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/divergences\/\d+/);
   await expect(page.getByText("Tempest minimized reproduction")).toBeVisible();
 });

@@ -11,7 +11,7 @@ import { expect, test } from "./fixtures";
 
 test("a dead engine is stated honestly and recovery is automatic", async ({ page, bridge }) => {
   test.setTimeout(120_000);
-  await page.goto("/");
+  await page.goto("/tempest");
   await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
 
   await bridge.engineDown();
@@ -30,7 +30,7 @@ test("a dead engine is stated honestly and recovery is automatic", async ({ page
 });
 
 test("the sidecar healthy event refetches stale queries", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/tempest");
   await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
 
   // The supervisor's "healthy" event → App invalidates every query → list_runs refetches.
@@ -51,7 +51,7 @@ test("the sidecar healthy event refetches stale queries", async ({ page }) => {
 test("a pushed run-progress event refetches exactly that run", async ({ page }) => {
   // Run #1 exists (02-prove-flow created it) and is COMPLETE, so no fallback poll fires —
   // the only get_run after the view settles must be the one our pushed event causes.
-  await page.goto("/?view=run&id=1");
+  await page.goto("/tempest/runs/1");
   await expect(page.getByRole("heading", { name: /run #1/i })).toBeVisible({
     timeout: 15_000,
   });

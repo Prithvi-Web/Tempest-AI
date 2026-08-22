@@ -40,7 +40,7 @@ test("15 keys/s for 60 s, zero dropped keystrokes", async ({ page }) => {
   // than idling — the point is that the editor keeps up WITH its machinery running.
   await writeFile(join(repo, "storm.py"), "def calculateTotal(items):\n    return sum(items)\n\n", "utf8");
 
-  await page.goto(`/?view=editor&repo=${encodeURIComponent(repo)}&file=storm.py`);
+  await page.goto(`/tempest/editor?repo=${encodeURIComponent(repo)}&file=storm.py`);
   const content = page.getByTestId("editor-host").locator(".cm-content");
   await expect(content).toBeVisible({ timeout: 30_000 });
   await content.click();

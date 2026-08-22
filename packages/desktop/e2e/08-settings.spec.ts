@@ -12,7 +12,7 @@ import { expect, test } from "./fixtures";
 const PLANTED_KEY = "sk-ant-api03-PLANTED-FAKE-TEMPEST-KEYFIXTURE-AAAABBBBCCCC";
 
 test("the API key has a clear home: reject junk, save, recognize, remove", async ({ page }) => {
-  await page.goto("/?view=settings");
+  await page.goto("/tempest/settings");
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Anthropic API key" })).toBeVisible();
 
@@ -41,7 +41,7 @@ test("the API key has a clear home: reject junk, save, recognize, remove", async
 });
 
 test("the key can be tested live, and the answer is stated plainly", async ({ page }) => {
-  await page.goto("/?view=settings");
+  await page.goto("/tempest/settings");
   await page.getByRole("textbox", { name: "API key" }).fill(PLANTED_KEY);
   await page.getByRole("button", { name: "Save key" }).click();
   await expect(page.getByText("Key configured")).toBeVisible();
@@ -59,7 +59,7 @@ test("sync, storage and privacy show REAL configuration and persist it", async (
   bridge,
 }) => {
   const info = await bridge.info();
-  await page.goto("/?view=settings");
+  await page.goto("/tempest/settings");
 
   // Storage states the truth about this machine: the engine's own data dir, live usage.
   await expect(page.getByRole("heading", { name: "Storage" })).toBeVisible();
@@ -98,7 +98,7 @@ test("sync, storage and privacy show REAL configuration and persist it", async (
 });
 
 test("a bundle budget can be set, and it is stated in human units", async ({ page }) => {
-  await page.goto("/?view=settings");
+  await page.goto("/tempest/settings");
   await expect(page.getByText("unlimited")).toBeVisible();
   // Slider index 1 is the first real budget (100 MB) — set it by keyboard, the way a
   // keyboard-only user would.
@@ -113,7 +113,7 @@ test("a bundle budget can be set, and it is stated in human units", async ({ pag
 test("a diagnostic bundle is written locally, described, and revealable by bare name", async ({
   page,
 }) => {
-  await page.goto("/?view=settings");
+  await page.goto("/tempest/settings");
   await page.getByRole("button", { name: "Export diagnostic bundle" }).click();
   await expect(page.getByText(/^Wrote tempest-diagnostic-.*\.zip$/)).toBeVisible();
   await expect(page.getByText(/REVIEW EVERY FILE BEFORE SENDING/)).toBeVisible();
@@ -132,7 +132,7 @@ test("the editor's runners have a home, and say whether they can be found", asyn
   // Phase 20.6. Both runners were environment-variable-only, which the handoff named as one of
   // three reasons Phase 20 could not be called complete: an undiscoverable feature is one nobody
   // has, and the owner of this product does not launch apps from a shell with an env prefix.
-  await page.goto("/?view=settings");
+  await page.goto("/tempest/settings");
   await expect(page.getByRole("heading", { name: "Editor runners" })).toBeVisible({
     timeout: 30_000,
   });

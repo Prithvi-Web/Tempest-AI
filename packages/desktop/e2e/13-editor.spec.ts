@@ -28,7 +28,7 @@ async function fixtureProject(): Promise<{ repo: string; file: string }> {
 }
 
 function editorUrl(repo: string, file: string): string {
-  return `/?view=editor&repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`;
+  return `/tempest/editor?repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`;
 }
 
 test("a real file opens in a real CodeMirror instance", async ({ page }) => {
@@ -78,14 +78,19 @@ test("a file that is not there is refused as a sentence, not a crash", async ({ 
   await expect(page.getByTestId("editor-host")).toHaveCount(0);
 });
 
-test("CodeMirror is not parsed until a file is opened", async ({ page }) => {
-  // The 545 KB editor bundle must stay off the path to first paint (ADR-0034, §5 cold launch).
+test("the tempest editor chunk is not loaded until a file is opened", async ({ page }) => {
+  // The editor bundle must stay off the path to first paint (ADR-0034, §5 cold launch).
+  // Platform delta, stated: the vendored client's own entry statically imports the shared
+  // CM6 chunk (`codemirror-core` sits in index.html's modulepreload list — the client's boot
+  // decision, not this subtree's), so the claim that remains OURS to pin is that the tempest
+  // editor's glue chunk — CodeMirrorHost, the module whose import mounts the editor — loads
+  // only when someone actually opens a file.
   const editorChunks: string[] = [];
   page.on("response", (r) => {
-    if (/codemirror|lang-python|lang-javascript/i.test(r.url())) editorChunks.push(r.url());
+    if (/CodeMirrorHost|lang-python|lang-javascript/i.test(r.url())) editorChunks.push(r.url());
   });
 
-  await page.goto("/");
+  await page.goto("/tempest");
   await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
   expect(editorChunks, "editor chunks loaded before any file was opened").toEqual([]);
 });
@@ -96,26 +101,29 @@ test("the editor is reachable from the product, not only by typing a URL", async
 }) => {
   // 20.1 shipped an editor nothing navigated to: no link, no button, no file tree. A surface a
   // user cannot reach is not a surface. This pins the route into the product.
+  // The same real differential prove 02-prove-flow runs, so the same room to run it: the
+  // default 120s test budget sat BELOW the 240s verdict wait and starved it on a busy machine.
+  test.setTimeout(300_000);
   const { fixture } = await bridge.info();
-  await page.goto("/?view=prove");
+  await page.goto("/tempest/prove");
   await page.locator("#repo").fill(fixture.repo);
   await page.locator("#base").fill(fixture.base);
   await page.locator("#head").fill(fixture.head);
   await page.getByRole("button", { name: "Prove it" }).click();
-  await expect(page).toHaveURL(/view=run&id=\d+/, { timeout: 30_000 });
+  await expect(page).toHaveURL(/\/tempest\/runs\/\d+/, { timeout: 30_000 });
   await expect(page.locator(".statusline .chip").first()).toHaveText(/DIVERGENT|EQUIVALENT/, {
     timeout: 240_000,
   });
 
   await page.locator("tbody tr").first().click();
-  await expect(page).toHaveURL(/view=target&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/targets\/\d+/);
 
   const open = page.getByTestId("open-in-editor");
   await expect(open, "a target must offer to open its own source").toBeVisible({
     timeout: 15_000,
   });
   await open.click();
-  await expect(page).toHaveURL(/view=editor/);
+  await expect(page).toHaveURL(/\/tempest\/editor/);
 
   // Scope, stated: what this pins is REACHABILITY — that the product navigates to the editor
   // route carrying a real repo and a real file. Whether that particular file is present in the

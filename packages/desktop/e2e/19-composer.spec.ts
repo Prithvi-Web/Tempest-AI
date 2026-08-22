@@ -65,7 +65,7 @@ function composedRepo(files: number, executable = true): string {
 }
 
 async function compose(page: import("@playwright/test").Page, repo: string): Promise<void> {
-  await page.goto("/?view=composer");
+  await page.goto("/tempest/composer");
   await expect(page.getByRole("heading", { name: "Composer" })).toBeVisible();
   await page.locator('input[name="repo"]').fill(repo);
   await page.locator('input[name="base"]').fill("base");

@@ -9,16 +9,16 @@ import { expect, test } from "./fixtures";
 test("search finds a real divergence by its evidence text and navigates to it", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/tempest");
   // Walk to a real divergence and learn a searchable word from its indexed detail text.
   await page.locator("tbody tr", { has: page.locator(".chip.DIVERGENT") }).first().click();
   await page
     .locator("tbody tr", { has: page.locator(".chip.DIVERGENT") })
     .first()
     .click();
-  await expect(page).toHaveURL(/view=target&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/targets\/\d+/);
   await page.locator("tbody tr", { has: page.locator(".chip.DIVERGENT") }).first().click();
-  await expect(page).toHaveURL(/view=divergence&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/divergences\/\d+/);
   const detail = ((await page.locator("main > p.dim").first().textContent()) ?? "").trim();
   const module = detail.match(/[A-Za-z]{4,}/)?.[0] ?? "";
   expect(module).not.toBe("");
@@ -31,11 +31,11 @@ test("search finds a real divergence by its evidence text and navigates to it", 
   const hits = results.locator("tbody tr.rowlink");
   await expect.poll(async () => hits.count(), { timeout: 15_000 }).toBeGreaterThan(0);
   await hits.first().click();
-  await expect(page).toHaveURL(/view=divergence&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/divergences\/\d+/);
 });
 
 test("a query matching nothing states so plainly", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/tempest");
   await page.getByLabel("search divergences").fill("zzqx-no-such-divergence");
   await expect(page.getByText(/No divergences match/)).toBeVisible({ timeout: 15_000 });
 });

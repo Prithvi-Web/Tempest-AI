@@ -7,7 +7,7 @@ import { expect, test } from "./fixtures";
 
 test("the demo is reachable from New proof even with existing history", async ({ page }) => {
   test.slow(); // a real differential prove runs inside this test
-  await page.goto("/");
+  await page.goto("/tempest");
   await expect(page.locator(".sidebar-foot .green")).toBeVisible({ timeout: 15_000 });
   // History exists (earlier specs proved for real), so the empty-state button is gone…
   await expect(page.getByText("No runs yet.")).toHaveCount(0);
@@ -15,7 +15,7 @@ test("the demo is reachable from New proof even with existing history", async ({
   // …but the New proof form still offers the demo.
   await page.locator(".sidebar").getByRole("link", { name: "New proof" }).click();
   await page.getByRole("button", { name: "Try a demo proof" }).click();
-  await expect(page).toHaveURL(/view=run&id=\d+/);
+  await expect(page).toHaveURL(/\/tempest\/runs\/\d+/);
   await expect(page.locator(".statusline .chip").first()).toHaveText("DIVERGENT", {
     timeout: 90_000,
   });

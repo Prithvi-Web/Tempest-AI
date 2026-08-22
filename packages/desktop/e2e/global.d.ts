@@ -17,9 +17,7 @@ interface Window {
     scriptHover(reply: { ok?: { contents: string } | null; error?: unknown } | null): void;
   };
   __E2E_BRIDGE_URL__?: string;
-  /** Installed by src/devValidate.ts in dev builds (Boundary B deep validation). */
-  __TEMPEST_DEV_VALIDATE__?: (command: string, data: unknown) => void;
-  /** The F11 completion instrument, published by src/editor/inlineCompletion.ts. Declared with
+  /** The F11 completion instrument, published by the seam's editor/inlineCompletion.ts. Declared with
    * the shape the budget harness reads rather than importing `Metrics` — this project is a
    * separate tsconfig, and a type import across it would be a second definition to keep in step. */
   __TEMPEST_COMPLETION_METRICS__?: () => {

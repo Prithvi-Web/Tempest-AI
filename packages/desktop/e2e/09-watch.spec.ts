@@ -18,7 +18,7 @@ import { expect, test } from "./fixtures";
 // fetch is in flight right after goto, so wait for EITHER button before deciding — an
 // instant isVisible() probe would race it and skip the disarm.
 test.afterEach(async ({ page }) => {
-  await page.goto("/?view=watch");
+  await page.goto("/tempest/watch");
   await expect(page.getByRole("button", { name: /Start watching|Stop watching/ })).toBeVisible();
   const stop = page.getByRole("button", { name: "Stop watching" });
   if (await stop.isVisible()) await stop.click();
@@ -52,7 +52,7 @@ test("watching a repo proves each new commit as an ordinary run", async ({ page 
   test.slow(); // a real differential prove runs inside this test
   const repo = watchedRepo();
 
-  await page.goto("/?view=watch");
+  await page.goto("/tempest/watch");
   await expect(page.getByRole("heading", { name: "Watch" })).toBeVisible();
   await expect(page.getByText("No commits have been proven by watching yet.")).toBeVisible();
 
@@ -82,7 +82,7 @@ test("watching a repo proves each new commit as an ordinary run", async ({ page 
 });
 
 test("a folder that is not a repository is refused, and nothing starts", async ({ page }) => {
-  await page.goto("/?view=watch");
+  await page.goto("/tempest/watch");
   await page
     .getByRole("textbox", { name: "Repository folder (full path)" })
     .fill("/definitely/not/a/repo/anywhere");

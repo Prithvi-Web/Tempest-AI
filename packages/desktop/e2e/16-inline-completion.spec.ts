@@ -21,7 +21,7 @@ async function projectWith(body: string) {
 }
 
 function editorUrl(repo: string, file = "sample.py"): string {
-  return `/?view=editor&repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`;
+  return `/tempest/editor?repo=${encodeURIComponent(repo)}&file=${encodeURIComponent(file)}`;
 }
 
 /**
