@@ -27,11 +27,20 @@ const mintLocalToken = () =>
     exp: Math.floor(Date.now() / 1000) + ONE_YEAR_S,
   })}.`;
 
+/** The greeting reads better with the person's actual account name than with "Local" —
+ * process.env is already inside the seam's import allowlist, and the name never leaves the
+ * machine (it only rides the local principal the webview renders). */
+const localName = (() => {
+  const raw = (process.env.USER || process.env.LOGNAME || "").trim();
+  if (!raw) return "there";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+})();
+
 const LOCAL_USER = Object.freeze({
   id: "local",
   username: "local",
   email: "local@tempest.localhost",
-  name: "Local",
+  name: localName,
   avatar: "",
   role: "USER",
   provider: "local",

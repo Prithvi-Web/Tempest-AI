@@ -324,9 +324,13 @@ fn keys_response(
             };
             let Some(env_var) = env_for(&name) else { return honest_404(&name) };
             match crate::keychain::read(crate::keychain::SERVICE, &env_var) {
-                // Present-but-unexpiring is `{"expiresAt": ""}` and absent is a bare JSON
-                // null — exactly the two shapes the vendored key hooks distinguish.
-                Ok(Some(_)) => response(200, "application/json", b"{\"expiresAt\":\"\"}".to_vec()),
+                // Upstream's exact shapes (data/src/methods/key.ts): a stored key with no
+                // expiry answers the literal "never"; no key answers expiresAt null. Both
+                // are OBJECTS — a bare null here crashed the sidebar's destructuring
+                // default, which only covers undefined.
+                Ok(Some(_)) => {
+                    response(200, "application/json", b"{\"expiresAt\":\"never\"}".to_vec())
+                }
                 Ok(None) => {
                     // The legacy single-item install still answers for anthropic until a
                     // write migrates it.
@@ -342,10 +346,10 @@ fn keys_response(
                         return response(
                             200,
                             "application/json",
-                            b"{\"expiresAt\":\"\"}".to_vec(),
+                            b"{\"expiresAt\":\"never\"}".to_vec(),
                         );
                     }
-                    response(200, "application/json", b"null".to_vec())
+                    response(200, "application/json", b"{\"expiresAt\":null}".to_vec())
                 }
                 Err(err) => response(
                     500,
@@ -389,7 +393,8 @@ fn keys_response(
                     }
                 });
             match stored {
-                Ok(()) => response(200, "application/json", b"{\"expiresAt\":\"\"}".to_vec()),
+                // Upstream answers a bare 201 on save.
+                Ok(()) => response(201, "application/json", Vec::new()),
                 Err(err) => response(
                     500,
                     "application/json",
@@ -406,7 +411,7 @@ fn keys_response(
                 }
                 let _ =
                     crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::LEGACY_ACCOUNT);
-                return response(200, "application/json", b"{}".to_vec());
+                return response(204, "application/json", Vec::new());
             }
             let endpoint_key = route.trim_start_matches("/api/keys/").to_string();
             let Some(env_var) = env_for(&endpoint_key) else { return honest_404(&endpoint_key) };
@@ -423,7 +428,8 @@ fn keys_response(
                 },
             );
             match cleared {
-                Ok(()) => response(200, "application/json", b"{}".to_vec()),
+                // Upstream answers a bare 204 on revoke.
+                Ok(()) => response(204, "application/json", Vec::new()),
                 Err(err) => response(
                     500,
                     "application/json",
