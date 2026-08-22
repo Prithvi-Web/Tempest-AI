@@ -82,6 +82,10 @@ fn response(status: u16, mime: &str, body: Vec<u8>) -> tauri::http::Response<Vec
         // carries `crossorigin`. Without this header the module graph half-loads and React
         // dies with null internals. The scheme is app-private; "*" exposes nothing.
         .header("access-control-allow-origin", "*")
+        // Never cached: WKWebView otherwise keeps serving a PREVIOUS install's theme,
+        // badges, or chunks after the bundle updates (observed live with theme.css). Every
+        // response here is a local disk read — caching buys nothing and costs staleness.
+        .header("cache-control", "no-store")
         .body(body)
         .expect("static response construction cannot fail")
 }
