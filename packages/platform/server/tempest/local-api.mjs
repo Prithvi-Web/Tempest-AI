@@ -41,8 +41,64 @@ const LOCAL_USER = Object.freeze({
 
 /** TStartupConfig, local-mode honest: every remote login surface OFF, no registration, no
  * turnstile, no telemetry config. The client renders an authed shell from exactly this. */
+/** The client treats a PRESENT-but-empty `interface` as the whole answer — every
+ * `startupConfig?.interface ?? defaults` site keeps `{}` and hides the header and sidebar
+ * affordances. These are upstream's own resolved defaults, stated explicitly (the nested
+ * permission-seed keys are server-side seeds; nav visibility comes from /api/roles/USER). */
+const INTERFACE_CONFIG = Object.freeze({
+  modelSelect: true,
+  parameters: true,
+  presets: true,
+  multiConvo: true,
+  bookmarks: true,
+  memories: true,
+  temporaryChat: true,
+  autoSubmitFromUrl: true,
+  runCode: true,
+  webSearch: true,
+  fileSearch: true,
+  fileCitations: true,
+  contextUsage: true,
+  contextCost: false,
+  feedback: true,
+  buildInfo: true,
+});
+
+/** Explicit permission booleans: the client reads `permissions[type][perm] === true`
+ * directly (no schema-default fill on this path), so an empty object hides every gated
+ * section. Single-user honest values — sharing, people-picker, marketplace, shared links
+ * and schedules stay off until the phases that back them (C7/C8/C10). */
+const USER_ROLE = Object.freeze({
+  name: "USER",
+  permissions: {
+    PROMPTS: { USE: true, CREATE: true, SHARE: false, SHARE_PUBLIC: false },
+    BOOKMARKS: { USE: true },
+    AGENTS: { USE: true, CREATE: true, SHARE: false, SHARE_PUBLIC: false },
+    MEMORIES: { USE: true, CREATE: true, UPDATE: true, READ: true, OPT_OUT: true },
+    MULTI_CONVO: { USE: true },
+    TEMPORARY_CHAT: { USE: true },
+    RUN_CODE: { USE: true },
+    WEB_SEARCH: { USE: true },
+    PEOPLE_PICKER: { VIEW_USERS: false, VIEW_GROUPS: false, VIEW_ROLES: false },
+    MARKETPLACE: { USE: false },
+    FILE_SEARCH: { USE: true },
+    FILE_CITATIONS: { USE: true },
+    MCP_SERVERS: {
+      USE: true,
+      CREATE: true,
+      SHARE: false,
+      SHARE_PUBLIC: false,
+      CONFIGURE_OBO: false,
+    },
+    REMOTE_AGENTS: { USE: false, CREATE: false, SHARE: false, SHARE_PUBLIC: false },
+    SKILLS: { USE: true, CREATE: true, SHARE: false, SHARE_PUBLIC: false },
+    SHARED_LINKS: { CREATE: false, SHARE: false, SHARE_PUBLIC: false },
+    SCHEDULES: { USE: false, CREATE: false },
+  },
+});
+
 const STARTUP_CONFIG = Object.freeze({
-  appTitle: "Tempest",
+  appTitle: "Tempest AI",
   socialLogins: [],
   discordLoginEnabled: false,
   facebookLoginEnabled: false,
@@ -64,7 +120,7 @@ const STARTUP_CONFIG = Object.freeze({
   emailEnabled: false,
   showBirthdayIcon: false,
   helpAndFaqURL: "",
-  interface: {},
+  interface: INTERFACE_CONFIG,
 });
 
 const json = (status, value) => ({
@@ -83,9 +139,11 @@ export function handleLocalApi(method, path) {
       return json(200, { token: mintLocalToken(), user: LOCAL_USER });
     case "GET /api/user":
       return json(200, LOCAL_USER);
-    case "GET /api/roles/user":
-      // zod fills unspecified permission groups from its own defaults.
-      return json(200, { name: "USER", permissions: {} });
+    case "GET /api/roles/USER":
+      // The client requests the UPPERCASE system-role name (SystemRoles.USER), and the
+      // chat route refuses to mount until this answers. ADMIN is requested only when the
+      // user's role is ADMIN, which the local principal's never is.
+      return json(200, USER_ROLE);
     case "GET /api/banner":
       return json(200, null);
     case "GET /api/health":
@@ -99,7 +157,35 @@ export function handleLocalApi(method, path) {
       return json(200, { endpoints: {} });
     case "GET /api/user/terms":
       return json(200, { termsAccepted: true });
+    case "GET /api/convos":
+      // Truthfully empty until C6 wires the conversation store. `nextCursor` must be a
+      // literal null: the pinned-conversations query drains cursors in a loop, and any
+      // non-null value here would spin it forever.
+      return json(200, { conversations: [], nextCursor: null });
+    case "GET /api/projects":
+      return json(200, { projects: [], nextCursor: null });
+    case "GET /api/user/settings/favorites":
+    case "GET /api/user/settings/favorites/tools":
+      return json(200, []);
+    case "GET /api/search/enable":
+      // The client tri-states on the bare literal (=== true / === false / error);
+      // anything object-shaped would leave search stuck between states.
+      return json(200, false);
+    case "GET /api/files":
+      return json(200, []);
+    case "GET /api/files/speech/config/get":
+      // Upstream's own "no server speech config" sentinel — the client skips its
+      // seed-from-config pass and still marks speech settings initialized.
+      return json(200, { message: "not_found" });
+    case "GET /api/balance":
+      return json(200, { tokenCredits: 0, autoRefillEnabled: false });
+    case "GET /api/agents/chat/active":
+      // An empty list also stops the 5s active-jobs poll loop.
+      return json(200, { activeJobIds: [] });
     default:
+      // One line per miss on stderr: the boundary only logs transport failures, and a
+      // valid 404 is not one — without this, a starved client query is invisible.
+      process.stderr.write(`[local-api] 404 ${route}\n`);
       return json(404, {
         error: "not part of local mode yet",
         detail:
