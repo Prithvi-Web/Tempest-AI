@@ -3418,6 +3418,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-specta",
+ "window-vibrancy",
 ]
 
 [[package]]

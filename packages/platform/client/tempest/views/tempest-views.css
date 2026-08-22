@@ -43,7 +43,9 @@
 }
 
 .tempest-views {
-  color-scheme: light dark;
+  /* color-scheme is inherited from the document root, which the client seam keys to the
+     app's own polarity class (theme.css §3) — declaring `light dark` here would hand form
+     controls to the OS scheme while every token above follows the app's. */
 
   /* type */
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
@@ -64,24 +66,23 @@
   --motion-fast: 140ms;
   --motion-normal: 180ms;
 
-  /* light palette */
-  --bg: #f5f5f7;
+  /* light palette — the same storm-navy cast the client seam ships (tempest/theme.css §1) */
+  --bg: #f4f7fd;
   --surface: #ffffff;
-  --surface-sunken: #ececee;
-  --hairline: rgba(0, 0, 0, 0.1);
-  --hairline-strong: rgba(0, 0, 0, 0.16);
-  --ink: #1d1d1f;
-  --ink-secondary: #6e6e73;
+  --surface-sunken: #e9eef8;
+  --hairline: rgba(20, 35, 70, 0.1);
+  --hairline-strong: rgba(20, 35, 70, 0.16);
+  --ink: #0e1424;
+  --ink-secondary: #5a657e;
   /* Secondary ink that still clears WCAG 4.5:1 on the editor's OTHER surfaces. `--ink-secondary`
-     is tuned against `--surface`/`--bg` and falls to 4.30:1 on `--surface-sunken` (the gutter,
-     the risk badge) and to 3.48:1 under ghost text's old `opacity: 0.85` over the active line.
-     Measured on every surface it lands on: 6.35 / 5.77 / 5.38 in this palette. */
-  --ink-secondary-strong: #5f5f64;
-  --accent: #0071e3;
+     is tuned against `--surface`/`--bg`; the strong step below carries the gutter, the risk
+     badge, and ghost text over the active line. */
+  --ink-secondary-strong: #49546e;
+  --accent: #2762e8;
   --accent-ink: #ffffff;
-  --sidebar-bg: rgba(246, 246, 248, 0.84);
-  --hover: rgba(0, 0, 0, 0.045);
-  --active: rgba(0, 0, 0, 0.08);
+  --sidebar-bg: rgba(246, 249, 255, 0.84);
+  --hover: rgba(20, 35, 70, 0.05);
+  --active: rgba(20, 35, 70, 0.09);
 
   /* Elevation, per scheme, because a shadow is not polarity-neutral: in light a surface is
      separated by darkness under it, in dark by a lit edge on it. The 0.5px spread ring is a
@@ -121,61 +122,66 @@
   --code-punctuation: #4a4a4f;
 }
 
-@media (prefers-color-scheme: dark) {
-  .tempest-views {
-    --bg: #1c1c1e;
-    --surface: #262628;
-    --surface-sunken: #161618;
-    --hairline: rgba(255, 255, 255, 0.12);
-    --hairline-strong: rgba(255, 255, 255, 0.2);
-    --ink: #f5f5f7;
-    --ink-secondary: #98989f;
-    --ink-secondary-strong: #adadb5;
-    --accent: #0a84ff;
-    --accent-ink: #ffffff;
-    --sidebar-bg: rgba(30, 30, 32, 0.8);
-    --hover: rgba(255, 255, 255, 0.055);
-    --active: rgba(255, 255, 255, 0.1);
+/* Dark keys on the APP's polarity class, not the OS media query: the client (and the seam's
+   theme.css) switch on `html.dark` from localStorage['color-theme'], and a proof subtree that
+   listened to the OS instead rendered dark panels inside a light client whenever the two
+   disagreed. One switch, one polarity, everywhere. */
+html.dark .tempest-views {
+  --bg: #0c1221;
+  --surface: #141e36;
+  --surface-sunken: #080d19;
+  --hairline: rgba(143, 176, 255, 0.14);
+  --hairline-strong: rgba(143, 176, 255, 0.22);
+  --ink: #edf2fc;
+  --ink-secondary: #93a1bf;
+  --ink-secondary-strong: #a9b6d2;
+  --accent: #4d94ff;
+  --accent-ink: #ffffff;
+  --sidebar-bg: rgba(12, 20, 40, 0.55);
+  --hover: rgba(143, 176, 255, 0.07);
+  --active: rgba(143, 176, 255, 0.12);
 
-    /* A black shadow under a dark surface separates nothing; the hairline flips to a lit edge
-       and the ambient shadow deepens to carry the lift that the edge no longer can. */
-    --elevation-popover:
-      0 0 0 0.5px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4),
-      0 12px 32px -8px rgba(0, 0, 0, 0.6);
-    --elevation-thumb: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.6);
+  /* A black shadow under a dark surface separates nothing; the hairline flips to a lit edge
+     and the ambient shadow deepens to carry the lift that the edge no longer can. */
+  --elevation-popover:
+    0 0 0 0.5px rgba(143, 176, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.4),
+    0 12px 32px -8px rgba(0, 0, 0, 0.6);
+  --elevation-thumb: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.6);
 
-    /* code — dark scheme */
-    --code-ink: #e6e6ea;
-    --code-keyword: #d9a2f0;
-    --code-function: #79b8ff;
-    --code-property: #7fd6c9;
-    --code-string: #f0a58a;
-    --code-number: #9cc4ff;
-    --code-type: #e2c08d;
-    --code-comment: #9aa0aa;
-    --code-punctuation: #c2c2c9;
+  /* code — dark scheme */
+  --code-ink: #e6e6ea;
+  --code-keyword: #d9a2f0;
+  --code-function: #79b8ff;
+  --code-property: #7fd6c9;
+  --code-string: #f0a58a;
+  --code-number: #9cc4ff;
+  --code-type: #e2c08d;
+  --code-comment: #9aa0aa;
+  --code-punctuation: #c2c2c9;
 
-    --divergent: #ff453a;
-    --divergent-soft: rgba(255, 69, 58, 0.14);
-    --equivalent: #30d158;
-    --equivalent-soft: rgba(48, 209, 88, 0.13);
-    --unproven: #ffd60a;
-    --unproven-soft: rgba(255, 214, 10, 0.12);
-    --unproven-on-soft: #ffd60a;
-    /* 4.89:1 on its own chip; `--divergent` itself is 3.28:1 there — a red-on-red chip is the
-       worst pairing in either palette, and it is the one the badge uses to shout. */
-    --divergent-on-soft: #ff8a80;
-    --errorv: #bf9fff;
-    --errorv-soft: rgba(191, 159, 255, 0.13);
-  }
+  --divergent: #ff453a;
+  --divergent-soft: rgba(255, 69, 58, 0.14);
+  --equivalent: #30d158;
+  --equivalent-soft: rgba(48, 209, 88, 0.13);
+  --unproven: #ffd60a;
+  --unproven-soft: rgba(255, 214, 10, 0.12);
+  --unproven-on-soft: #ffd60a;
+  /* 4.89:1 on its own chip; `--divergent` itself is 3.28:1 there — a red-on-red chip is the
+     worst pairing in either palette, and it is the one the badge uses to shout. */
+  --divergent-on-soft: #ff8a80;
+  --errorv: #bf9fff;
+  --errorv-soft: rgba(191, 159, 255, 0.13);
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 1ms rather than none: a suppressed transition still fires `transitionend`, so nothing
+     that awaits one can hang — the same rule the client seam applies (theme.css §6). */
   .tempest-views *,
   .tempest-views *::before,
   .tempest-views *::after {
-    animation: none !important;
-    transition: none !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
   }
 }
 

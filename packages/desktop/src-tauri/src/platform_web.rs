@@ -101,8 +101,19 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
             // First paint in the right mode: the vendored client only sets html.dark from a
             // React effect, so a dark-mode launch flashed light-token UI. Mirrors the
             // ThemeProvider's storage contract exactly (raw 'dark'|'light'|'system' under
-            // 'color-theme'; anything else = system).
-            let mode = "<script>(function(){try{var t=localStorage.getItem('color-theme');var d=t==='dark'||((t==null||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d)}catch(e){}})();</script>";
+            // 'color-theme'). First run seeds 'dark': the storm-navy identity ships dark
+            // (owner mandate); the user's own later choice persists over it.
+            let mode = "<script>(function(){try{var t=localStorage.getItem('color-theme');if(t==null){t='dark';localStorage.setItem('color-theme','dark')}var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d)}catch(e){}})();</script>";
+            // Liquid glass, macOS only: the class theme.css §7 keys its translucent grounds
+            // on (the window there is transparent over an NSVisualEffectView), plus two
+            // fixed drag surfaces for the full-bleed overlay titlebar — a 10px strip along
+            // the top edge and a 76×38 zone under the traffic lights, both empty regions by
+            // construction (the rail pads itself below the lights).
+            let glass = if cfg!(target_os = "macos") {
+                "<script>(function(){document.documentElement.classList.add('tempest-vibrancy');var mk=function(css){var d=document.createElement('div');d.setAttribute('data-tauri-drag-region','');d.style.cssText=css;return d};var add=function(){document.body.appendChild(mk('position:fixed;top:0;left:0;right:0;height:10px;z-index:2147482000'));document.body.appendChild(mk('position:fixed;top:0;left:0;width:76px;height:38px;z-index:2147482000'))};if(document.body){add()}else{document.addEventListener('DOMContentLoaded',add)}})();</script>"
+            } else {
+                ""
+            };
             let tap = "<script>(function(){var post=function(kind,text){try{fetch('/api/__console',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:kind,text:String(text).slice(0,4000)})})}catch(e){}};window.addEventListener('error',function(e){post('error',(e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||'')+(e.error&&e.error.stack?'\\n'+e.error.stack:''))});window.addEventListener('unhandledrejection',function(e){var r=e.reason;post('unhandledrejection',r&&r.stack?(r.message?r.message+'\\n':'')+r.stack:String(r))});var orig=console.error;console.error=function(){post('console.error',Array.prototype.map.call(arguments,function(a){return a&&a.stack?(a.message?a.message+'\\n':'')+a.stack:String(a)}).join(' | '));return orig.apply(console,arguments)}})();</script>";
             let body = body
                 .replace("<title>LibreChat</title>", "<title>Tempest AI</title>")
@@ -110,7 +121,7 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
                     "content=\"LibreChat - An open source chat application with support for multiple AI models\"",
                     "content=\"Tempest AI — the assistant that shows you the evidence\"",
                 )
-                .replacen("<head>", &format!("<head>{mode}{tap}"), 1)
+                .replacen("<head>", &format!("<head>{mode}{tap}{glass}"), 1)
                 .replace(
                     "</head>",
                     "<link rel=\"stylesheet\" href=\"/tempest-theme.css\" />\n</head>",

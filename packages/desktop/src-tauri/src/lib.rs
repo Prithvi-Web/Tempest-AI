@@ -271,7 +271,7 @@ pub fn run() {
             }
 
             if platform_ready {
-                WebviewWindowBuilder::new(
+                let window = WebviewWindowBuilder::new(
                     app,
                     "main",
                     WebviewUrl::CustomProtocol(
@@ -280,8 +280,35 @@ pub fn run() {
                 )
                 .title("Tempest AI")
                 .inner_size(1280.0, 860.0)
-                .min_inner_size(760.0, 520.0)
-                .build()?;
+                // 800, not 760: below the client's md breakpoint (768) the sidebar becomes
+                // a drawer and the overlay traffic lights would float over the chat header
+                // instead of the rail inset that clears them (theme.css §7).
+                .min_inner_size(800.0, 520.0);
+                // Liquid glass (master prompt §12): full-bleed content under an overlay
+                // titlebar, the window transparent over the NSVisualEffectView attached
+                // below. The webview thins its grounds only under the `tempest-vibrancy`
+                // class serve_index injects on this OS, so a failure here degrades to an
+                // opaque navy pane — stated on stderr, never silent (L15.3).
+                #[cfg(target_os = "macos")]
+                let window = window
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true)
+                    .transparent(true);
+                let window = window.build()?;
+                #[cfg(target_os = "macos")]
+                if let Err(err) = window_vibrancy::apply_vibrancy(
+                    &window,
+                    window_vibrancy::NSVisualEffectMaterial::UnderWindowBackground,
+                    None,
+                    None,
+                ) {
+                    eprintln!(
+                        "[tempest] window vibrancy unavailable: {err} — the opaque navy \
+                         ground stands"
+                    );
+                }
+                #[cfg(not(target_os = "macos"))]
+                drop(window);
             } else {
                 let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("Tempest AI")

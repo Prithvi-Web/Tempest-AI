@@ -24,50 +24,56 @@
  * verbatim, so there is no PostCSS, no nesting transform, and no autoprefixer behind it.
  */
 
-/* ═══ 1 · primitive ramp → Tempest graphite (no blue cast, no dead grays) ═══════════════ */
+/* ═══ 1 · primitive ramp → Tempest storm navy (one blue-cast scale, both polarities) ═══
+ *
+ * The owner's mandate is a blue-and-black identity. It is expressed HERE and nowhere else:
+ * one monotonic navy-cast neutral ramp that upstream's light layer reads from the low end
+ * and its dark layer from the high end, so every surface in ~1,100 components takes the
+ * cast without a single component edit. Light ink and dark grounds are the SAME slots —
+ * the ramp stays monotonic or the double-inversion bug (§3) comes back. */
 
 :root {
   --white: 255 255 255;
-  --black: 29 29 31;
-  --gray-20: 236 236 238;   /* surface-sunken */
-  --gray-50: 245 245 247;   /* bg */
-  --gray-100: 236 236 238;
-  --gray-200: 227 227 229;
-  --gray-300: 205 205 207;
-  --gray-400: 152 152 159;
-  --gray-500: 110 110 115;  /* ink-secondary */
-  --gray-600: 95 95 100;    /* ink-secondary-strong */
-  --gray-650: 72 72 76;
-  --gray-700: 58 58 62;
-  --gray-800: 29 29 31;     /* ink */
-  --gray-850: 38 38 40;     /* dark surface */
-  --gray-875: 28 28 30;     /* dark bg */
-  --gray-900: 22 22 24;     /* dark sunken */
+  --black: 14 20 36;
+  --gray-20: 233 238 248;   /* surface-sunken */
+  --gray-50: 244 247 253;   /* bg */
+  --gray-100: 233 238 248;
+  --gray-200: 220 228 243;
+  --gray-300: 195 206 227;
+  --gray-400: 138 152 182;
+  --gray-500: 90 101 126;   /* ink-secondary — clears 4.5:1 on white */
+  --gray-600: 73 84 110;    /* ink-secondary-strong */
+  --gray-650: 56 66 90;
+  --gray-700: 43 52 74;
+  --gray-800: 14 20 36;     /* light ink · dark page ground (#0E1424) */
+  --gray-850: 19 27 48;     /* dark surface (#131B30) */
+  --gray-875: 12 18 33;     /* dark bg (#0C1221) */
+  --gray-900: 8 13 25;      /* dark sunken (#080D19) */
 
-  /* ── one accent, Tempest's own (primary actions; #0071e3 / dark #0a84ff) ─────────── */
-  --brand-purple: 0 113 227;          /* upstream's brand accents inherit the Tempest accent */
-  --accent-primary: 0 113 227;
-  --accent-primary-hover: 0 96 194;
-  --link: 0 113 227;
-  --link-hover: 0 96 194;
-  --link-visited: 0 96 194;           /* visited links do not change color in-app */
-  --surface-submit: 0 113 227;        /* the primary action is the accent, not a green */
-  --surface-submit-hover: 0 96 194;
+  /* ── one accent, Tempest's own electric blue (#2762E8 / dark #4D94FF) ────────────── */
+  --brand-purple: 39 98 232;          /* upstream's brand accents inherit the Tempest accent */
+  --accent-primary: 39 98 232;
+  --accent-primary-hover: 30 84 205;
+  --link: 39 98 232;
+  --link-hover: 30 84 205;
+  --link-visited: 30 84 205;          /* visited links do not change color in-app */
+  --surface-submit: 39 98 232;        /* the primary action is the accent, not a green */
+  --surface-submit-hover: 30 84 205;
 
   /* The keyboard ring is the accent, not a gray. Upstream points `--ring-primary` at
    * gray-500, so 60+ focus affordances render as a neutral outline that reads as a border
    * rather than as focus; on this platform the ring IS the accent, in both modes. */
-  --ring-primary: 0 113 227;
+  --ring-primary: 39 98 232;
 
-  /* ── hairline borders: black at Tempest's alpha, not solid grays ─────────────────── */
-  --border-light: 0 0 0;
+  /* ── hairline borders: navy ink at Tempest's alpha, not solid grays ──────────────── */
+  --border-light: 20 35 70;
   --border-light-alpha: 0.1;
-  --border-medium: 0 0 0;
-  --border-medium-alt: 0 0 0;
+  --border-medium: 20 35 70;
+  --border-medium-alt: 20 35 70;
   --border-medium-alpha: 0.16;
-  --border-heavy: 0 0 0;
+  --border-heavy: 20 35 70;
   --border-heavy-alpha: 0.24;
-  --border-xheavy: 0 0 0;
+  --border-xheavy: 20 35 70;
   --border-xheavy-alpha: 0.34;
 }
 
@@ -122,33 +128,35 @@ html.dark {
    * once rendered white inside a dark shell while the sidebar (on the un-inverted 850/900
    * slots) stayed dark. One ramp, two semantic derivations; only polarity-true values
    * (accent, borders) belong in this block. */
-  --brand-purple: 10 132 255;
-  --accent-primary: 10 132 255;
-  --accent-primary-hover: 50 153 255;
-  --link: 10 132 255;
-  --link-hover: 50 153 255;
-  --link-visited: 50 153 255;
-  --surface-submit: 10 132 255;
-  --surface-submit-hover: 50 153 255;
-  --ring-primary: 10 132 255;
+  --brand-purple: 77 148 255;
+  --accent-primary: 77 148 255;
+  --accent-primary-hover: 108 168 255;
+  --link: 77 148 255;
+  --link-hover: 108 168 255;
+  --link-visited: 108 168 255;
+  --surface-submit: 39 98 232;        /* filled controls keep the deeper blue so white ink clears */
+  --surface-submit-hover: 58 116 245;
+  --ring-primary: 77 148 255;
 
-  --border-light: 255 255 255;
-  --border-light-alpha: 0.12;
-  --border-medium: 255 255 255;
-  --border-medium-alt: 255 255 255;
-  --border-medium-alpha: 0.2;
-  --border-heavy: 255 255 255;
-  --border-heavy-alpha: 0.28;
-  --border-xheavy: 255 255 255;
-  --border-xheavy-alpha: 0.38;
+  /* Dark hairlines are lit edges in the accent's family — a cold starlight blue, not plain
+   * white — which is what makes the dark shell read navy instead of gray-on-black. */
+  --border-light: 143 176 255;
+  --border-light-alpha: 0.14;
+  --border-medium: 143 176 255;
+  --border-medium-alt: 143 176 255;
+  --border-medium-alpha: 0.22;
+  --border-heavy: 143 176 255;
+  --border-heavy-alpha: 0.3;
+  --border-xheavy: 143 176 255;
+  --border-xheavy-alpha: 0.4;
 
   /* A dark selection tint has to carry more alpha to read at all against a dark ground. */
   --tempest-selection-alpha: 0.32;
 
   /* Dark elevation inverts its hairline: black-on-black is invisible, so the separating ring
-   * becomes a low-alpha white and the ambient shadow deepens to hold the lift. */
+   * becomes a low-alpha starlight blue and the ambient shadow deepens to hold the lift. */
   --theme-elevation-surface:
-    0 0 0 0.5px rgb(255 255 255 / 0.08), 0 1px 2px rgb(0 0 0 / 0.4),
+    0 0 0 0.5px rgb(143 176 255 / 0.1), 0 1px 2px rgb(0 0 0 / 0.4),
     0 12px 32px -8px rgb(0 0 0 / 0.55);
 
   /* ── dark interaction fills: SEMANTIC repairs, not a second ramp ───────────────────────
@@ -161,24 +169,23 @@ html.dark {
    * shell. The fix belongs in the semantic layer and nowhere else; re-tuning the ramp would
    * drag light-mode ink with it, and re-declaring the ramp inside `html.dark` is the
    * double-inversion bug documented above. Each value below restores the WEIGHT upstream
-   * intended (its gray-650/600/500 in Tempest's hue), landing the ladder on the native dark
-   * elevation steps: #161618 ground · #1c1c1e base · #2c2c2e elevated · #3a3a3e raised. */
-  --surface-hover: 57 57 61;            /* was gray-650 → #48484c */
-  --surface-hover-alt: 66 66 70;        /* was gray-600 → #5f5f64 */
-  --surface-active: 89 89 94;           /* was gray-500 → #6e6e73 */
-  --surface-composer-hover: 66 66 70;   /* was gray-600 → #5f5f64 */
-  --header-primary: 44 44 46;           /* was gray-700 → #3a3a3e; the bar is elevated, not raised */
-  --header-hover: 66 66 70;             /* was gray-600 → #5f5f64 */
-  --header-button-hover: 57 57 61;      /* was gray-700 → #3a3a3e */
+   * intended (its gray-650/600/500 in Tempest's hue), landing the ladder on the storm-navy
+   * elevation steps: #080D19 ground · #0C1221 base · #16223E elevated · #1E2C50 raised. */
+  --surface-hover: 30 44 80;            /* raised — #1E2C50 */
+  --surface-hover-alt: 36 52 94;        /* #24345E */
+  --surface-active: 47 66 116;          /* #2F4274 */
+  --surface-composer-hover: 36 52 94;   /* #24345E */
+  --header-primary: 22 34 62;           /* elevated, not raised — #16223E */
+  --header-hover: 36 52 94;             /* #24345E */
+  --header-button-hover: 30 44 80;      /* #1E2C50 */
 
-  /* The composer and code grounds sit at the elevated step, above the #161618 page and below
-   * the raised controls on `--surface-tertiary` (left as derived: #3a3a3e is already the
-   * native raised value). */
-  --surface-chat: 44 44 46;             /* was gray-700 → #3a3a3e */
+  /* The composer and code grounds sit at the elevated step, above the #080D19 page and below
+   * the raised controls on `--surface-tertiary`. */
+  --surface-chat: 22 34 62;             /* #16223E */
 
-  /* A dialog has to lift off the page ground; #1c1c1e is barely above #161618 and reads as a
-   * region rather than as a window. */
-  --surface-dialog: 44 44 46;           /* was gray-875 → #1c1c1e */
+  /* A dialog has to lift off the page ground; the base step is barely above the ground and
+   * reads as a region rather than as a window. */
+  --surface-dialog: 22 34 62;           /* #16223E */
 }
 
 /* Native form controls, scrollbars and the UA canvas follow the app's mode, not the
@@ -383,5 +390,111 @@ body {
    * movement for a reader who asked for none. */
   :where(a, button, summary, [role='button'], [role='menuitem'], [role='option'], [role='tab']) {
     transition-duration: 1ms;
+  }
+}
+
+/* ═══ 7 · liquid glass ═══════════════════════════════════════════════════════════════════
+ *
+ * Two independent layers, because they degrade independently:
+ *
+ * — OVERLAY GLASS (dialogs, menus, the model listbox) blurs the app content beneath it and
+ *   needs nothing from the window: it applies everywhere, both modes, and a browser without
+ *   backdrop-filter simply keeps the translucent tint over the elevation shadow.
+ *
+ * — WINDOW GLASS applies only under `html.tempest-vibrancy`, a class the desktop host
+ *   injects on macOS where the window is transparent over an NSVisualEffectView. The
+ *   material does the desktop blur; these rules only thin the grounds so it shows through.
+ *   Any other serving path (vite preview, e2e, other OSes) never gets the class and keeps
+ *   fully opaque grounds.
+ *
+ * A reader who asked for reduced transparency gets solid surfaces back at the end. */
+
+:is([role='dialog'], [role='menu'], [role='listbox']) {
+  background-color: rgb(255 255 255 / 0.78);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  backdrop-filter: blur(28px) saturate(160%);
+}
+
+html.dark :is([role='dialog'], [role='menu'], [role='listbox']) {
+  background-color: rgb(12 18 33 / 0.78);
+}
+
+/* The window grounds, thinned over the material. The body keeps real alpha as the safety
+ * ground: if the material ever fails to attach, the window still reads as a dark navy pane
+ * rather than a hole to the desktop. */
+html.tempest-vibrancy body {
+  background-color: rgb(255 255 255 / 0.66);
+}
+
+html.tempest-vibrancy.dark body {
+  background-color: rgb(var(--gray-875) / 0.7);
+}
+
+html.tempest-vibrancy .bg-presentation {
+  background-color: rgb(var(--gray-50) / 0.52);
+}
+
+html.tempest-vibrancy.dark .bg-presentation {
+  background-color: rgb(var(--gray-800) / 0.5);
+}
+
+/* The sidebar is the classic translucent rail — the one surface where the desktop clearly
+ * glows through, exactly as Finder and Music treat theirs. */
+html.tempest-vibrancy .bg-surface-primary-alt {
+  background-color: rgb(255 255 255 / 0.42);
+}
+
+html.tempest-vibrancy.dark .bg-surface-primary-alt {
+  background-color: rgb(var(--gray-850) / 0.44);
+}
+
+/* The composer is frosted over the conversation it acts on. */
+html.tempest-vibrancy .bg-surface-chat {
+  background-color: rgb(255 255 255 / 0.6);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+html.tempest-vibrancy.dark .bg-surface-chat {
+  background-color: rgb(var(--gray-700) / 0.42);
+}
+
+/* The window is full-bleed under an overlay titlebar on macOS: the traffic lights float over
+ * the sidebar rail's head, so the rail starts below them. The drag surface itself is injected
+ * by the host beside this class. */
+html.tempest-vibrancy aside .border-r.bg-surface-primary-alt {
+  padding-top: 38px;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  /* Transparency is a preference, not a constraint the reader must absorb: every glass
+   * surface returns to its solid token and the material behind the window goes unseen. */
+  html.tempest-vibrancy body,
+  html.tempest-vibrancy.dark body {
+    background-color: rgb(var(--surface-primary));
+  }
+
+  html.tempest-vibrancy .bg-presentation,
+  html.tempest-vibrancy.dark .bg-presentation {
+    background-color: rgb(var(--presentation));
+  }
+
+  html.tempest-vibrancy .bg-surface-primary-alt,
+  html.tempest-vibrancy.dark .bg-surface-primary-alt {
+    background-color: rgb(var(--surface-primary-alt));
+  }
+
+  html.tempest-vibrancy .bg-surface-chat,
+  html.tempest-vibrancy.dark .bg-surface-chat {
+    background-color: rgb(var(--surface-chat));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  :is([role='dialog'], [role='menu'], [role='listbox']),
+  html.dark :is([role='dialog'], [role='menu'], [role='listbox']) {
+    background-color: rgb(var(--surface-dialog));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
