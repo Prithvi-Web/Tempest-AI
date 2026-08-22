@@ -74,7 +74,11 @@ def _alive(pids: set[int]) -> set[int]:
 
 
 def _tcp_listeners(pids: set[int]) -> str:
-    """lsof output for any TCP listener held by `pids` — empty means the property holds."""
+    """lsof output for any TCP listener held by `pids` — empty means the property holds.
+
+    lsof exits 1 when NOTHING matched (the good case); anything above 1 is lsof itself
+    failing, and an errored probe must never read as "zero listeners" (trap 47's class).
+    """
     joined = ",".join(str(pid) for pid in sorted(pids))
     result = subprocess.run(
         ["lsof", "-a", "-p", joined, "-iTCP", "-sTCP:LISTEN"],
@@ -82,6 +86,11 @@ def _tcp_listeners(pids: set[int]) -> str:
         text=True,
         check=False,
     )
+    if result.returncode > 1:
+        raise SystemExit(
+            f"the port probe itself failed (lsof rc {result.returncode}): "
+            f"{result.stderr.strip()} — an unprobed tree is a failing gate, not a green one"
+        )
     return result.stdout.strip()
 
 
@@ -114,6 +123,10 @@ def main() -> None:
             )
         env["TEMPEST_PLATFORM_SIDECAR"] = "1"
         env["TEMPEST_PLATFORM_NODE"] = node
+        # The gate names the socket path itself and asserts on THAT file later — an explicit
+        # pairing instead of a constant duplicated from platform.rs that could drift silently.
+        socket = Path(tempfile.mkdtemp(prefix="tempest-orphan-gate-")) / "platform.sock"
+        env["TEMPEST_PLATFORM_SOCKET"] = str(socket)
 
     before = _sidecar_pids()
     app = subprocess.Popen(
@@ -132,9 +145,13 @@ def main() -> None:
             probe = subprocess.run(
                 ["pgrep", "-f", "boundary.mjs"], capture_output=True, text=True, check=False
             )
-            platform = (
+            matched = (
                 {int(line) for line in probe.stdout.split()} if probe.returncode == 0 else set()
             )
+            # pgrep -f matches ANY command line containing the string — an editor with the
+            # file open included. Only descendants of OUR app count, and only they may ever
+            # be signalled by this gate.
+            platform = matched & _descendants(app.pid)
             if engine and platform:
                 break
         elif engine:
@@ -167,6 +184,19 @@ def main() -> None:
     else:
         print(f"sidecar up: pids {sorted(tracked)}; SIGKILLing the host now")
 
+    if args.all_children:
+        # Re-snapshot immediately before the kill: anything spawned since the first snapshot
+        # (an engine runner, a respawned child) joins the tracked set, and the port probe
+        # runs once more over the final tree — "all children" means at kill time, not at
+        # first sighting.
+        tracked |= _descendants(app.pid)
+        listeners = _tcp_listeners(tracked | {app.pid})
+        if listeners:
+            app.kill()
+            print("TCP LISTENER FOUND at kill time:")
+            print(listeners)
+            sys.exit(1)
+
     os.kill(app.pid, signal.SIGKILL)
     app.wait(timeout=10)
 
@@ -175,9 +205,9 @@ def main() -> None:
         survivors = _alive(tracked)
         if not survivors:
             elapsed = _CLEANUP_DEADLINE_S - (deadline - time.monotonic())
-            socket = Path(tempfile.gettempdir()) / "tempest-platform.sock"
-            if args.all_children and socket.exists():
-                print(f"ORPHANED SOCKET: {socket} outlived the sidecar — failing")
+            gate_socket = env.get("TEMPEST_PLATFORM_SOCKET")
+            if args.all_children and gate_socket and Path(gate_socket).exists():
+                print(f"ORPHANED SOCKET: {gate_socket} outlived the sidecar — failing")
                 sys.exit(1)
             scope = "descendant" if args.all_children else "sidecar"
             print(

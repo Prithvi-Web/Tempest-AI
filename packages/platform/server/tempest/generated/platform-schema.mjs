@@ -123,6 +123,7 @@ export const SCHEMA = Object.freeze({
     },
     "PlatformResponse": {
       "additionalProperties": false,
+      "description": "Exactly ONE of result/error is present — stated in prose because a oneOf here produces hostile typify output; boundary-validate.mjs enforces it at runtime, both directions, in production.",
       "properties": {
         "error": {
           "$ref": "#/$defs/PlatformError"

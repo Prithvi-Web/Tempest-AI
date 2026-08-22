@@ -1,14 +1,14 @@
 //! Boundary E, host side (PLAN-V3 C2): the typed client for the supervised Node platform
 //! sidecar, and the wiring that spawns it.
 //!
-//! Validation posture, stated exactly: outbound calls are CONSTRUCTED from the typify'd
-//! contract types (a request that violates `platform.schema.json` cannot be expressed);
-//! inbound results are PARSED into those same types, which carry
-//! `deny_unknown_fields` from the schema's `additionalProperties: false` — an off-contract
-//! reply fails here, in production, with a diagnostic id (L15.3). The JSON-RPC envelope
-//! itself is enforced by `supervisor::call` on this side and by `boundary-validate.mjs` —
-//! both directions — on the Node side, where types are advisory and validation is the only
-//! contract that exists at runtime.
+//! Validation posture, stated exactly: outbound method names come from the generated
+//! `PlatformMethod` enum (a typo'd or schema-removed method cannot compile here — the
+//! ENVELOPE is assembled by `supervisor::call`, whose shape is fixed code); inbound results
+//! are PARSED into the typify'd contract types, which carry `deny_unknown_fields` from the
+//! schema's `additionalProperties: false` — an off-contract reply fails here, in production,
+//! with a diagnostic id (L15.3). Independently, the Node side validates BOTH directions in
+//! production (`boundary-validate.mjs`: envelope + per-method result shapes) — there, types
+//! are advisory and runtime validation is the only contract that exists.
 //!
 //! The sidecar is OPT-IN at C2 (`TEMPEST_PLATFORM_SIDECAR=1`): nothing user-facing consumes
 //! it before C3 mounts the client, and spawning a Node process the product does not yet need
@@ -57,12 +57,59 @@ fn contract_error(kind: &str, why: impl std::fmt::Display) -> PlatformError {
     PlatformError { diagnostic_id: id, message: format!("{kind}: {why}") }
 }
 
-/// The socket lives in the per-user temp dir (private on macOS by construction) rather than
-/// the app data dir: `sun_path` is capped at ~104 bytes and a data-dir path under
-/// `~/Library/Application Support/…` can exceed it. One app instance, one fixed name; a stale
-/// file from a SIGKILL'd run is removed at spawn.
+/// The socket lives under a **private, per-user subdirectory of the temp dir** — never in the
+/// temp dir itself: on Linux `temp_dir()` is the SHARED, sticky `/tmp`, and a socket there
+/// (or a chmod of `/tmp`!) would be an exposure; on macOS the per-user `$TMPDIR` is already
+/// 0700 and the subdir is belt-and-braces. The temp root rather than the app data dir because
+/// `sun_path` is capped at ~104 bytes and a `~/Library/Application Support/…` path can
+/// exceed it. The name carries OUR pid so two app instances can never unlink or bind each
+/// other's live socket; `prepare_socket()` sweeps siblings whose embedded pid is dead, so a
+/// SIGKILL'd run's file cannot accumulate.
+pub fn socket_dir() -> PathBuf {
+    #[cfg(unix)]
+    let owner = unsafe { libc::getuid() };
+    #[cfg(not(unix))]
+    let owner = 0;
+    std::env::temp_dir().join(format!("tempest-platform-{owner}"))
+}
+
 pub fn socket_path() -> PathBuf {
-    std::env::temp_dir().join("tempest-platform.sock")
+    socket_dir().join(format!("platform-{}.sock", std::process::id()))
+}
+
+/// Create the private socket directory (0700) and sweep stale sockets left by dead instances.
+/// Called by the host before spawning; the supervisor deliberately does NOT manage
+/// directories — a generic chmod of a socket's parent chmods whatever the caller passed,
+/// which is exactly the /tmp foot-gun this function exists to prevent.
+pub fn prepare_socket() -> std::io::Result<PathBuf> {
+    let dir = socket_dir();
+    std::fs::create_dir_all(&dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(pid) = name
+                .to_str()
+                .and_then(|n| n.strip_prefix("platform-"))
+                .and_then(|n| n.strip_suffix(".sock"))
+                .and_then(|n| n.parse::<i32>().ok())
+            else {
+                continue;
+            };
+            #[cfg(unix)]
+            let owner_dead = unsafe { libc::kill(pid, 0) } != 0;
+            #[cfg(not(unix))]
+            let owner_dead = false;
+            if pid != std::process::id() as i32 && owner_dead {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Ok(socket_path())
 }
 
 pub fn spawn_config(node: PathBuf, boundary_script: PathBuf, socket: PathBuf) -> SpawnConfig {
@@ -75,21 +122,25 @@ pub fn spawn_config(node: PathBuf, boundary_script: PathBuf, socket: PathBuf) ->
     }
 }
 
+/// Shorter than `DEFAULT_CALL_TIMEOUT` (30 s) on purpose: every C2 lifecycle call is a
+/// constant-time reply from an idle process — 10 s of silence already means "broken".
+const LIFECYCLE_CALL_TIMEOUT: Duration = Duration::from_secs(10);
+
 fn typed_call<T: serde::de::DeserializeOwned>(
     supervisor: &Supervisor,
-    method: &str,
+    method: contract::PlatformMethod,
 ) -> Result<T, PlatformError> {
     let raw = supervisor
-        .call(method, serde_json::json!({}), Duration::from_secs(10))
+        .call(&method.to_string(), serde_json::json!({}), LIFECYCLE_CALL_TIMEOUT)
         .map_err(|err: RpcError| contract_error(&format!("{method} failed"), err))?;
     serde_json::from_value::<T>(raw)
         .map_err(|err| contract_error(&format!("{method} reply violates the contract"), err))
 }
 
 pub fn ping(supervisor: &Supervisor) -> Result<contract::PingResult, PlatformError> {
-    typed_call(supervisor, "platform.ping")
+    typed_call(supervisor, contract::PlatformMethod::PlatformPing)
 }
 
 pub fn describe(supervisor: &Supervisor) -> Result<contract::DescribeResult, PlatformError> {
-    typed_call(supervisor, "platform.describe")
+    typed_call(supervisor, contract::PlatformMethod::PlatformDescribe)
 }

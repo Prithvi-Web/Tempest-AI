@@ -17,7 +17,7 @@ import { unlinkSync } from "node:fs";
 import process from "node:process";
 
 import { PLATFORM_METHODS, PROTOCOL_VERSION } from "./generated/platform-schema.mjs";
-import { checkRequest, checkResponse } from "./boundary-validate.mjs";
+import { checkRequest, checkResponse, checkResult } from "./boundary-validate.mjs";
 
 const MAX_FRAME_BYTES = 64 * 1024 * 1024; // mirrors framing.rs
 const MAX_HEADER_BYTES = 8192;
@@ -73,16 +73,31 @@ const HANDLERS = {
   },
 };
 
+// The handler table and the generated method list must never drift: a schema method with no
+// handler (or the reverse) is a contract violation this process refuses to start with.
+{
+  const handlerKeys = Object.keys(HANDLERS).sort().join(",");
+  const schemaKeys = [...PLATFORM_METHODS].sort().join(",");
+  if (handlerKeys !== schemaKeys) {
+    log(`handler/schema drift: handlers [${handlerKeys}] vs schema [${schemaKeys}]`);
+    process.exit(2);
+  }
+}
+
 // ── framing (mirrors framing.rs: Content-Length header, CRLF CRLF, payload) ─────────────────
 const encodeFrame = (payload) => {
   const body = Buffer.from(payload, "utf8");
   return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "ascii"), body]);
 };
 
-const respond = (connection, response) => {
+const respond = (connection, response, method) => {
   // Outbound validation IN PRODUCTION: a reply this process cannot prove well-formed does not
-  // leave it. The replacement error is minimal, schema-valid by construction, and logged.
-  const verdict = checkResponse(response);
+  // leave it — the envelope AND, for successes, the method's result shape. The replacement
+  // error is minimal, schema-valid by construction, and logged.
+  let verdict = checkResponse(response);
+  if (verdict.ok && method && "result" in response) {
+    verdict = checkResult(method, response.result);
+  }
   if (!verdict.ok) {
     const id = diagnosticId();
     log(`OUTBOUND message failed validation [${id}]: ${verdict.why}`);
@@ -136,7 +151,7 @@ const handleFrame = (connection, payloadBytes) => {
   }
   const handler = HANDLERS[parsed.method];
   try {
-    respond(connection, { jsonrpc: "2.0", id: parsed.id, result: handler() });
+    respond(connection, { jsonrpc: "2.0", id: parsed.id, result: handler() }, parsed.method);
   } catch (err) {
     const id = diagnosticId();
     log(`handler ${parsed.method} threw [${id}]: ${err.stack ?? err}`);
@@ -149,7 +164,11 @@ const handleFrame = (connection, payloadBytes) => {
 };
 
 const isFiniteId = (parsed) =>
-  parsed && typeof parsed === "object" && Number.isInteger(parsed.id) && parsed.id >= 0;
+  parsed &&
+  typeof parsed === "object" &&
+  Number.isInteger(parsed.id) &&
+  parsed.id >= 0 &&
+  parsed.id <= 2147483647;
 
 // Incremental frame decoder per connection: buffer bytes, peel complete frames.
 const makeDecoder = (connection) => {
@@ -165,13 +184,24 @@ const makeDecoder = (connection) => {
         }
         return;
       }
-      const header = buffer.subarray(0, headerEnd).toString("ascii");
-      const match = /content-length:\s*(\d+)/i.exec(header);
-      if (!match) {
-        log("frame missing Content-Length — dropping the connection");
+      const headerBytes = buffer.subarray(0, headerEnd);
+      // framing.rs rejects non-UTF-8 header lines; ascii-decoding would MASK high bytes onto
+      // valid letters, so a garbage header could still read as Content-Length. Reject instead.
+      if (headerBytes.some((byte) => byte > 0x7e || (byte < 0x20 && byte !== 0x0d && byte !== 0x0a && byte !== 0x09))) {
+        log("frame header carries non-ASCII bytes — dropping the connection");
         connection.destroy();
         return;
       }
+      const header = headerBytes.toString("ascii");
+      const matches = [...header.matchAll(/content-length:\s*(\d+)/gi)];
+      if (matches.length !== 1) {
+        // framing.rs takes the LAST occurrence; taking the first here would let one frame
+        // read as two different lengths on the two sides. Ambiguity is rejected, not chosen.
+        log(`frame carries ${matches.length} Content-Length headers — dropping the connection`);
+        connection.destroy();
+        return;
+      }
+      const match = matches[0];
       const length = Number(match[1]);
       if (!Number.isSafeInteger(length) || length > MAX_FRAME_BYTES) {
         log(`frame length ${match[1]} exceeds the cap — dropping the connection`);

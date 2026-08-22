@@ -211,6 +211,19 @@ impl Supervisor {
                 Ok(live) => {
                     *self.live.lock().expect("live lock") = Some(live);
                     self.generation.fetch_add(1, Ordering::SeqCst);
+                    // shutdown() may have run between our shutting_down check and the store
+                    // above; its take() saw None then, so the fresh child is OURS to sweep —
+                    // without this re-check it would outlive the app (the review's race #6).
+                    if self.shutting_down.load(Ordering::SeqCst) {
+                        if let Some(mut fresh) = self.live.lock().expect("live lock").take() {
+                            kill_group(fresh.pgid);
+                            let _ = fresh.child.wait();
+                        }
+                        if let Transport::Unix { socket } = &self.config.transport {
+                            let _ = std::fs::remove_file(socket);
+                        }
+                        return;
+                    }
                     if self.wait_healthy(SPAWN_HEALTH_DEADLINE).is_ok() {
                         self.notify("healthy");
                     }
@@ -297,6 +310,11 @@ impl Supervisor {
         self.shutting_down.store(true, Ordering::SeqCst);
         let taken = self.live.lock().expect("live lock").take();
         let Some(mut live) = taken else {
+            // Even with no live child (mid-restart), a Unix child's socket file may exist —
+            // remove it on every shutdown path, not only the graceful one.
+            if let Transport::Unix { socket } = &self.config.transport {
+                let _ = std::fs::remove_file(socket);
+            }
             self.notify("stopped");
             return;
         };
@@ -343,17 +361,13 @@ fn spawn_child(config: &SpawnConfig) -> Result<Live, RpcError> {
         command.envs(provider());
     }
     if let Transport::Unix { socket } = &config.transport {
-        // A stale socket file from a SIGKILL'd previous run would make the child's bind fail;
-        // removing a dead socket is safe because only this host's children bind here.
+        // A stale file at OUR configured path would make the child's bind fail. The path is
+        // namespaced to this host process (platform::socket_path embeds our pid), so a file
+        // here can only be a leftover from a dead process — removal cannot race a sibling
+        // instance's live socket. Directory creation and permissions are the CALLER's job
+        // (platform::prepare_socket): a generic chmod of `socket.parent()` here would chmod
+        // whatever the caller passed — on Linux, potentially the shared /tmp itself.
         let _ = std::fs::remove_file(socket);
-        if let Some(dir) = socket.parent() {
-            let _ = std::fs::create_dir_all(dir);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
-            }
-        }
         command.env("TEMPEST_PLATFORM_SOCKET", socket);
     }
     #[cfg(unix)]
@@ -451,9 +465,16 @@ fn spawn_child(config: &SpawnConfig) -> Result<Live, RpcError> {
                     }
                 }
             };
-            let read_half = stream
-                .try_clone()
-                .map_err(|err| RpcError::Unavailable(format!("socket clone failed: {err}")))?;
+            let read_half = match stream.try_clone() {
+                Ok(half) => half,
+                Err(err) => {
+                    // Same discipline as every other failing spawn path: no early return may
+                    // leave the just-spawned child unswept or unreaped (L34).
+                    kill_group(pgid);
+                    let _ = child.wait();
+                    return Err(RpcError::Unavailable(format!("socket clone failed: {err}")));
+                }
+            };
             std::thread::Builder::new()
                 .name("sidecar-reader".into())
                 .spawn(move || {

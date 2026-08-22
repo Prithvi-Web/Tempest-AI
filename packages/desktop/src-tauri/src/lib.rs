@@ -168,11 +168,23 @@ pub fn run() {
                     .resolve("platform/server/tempest/boundary.mjs", tauri::path::BaseDirectory::Resource)
                 {
                     Ok(script) if script.is_file() => {
-                        let platform_supervisor = Supervisor::new(platform::spawn_config(
-                            node,
-                            script,
-                            platform::socket_path(),
-                        ));
+                        // prepare_socket creates the private per-user 0700 socket directory
+                        // and sweeps dead siblings; the supervisor itself never touches dirs.
+                        // An explicit TEMPEST_PLATFORM_SOCKET wins: the orphan gate names the
+                        // path itself so its later file assertion is a pairing, not a
+                        // duplicated constant that could drift.
+                        let socket = match std::env::var("TEMPEST_PLATFORM_SOCKET") {
+                            Ok(explicit) if !explicit.is_empty() => PathBuf::from(explicit),
+                            _ => match platform::prepare_socket() {
+                                Ok(socket) => socket,
+                                Err(err) => {
+                                    eprintln!("[tempest] platform socket dir failed: {err}");
+                                    return Ok(());
+                                }
+                            },
+                        };
+                        let platform_supervisor =
+                            Supervisor::new(platform::spawn_config(node, script, socket));
                         app.manage(platform::Platform(Arc::clone(&platform_supervisor)));
                         std::thread::spawn(move || {
                             if let Err(err) = platform_supervisor.start() {

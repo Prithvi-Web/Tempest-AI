@@ -362,12 +362,13 @@ impl ::std::convert::TryFrom<::std::string::String> for PlatformRequestJsonrpc {
         value.parse()
     }
 }
-#[doc = "`PlatformResponse`"]
+#[doc = "Exactly ONE of result/error is present — stated in prose because a oneOf here produces hostile typify output; boundary-validate.mjs enforces it at runtime, both directions, in production."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
+#[doc = "  \"description\": \"Exactly ONE of result/error is present — stated in prose because a oneOf here produces hostile typify output; boundary-validate.mjs enforces it at runtime, both directions, in production.\","]
 #[doc = "  \"type\": \"object\","]
 #[doc = "  \"required\": ["]
 #[doc = "    \"id\","]

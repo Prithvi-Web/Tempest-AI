@@ -108,6 +108,14 @@ fn the_sidecar_listens_on_no_tcp_port() {
         .args(["-a", "-p", &ping.pid.to_string(), "-iTCP", "-sTCP:LISTEN"])
         .output()
         .expect("lsof runs on macOS and the CI runner");
+    // lsof exits 1 when NOTHING matched (the good case); anything else is the probe itself
+    // failing, and an errored probe must never read as "zero listeners" (a vacuous pass).
+    let code = lsof.status.code().unwrap_or(-1);
+    assert!(
+        code == 0 || code == 1,
+        "the port probe itself failed (lsof rc {code}): {}",
+        String::from_utf8_lossy(&lsof.stderr)
+    );
     let listing = String::from_utf8_lossy(&lsof.stdout);
     assert!(
         listing.trim().is_empty(),
@@ -142,5 +150,40 @@ fn a_crashed_platform_sidecar_is_respawned_and_serves_again() {
         std::thread::sleep(Duration::from_millis(100));
     };
     assert_ne!(second_pid, first_pid, "the respawn is a NEW process");
+    supervisor.shutdown();
+}
+
+#[test]
+fn a_frame_with_two_content_length_headers_is_rejected_not_guessed() {
+    // framing.rs takes the LAST occurrence; a decoder taking the FIRST would let one frame
+    // read as two different lengths on the two sides. The boundary refuses ambiguity by
+    // dropping the connection.
+    let (supervisor, socket) = spawn_boundary("dup-length");
+    let mut stream = std::os::unix::net::UnixStream::connect(&socket).expect("connect");
+    use std::io::Write;
+    stream
+        .write_all(b"Content-Length: 5\r\nContent-Length: 40\r\n\r\nhello")
+        .expect("write raw bytes");
+    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+    let outcome = read_frame(&mut reader);
+    assert!(outcome.is_err(), "the connection must be dropped, never answered: {outcome:?}");
+    supervisor.shutdown();
+}
+
+#[test]
+fn a_header_with_high_bytes_is_rejected_not_ascii_masked() {
+    // Decoding high bytes as ASCII masks them onto valid letters, so a garbage header could
+    // still spell Content-Length. framing.rs rejects non-UTF-8 headers; the boundary must
+    // reject non-ASCII rather than guess.
+    let (supervisor, socket) = spawn_boundary("high-bytes");
+    let mut stream = std::os::unix::net::UnixStream::connect(&socket).expect("connect");
+    use std::io::Write;
+    let mut raw: Vec<u8> = b"Content-Leng".to_vec();
+    raw.extend([0xEC, 0xF4]); // high bytes that ascii-mask onto 'l','t'
+    raw.extend(b"h: 2\r\n\r\n{}");
+    stream.write_all(&raw).expect("write raw bytes");
+    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+    let outcome = read_frame(&mut reader);
+    assert!(outcome.is_err(), "the connection must be dropped, never answered: {outcome:?}");
     supervisor.shutdown();
 }

@@ -4,9 +4,11 @@
 // design: the vendored platform tree carries no node_modules, and a validator that needs an
 // install step is a validator that silently isn't there.
 //
-// The checks mirror platform.schema.json exactly (additionalProperties: false everywhere —
-// unknown keys are rejected, not ignored). A mismatch is a structured refusal with a reason,
-// never a swallowed exception (L15.3).
+// The checks enforce platform.schema.json (additionalProperties: false everywhere — unknown
+// keys are rejected, not ignored) PLUS two rules the schema states in prose because JSON
+// Schema expresses them awkwardly for typify: a response carries exactly one of result/error,
+// and a result must match ITS method's result shape (checkResult). A mismatch is a structured
+// refusal with a reason, never a swallowed exception (L15.3).
 import { PLATFORM_METHODS, REASON_CODES } from "./generated/platform-schema.mjs";
 
 const INT32_MAX = 2147483647;
@@ -73,4 +75,39 @@ export function checkResponse(value) {
     }
   }
   return { ok: true };
+}
+
+const RESULT_SHAPES = {
+  "platform.ping": (result) => {
+    const extra = onlyKeys(result, ["ok", "pid", "protocol_version", "node_version"]);
+    if (extra) return extra;
+    if (result.ok !== true) return "ok must be true";
+    if (!Number.isInteger(result.pid) || result.pid < 0) return "pid must be a non-negative int";
+    if (typeof result.protocol_version !== "string") return "protocol_version must be a string";
+    if (typeof result.node_version !== "string") return "node_version must be a string";
+    return null;
+  },
+  "platform.describe": (result) => {
+    const extra = onlyKeys(result, ["protocol_version", "methods"]);
+    if (extra) return extra;
+    if (typeof result.protocol_version !== "string") return "protocol_version must be a string";
+    if (!Array.isArray(result.methods) || result.methods.some((m) => !PLATFORM_METHODS.includes(m))) {
+      return "methods must be an array of known PlatformMethods";
+    }
+    return null;
+  },
+  "platform.shutdown": (result) => {
+    const extra = onlyKeys(result, ["ok"]);
+    if (extra) return extra;
+    return result.ok === true ? null : "ok must be true";
+  },
+};
+
+/** Per-method result-shape validation — the outbound half beyond the envelope.
+ * @returns {{ok: true}|{ok: false, why: string}} */
+export function checkResult(method, result) {
+  const shape = RESULT_SHAPES[method];
+  if (!shape) return { ok: false, why: `no result shape known for ${method}` };
+  const why = shape(result);
+  return why ? { ok: false, why: `${method} result: ${why}` } : { ok: true };
 }
