@@ -54,19 +54,20 @@ Quarterly, gated, rehearsed for real in C12 (L27). Last executed: never (first v
 
 ## Brand-asset strip (performed in the vendoring commit — MIT does not license trademarks)
 
-Six files carrying LibreChat's own visual identity were **replaced in place with neutral
-Tempest-placeholder images** (same filenames, so upstream references — e.g. `AuthLayout.tsx`,
-`index.html` — stay valid and every future upstream change to these files surfaces as a merge
-conflict to resolve by keeping ours):
+Six files carrying LibreChat's own visual identity were **replaced in place** (same filenames,
+so upstream references — e.g. `AuthLayout.tsx`, `index.html` — stay valid and every future
+upstream change to these files surfaces as a merge conflict to resolve by keeping ours). At C1
+they became neutral placeholders; the identity pass (commit `aa565ee`) re-cut every one from
+the Tempest storm-glass mark (`packages/desktop/app-icon.svg`):
 
 | File (under `packages/platform/client/public/assets/`) | Action |
 |---|---|
-| `logo.svg` | replaced — neutral placeholder mark |
-| `favicon-16x16.png` | replaced — neutral 16×16 |
-| `favicon-32x32.png` | replaced — neutral 32×32 |
-| `apple-touch-icon-180x180.png` | replaced — neutral 180×180 |
-| `icon-192x192.png` | replaced — neutral 192×192 |
-| `maskable-icon.png` | replaced — neutral 512×512 |
+| `logo.svg` | replaced — the Tempest mark (bolt on a navy squircle) |
+| `favicon-16x16.png` | replaced — Tempest mark 16×16 |
+| `favicon-32x32.png` | replaced — Tempest mark 32×32 |
+| `apple-touch-icon-180x180.png` | replaced — Tempest mark 180×180 |
+| `icon-192x192.png` | replaced — Tempest mark 192×192 |
+| `maskable-icon.png` | replaced — Tempest mark 512×512 |
 
 Third-party **provider** logos (openai.svg, mistral.png, …) are other vendors' marks used
 nominatively to label providers; they are not LibreChat trade dress and are retained unmodified.
@@ -78,11 +79,19 @@ before C3, so no LibreChat-branded surface can reach a user in the interim.
 ## Inline-delta ledger
 
 Every in-place edit to vendored code that is **not** inside a `packages/platform/*/tempest/`
-seam directory and not a row of the brand-asset strip above. Cap enforced by
-`upstream_check --max-inline-deltas 40`. Hitting the cap means seams are being skipped — stop.
+seam directory. Cap enforced by `upstream_check --max-inline-deltas 40`. Hitting the cap means
+seams are being skipped — stop. (The six brand-asset files were invisible here while their
+placeholder bytes matched the vendor baseline; the identity pass made them real divergences,
+so they carry rows like any other in-place edit.)
 
 | Path | Reason | Upstream issue |
 |---|---|---|
+| `packages/platform/client/public/assets/logo.svg` | brand identity: the Tempest mark replaces upstream's logo (trademarks are not MIT-licensed); every upstream change resolves as keep-ours | — |
+| `packages/platform/client/public/assets/favicon-16x16.png` | brand identity, as above | — |
+| `packages/platform/client/public/assets/favicon-32x32.png` | brand identity, as above | — |
+| `packages/platform/client/public/assets/apple-touch-icon-180x180.png` | brand identity, as above | — |
+| `packages/platform/client/public/assets/icon-192x192.png` | brand identity, as above | — |
+| `packages/platform/client/public/assets/maskable-icon.png` | brand identity, as above | — |
 | `packages/platform/provider/tsdown.config.mjs` | upstream requires the monorepo ROOT package.json (deliberately not vendored) for `__LIBRECHAT_VERSION__`; retargeted to `../client/package.json`, which tracks the same upstream release (v0.8.8-rc1 at adoption — verify at every upstream merge) | — |
 | `packages/platform/client/tailwind.config.cjs` | the C1 tree mapping renames upstream `packages/client` → `client-pkg`; three sibling-relative requires/globs retargeted | — |
 | `packages/platform/client/tsconfig.json` | same rename: two include entries retargeted to `../client-pkg` | — |
