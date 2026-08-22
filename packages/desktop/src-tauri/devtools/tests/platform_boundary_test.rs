@@ -215,7 +215,7 @@ fn the_local_api_answers_over_the_full_boundary_chain() {
         .decode(config.get("body_base64").and_then(serde_json::Value::as_str).unwrap())
         .expect("base64 body");
     let parsed: serde_json::Value = serde_json::from_slice(&body).expect("json body");
-    assert_eq!(parsed.get("appTitle").and_then(serde_json::Value::as_str), Some("Tempest"));
+    assert_eq!(parsed.get("appTitle").and_then(serde_json::Value::as_str), Some("Tempest AI"));
     assert_eq!(
         parsed.get("registrationEnabled").and_then(serde_json::Value::as_bool),
         Some(false),

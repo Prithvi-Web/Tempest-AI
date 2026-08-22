@@ -120,6 +120,10 @@ const STARTUP_CONFIG = Object.freeze({
   emailEnabled: false,
   showBirthdayIcon: false,
   helpAndFaqURL: "",
+  // Any string suppresses the vendored footer's upstream wordmark + version line; MIT
+  // does not license the trademark, so that line must never render (C1 brand-strip's
+  // text-surface counterpart). Empty = no footer at all.
+  customFooter: "",
   interface: INTERFACE_CONFIG,
 });
 
@@ -182,6 +186,46 @@ export function handleLocalApi(method, path) {
     case "GET /api/agents/chat/active":
       // An empty list also stops the 5s active-jobs poll loop.
       return json(200, { activeJobIds: [] });
+    case "GET /api/mcp/servers":
+      // Record<serverName, server>; {} renders the empty MCP picker and keeps
+      // /api/mcp/tools from ever firing.
+      return json(200, {});
+    case "GET /api/permissions/mcpServer/effective/all":
+      return json(200, {});
+    case "GET /api/prompts/groups":
+      // Cursor pagination: has_more:false + after:null is what stops the nav scroller.
+      // pageNumber/pageSize/pages are required by the response type, unread when empty.
+      return json(200, {
+        promptGroups: [],
+        pageNumber: "1",
+        pageSize: 10,
+        pages: 1,
+        has_more: false,
+        after: null,
+      });
+    case "GET /api/prompts/all":
+      // Must be a bare array: the consumer's select() maps over it directly.
+      return json(200, []);
+    case "GET /api/presets":
+    case "GET /api/tags":
+    case "GET /api/categories":
+    case "GET /api/agents/tools":
+    case "GET /api/api-keys":
+      return json(200, []);
+    case "GET /api/agents/tools/web_search/auth":
+      // Honest: no search provider is configured. The toggle's visibility is decided
+      // upstream (agent capabilities); this only makes a click route to the key dialog
+      // instead of silently enabling.
+      return json(200, { authenticated: false, authTypes: [] });
+    case "GET /api/endpoints/token-config":
+      return json(200, {});
+    case "GET /api/memories":
+      return json(200, {
+        memories: [],
+        totalTokens: 0,
+        tokenLimit: null,
+        usagePercentage: null,
+      });
     default:
       // One line per miss on stderr: the boundary only logs transport failures, and a
       // valid 404 is not one — without this, a starved client query is invisible.
