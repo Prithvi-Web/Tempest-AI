@@ -168,19 +168,47 @@ grep -ri "librechat" packages/platform/client/public packages/desktop/src --incl
 
 ## Phase C2 — Boundary E
 
-- [ ] `packages/shared-schema/platform.schema.json` — the root of truth for every message crossing
+- [x] `packages/shared-schema/platform.schema.json` — the root of truth for every message crossing
       Rust ↔ Node. Domain values reference boundary C's Pydantic-rooted types; they are never
-      redefined.
-- [ ] Generation into Rust and TS, wired into `make gen-contracts`, landing inside the paths
-      `verify-contract` already diffs.
-- [ ] JSON-RPC 2.0 over a **Unix domain socket** (named pipe on Windows), length-prefixed framing —
+      redefined. **Done 2026-08-21 (`1d06e7a` + review wave `91d…`). Mechanics note, stated
+      exactly: the ReasonCode definition is COPIED from `domain-schema.json` by
+      `gen-platform-schema.mjs` rather than `$ref`'d across files (typify needs a
+      self-contained document) — single Pydantic source, mechanical ordered propagation inside
+      one `gen-contracts` recipe, drift-gated; byte-equality of all three copies verified at
+      review.**
+- [x] Generation into Rust and TS, wired into `make gen-contracts`, landing inside the paths
+      `verify-contract` already diffs. **Done: typify → `src-tauri/src/generated/platform.rs`
+      (deny_unknown_fields throughout); the Node seam gets `platform-schema.mjs` (runtime
+      consts) + `platform-schema.d.mts` (the TS face). Honesty note: the seam's generated dir
+      was ADDED to `verify-contract`'s diff list — the plan's "already diffs" wording did not
+      hold for the fifth boundary and the gate grew instead, disclosed in the commit.**
+- [x] JSON-RPC 2.0 over a **Unix domain socket** (named pipe on Windows), length-prefixed framing —
       reuse `framing.rs`, which already does this for boundary A. **No TCP listener, ever.**
-- [ ] **Bidirectional validation in production, not only in dev.** LibreChat is JavaScript, so TS
+      **Done: `Transport::Unix` in supervisor.rs, `framing.rs` reused verbatim over the
+      `UnixStream`; the Node decoder mirrors it and REJECTS what would desync (duplicate
+      Content-Length, non-ASCII header bytes) — two wire-level pins. Socket in a private
+      per-user 0700 subdir, pid-namespaced, dead-sibling sweep. Named pipe: no Windows desktop
+      exists (QV5); `Transport::Unix` on non-unix returns an explicit Unavailable naming the
+      deferral — recorded here so the clause is deferred, never dropped.**
+- [x] **Bidirectional validation in production, not only in dev.** LibreChat is JavaScript, so TS
       types are advisory at runtime. A validation failure is a surfaced, diagnosable error with an
-      ID (L15.3), never a swallowed exception.
-- [ ] Node API supervised by `supervisor.rs` under L34: process-group ownership, health checks,
-      exponential-backoff restart, teardown that survives `SIGKILL` of the parent.
-- [ ] Extend `orphan_check` to `--all-children --after-sigkill`.
+      ID (L15.3), never a swallowed exception. **Done: Node validates envelope AND per-method
+      result shapes both directions in the shipped path (`boundary-validate.mjs`); proven at
+      the wire by pins that inject a smuggled field and an unknown method and get -32600 +
+      diagnostic_id. Rust: methods from the generated PlatformMethod enum, results parsed
+      into deny_unknown_fields types, failures carry diagnostic ids.**
+- [x] Node API supervised by `supervisor.rs` under L34: process-group ownership, health checks,
+      exponential-backoff restart, teardown that survives `SIGKILL` of the parent. **Done —
+      same monitor/backoff/sweep code path as the engine (500 ms → ×2 → 8 s cap, 60 s healthy
+      reset); SIGKILL survival via the held-open stdin pipe + ppid watch; SIGKILL-respawn
+      proven by a live test. At C2 the supervised child is the boundary's lifecycle endpoint —
+      LibreChat services route through it at C5, by design (the schema leads).**
+- [x] Extend `orphan_check` to `--all-children --after-sigkill`. **Done, then hardened by
+      review: descendant tree re-snapshotted at kill time (caught a third process on its
+      first run), pgrep scoped to OUR descendants (an unscoped match could have SIGKILLed a
+      bystander), the port probe fails when lsof itself fails, and the socket assertion pairs
+      through TEMPEST_PLATFORM_SOCKET rather than a duplicated constant. Run on the installed
+      app: 3 descendants tracked, zero TCP listeners, zero survivors in 2.5 s / 15 s bar.**
 
 **Gate:**
 ```bash
@@ -190,6 +218,19 @@ uv run python -m tempest.dev.orphan_check --all-children --after-sigkill
 # an enum-drift probe: add a ReasonCode in Python → Rust build, TS build, AND boundary E
 #   validator all fail. Paste all three failures, then revert.
 ```
+
+**C2 gate outcomes (2026-08-21):** drift gate `FIVE_BOUNDARIES_DRIFT_FREE` (exit 0 after
+regen, committed tree). Orphan gate: 3 descendants tracked, `port probe: zero TCP listeners
+across the host and every descendant`, `zero descendant processes survive SIGKILL of the host
+(cleared in 2.5s, bar 15s)` — plus an in-test lsof probe per run. **Three-OS honesty (QV5):
+only the macOS desktop exists; the probe runs on macOS locally and ubuntu CI compiles the
+suite — claiming three OSes would be exactly the kind of claim this product refuses.**
+Enum-drift probe, all three failures observed live then reverted: Rust
+`error[E0004]: non-exhaustive patterns: ReasonCode::EnumDriftProbe not covered`
+(commands.rs:748, exit 101 under --all-targets, how CI compiles); TS
+`vocabulary.tsx(67,24): error TS2345: '"ENUM_DRIFT_PROBE"' is not assignable to type 'never'`;
+boundary E: seam-module diff → verify-contract exit 1 AND the live validator's
+`{"ok":false,"why":"error.reason_code is not a known ReasonCode"}`.
 
 ---
 
