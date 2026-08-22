@@ -9,16 +9,25 @@ The gate reads `packages/platform/UPSTREAM.md` and asks four things, each proven
 violating tree:
 
 1. **The origin is pinned**: an `- **Adopted commit:** <40-hex>` line names the upstream commit.
+   Exactly one — a duplicated field is ambiguous and fails rather than silently picking one.
 2. **The baseline is real**: a `- **Vendor baseline:** <40-hex>` line names a commit that
    resolves in THIS repository — the commit that landed (or last merged) the vendored tree.
 3. **Every delta is declared** (`--ledger-complete`): every path under `packages/platform/**`
-   that differs from the baseline — committed, staged, unstaged, or untracked — is either an
-   inline-delta ledger row, a declared seam (`packages/platform/<pkg>/tempest/**`), or
-   `UPSTREAM.md` itself. And the converse: a ledger row whose path has NOT changed is stale.
+   that differs from the baseline — committed, staged, unstaged, or untracked (enumerated
+   per-file, never as a directory) — is either an inline-delta ledger row, a declared seam
+   (a path *inside* `packages/platform/<pkg>/tempest/`), or `UPSTREAM.md` itself. Renames are
+   counted as a delete plus an add, so moving a vendored file into a seam still surfaces the
+   vanished original. And the converse: a ledger row whose path has NOT changed is stale.
    Undeclared drift and stale rows both fail — the ledger is the map, and a map that disagrees
    with the territory in either direction is worse than no map.
 4. **The ledger stays small** (`--max-inline-deltas N`): more rows than the cap means seams are
    being skipped and their code edited in place, which is the beginning of fork rot.
+
+Scope, stated so the claim is exact: the baseline field is **self-attested** — this gate proves
+the tree matches the ledger against the recorded baseline; that the baseline moves only on a
+vendoring or upstream-merge commit is UPSTREAM.md's documented rule, held by review of commits
+that touch it, not by this gate. Fenced code blocks in UPSTREAM.md are documentation, never
+structure (the license_check lesson, applied here from day one).
 """
 
 import argparse
@@ -45,19 +54,49 @@ def _repo_root() -> Path:
 
 
 def _git(root: Path, *args: str) -> str:
+    """Git with path quoting off: a `café.js` must round-trip byte-identically between the
+    diff output, the status output, and the ledger cell that declares it."""
     return subprocess.run(
-        ["git", "-C", str(root), *args], capture_output=True, text=True, check=True
+        ["git", "-C", str(root), "-c", "core.quotePath=false", *args],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
 
 
-def _sha_field(body: str, prefix: str) -> str | None:
-    """The 40-hex value on a `- **Field:** <sha> …` line, or None if absent/malformed."""
+def _strip_fences(body: str) -> str:
+    """Drop fenced code blocks — CommonMark nesting: a fence of N backticks closes only on a
+    fence of at least N. A doc example inside a fence must never read as a live field or row."""
+    out: list[str] = []
+    open_fence = 0
+    for line in body.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            ticks = len(stripped) - len(stripped.lstrip("`"))
+            if open_fence == 0:
+                open_fence = ticks
+            elif ticks >= open_fence:
+                open_fence = 0
+            continue
+        if open_fence == 0:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _sha_fields(body: str, prefix: str) -> list[str | None]:
+    """One entry per line carrying the field: its 40-hex value, or None if malformed."""
+    values: list[str | None] = []
     for line in body.splitlines():
         stripped = line.strip()
         if stripped.startswith(prefix):
             match = _HEX40.search(stripped)
-            return match.group(0) if match else None
-    return None
+            values.append(match.group(0) if match else None)
+    return values
+
+
+def _separator_row(cells: list[str]) -> bool:
+    """True for `|---|`, `| --- |`, `|:---:|` and friends in any prettifier dialect."""
+    return all(not cell or set(cell) <= {"-", ":"} for cell in cells)
 
 
 def _ledger_rows(body: str) -> list[tuple[str, str]]:
@@ -69,10 +108,10 @@ def _ledger_rows(body: str) -> list[tuple[str, str]]:
         if stripped.startswith("## "):
             in_section = stripped == _LEDGER_HEADING
             continue
-        if not in_section or not stripped.startswith("|") or stripped.startswith("|---"):
+        if not in_section or not stripped.startswith("|"):
             continue
         cells = [c.strip().strip("`") for c in stripped.strip("|").split("|")]
-        if not cells or cells[0].lower() == "path":
+        if _separator_row(cells) or not cells or cells[0].lower() == "path":
             continue
         if cells[0] in _PLACEHOLDER_CELLS:
             continue
@@ -81,30 +120,49 @@ def _ledger_rows(body: str) -> list[tuple[str, str]]:
 
 
 def _exempt(path: str) -> bool:
-    """UPSTREAM.md is ours; `packages/platform/<pkg>/tempest/**` are the declared seams."""
+    """UPSTREAM.md is ours; paths INSIDE `packages/platform/<pkg>/tempest/` are the declared
+    seams (a plain file merely NAMED `tempest` is not a seam); `.DS_Store` is Finder junk that
+    appears by opening a folder and must not redden a gate."""
     if path == f"{_PLATFORM}/UPSTREAM.md":
         return True
     parts = path.split("/")
-    return len(parts) > 3 and parts[3] == "tempest"
+    if parts and parts[-1] == ".DS_Store":
+        return True
+    return len(parts) > 4 and parts[3] == "tempest"
 
 
 def _changed_paths(root: Path, baseline: str) -> set[str]:
     """Every platform path differing from the baseline: committed AND working-tree state.
 
     A gate that reads only HEAD reports green over a dirty tree; verify runs on the working
-    tree, so this must too.
+    tree, so this must too. Rename detection is OFF in both views so a move contributes its
+    old path (a deletion) and its new path (an addition) — otherwise `git mv` into a seam
+    directory would vanish a vendored file with zero ledger trace. Untracked content is
+    enumerated per-file so a directory row cannot declare an unbounded set.
     """
     changed = {
         line
-        for line in _git(root, "diff", "--name-only", baseline, "HEAD", "--", _PLATFORM)
+        for line in _git(
+            root, "diff", "--name-only", "--no-renames", baseline, "HEAD", "--", _PLATFORM
+        )
         .strip()
         .splitlines()
         if line
     }
-    for line in _git(root, "status", "--porcelain", "--", _PLATFORM).splitlines():
+    for line in _git(
+        root,
+        "-c",
+        "status.renames=false",
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--",
+        _PLATFORM,
+    ).splitlines():
         if not line.strip():
             continue
-        # `XY path` or `R  old -> new`: the path that exists NOW is the one to declare.
+        # `XY path` in porcelain v1. With rename detection off no `old -> new` arrows remain,
+        # but the split stays as a belt against a future git changing that default.
         changed.add(line[3:].split(" -> ")[-1].strip().strip('"'))
     return changed
 
@@ -126,21 +184,35 @@ def main(argv: list[str] | None = None) -> int:
             f"{_PLATFORM}/UPSTREAM.md: missing — a vendored tree whose origin and deltas are "
             "unrecorded cannot absorb upstream (L27)"
         )
-        _report(fail, rows=0, cap=args.max_inline_deltas)
-        return 1
+        return _report(fail, rows=0, cap=args.max_inline_deltas)
 
-    body = upstream_md.read_text(encoding="utf-8")
-    adopted = _sha_field(body, _ADOPTED_FIELD)
-    if adopted is None:
+    body = _strip_fences(upstream_md.read_text(encoding="utf-8", errors="replace"))
+
+    adopted_values = _sha_fields(body, _ADOPTED_FIELD)
+    if not adopted_values:
         fail.append(f"UPSTREAM.md: no `{_ADOPTED_FIELD} <40-hex>` line — the origin is unpinned")
+    elif len(adopted_values) > 1:
+        fail.append(
+            f"UPSTREAM.md: `{_ADOPTED_FIELD}` appears {len(adopted_values)} times — ambiguous"
+        )
+    elif adopted_values[0] is None:
+        fail.append(f"UPSTREAM.md: `{_ADOPTED_FIELD}` line carries no 40-hex commit")
 
-    baseline = _sha_field(body, _BASELINE_FIELD)
-    if baseline is None:
+    baseline: str | None = None
+    baseline_values = _sha_fields(body, _BASELINE_FIELD)
+    if not baseline_values:
         fail.append(
             f"UPSTREAM.md: no `{_BASELINE_FIELD} <40-hex>` line — without a baseline, drift "
             "cannot be measured"
         )
+    elif len(baseline_values) > 1:
+        fail.append(
+            f"UPSTREAM.md: `{_BASELINE_FIELD}` appears {len(baseline_values)} times — ambiguous"
+        )
+    elif baseline_values[0] is None:
+        fail.append(f"UPSTREAM.md: `{_BASELINE_FIELD}` line carries no 40-hex commit")
     else:
+        baseline = baseline_values[0]
         resolvable = (
             subprocess.run(
                 ["git", "-C", str(root), "cat-file", "-e", f"{baseline}^{{commit}}"],

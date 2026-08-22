@@ -143,3 +143,86 @@ class TestProofDataStaysInSqlite:
     def test_sspl_flag_alone_skips_the_document_store_checks(self, tree: Path) -> None:
         (tree / "docs" / "MERGE-CONTRACT.md").unlink()
         assert _run(tree, "--no-sspl-binaries") == 0
+
+
+class TestReviewPins:
+    """Pins for the C1 adversarial-review findings (S1-S7) — each was a real bypass."""
+
+    def test_tracked_content_in_a_skip_named_directory_is_still_scanned(self, tree: Path) -> None:
+        """S1: `dist/` is skipped as build output by NAME, but git-tracked content is repo
+        content and must be scanned wherever it sits."""
+        import subprocess
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", "-C", str(tree), *args], capture_output=True, check=True)
+
+        git("init", "-q")
+        git("config", "user.email", "pin@test")
+        git("config", "user.name", "pin")
+        hidden = tree / "packages" / "platform" / "server" / "dist"
+        hidden.mkdir(parents=True)
+        (hidden / "mongod").write_bytes(b"\x7fELF")
+        git("add", "-A")
+        git("commit", "-qm", "smuggle")
+        assert _run(tree) == 1
+
+    def test_a_decoy_dependencies_string_cannot_mask_the_real_block(self, tree: Path) -> None:
+        """S2: the manifest is parsed as JSON first — a quoted decoy must not aim the check
+        at the wrong braces."""
+        (tree / "packages" / "platform" / "data" / "package.json").write_text(
+            '{"description": "see \\"dependencies\\": {} for details",'
+            ' "dependencies": {"mongodb-memory-server": "^9.0.0"}}'
+        )
+        assert _run(tree) == 1
+
+    def test_a_comma_form_import_is_found(self, tree: Path) -> None:
+        """S3: `import sys, pymongo` is a static import too — AST sees what a line-anchored
+        regex missed."""
+        (tree / "packages" / "engine" / "src" / "tempest" / "sneak.py").write_text(
+            "import sys, pymongo\n"
+        )
+        assert _run(tree) == 1
+
+    def test_an_import_statement_inside_a_docstring_is_not_an_import(self, tree: Path) -> None:
+        (tree / "packages" / "engine" / "src" / "tempest" / "docd.py").write_text(
+            '"""Example:\nimport pymongo\n"""\nX = 1\n'
+        )
+        assert _run(tree) == 0
+
+    def test_an_unparseable_file_falls_back_to_the_textual_scan(self, tree: Path) -> None:
+        (tree / "packages" / "engine" / "src" / "tempest" / "broken.py").write_text(
+            "def broken(:\nimport pymongo\n"
+        )
+        assert _run(tree) == 1
+
+    def test_placeholder_rows_do_not_satisfy_the_cross_store_table(self, tree: Path) -> None:
+        """S5: an emptied table full of em-dashes is a declaration of nothing."""
+        (tree / "docs" / "MERGE-CONTRACT.md").write_text(
+            "## Declared cross-store references (L33)\n\n"
+            "| From | Field | To |\n|---|---|---|\n| — | — | — |\n"
+        )
+        assert _run(tree) == 1
+
+    def test_a_prettified_separator_is_not_a_data_row(self, tree: Path) -> None:
+        (tree / "docs" / "MERGE-CONTRACT.md").write_text(
+            "## Declared cross-store references (L33)\n\n"
+            "| From | Field | To |\n| --- | --- | --- |\n"
+            "| platform `runs` | `tempest_run_id` | engine `runs.id` |\n"
+        )
+        assert _run(tree) == 0
+
+    def test_a_symlink_cycle_does_not_hang_or_crash_the_walk(self, tree: Path) -> None:
+        """S6: symlinks are skipped whole — a cycle must not loop and a link cannot BE the
+        binary."""
+        (tree / "packages" / "platform" / "loop").symlink_to(tree / "packages")
+        assert _run(tree) == 0
+
+    def test_a_bad_root_fails_cleanly_rather_than_crashing(self, tmp_path: Path) -> None:
+        assert store_check.main([*_BOTH, "--root", str(tmp_path / "nope")]) == 1
+
+    def test_the_british_spelling_of_licence_is_scanned(self, tree: Path) -> None:
+        """S7: SSPL text behind `LICENCE` is the same problem wearing different vowels."""
+        (tree / "packages" / "platform" / "data" / "LICENCE.md").write_text(
+            "Server Side Public License\n"
+        )
+        assert _run(tree) == 1

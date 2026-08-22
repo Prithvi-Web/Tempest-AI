@@ -215,3 +215,90 @@ class TestLedgerHygiene:
             )
             == 0
         )
+
+
+class TestReviewPins:
+    """Pins for the C1 adversarial-review findings (U1-U6) — each was a real bypass."""
+
+    def test_rename_into_a_seam_still_surfaces_the_vanished_original(self, repo: Path) -> None:
+        """U1: `git mv vendored-file <pkg>/tempest/` must not delete it with zero trace —
+        renames count as delete + add, and the delete side needs a ledger row."""
+        seam = repo / "packages" / "platform" / "server" / "tempest"
+        seam.mkdir()
+        _git(
+            repo, "mv", "packages/platform/server/app.js", "packages/platform/server/tempest/app.js"
+        )
+        _git(repo, "commit", "-qm", "sneak")
+        assert _run(repo) == 1
+        md = repo / "packages" / "platform" / "UPSTREAM.md"
+        md.write_text(
+            _upstream_md(
+                _baseline_of(repo),
+                [("packages/platform/server/app.js", "moved into the seam — delete declared")],
+            )
+        )
+        assert _run(repo) == 0
+
+    def test_an_untracked_directory_is_enumerated_per_file(self, repo: Path) -> None:
+        """U2: one `?? dir/` status entry must not let a single row declare unbounded files."""
+        patch = repo / "packages" / "platform" / "server" / "patch"
+        patch.mkdir()
+        (patch / "a.js").write_text("a\n")
+        (patch / "b.js").write_text("b\n")
+        md = repo / "packages" / "platform" / "UPSTREAM.md"
+        md.write_text(
+            _upstream_md(_baseline_of(repo), [("packages/platform/server/patch/", "a dir row")])
+        )
+        assert _run(repo) == 1  # the two files are undeclared; the dir row is stale
+        md.write_text(
+            _upstream_md(
+                _baseline_of(repo),
+                [
+                    ("packages/platform/server/patch/a.js", "pin"),
+                    ("packages/platform/server/patch/b.js", "pin"),
+                ],
+            )
+        )
+        assert _run(repo) == 0
+
+    def test_a_plain_file_named_tempest_is_not_a_seam(self, repo: Path) -> None:
+        """U3: the seam exemption is for paths INSIDE `<pkg>/tempest/`, never a file so named."""
+        (repo / "packages" / "platform" / "server" / "tempest").write_text("not a seam\n")
+        assert _run(repo) == 1
+
+    def test_a_non_ascii_path_round_trips_between_git_and_the_ledger(self, repo: Path) -> None:
+        """U4: quotePath off — `café.js` must match its ledger row byte-identically."""
+        target = repo / "packages" / "platform" / "server" / "café.js"
+        target.write_text("accent\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-qm", "accent")
+        assert _run(repo) == 1
+        md = repo / "packages" / "platform" / "UPSTREAM.md"
+        md.write_text(
+            _upstream_md(_baseline_of(repo), [("packages/platform/server/café.js", "pin")])
+        )
+        assert _run(repo) == 0
+
+    def test_a_fenced_example_field_is_documentation_not_structure(self, repo: Path) -> None:
+        """U5: a doc example inside a fence must not retarget the baseline."""
+        md = repo / "packages" / "platform" / "UPSTREAM.md"
+        md.write_text(
+            "```markdown\n- **Vendor baseline:** " + "b" * 40 + "\n```\n" + md.read_text()
+        )
+        assert _run(repo) == 0
+
+    def test_duplicate_baseline_lines_are_ambiguous_and_fail(self, repo: Path) -> None:
+        md = repo / "packages" / "platform" / "UPSTREAM.md"
+        md.write_text(md.read_text() + f"\n- **Vendor baseline:** {'c' * 40}\n")
+        assert _run(repo) == 1
+
+    def test_a_prettified_separator_is_not_a_stale_row(self, repo: Path) -> None:
+        """U6: `| --- | --- | --- |` is a separator in any dialect, never a data row."""
+        md = repo / "packages" / "platform" / "UPSTREAM.md"
+        md.write_text(md.read_text().replace("|---|---|---|", "| --- | --- | --- |"))
+        assert _run(repo) == 0
+
+    def test_finder_junk_is_exempt(self, repo: Path) -> None:
+        """Opening a folder in Finder must not redden the gate."""
+        (repo / "packages" / "platform" / "server" / ".DS_Store").write_bytes(b"\x00junk")
+        assert _run(repo) == 0

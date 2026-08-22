@@ -268,3 +268,44 @@ class TestPlatformTree:
         public = platform_tree / "packages" / "platform" / "client" / "public"
         (public / "robots.txt").write_text("# based on Libre" + "Chat\n")
         assert _platform_run(platform_tree) == 0
+
+
+class TestPlatformReviewPins:
+    """Pins for the C1 adversarial-review findings (L1-L5) — each was a real bypass."""
+
+    def test_a_floating_path_table_is_not_attribution(self, platform_tree: Path) -> None:
+        """L1: derivation rows count only inside a section carrying `- **Upstream:**` —
+        a path table pasted into a narrative section attributes nothing."""
+        notices = platform_tree / "THIRD_PARTY_LICENSES.md"
+        body = notices.read_text()
+        head, _, tail = body.partition("## LibreChat")
+        table = "\n".join(line for line in tail.splitlines() if line.strip().startswith("|"))
+        notices.write_text(head + "## Notes\n\nSome prose.\n\n" + table + "\n")
+        assert _platform_run(platform_tree) == 1
+
+    def test_finder_junk_at_the_platform_root_needs_no_row(self, platform_tree: Path) -> None:
+        """L2: a `.DS_Store` from opening the folder must not read as an unattributed tree."""
+        (platform_tree / "packages" / "platform" / ".DS_Store").write_bytes(b"\x00junk")
+        assert _platform_run(platform_tree) == 0
+
+    def test_a_fenced_example_sha_does_not_satisfy_the_pin(self, platform_tree: Path) -> None:
+        """L4: an adopted-commit line inside a fence is documentation, not a pin."""
+        (platform_tree / "packages" / "platform" / "UPSTREAM.md").write_text(
+            "```markdown\n- **Adopted commit:** " + "d" * 40 + "\n```\n"
+        )
+        assert _platform_run(platform_tree) == 1
+
+    def test_a_prettified_separator_is_not_a_derivation_row(self, tree: Path) -> None:
+        """L5: `| --- | --- |` after a cosmetic reformat must not satisfy CODE DERIVED."""
+        (tree / "THIRD_PARTY_LICENSES.md").write_text(
+            "# Third-Party Licenses\n\n"
+            "## LibreChat\n\n"
+            "- **Upstream:** https://github.com/danny-avila/LibreChat\n"
+            "- **License:** MIT\n"
+            "- **Adoption status:** CODE DERIVED\n\n"
+            "| Tempest module | Derived from | Notes |\n"
+            "| --- | --- | --- |\n\n"
+            "```\nMIT License\n\nCopyright (c) 2026 LibreChat\n\n"
+            "Permission is hereby granted\n```\n"
+        )
+        assert license_check.main(["--third-party-notices", "--root", str(tree)]) == 1

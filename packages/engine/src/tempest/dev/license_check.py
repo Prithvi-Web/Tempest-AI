@@ -157,13 +157,21 @@ def _field(lines: list[str], prefix: str) -> str | None:
     return None
 
 
+def _separator_row(cells: list[str]) -> bool:
+    """True for `|---|`, `| --- |`, `|:---:|` and friends in any prettifier dialect — a
+    cosmetic reformat must not turn a separator into a phantom data row."""
+    return all(not cell or set(cell) <= {"-", ":"} for cell in cells)
+
+
 def _has_real_derivation_row(lines: list[str]) -> bool:
     """True when the derivation table names at least one actual module."""
     for raw in lines:
         line = raw.strip()
-        if not line.startswith("|") or line.startswith("|---"):
+        if not line.startswith("|"):
             continue
         cells = [c.strip() for c in line.strip("|").split("|")]
+        if _separator_row(cells):
+            continue
         if len(cells) < 2 or cells[0].lower().startswith("tempest module"):
             continue
         if cells[0] not in _PLACEHOLDER_CELLS and cells[1] not in _PLACEHOLDER_CELLS:
@@ -204,19 +212,58 @@ def _check_third_party(root: Path, fail: list[str]) -> list[str]:
 #: The upstream brand string, matched case-insensitively over asset names AND bytes: an SVG
 #: wordmark, a metadata title, or a renamed logo all carry it somewhere.
 _BRAND = re.compile(rb"librechat", re.IGNORECASE)
-_IMAGE_SUFFIXES = {".svg", ".png", ".ico", ".icns", ".webp", ".gif", ".jpg", ".jpeg"}
+_IMAGE_SUFFIXES = {
+    ".svg",
+    ".png",
+    ".ico",
+    ".icns",
+    ".webp",
+    ".gif",
+    ".jpg",
+    ".jpeg",
+    ".avif",
+    ".bmp",
+    ".tif",
+    ".tiff",
+}
+_ADOPTED_LINE = re.compile(r"^\s*- \*\*Adopted commit:\*\* [0-9a-f]{40}\b", re.MULTILINE)
+
+
+def _strip_fences(body: str) -> str:
+    """Drop fenced blocks (CommonMark N-tick nesting) — a doc example inside a fence must
+    never satisfy a structural check. Same lesson `_sections` carries, applied to UPSTREAM.md."""
+    out: list[str] = []
+    open_fence = 0
+    for line in body.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            ticks = len(stripped) - len(stripped.lstrip("`"))
+            if open_fence == 0:
+                open_fence = ticks
+            elif ticks >= open_fence:
+                open_fence = 0
+            continue
+        if open_fence == 0:
+            out.append(line)
+    return "\n".join(out)
 
 
 def _derivation_first_cells(body: str) -> list[str]:
-    """First-column cells of every derivation table row, fences excluded (same discipline as
-    `_sections`: the stub template's table must never read as real attribution)."""
+    """First-column cells of derivation table rows, from sections that carry the structured
+    `- **Upstream:**` field ONLY — a path table floating in a narrative section is not
+    attribution, and fences are excluded (the stub template must never read as real)."""
     cells: list[str] = []
     for _, lines, _ in _sections(body):
+        if _field(lines, _UPSTREAM_FIELD) is None:
+            continue
         for raw in lines:
             line = raw.strip()
-            if not line.startswith("|") or line.startswith("|---"):
+            if not line.startswith("|"):
                 continue
-            first = line.strip("|").split("|")[0].strip()
+            row = [c.strip() for c in line.strip("|").split("|")]
+            if _separator_row(row):
+                continue
+            first = row[0]
             if first and first not in _PLACEHOLDER_CELLS:
                 cells.append(first.strip("`"))
     return cells
@@ -253,12 +300,12 @@ def _check_platform_tree(root: Path, fail: list[str]) -> None:
             "packages/platform/UPSTREAM.md: missing — a vendored tree whose origin is "
             "unrecorded cannot be merged, diffed, or audited (L27)"
         )
-    elif not re.search(
-        r"- \*\*Adopted commit:\*\* [0-9a-f]{40}\b", upstream.read_text(encoding="utf-8")
+    elif not _ADOPTED_LINE.search(
+        _strip_fences(upstream.read_text(encoding="utf-8", errors="replace"))
     ):
         fail.append(
             "packages/platform/UPSTREAM.md: no `- **Adopted commit:** <40-hex>` line — "
-            "the pin is the whole point of the file"
+            "the pin is the whole point of the file (a fenced example does not count)"
         )
 
     notices = root / "THIRD_PARTY_LICENSES.md"
@@ -268,6 +315,8 @@ def _check_platform_tree(root: Path, fail: list[str]) -> None:
     for entry in sorted(platform.iterdir(), key=lambda p: p.name):
         if entry.name == "UPSTREAM.md":
             continue  # ours, not vendored
+        if entry.name.startswith("."):
+            continue  # Finder/tooling junk (.DS_Store) is not a vendored tree needing a row
         rel = f"packages/platform/{entry.name}"
         # Boundary-aware: a row for `client-pkg/**` must not read as attribution for `client`.
         if not any(cell == rel or cell.startswith(rel + "/") for cell in attributed):

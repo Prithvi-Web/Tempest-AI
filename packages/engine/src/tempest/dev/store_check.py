@@ -9,39 +9,54 @@ violating tree.
 
 `--no-sspl-binaries`:
 
-1. **No mongod/mongos/mongosh anywhere in the tree** — the SSPL binary must not ship, and the
-   cheapest way to guarantee that is for it never to enter the repository at all.
-2. **No SSPL licence text** in any LICENSE/COPYING file — a vendored component under the
-   Server Side Public License is the same problem wearing a different filename.
+1. **No file carrying a MongoDB server's canonical name** (`mongod`/`mongos`/`mongosh` stem)
+   anywhere in the scanned set — which is the working tree (build/tooling directories skipped
+   by name) UNIONED with every git-tracked file, so tracked content inside a directory named
+   `dist/` or `build/` is still scanned. Scope stated exactly: matching is by canonical name;
+   a server binary renamed to something else is out of this check's reach — the licence-text
+   and downloader checks below are the layers behind it.
+2. **No SSPL licence text** in any LICENSE/LICENCE/COPYING file — a vendored component under
+   the Server Side Public License is the same problem wearing a different filename.
 3. **No runtime dependency that downloads the SSPL server** — `mongodb-memory-server` in a
    `dependencies` block would fetch `mongod` onto every user's machine at install time.
    (In `devDependencies` it is a test-only tool that never ships; that is allowed and the
-   distinction is the point.)
+   distinction is the point.) Manifests are parsed as JSON; only a manifest too malformed to
+   parse falls back to a paranoid textual scan, so a decoy string cannot mask the real block.
 
 `--no-proof-data-in-document-store`:
 
-4. **The engine never speaks to a document store** — no `pymongo`/`motor`/`mongoengine` import
-   under `packages/engine/src`. Proof data lives in engine SQLite; an engine that could reach
-   the document store is an engine one refactor away from putting proof data in it.
+4. **The engine has no static import of a document-store client** — no `pymongo` / `motor` /
+   `mongoengine` / `bson` import under `packages/engine/src`, found by AST (comma-form
+   `import os, pymongo` included), with a textual fallback only for files Python cannot parse.
+   Dynamic `importlib` indirection is out of scope and said so. Proof data lives in engine
+   SQLite; an engine that could reach the document store is one refactor away from putting
+   proof data in it.
 5. **Cross-store references are declared** — `docs/MERGE-CONTRACT.md` carries the
-   "Declared cross-store references" table with at least one real row. Opaque ids, never joins;
-   the declaration is the contract this gate holds the tree to (it grows teeth against the
-   live store in C6).
+   "Declared cross-store references" table with at least one real (non-placeholder) row.
+   Opaque ids, never joins; the declaration is the contract this gate holds the tree to (it
+   grows teeth against the live store in C6).
 """
 
 import argparse
+import ast
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 _SSPL_NAMES = {"mongod", "mongos", "mongosh"}
 _SSPL_TEXT = "Server Side Public License"
 _DOWNLOADER = "mongodb-memory-server"
-_ENGINE_IMPORT = re.compile(r"^\s*(?:import|from)\s+(pymongo|motor|mongoengine)\b", re.MULTILINE)
+_CLIENT_MODULES = {"pymongo", "motor", "mongoengine", "bson"}
+_ENGINE_IMPORT_FALLBACK = re.compile(
+    r"^\s*(?:import|from)\s+(pymongo|motor|mongoengine|bson)\b", re.MULTILINE
+)
 _CROSS_STORE_HEADING = "## Declared cross-store references"
-#: Untracked build/tooling output is not repository content: the claim this gate makes is about
-#: what the repo carries and ships, and walking a cargo `target/` tree would cost minutes to
-#: scan artifacts that no release process reads from.
+_PLACEHOLDER_CELLS = {"", "—", "-", "*(none)*", "(none)", "n/a"}
+#: Build/tooling output is skipped BY NAME in the walk — but the walk is unioned with
+#: `git ls-files`, so anything TRACKED inside a directory with one of these names is still
+#: scanned. The skip only spares the scan from cargo `target/` trees and virtualenvs.
 _SKIP_DIRS = {
     ".git",
     "node_modules",
@@ -66,35 +81,50 @@ def _repo_root() -> Path:
     raise SystemExit("run from the tempest repository")
 
 
-def _walk(root: Path) -> list[Path]:
-    out: list[Path] = []
+def _scan_files(root: Path) -> list[Path]:
+    """The working-tree walk (skip-named dirs and symlinks excluded) unioned with every
+    git-tracked file, so tracked content cannot hide inside a skip-named directory. Symlinks
+    are skipped entirely: following one invites cycles and out-of-tree scans, and a symlink
+    cannot itself BE the SSPL binary."""
+    out: set[Path] = set()
     stack = [root]
     while stack:
         current = stack.pop()
         for entry in sorted(current.iterdir(), key=lambda p: p.name):
+            if entry.is_symlink():
+                continue
             if entry.is_dir():
                 if entry.name not in _SKIP_DIRS:
                     stack.append(entry)
             else:
-                out.append(entry)
-    return out
+                out.add(entry)
+    tracked = subprocess.run(
+        ["git", "-C", str(root), "-c", "core.quotePath=false", "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+    )
+    if tracked.returncode == 0:
+        for rel in tracked.stdout.split("\0"):
+            path = root / rel
+            if rel and path.is_file() and not path.is_symlink():
+                out.add(path)
+    return sorted(out)
 
 
 def _check_sspl(root: Path, fail: list[str]) -> None:
-    for path in _walk(root):
+    for path in _scan_files(root):
         rel = path.relative_to(root)
         stem = path.name.split(".")[0].lower()
         if stem in _SSPL_NAMES:
             fail.append(f"{rel}: a MongoDB server binary name in the tree — SSPL never ships")
             continue
         name_upper = path.name.upper()
-        if name_upper.startswith(("LICENSE", "COPYING")) and _SSPL_TEXT in path.read_text(
-            encoding="utf-8", errors="replace"
+        if name_upper.startswith(("LICENSE", "LICENCE", "COPYING")) and _SSPL_TEXT in (
+            path.read_text(encoding="utf-8", errors="replace")
         ):
             fail.append(f"{rel}: carries the Server Side Public License text — SSPL never ships")
         if path.name == "package.json":
-            body = path.read_text(encoding="utf-8", errors="replace")
-            deps = _runtime_dependencies_block(body)
+            deps = _runtime_dependencies(path.read_text(encoding="utf-8", errors="replace"))
             if deps is not None and _DOWNLOADER in deps:
                 fail.append(
                     f"{rel}: runtime dependency on {_DOWNLOADER} — it downloads mongod onto "
@@ -103,25 +133,54 @@ def _check_sspl(root: Path, fail: list[str]) -> None:
                 )
 
 
-def _runtime_dependencies_block(body: str) -> str | None:
-    """The raw text of the top-level `"dependencies"` object, or None.
+def _runtime_dependencies(body: str) -> str | None:
+    """The top-level `"dependencies"` object as text, or None.
 
-    A structural slice rather than json.loads: vendored manifests are third-party input and a
-    gate must not crash on one that is malformed — a paranoid reader beats a fragile parser.
+    JSON parse first — a decoy `"dependencies"` inside a string value must not aim the check
+    at the wrong braces. Only a manifest too malformed to parse falls back to the paranoid
+    textual slice, so an unclosed brace still cannot smuggle the downloader past the gate.
     """
-    match = re.search(r'"dependencies"\s*:\s*\{', body)
-    if match is None:
-        return None
-    depth, start = 1, match.end()
-    for index in range(start, len(body)):
-        char = body[index]
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return body[start:index]
-    return body[start:]
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        match = re.search(r'"dependencies"\s*:\s*\{', body)
+        if match is None:
+            return None
+        depth, start = 1, match.end()
+        for index in range(start, len(body)):
+            char = body[index]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return body[start:index]
+        return body[start:]
+    if isinstance(data, dict) and isinstance(data.get("dependencies"), dict):
+        return json.dumps(data["dependencies"])
+    return None
+
+
+def _static_client_import(source: str) -> str | None:
+    """The first document-store client a file statically imports, by AST — `import os, pymongo`
+    included. Files Python cannot parse fall back to the line-anchored regex."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        match = _ENGINE_IMPORT_FALLBACK.search(source)
+        return match.group(1) if match else None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] in _CLIENT_MODULES:
+                    return alias.name.split(".")[0]
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.split(".")[0] in _CLIENT_MODULES
+        ):
+            return node.module.split(".")[0]
+    return None
 
 
 def _check_engine_imports(root: Path, fail: list[str]) -> None:
@@ -129,12 +188,17 @@ def _check_engine_imports(root: Path, fail: list[str]) -> None:
     if not engine_src.is_dir():
         return
     for path in sorted(engine_src.rglob("*.py")):
-        match = _ENGINE_IMPORT.search(path.read_text(encoding="utf-8", errors="replace"))
-        if match:
+        found = _static_client_import(path.read_text(encoding="utf-8", errors="replace"))
+        if found:
             fail.append(
-                f"{path.relative_to(root)}: imports {match.group(1)} — the engine never "
-                "speaks to a document store; proof data stays in engine SQLite (L33)"
+                f"{path.relative_to(root)}: imports {found} — the engine never speaks to a "
+                "document store; proof data stays in engine SQLite (L33)"
             )
+
+
+def _separator_row(cells: list[str]) -> bool:
+    """True for `|---|`, `| --- |`, `|:---:|` and friends in any prettifier dialect."""
+    return all(not cell or set(cell) <= {"-", ":"} for cell in cells)
 
 
 def _check_cross_store_declaration(root: Path, fail: list[str]) -> None:
@@ -145,7 +209,7 @@ def _check_cross_store_declaration(root: Path, fail: list[str]) -> None:
             "somewhere a gate can read (L33)"
         )
         return
-    body = contract.read_text(encoding="utf-8")
+    body = contract.read_text(encoding="utf-8", errors="replace")
     in_section = False
     rows = 0
     for line in body.splitlines():
@@ -153,15 +217,17 @@ def _check_cross_store_declaration(root: Path, fail: list[str]) -> None:
         if stripped.startswith("## "):
             in_section = stripped.startswith(_CROSS_STORE_HEADING)
             continue
-        if not in_section or not stripped.startswith("|") or stripped.startswith("|---"):
+        if not in_section or not stripped.startswith("|"):
             continue
         cells = [c.strip().strip("`") for c in stripped.strip("|").split("|")]
-        if len(cells) >= 3 and cells[0].lower() != "from" and all(cells[:3]):
+        if _separator_row(cells) or (cells and cells[0].lower() == "from"):
+            continue
+        if len(cells) >= 3 and all(cell not in _PLACEHOLDER_CELLS for cell in cells[:3]):
             rows += 1
     if rows == 0:
         fail.append(
             'docs/MERGE-CONTRACT.md: no "Declared cross-store references" table with at '
-            "least one row — the L33 contract is undeclared"
+            "least one real row — the L33 contract is undeclared"
         )
 
 
@@ -176,6 +242,13 @@ def main(argv: list[str] | None = None) -> int:
     if not (args.no_sspl_binaries or args.no_proof_data_in_document_store):
         parser.error("pass --no-sspl-binaries and/or --no-proof-data-in-document-store")
     root = Path(args.root) if args.root else _repo_root()
+    if not root.is_dir():
+        print("store_check: 1 problem(s) — FAIL")
+        print(
+            f"STORE-GATE {root}: not a directory — nothing to check is a failure, not a pass",
+            file=sys.stderr,
+        )
+        return 1
 
     fail: list[str] = []
     if args.no_sspl_binaries:
@@ -190,8 +263,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"STORE-GATE {problem}", file=sys.stderr)
         return 1
     print(
-        "store_check: no SSPL binary, licence, or runtime downloader in the tree; the engine "
-        "imports no document-store client; cross-store references declared — L33 holds"
+        "store_check: no SSPL binary name, licence, or runtime downloader in the tree; the "
+        "engine has no static document-store import; cross-store references declared — L33 holds"
     )
     return 0
 
