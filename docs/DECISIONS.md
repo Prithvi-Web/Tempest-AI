@@ -4043,3 +4043,35 @@ C6. Consequences, per the ADR's own warnings:
   free option) — on Linux servers the supported DEB path exists; nothing in this amendment
   forecloses it there.
 - No SSPL binary ships under either path; `--no-sspl-binaries` is unaffected.
+
+## ADR-0077 — C3 absorption: the desktop views become a client seam subtree; the legacy webview is a dated bridge (2026-08-22)
+
+**Date:** 2026-08-22 · **Status:** accepted · **Law:** L27, L29 (surface, not runtime), L31 ·
+**Merge contract:** client rows "MERGE IN" + one BRIDGE
+
+**Context.** PLAN-V3 C3 absorbs `packages/desktop/src/views/**`, `editor/**` and
+`vocabulary.tsx` into the vendored platform client. Two constraints collide: L27 forbids
+scattering edits through the vendored tree, and the desktop package's 86 unit tests + 51
+Playwright E2E (the flagship prove-through-the-UI coverage) run against the ORIGINAL sources
+in `packages/desktop/src`.
+
+**Decision.**
+- The absorbed surface is a ported copy in the seam: `packages/platform/client/tempest/views/`
+  — React 18 + TanStack Query v4 (the client's own stack; the enumerated v5→v4 ports are in
+  the port commit), react-router subtree mounted at `/tempest/*`, all styles scoped under
+  `.tempest-views`. The vendored tree knows it through exactly two inline deltas (one lazy
+  route entry, one nav link), both in `UPSTREAM.md`'s ledger.
+- Boundary B stays ONE generated artifact: the seam imports
+  `packages/desktop/src/generated/bindings.ts` across the package boundary rather than
+  copying it. `vocabulary.tsx`'s copy keeps every never-guard and remains the L31
+  reserved-verdict rendering layer inside the client.
+- **The bridge.** `packages/desktop/src` survives unchanged behind `TEMPEST_LEGACY_WINDOW=1`
+  (and as the reasoned fallback when the platform surface cannot start). It exists so the
+  E2E suite keeps guarding the sidecar contract until it is re-targeted at the platform
+  surface. **Removal date: the close of C3** — re-target the E2E suite, then delete the
+  legacy webview sources and the flag in the same commit. Until then the desktop copy is
+  frozen except defect fixes, and any fix must land in both copies.
+
+**Consequences.** Two copies of ~3,800 lines exist for the bridge's lifetime; the removal
+date and the freeze are what keep that honest. The E2E re-target is the C3-close gate item
+that retires it.

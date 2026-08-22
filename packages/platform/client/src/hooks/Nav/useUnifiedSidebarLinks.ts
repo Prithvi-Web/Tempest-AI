@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useRecoilValue } from 'recoil';
-import { BarChart3, MessagesSquare } from 'lucide-react';
+import { BarChart3, MessagesSquare, Zap } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUserKeyQuery } from 'librechat-data-provider/react-query';
 import { getConfigDefaults, getEndpointField, SystemRoles } from 'librechat-data-provider';
@@ -68,8 +68,23 @@ export default function useUnifiedSidebarLinks() {
       Component: ConversationsSection,
     };
 
+    /** Tempest seam (C3): the absorbed proof surface, a first-class destination beside the
+     * chat — same navigation pattern as the insights link. Proper i18n keys land with C11;
+     * until then the raw title renders as itself. Ledger row in packages/platform/UPSTREAM.md. */
+    const tempestLink: NavLink = {
+      title: 'Tempest',
+      label: '',
+      icon: Zap,
+      id: 'tempest',
+      onClick: () => {
+        if (!location.pathname.startsWith('/tempest')) {
+          navigate('/tempest');
+        }
+      },
+    };
+
     if (!insightsFeatureEnabled || insightsAccess?.access !== true) {
-      return [conversationLink, ...sideNavLinks];
+      return [conversationLink, tempestLink, ...sideNavLinks];
     }
 
     const insightsLink: NavLink = {
@@ -87,7 +102,7 @@ export default function useUnifiedSidebarLinks() {
     const nextLinks = [...sideNavLinks];
     nextLinks.splice(mcpIndex >= 0 ? mcpIndex + 1 : nextLinks.length, 0, insightsLink);
 
-    return [conversationLink, ...nextLinks];
+    return [conversationLink, tempestLink, ...nextLinks];
   }, [insightsAccess?.access, insightsFeatureEnabled, location.pathname, navigate, sideNavLinks]);
 
   return links;

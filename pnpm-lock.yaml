@@ -36,7 +36,7 @@ overrides:
   react: 18.3.1
   react-dom: 18.3.1
 
-packageExtensionsChecksum: sha256-ERkAN6rWIRW9fOs5UC5XaVUL6k0HtsQjyS71ekFNolg=
+packageExtensionsChecksum: sha256-SWPSMkxAz2nChyr1GA3EWQwQRJCYImvrFwx0jiZJRmE=
 
 importers:
 
@@ -132,6 +132,21 @@ importers:
       '@ariakit/react-components':
         specifier: ^0.1.2
         version: 0.1.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@codemirror/lang-javascript':
+        specifier: ^6.2.5
+        version: 6.2.5
+      '@codemirror/lang-python':
+        specifier: ^6.2.1
+        version: 6.2.1
+      '@codemirror/language':
+        specifier: ^6.12.4
+        version: 6.12.4
+      '@codemirror/state':
+        specifier: ^6.7.1
+        version: 6.7.1
+      '@codemirror/view':
+        specifier: ^6.43.9
+        version: 6.43.9
       '@codesandbox/sandpack-react':
         specifier: ^2.19.10
         version: 2.20.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -147,6 +162,9 @@ importers:
       '@hyperdx/browser':
         specifier: ^0.24.0
         version: 0.24.0(supports-color@10.2.2)(zone.js@0.16.2)
+      '@lezer/highlight':
+        specifier: ^1.2.3
+        version: 1.2.3
       '@librechat/client':
         specifier: '*'
         version: link:../client-pkg
@@ -234,6 +252,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      codemirror:
+        specifier: ^6.0.2
+        version: 6.0.2
       copy-to-clipboard:
         specifier: ^3.3.3
         version: 3.3.3

@@ -86,3 +86,5 @@ seam directory and not a row of the brand-asset strip above. Cap enforced by
 | `packages/platform/provider/tsdown.config.mjs` | upstream requires the monorepo ROOT package.json (deliberately not vendored) for `__LIBRECHAT_VERSION__`; retargeted to `../client/package.json`, which tracks the same upstream release (v0.8.8-rc1 at adoption — verify at every upstream merge) | — |
 | `packages/platform/client/tailwind.config.cjs` | the C1 tree mapping renames upstream `packages/client` → `client-pkg`; three sibling-relative requires/globs retargeted | — |
 | `packages/platform/client/tsconfig.json` | same rename: two include entries retargeted to `../client-pkg` | — |
+| `packages/platform/client/src/routes/index.tsx` | C3 absorption: one lazy loader + one `tempest/*` route entry mounting the seam subtree (`client/tempest/views`) — the router's entire knowledge of the absorbed proof surface | — |
+| `packages/platform/client/src/hooks/Nav/useUnifiedSidebarLinks.ts` | C3 absorption: one nav link (`Tempest`, insights-link pattern) reaching the seam subtree; i18n key lands at C11 | — |

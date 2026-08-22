@@ -1,0 +1,1072 @@
+/* Tempest desktop — Apple-grade design language (HANDOFF-WORLD-CLASS §3.1), scoped to the
+ * absorbed route subtree (C3).
+ *
+ * Principles: system type stack, three text sizes (title 17/600 · body 13/400 · caption
+ * 11/400), neutral surfaces on an 8pt grid, hairline separators, 10px card radii. Color is
+ * RESERVED for verdicts (the product's vocabulary — L2) plus one accent for primary actions.
+ * Light and dark palettes are both first-class via prefers-color-scheme; every color lives in
+ * a token here and nowhere else. Motion is 160ms ease-out and fully disabled under
+ * prefers-reduced-motion. Monospace appears ONLY where the content is evidence: SHAs, inputs,
+ * repro scripts, log records.
+ *
+ * SCOPED, because this stylesheet no longer owns the document. Every rule is a descendant of
+ * `.tempest-views` and the token blocks define their custom properties there rather than on
+ * `:root`, so the absorbed surface keeps its identity and the client keeps its own (the shared
+ * layer is `tempest/theme.css`, which answers a different question: that one restyles the
+ * CLIENT, this one paints the proof surface). Three document-level rules are gone rather than
+ * rescoped — `* { box-sizing }` (the client's Tailwind preflight already sets it for the whole
+ * page), the `html, body` reset, and `#root`; the paint those carried moves onto the subtree
+ * root immediately below, which is the only element this file is entitled to reset.
+ *
+ * The verdict colours are the one thing here that may not drift: the token block's saturated
+ * values, the `.chip.*` rules, and the risk badge at the end are the reserved vocabulary (L31)
+ * and carry exactly what the desktop surface ships. */
+
+.tempest-views {
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font: var(--text-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tempest-views {
+  color-scheme: light dark;
+
+  /* type */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
+  --text-title: 600 17px/1.3 var(--font-ui);
+  --text-body: 400 13px/1.55 var(--font-ui);
+  --text-caption: 400 11px/1.45 var(--font-ui);
+
+  /* light palette */
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-sunken: #ececee;
+  --hairline: rgba(0, 0, 0, 0.1);
+  --hairline-strong: rgba(0, 0, 0, 0.16);
+  --ink: #1d1d1f;
+  --ink-secondary: #6e6e73;
+  /* Secondary ink that still clears WCAG 4.5:1 on the editor's OTHER surfaces. `--ink-secondary`
+     is tuned against `--surface`/`--bg` and falls to 4.30:1 on `--surface-sunken` (the gutter,
+     the risk badge) and to 3.48:1 under ghost text's old `opacity: 0.85` over the active line.
+     Measured on every surface it lands on: 6.35 / 5.77 / 5.38 in this palette. */
+  --ink-secondary-strong: #5f5f64;
+  --accent: #0071e3;
+  --accent-ink: #ffffff;
+  --sidebar-bg: rgba(246, 246, 248, 0.84);
+  --hover: rgba(0, 0, 0, 0.045);
+  --active: rgba(0, 0, 0, 0.08);
+
+  /* verdict vocabulary (L2) — the ONLY saturated colors in the app */
+  --divergent: #d70015;
+  --divergent-soft: rgba(215, 0, 21, 0.09);
+  --equivalent: #1d7d3f;
+  --equivalent-soft: rgba(29, 125, 63, 0.1);
+  --unproven: #a05a00;
+  --unproven-soft: rgba(160, 90, 0, 0.1);
+  /* Verdict inks for text sitting on the MATCHING soft background. `--unproven` and
+     `--divergent` are tuned against `--surface`; on their own tinted chips at caption size they
+     fall to 4.22:1 and 4.16:1. Measured on the composited chip (soft over the active line over
+     the surface): 5.31:1 and 5.55:1. */
+  --unproven-on-soft: #8a4d00;
+  --divergent-on-soft: #b3000f;
+  --errorv: #6b4fd8;
+  --errorv-soft: rgba(107, 79, 216, 0.1);
+
+  /* code (Phase 20.1) — the editor's syntax palette. Defined here, per scheme, because
+     CodeMirror's bundled style is tuned for a white page and rendered ~1.7:1 keywords when
+     dropped into the dark shell. Every colour below clears 4.5:1 on its own surface. */
+  --code-ink: #1d1d1f;
+  --code-keyword: #9026a8;
+  --code-function: #0057c2;
+  --code-property: #0b6a63;
+  --code-string: #a3341c;
+  --code-number: #1a5fb4;
+  --code-type: #7a4b00;
+  --code-comment: #5c6370;
+  --code-punctuation: #4a4a4f;
+}
+
+@media (prefers-color-scheme: dark) {
+  .tempest-views {
+    --bg: #1c1c1e;
+    --surface: #262628;
+    --surface-sunken: #161618;
+    --hairline: rgba(255, 255, 255, 0.12);
+    --hairline-strong: rgba(255, 255, 255, 0.2);
+    --ink: #f5f5f7;
+    --ink-secondary: #98989f;
+    --ink-secondary-strong: #adadb5;
+    --accent: #0a84ff;
+    --accent-ink: #ffffff;
+    --sidebar-bg: rgba(30, 30, 32, 0.8);
+    --hover: rgba(255, 255, 255, 0.055);
+    --active: rgba(255, 255, 255, 0.1);
+
+    /* code — dark scheme */
+    --code-ink: #e6e6ea;
+    --code-keyword: #d9a2f0;
+    --code-function: #79b8ff;
+    --code-property: #7fd6c9;
+    --code-string: #f0a58a;
+    --code-number: #9cc4ff;
+    --code-type: #e2c08d;
+    --code-comment: #9aa0aa;
+    --code-punctuation: #c2c2c9;
+
+    --divergent: #ff453a;
+    --divergent-soft: rgba(255, 69, 58, 0.14);
+    --equivalent: #30d158;
+    --equivalent-soft: rgba(48, 209, 88, 0.13);
+    --unproven: #ffd60a;
+    --unproven-soft: rgba(255, 214, 10, 0.12);
+    --unproven-on-soft: #ffd60a;
+    /* 4.89:1 on its own chip; `--divergent` itself is 3.28:1 there — a red-on-red chip is the
+       worst pairing in either palette, and it is the one the badge uses to shout. */
+    --divergent-on-soft: #ff8a80;
+    --errorv: #bf9fff;
+    --errorv-soft: rgba(191, 159, 255, 0.13);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tempest-views *,
+  .tempest-views *::before,
+  .tempest-views *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+.tempest-views :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.tempest-views a {
+  color: inherit;
+}
+
+/* Keyboard-only affordance (§3.3): invisible until focused, then the first Tab stop. */
+.tempest-views .skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 10px;
+  z-index: 10;
+  padding: 6px 12px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  text-decoration: none;
+  font: var(--text-body);
+}
+
+.tempest-views .skip-link:focus {
+  left: 10px;
+}
+
+/* Available to assistive tech and to the route-change focus effect, absent from the visual
+ * design. The editor names its own file in the chrome above; a second visible title would be
+ * noise, but the effect that focuses a view's <h1> needs one to exist. */
+.tempest-views .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Programmatic focus targets (the view title after navigation, the content after the skip
+ * link) get no ring — the ring is for the keyboard's own traversal (:focus-visible). */
+.tempest-views h1:focus:not(:focus-visible),
+.tempest-views .content:focus {
+  outline: none;
+}
+
+/* ── shell: sidebar + content ─────────────────────────────────────────────────────────── */
+
+.tempest-views .app {
+  display: flex;
+  height: 100%;
+}
+
+.tempest-views .sidebar {
+  width: 216px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 52px 10px 14px; /* top inset clears the traffic lights (overlay titlebar) */
+  background: var(--sidebar-bg);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  border-right: 1px solid var(--hairline);
+}
+
+.tempest-views .drag-strip {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 44px;
+}
+
+.tempest-views .brand {
+  padding: 0 10px 14px;
+}
+
+.tempest-views .brand strong {
+  display: block;
+  font: 600 15px/1.2 var(--font-ui);
+  letter-spacing: -0.01em;
+}
+
+.tempest-views .brand span {
+  display: block;
+  margin-top: 2px;
+  font: var(--text-caption);
+  color: var(--ink-secondary);
+}
+
+.tempest-views .sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tempest-views .nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  text-decoration: none;
+  color: var(--ink);
+  transition: background 160ms ease-out;
+}
+
+.tempest-views .nav-item:hover {
+  background: var(--hover);
+}
+
+.tempest-views .nav-item.current {
+  background: var(--active);
+  font-weight: 600;
+}
+
+.tempest-views .nav-item svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+  flex: none;
+}
+
+.tempest-views .sidebar-foot {
+  margin-top: auto;
+  padding: 10px;
+  font: var(--text-caption);
+  color: var(--ink-secondary);
+  border-top: 1px solid var(--hairline);
+}
+
+.tempest-views .content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 48px 32px 56px;
+}
+
+.tempest-views .content > main {
+  max-width: 880px;
+  margin: 0 auto;
+  animation: view-in 180ms ease-out;
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── type + status colors ─────────────────────────────────────────────────────────────── */
+
+.tempest-views h1 {
+  font: var(--text-title);
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+}
+
+.tempest-views h2 {
+  font: 600 13px/1.4 var(--font-ui);
+  margin: 28px 0 8px;
+}
+
+.tempest-views .dim {
+  color: var(--ink-secondary);
+}
+
+.tempest-views .red {
+  color: var(--divergent);
+}
+
+.tempest-views .green {
+  color: var(--equivalent);
+}
+
+.tempest-views .yellow {
+  color: var(--unproven);
+}
+
+.tempest-views .statusline {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 2px 0 6px;
+}
+
+.tempest-views .crumbs {
+  font: var(--text-caption);
+  color: var(--ink-secondary);
+  margin: 0 0 12px;
+}
+
+.tempest-views .crumbs a {
+  text-decoration: none;
+}
+
+.tempest-views .crumbs a:hover {
+  text-decoration: underline;
+}
+
+/* ── status pill (engine state in the sidebar foot) ───────────────────────────────────── */
+
+.tempest-views .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tempest-views .pill::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ── cards + tables ───────────────────────────────────────────────────────────────────── */
+
+.tempest-views .card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.tempest-views table {
+  width: 100%;
+  border-collapse: separate; /* collapse would discard the card radius */
+  border-spacing: 0;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+/* A table inside a panel (e.g. the not-proven list) is content, not a second card. */
+.tempest-views .panel table {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  margin: 8px 0 0;
+}
+
+.tempest-views th {
+  text-align: left;
+  font: var(--text-caption);
+  color: var(--ink-secondary);
+  font-weight: 500;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tempest-views td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tempest-views tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tempest-views tr.rowlink {
+  cursor: pointer;
+  transition: background 160ms ease-out;
+}
+
+.tempest-views tr.rowlink:hover {
+  background: var(--hover);
+}
+
+.tempest-views .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tempest-views .mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ── verdict chips (enum text is the verdict vocabulary — never restyled into prose) ──── */
+
+.tempest-views .chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font: 600 11px/1.5 var(--font-ui);
+  letter-spacing: 0.02em;
+}
+
+.tempest-views .chip.DIVERGENT {
+  color: var(--divergent);
+  background: var(--divergent-soft);
+}
+
+.tempest-views .chip.EQUIVALENT_UNDER_BUDGET {
+  color: var(--equivalent);
+  background: var(--equivalent-soft);
+}
+
+.tempest-views .chip.UNPROVEN {
+  color: var(--unproven);
+  background: var(--unproven-soft);
+}
+
+.tempest-views .chip.ERROR {
+  color: var(--errorv);
+  background: var(--errorv-soft);
+}
+
+.tempest-views .chip.neutral {
+  color: var(--ink-secondary);
+  background: var(--hover);
+}
+
+/* ── panels (empty states, warnings, evidence) ────────────────────────────────────────── */
+
+.tempest-views .panel {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin: 12px 0;
+}
+
+.tempest-views .panel.notproven {
+  border-color: color-mix(in srgb, var(--unproven) 45%, transparent);
+  background: var(--unproven-soft);
+}
+
+.tempest-views .panel.diverge {
+  border-color: color-mix(in srgb, var(--divergent) 40%, transparent);
+}
+
+.tempest-views .mono-block {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline);
+  border-radius: 7px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 6px 0;
+}
+
+.tempest-views pre.script {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.tempest-views .bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline);
+  position: relative;
+  min-width: 90px;
+  overflow: hidden;
+}
+
+.tempest-views .bar > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--unproven);
+}
+
+.tempest-views .bar > i.full {
+  background: var(--equivalent);
+}
+
+/* ── controls ─────────────────────────────────────────────────────────────────────────── */
+
+.tempest-views button,
+.tempest-views input,
+.tempest-views select {
+  font: var(--text-body);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 7px;
+  padding: 6px 12px;
+}
+
+.tempest-views button {
+  cursor: pointer;
+  transition:
+    background 160ms ease-out,
+    opacity 160ms ease-out,
+    transform 120ms ease-out;
+}
+
+.tempest-views button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.tempest-views button:hover {
+  background: var(--hover);
+}
+
+.tempest-views button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.tempest-views button.primary:hover {
+  filter: brightness(1.08);
+  background: var(--accent);
+}
+
+.tempest-views button.destructive {
+  color: var(--divergent);
+}
+
+.tempest-views button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tempest-views input,
+.tempest-views select {
+  width: 100%;
+}
+
+.tempest-views input:focus,
+.tempest-views select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.tempest-views input.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.tempest-views label {
+  display: block;
+  font: var(--text-caption);
+  font-weight: 500;
+  color: var(--ink-secondary);
+  margin: 16px 0 5px;
+}
+
+.tempest-views input[type="search"],
+.tempest-views .statusline input[type="search"] {
+  width: 240px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  border-color: transparent;
+}
+
+.tempest-views input[type="search"]:focus {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.tempest-views .split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* ── settings groups ──────────────────────────────────────────────────────────────────── */
+
+.tempest-views .settings-group {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin: 14px 0;
+}
+
+.tempest-views .settings-group h2 {
+  margin: 0 0 4px;
+}
+
+.tempest-views .settings-group .group-note {
+  font: var(--text-caption);
+  color: var(--ink-secondary);
+  margin: 0 0 10px;
+}
+
+.tempest-views .keyrow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.tempest-views .keyrow input {
+  flex: 1;
+}
+
+.tempest-views .keyrow button {
+  flex: none;
+}
+
+/* A setting is a row: label on the left, its control on the right, and — when the process
+ * environment is forcing the value — a caption that names the variable instead of a control
+ * that would silently lie (§3.2). */
+.tempest-views .setting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.tempest-views .setting-row .setting-label {
+  margin: 0;
+  flex: 1;
+  font: var(--text-body);
+  color: var(--ink);
+}
+
+.tempest-views .setting-row .setting-value {
+  font: var(--text-caption);
+  color: var(--ink-secondary);
+  min-width: 72px;
+  text-align: right;
+}
+
+.tempest-views .forced {
+  font: var(--text-caption);
+  color: var(--unproven);
+  background: var(--unproven-soft);
+  border-radius: 5px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.tempest-views input.switch {
+  appearance: none;
+  width: 40px;
+  height: 24px;
+  flex: none;
+  border-radius: 12px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-sunken);
+  position: relative;
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background 160ms ease-out,
+    border-color 160ms ease-out;
+}
+
+.tempest-views input.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  transition: transform 160ms ease-out;
+}
+
+.tempest-views input.switch:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tempest-views input.switch:checked::after {
+  transform: translateX(16px);
+}
+
+.tempest-views input.switch:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tempest-views input.slider {
+  appearance: none;
+  width: 200px;
+  flex: none;
+  height: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+  cursor: pointer;
+}
+
+.tempest-views input.slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+.tempest-views input.slider:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── accessibility: 200% zoom / narrow windows ────────────────────────────────────────── */
+
+.tempest-views main table {
+  width: 100%;
+}
+
+.tempest-views main p,
+.tempest-views main li,
+.tempest-views .crumbs {
+  overflow-wrap: anywhere;
+}
+
+/* The desktop window gave tables its full width, so 'anywhere' on cells only ever bit at
+ * 200% zoom. Inside the platform client the content column is permanently narrower, and
+ * mid-word breaks in system columns read as damage ("DIVERGE NT"). Headers and verdict
+ * chips keep their words whole; cell content wraps between words only. */
+.tempest-views main td {
+  overflow-wrap: normal;
+}
+
+.tempest-views main th,
+.tempest-views .chip {
+  overflow-wrap: normal;
+  white-space: nowrap;
+}
+
+/* Control rows re-flow instead of forcing the column wider than the window. */
+.tempest-views .keyrow,
+.tempest-views .setting-row {
+  flex-wrap: wrap;
+}
+
+.tempest-views .keyrow input {
+  min-width: 160px;
+}
+
+/* ── editor surface (Phase 20.1) ──────────────────────────────────────────────────────────
+ * CodeMirror ships its own light theme and knows nothing about this app's palette, so the
+ * tokens are handed TO it rather than letting it paint. Without this block the editor renders
+ * a white page inside the dark shell — and it did, because the view was added to the router
+ * before it was added to the stylesheet or to the screenshot pass that would have shown it.
+ */
+.tempest-views .editor-host {
+  /* A CM6 instance in a container with no height has none: cm-scroller grows to the document
+     and the page scrolls instead of the editor, which breaks the gutter and the active line. */
+  height: calc(100vh - 168px);
+  min-height: 240px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.tempest-views .editor-host .cm-editor {
+  height: 100%;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* CM6 sets its own focus ring on a child; the app's convention is the accent colour. */
+.tempest-views .editor-host .cm-editor.cm-focused {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.tempest-views .editor-host .cm-scroller {
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.tempest-views .editor-host .cm-gutters {
+  background: var(--surface-sunken);
+  /* Line numbers, same 4.30:1 pairing — shipped in 20.1 and invisible to the contrast gate,
+     which only enumerated `.cm-line span`. Found by widening the gate rather than by looking. */
+  color: var(--ink-secondary-strong);
+  border-right: 1px solid var(--hairline);
+}
+
+.tempest-views .editor-host .cm-activeLine {
+  background: var(--hover);
+}
+
+.tempest-views .editor-host .cm-activeLineGutter {
+  background: var(--active);
+  color: var(--ink);
+}
+
+.tempest-views .editor-host .cm-cursor {
+  border-left-color: var(--ink);
+}
+
+/* CM6 paints selection on its own layer; both selectors are needed for focused and blurred. */
+.tempest-views .editor-host .cm-selectionBackground,
+.tempest-views .editor-host .cm-editor.cm-focused .cm-selectionBackground,
+.tempest-views .editor-host .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* CodeMirror's own surfaces: the find panel (Cmd-F, live because basicSetup installs
+ * searchKeymap) and autocomplete tooltips. Untouched, they render CM6's `&light` defaults —
+ * a white panel with black text inside the dark editor. */
+.tempest-views .editor-host .cm-panels,
+.tempest-views .editor-host .cm-panel {
+  background: var(--surface-sunken);
+  color: var(--ink);
+  border-top: 1px solid var(--hairline);
+  font: var(--text-body);
+}
+
+/* The app styles ALL controls with `input, select { width: 100% }`, unconditionally and outside
+ * every media query. That rule reached into CM6's panel and stretched its three option
+ * checkboxes to the full panel width — ~700px each — pushing their labels to the far edge. A
+ * global control rule has to be scoped away from a subtree that ships its own controls. */
+.tempest-views .editor-host .cm-panel input,
+.tempest-views .editor-host .cm-panel select,
+.tempest-views .editor-host .cm-panels input,
+.tempest-views .editor-host .cm-panels select {
+  width: auto;
+}
+
+.tempest-views .editor-host .cm-panel.cm-search input[type="text"] {
+  width: 16em;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.tempest-views .editor-host .cm-button {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 6px;
+  background-image: none;
+}
+
+.tempest-views .editor-host .cm-tooltip {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+}
+
+.tempest-views .editor-host .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* F11 ghost text (Phase 20.3). It must read as a SUGGESTION and never as content the file
+ * already holds — hence secondary ink and italics rather than the code palette. It is a widget
+ * decoration, so nothing enters the document until Tab: the line cannot reflow on a suggestion
+ * arriving or being dismissed (F11's "without layout thrash"). */
+.tempest-views .editor-host .cm-ghost-text {
+  color: var(--ink-secondary-strong);
+  /* Italic is what marks this as a suggestion rather than document text; the `aria-label` says
+     so for a screen reader. `opacity: 0.85` added nothing a reader could name and multiplied
+     straight into the contrast ratio — composited over the active line it took ghost text to
+     3.48:1 in light and 3.68:1 in dark, under a 4.5:1 bar the sibling spec declares. It is gone
+     rather than compensated for: dimming the one text on screen that a user is deciding whether
+     to accept is the wrong trade even when it passes. */
+  font-style: italic;
+  pointer-events: none;
+}
+
+/* The LSP hover tooltip (Phase 20.5). CodeMirror positions it; the app dresses it, because a
+ * popover in CM6's own default styling is a white card in a dark editor. Two variants, and the
+ * difference between them is the product's whole point: `info` is what a language server said,
+ * `problem` is a fact about a server that IS configured — never rendered as documentation. */
+.tempest-views .editor-host .cm-tooltip {
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.tempest-views .editor-host .cm-tempest-hover {
+  max-width: 44rem;
+  padding: 8px 10px;
+  font: var(--text-body);
+  /* `pre-wrap`: a signature is code, and collapsing its whitespace would misreport it. */
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+.tempest-views .editor-host .cm-tempest-hover-problem {
+  /* The unproven palette, not the divergent one: a language server that stopped is a gap in
+     what Tempest can tell you, not evidence of a defect in your code. */
+  color: var(--unproven);
+  font: var(--text-body);
+}
+
+/* The behavioural risk badge (Phase 20.3e). It uses the verdict vocabulary's colours because it
+ * IS a verdict — measured, not guessed — and `unmeasured` is deliberately neutral: absence of
+ * evidence must not look like a pass. */
+.tempest-views .editor-host .cm-risk-badge {
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font: var(--text-caption);
+  font-style: normal;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tempest-views .editor-host .cm-risk-high {
+  background: var(--divergent-soft);
+  /* Not `--divergent`: on its own soft chip that is 4.16:1 light and 3.28:1 dark. The gate could
+     not see this until 20.7 made the symbol lookup work, because until then no run ever reached
+     a badge state other than `unmeasured`. */
+  color: var(--divergent-on-soft);
+}
+
+.tempest-views .editor-host .cm-risk-elevated {
+  background: var(--unproven-soft);
+  color: var(--unproven-on-soft);
+}
+
+.tempest-views .editor-host .cm-risk-unmeasured {
+  background: var(--surface-sunken);
+  /* 11px caption text on the sunken surface: `--ink-secondary` is 4.30:1 there, just under the
+     bar, and the `unmeasured` badge is the ONLY level this indicator can reach until a run has
+     recorded something — so the state it is in almost always was the one that failed. */
+  color: var(--ink-secondary-strong);
+}
+
+/* F12 composer (ADR-0061). `--composer-row` and ROW_HEIGHT in ComposerView.tsx are ONE number in
+   two languages: windowing computes a row's position arithmetically, so a row that renders taller
+   than the constant says would drift further out of place with every screen scrolled. */
+.tempest-views {
+  --composer-row: 44px;
+}
+
+.tempest-views .composer-lede {
+  max-width: 60ch;
+  color: var(--muted);
+}
+
+.tempest-views .composer-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-block: 1rem;
+}
+
+.tempest-views .composer-count {
+  color: var(--muted);
+}
+
+/* Bounded on purpose: windowing needs a viewport with a height to compute against, and an
+   unbounded list would mount every row and lose the whole point. */
+.tempest-views .composer-viewport {
+  height: 60vh;
+  min-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  contain: strict;
+}
+
+.tempest-views .composer-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.tempest-views .composer-row {
+  display: grid;
+  grid-template-columns: 2rem minmax(12rem, 1.2fr) minmax(14rem, auto) minmax(0, 2fr);
+  align-items: center;
+  gap: 0.75rem;
+  padding-inline: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.tempest-views .composer-where {
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tempest-views .composer-impact {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tempest-views .composer-divergences,
+.tempest-views .composer-coverage {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tempest-views .composer-reason {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The third column while the next selection is still being proved. Dimmed rather than hidden:
+   the previous verdict is still true about the previous selection, and blanking it would replace
+   a fact with nothing. */
+.tempest-views .composer-impact.stale {
+  opacity: 0.55;
+}

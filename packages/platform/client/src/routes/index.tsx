@@ -56,6 +56,14 @@ const loadProjectWorkspace = () =>
     Component: m.ProjectWorkspace,
   }));
 
+/** Tempest seam (C3): the absorbed proof surface, one lazy chunk. The subtree lives in
+ * `tempest/views` (outside the vendored src tree); this loader and the route entry below
+ * are the router's entire knowledge of it. Ledger row in packages/platform/UPSTREAM.md. */
+const loadTempestViews = () =>
+  import('../../tempest/views').then((m) => ({
+    Component: m.default,
+  }));
+
 const baseEl = document.querySelector('base');
 const baseHref = baseEl?.getAttribute('href') || '/';
 
@@ -138,6 +146,10 @@ export const router = createBrowserRouter(
             {
               path: 'search',
               element: <Search />,
+            },
+            {
+              path: 'tempest/*',
+              lazy: loadTempestViews,
             },
             {
               path: 'prompts',

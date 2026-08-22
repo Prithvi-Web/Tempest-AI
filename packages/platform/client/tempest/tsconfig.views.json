@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["./views/**/*.ts", "./views/**/*.tsx"],
+  "compilerOptions": {
+    "noEmit": true
+  }
+}

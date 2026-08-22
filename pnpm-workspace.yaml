@@ -77,6 +77,18 @@ packageExtensions:
       unist-util-visit: "4.1.2"
       uuid: "11.1.1"
       react-zoom-pan-pinch: "3.7.0"
+      # C3, the absorbed Tempest views (client/tempest/views): CodeMirror 6 is the editor
+      # surface's engine (ADR-0034 — Monaco measured out at 8.1x the bundle) and upstream's
+      # client has no CodeMirror at all. Same versions the desktop package declares, so the
+      # absorbed editor resolves exactly what it was written and tested against; upstream
+      # keeps Monaco for its own surfaces and the two never meet.
+      codemirror: "^6.0.2"
+      "@codemirror/view": "^6.43.9"
+      "@codemirror/state": "^6.7.1"
+      "@codemirror/language": "^6.12.4"
+      "@codemirror/lang-python": "^6.2.1"
+      "@codemirror/lang-javascript": "^6.2.5"
+      "@lezer/highlight": "^1.2.3"
 
 allowBuilds:
   esbuild: true

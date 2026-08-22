@@ -1,0 +1,104 @@
+import { Link } from "react-router-dom";
+
+import { useGetDivergence, useGetDivergenceRepro } from "./hooks";
+import { runsPath, targetPath } from "./routes";
+import { divergenceClassLabel, severityLabel } from "./vocabulary";
+
+function CopyButton({ text }: { text: string }) {
+  return (
+    <button
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+      }}
+    >
+      Copy
+    </button>
+  );
+}
+
+export function DivergenceView({ id }: { id: number }) {
+  const divergence = useGetDivergence(id);
+  const repro = useGetDivergenceRepro(id);
+
+  if (divergence.isLoading) return <p className="dim">loading divergence #{id}…</p>;
+  if (divergence.isError) return <p className="yellow">could not load divergence #{id}</p>;
+  const d = divergence.data;
+
+  return (
+    <main>
+      <nav className="crumbs">
+        <Link to={runsPath()}>Runs</Link> /{" "}
+        <Link to={targetPath(d.target_id)}>Target #{d.target_id}</Link> / Divergence #{d.id}
+      </nav>
+      <div className="statusline">
+        <h1>Divergence #{d.id}</h1>
+        <span className="chip DIVERGENT" title={divergenceClassLabel(d.divergence_class)}>
+          {d.divergence_class}
+        </span>
+        <span className="chip neutral" title={severityLabel(d.severity)}>
+          {d.severity}
+        </span>
+      </div>
+      <p className="dim">{d.detail}</p>
+
+      <div className="panel diverge">
+        <h2 style={{ marginTop: 0 }}>
+          Minimized input <span className="dim">— smallest input still producing this divergence</span>
+        </h2>
+        <div className="statusline">
+          <code style={{ flex: 1 }} className="mono-block">
+            {d.minimized_args}
+          </code>
+          <CopyButton text={d.minimized_args} />
+        </div>
+        {d.minimized_kwargs !== "{}" && (
+          <div className="statusline">
+            <code style={{ flex: 1 }} className="mono-block">
+              {d.minimized_kwargs}
+            </code>
+            <CopyButton text={d.minimized_kwargs} />
+          </div>
+        )}
+      </div>
+
+      <h2>Observed behavior, identical conditions</h2>
+      <div className="split">
+        <div className="panel">
+          <span className="dim">BASE</span>
+          <div className="mono-block">{d.base_summary}</div>
+        </div>
+        <div className="panel">
+          <span className="red">HEAD</span>
+          <div className="mono-block">{d.head_summary}</div>
+        </div>
+      </div>
+
+      {d.ai_narrative && (
+        <div className="panel">
+          <span className="dim">AI narrative — the model's reading of the evidence above</span>
+          <p style={{ marginBottom: 0 }}>{d.ai_narrative}</p>
+        </div>
+      )}
+
+      <div className="statusline">
+        <h2 style={{ flex: 1 }}>Reproduction script · {d.repro_filename}</h2>
+        {repro.data && <CopyButton text={repro.data} />}
+      </div>
+      {repro.isLoading && <p className="dim">loading script…</p>}
+      {repro.data && <pre className="mono-block script">{repro.data}</pre>}
+
+      {d.shrink_path.length > 0 && (
+        <details>
+          <summary className="dim">
+            How it shrank — {d.shrink_path.length} step(s) from {d.args_literal}
+          </summary>
+          <ol className="dim">
+            {d.shrink_path.map((step, i) => (
+              <li key={i}>{step}</li>
+            ))}
+          </ol>
+        </details>
+      )}
+    </main>
+  );
+}
