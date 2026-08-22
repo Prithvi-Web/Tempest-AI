@@ -1,0 +1,12 @@
+<!-- Tempest provider badge. Original Tempest glyph (lambda-plus); badge composition (c) Tempest. -->
+<svg height="1em" width="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="llamacpp">
+<defs>
+<linearGradient id="llamacpp-tempest-bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#16233F"/>
+<stop offset="1" stop-color="#0A1226"/>
+</linearGradient>
+</defs>
+<circle cx="12" cy="12" r="11.4" fill="url(#llamacpp-tempest-bg)"/>
+<circle cx="12" cy="12" r="11.02" fill="none" stroke="#7EA4FF" stroke-opacity="0.24" stroke-width="0.75"/>
+<svg x="4.800000000000001" y="4.800000000000001" width="14.399999999999999" height="14.399999999999999" viewBox="0 0 24 24" fill="#E9F1FF"><path d="M8.62 3.5c1.63 0 2.6.62 3.3 2.1l5.9 12.55c.28.6.52.85 1.06.85h.87v1.5h-1.3c-1.4 0-2.1-.52-2.68-1.76l-2.3-4.9-3.1 6.66H8.02l3.62-7.78-1.5-3.2c-.44-.94-.9-1.42-1.9-1.42h-.99V3.5h1.37Z"/><path d="M16.7 6.6h1.5v1.65h1.65v1.5H18.2v1.65h-1.5V9.75h-1.65v-1.5h1.65V6.6Z" opacity=".55"/></svg>
+</svg>

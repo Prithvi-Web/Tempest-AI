@@ -1,0 +1,12 @@
+<!-- Tempest provider badge. Brand glyph adapted from LobeHub Icons (github.com/lobehub/lobe-icons, MIT, Copyright (c) 2023 LobeHub); badge composition (c) Tempest. Brand marks identify their providers nominatively. -->
+<svg height="1em" width="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="groq">
+<defs>
+<linearGradient id="groq-tempest-bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#16233F"/>
+<stop offset="1" stop-color="#0A1226"/>
+</linearGradient>
+</defs>
+<circle cx="12" cy="12" r="11.4" fill="url(#groq-tempest-bg)"/>
+<circle cx="12" cy="12" r="11.02" fill="none" stroke="#7EA4FF" stroke-opacity="0.24" stroke-width="0.75"/>
+<svg x="4.800000000000001" y="4.800000000000001" width="14.399999999999999" height="14.399999999999999" viewBox="0 0 24 24" fill="#E9F1FF"><path d="M12.036 2c-3.853-.035-7 3-7.036 6.781-.035 3.782 3.055 6.872 6.908 6.907h2.42v-2.566h-2.292c-2.407.028-4.38-1.866-4.408-4.23-.029-2.362 1.901-4.298 4.308-4.326h.1c2.407 0 4.358 1.915 4.365 4.278v6.305c0 2.342-1.944 4.25-4.323 4.279a4.375 4.375 0 01-3.033-1.252l-1.851 1.818A7 7 0 0012.029 22h.092c3.803-.056 6.858-3.083 6.879-6.816v-6.5C18.907 4.963 15.817 2 12.036 2z"></path></svg>
+</svg>

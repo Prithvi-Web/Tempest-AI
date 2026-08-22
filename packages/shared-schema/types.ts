@@ -559,6 +559,8 @@ export interface components {
          * @description One `/api/endpoints` row, exactly the fields the vendored client reads.
          */
         CatalogEndpoint: {
+            /** Iconurl */
+            iconURL?: string | null;
             /** Modeldisplaylabel */
             modelDisplayLabel: string;
             /** Order */

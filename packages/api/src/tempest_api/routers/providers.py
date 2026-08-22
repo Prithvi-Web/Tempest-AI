@@ -97,6 +97,10 @@ async def get_platform_catalog() -> PlatformCatalog:
             type=None if builtin else "custom",
             userProvide=provider.needs_key,
             modelDisplayLabel=provider.label,
+            # One badge per registry row, served by the host from the client seam — the
+            # selector never fetches an icon from the network (L32) and never 404s into
+            # WebKit's broken-image box (the UnknownIcon <img> has no error arm).
+            iconURL=f"/tempest-assets/providers/{provider.id}.svg",
         )
         models[endpoint_key] = _models_for(provider, env)
         provider_rows.append(

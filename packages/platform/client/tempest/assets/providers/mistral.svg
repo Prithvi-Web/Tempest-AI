@@ -1,0 +1,12 @@
+<!-- Tempest provider badge. Brand glyph adapted from LobeHub Icons (github.com/lobehub/lobe-icons, MIT, Copyright (c) 2023 LobeHub); badge composition (c) Tempest. Brand marks identify their providers nominatively. -->
+<svg height="1em" width="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="mistral">
+<defs>
+<linearGradient id="mistral-tempest-bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#16233F"/>
+<stop offset="1" stop-color="#0A1226"/>
+</linearGradient>
+</defs>
+<circle cx="12" cy="12" r="11.4" fill="url(#mistral-tempest-bg)"/>
+<circle cx="12" cy="12" r="11.02" fill="none" stroke="#7EA4FF" stroke-opacity="0.24" stroke-width="0.75"/>
+<svg x="4.800000000000001" y="4.800000000000001" width="14.399999999999999" height="14.399999999999999" viewBox="0 0 24 24"><path d="M3.428 3.4h3.429v3.428H3.428V3.4zm13.714 0h3.43v3.428h-3.43V3.4z" fill="gold"></path><path d="M3.428 6.828h6.857v3.429H3.429V6.828zm10.286 0h6.857v3.429h-6.857V6.828z" fill="#FFAF00"></path><path d="M3.428 10.258h17.144v3.428H3.428v-3.428z" fill="#FF8205"></path><path d="M3.428 13.686h3.429v3.428H3.428v-3.428zm6.858 0h3.429v3.428h-3.429v-3.428zm6.856 0h3.43v3.428h-3.43v-3.428z" fill="#FA500F"></path><path d="M0 17.114h10.286v3.429H0v-3.429zm13.714 0H24v3.429H13.714v-3.429z" fill="#E10500"></path></svg>
+</svg>

@@ -132,6 +132,58 @@ line, this reproduction is refreshed and the change noted here.)*
 
 ---
 
+## LobeHub Icons
+
+- **Upstream:** https://github.com/lobehub/lobe-icons (published as `@lobehub/icons-static-svg`)
+- **License:** MIT
+- **Adoption status:** **CODE DERIVED** (provider badges, 2026-08-22). Fifteen AI-provider brand
+  glyphs were adapted from the `@lobehub/icons-static-svg@1.94.0` package — recomposed onto
+  Tempest's own circular badge, mono glyphs re-inked, gradient ids namespaced — and shipped as
+  the model-selector icons. Each derived file carries a header naming this source. The
+  `llamacpp.svg` glyph is an original Tempest mark, not from LobeHub.
+- **Adoption decision record:** nominative use of provider marks per the C1 posture recorded in
+  `packages/platform/UPSTREAM.md` (brand marks identify their providers; they are not LibreChat
+  or Tempest trade dress, and nothing implies endorsement by the named providers).
+
+| Tempest module | Derived from (upstream path @ commit) | Notes |
+|---|---|---|
+| `packages/platform/client/tempest/assets/providers/*.svg` (15 of 16) | `@lobehub/icons-static-svg@1.94.0` `icons/*.svg` | glyphs recomposed on a Tempest badge; `llamacpp.svg` is original |
+
+**Trademark note.** The glyphs depict third-party brand marks (OpenAI, Google, Mistral, and so
+on). They are used **nominatively** — solely to label each provider's own row in the model
+selector, exactly as the upstream icon set intends — never as Tempest branding. The MIT grant
+below covers the icon *code*; the marks remain their owners' property.
+
+**License text, reproduced in full:**
+
+```
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+*(Retrieved from the upstream `LICENSE` file, 2026-08-22.)*
+
+---
+
 ## Stub for future adoptions
 
 Copy this block for every new third-party work. An entry lands in the same commit as the code

@@ -1,0 +1,12 @@
+<!-- Tempest provider badge. Brand glyph adapted from LobeHub Icons (github.com/lobehub/lobe-icons, MIT, Copyright (c) 2023 LobeHub); badge composition (c) Tempest. Brand marks identify their providers nominatively. -->
+<svg height="1em" width="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="perplexity">
+<defs>
+<linearGradient id="perplexity-tempest-bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#16233F"/>
+<stop offset="1" stop-color="#0A1226"/>
+</linearGradient>
+</defs>
+<circle cx="12" cy="12" r="11.4" fill="url(#perplexity-tempest-bg)"/>
+<circle cx="12" cy="12" r="11.02" fill="none" stroke="#7EA4FF" stroke-opacity="0.24" stroke-width="0.75"/>
+<svg x="4.800000000000001" y="4.800000000000001" width="14.399999999999999" height="14.399999999999999" viewBox="0 0 24 24"><path d="M19.785 0v7.272H22.5V17.62h-2.935V24l-7.037-6.194v6.145h-1.091v-6.152L4.392 24v-6.465H1.5V7.188h2.884V0l7.053 6.494V.19h1.09v6.49L19.786 0zm-7.257 9.044v7.319l5.946 5.234V14.44l-5.946-5.397zm-1.099-.08l-5.946 5.398v7.235l5.946-5.234V8.965zm8.136 7.58h1.844V8.349H13.46l6.105 5.54v2.655zm-8.982-8.28H2.59v8.195h1.8v-2.576l6.192-5.62zM5.475 2.476v4.71h5.115l-5.115-4.71zm13.219 0l-5.115 4.71h5.115v-4.71z" fill="#22B8CD" fill-rule="nonzero"></path></svg>
+</svg>

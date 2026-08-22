@@ -1,0 +1,12 @@
+<!-- Tempest provider badge. Brand glyph adapted from LobeHub Icons (github.com/lobehub/lobe-icons, MIT, Copyright (c) 2023 LobeHub); badge composition (c) Tempest. Brand marks identify their providers nominatively. -->
+<svg height="1em" width="1em" style="flex:none;line-height:1" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="xai">
+<defs>
+<linearGradient id="xai-tempest-bg" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#16233F"/>
+<stop offset="1" stop-color="#0A1226"/>
+</linearGradient>
+</defs>
+<circle cx="12" cy="12" r="11.4" fill="url(#xai-tempest-bg)"/>
+<circle cx="12" cy="12" r="11.02" fill="none" stroke="#7EA4FF" stroke-opacity="0.24" stroke-width="0.75"/>
+<svg x="4.800000000000001" y="4.800000000000001" width="14.399999999999999" height="14.399999999999999" viewBox="0 0 24 24" fill="#E9F1FF"><path d="M6.469 8.776L16.512 23h-4.464L2.005 8.776H6.47zm-.004 7.9l2.233 3.164L6.467 23H2l4.465-6.324zM22 2.582V23h-3.659V7.764L22 2.582zM22 1l-9.952 14.095-2.233-3.163L17.533 1H22z"></path></svg>
+</svg>

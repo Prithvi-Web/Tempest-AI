@@ -13,12 +13,18 @@ import json
 import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from tempest.inference import providers as registry
 from tempest_api.app import create_app
+
+#: The seam directory the desktop host serves at /tempest-assets/ — one badge per registry row.
+_BADGE_DIR = (
+    Path(__file__).resolve().parents[3] / "packages/platform/client/tempest/assets/providers"
+)
 
 
 class _ModelsPeer:
@@ -202,6 +208,38 @@ class TestKeyedDiscovery:
             assert peer.hits == []
         finally:
             peer.close()
+
+
+class TestProviderIcons:
+    """Every selector row carries a local badge (L32: no remote icon fetch, ever).
+
+    The vendored client renders custom endpoints through `UnknownIcon`, whose `iconURL` arm is
+    a bare `<img>` with no error handler — a missing file is an unstyled broken-image box in
+    the model menu. So the catalog pins BOTH halves: the URL it emits, and the badge file that
+    URL resolves to in the seam the host serves.
+    """
+
+    def test_every_endpoint_carries_a_local_badge_url(self, client: TestClient) -> None:
+        payload = _catalog(client)
+        endpoints = payload["endpoints"]
+        assert isinstance(endpoints, dict)
+        for provider in registry.PROVIDERS:
+            key = "anthropic" if provider.id == "anthropic" else provider.label
+            assert endpoints[key]["iconURL"] == f"/tempest-assets/providers/{provider.id}.svg"
+
+    def test_every_badge_url_resolves_to_a_bundled_seam_file(self) -> None:
+        for provider in registry.PROVIDERS:
+            badge = _BADGE_DIR / f"{provider.id}.svg"
+            assert badge.is_file(), f"missing badge for {provider.id}: {badge}"
+
+    def test_no_badge_reaches_for_the_network(self) -> None:
+        # A brand SVG that embeds a remote image or script would be an egress surface inside
+        # the model menu; the xmlns identifier is the one URL an SVG legitimately carries.
+        for provider in registry.PROVIDERS:
+            text = (_BADGE_DIR / f"{provider.id}.svg").read_text(encoding="utf-8")
+            stripped = text.replace('xmlns="http://www.w3.org/2000/svg"', "")
+            assert "http://" not in stripped and "https://" not in stripped, provider.id
+            assert "<script" not in stripped and "<image" not in stripped, provider.id
 
 
 class TestDegenerateAnswersNarrowToNothing:

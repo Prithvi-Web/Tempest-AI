@@ -96,3 +96,7 @@ logos, or brand assets. Full attribution, the licence text, and a per-module der
 live in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the adoption scope — including
 what we deliberately did **not** adopt, and why — is recorded in `docs/DECISIONS.md` (ADR-0038)
 and `docs/PLATFORM-V2.md`.
+
+The provider badges in the model selector adapt brand glyphs from
+[LobeHub Icons](https://github.com/lobehub/lobe-icons) (MIT), used nominatively to label each
+provider's own row; the marks remain their owners' property.

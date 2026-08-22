@@ -508,6 +508,23 @@ pub fn handle(
             None => not_found(path),
         };
     }
+    if let Some(asset) = route.strip_prefix("/tempest-assets/") {
+        // Seam-owned static assets (the provider badges the catalog's iconURL points at)
+        // live beside dist/ exactly like the theme does. Same traversal refusal as the
+        // dist branch, plus a leading-slash trim so a doubled slash cannot re-root the join.
+        let relative = asset.trim_start_matches('/');
+        if relative.is_empty() || relative.split('/').any(|part| part == "..") {
+            return not_found(path);
+        }
+        let file = dist.parent().map(|p| p.join("tempest/assets").join(relative));
+        return match file.filter(|p| p.is_file()) {
+            Some(file) => match std::fs::read(&file) {
+                Ok(body) => response(200, mime_for(&file), body),
+                Err(_) => not_found(path),
+            },
+            None => not_found(path),
+        };
+    }
     if route == "/registerSW.js" {
         return response(
             200,
@@ -577,5 +594,33 @@ mod tests {
         assert_eq!(reply.status(), 503);
         let reply = catalog_response(None, "/api/endpoints");
         assert_eq!(reply.status(), 503);
+    }
+
+    #[test]
+    fn tempest_assets_serve_from_the_seam_and_refuse_traversal() {
+        let base = std::env::temp_dir().join(format!("tempest-assets-test-{}", std::process::id()));
+        let dist = base.join("dist");
+        let providers = base.join("tempest/assets/providers");
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::create_dir_all(&providers).unwrap();
+        std::fs::write(providers.join("openai.svg"), b"<svg/>").unwrap();
+        std::fs::write(base.join("secret.txt"), b"nope").unwrap();
+
+        let ok = handle(None, None, &dist, "GET", "/tempest-assets/providers/openai.svg", b"");
+        assert_eq!(ok.status(), 200);
+        assert_eq!(ok.headers().get("content-type").unwrap(), "image/svg+xml");
+        assert_eq!(ok.body().as_slice(), b"<svg/>");
+
+        // `..` refused; a doubled slash cannot re-root the join; a missing badge is an
+        // honest 404, and the empty path is not a directory listing.
+        for path in [
+            "/tempest-assets/../secret.txt",
+            "/tempest-assets//etc/hosts",
+            "/tempest-assets/providers/absent.svg",
+            "/tempest-assets/",
+        ] {
+            assert_eq!(handle(None, None, &dist, "GET", path, b"").status(), 404, "{path}");
+        }
+        std::fs::remove_dir_all(&base).ok();
     }
 }

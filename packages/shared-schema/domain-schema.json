@@ -109,6 +109,17 @@
     "CatalogEndpoint": {
       "description": "One `/api/endpoints` row, exactly the fields the vendored client reads.",
       "properties": {
+        "iconURL": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Iconurl"
+        },
         "modelDisplayLabel": {
           "title": "Modeldisplaylabel",
           "type": "string"

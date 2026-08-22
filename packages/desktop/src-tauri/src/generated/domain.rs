@@ -383,6 +383,17 @@ impl CancelAccepted {
 #[doc = "    \"userProvide\""]
 #[doc = "  ],"]
 #[doc = "  \"properties\": {"]
+#[doc = "    \"iconURL\": {"]
+#[doc = "      \"title\": \"Iconurl\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"modelDisplayLabel\": {"]
 #[doc = "      \"title\": \"Modeldisplaylabel\","]
 #[doc = "      \"type\": \"string\""]
@@ -419,6 +430,12 @@ impl CancelAccepted {
 #[doc = r" </details>"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
 pub struct CatalogEndpoint {
+    #[serde(
+        rename = "iconURL",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub icon_url: ::std::option::Option<::std::string::String>,
     #[serde(rename = "modelDisplayLabel")]
     pub model_display_label: ::std::string::String,
     pub order: i32,
@@ -4636,6 +4653,10 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct CatalogEndpoint {
+        icon_url: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
         model_display_label: ::std::result::Result<::std::string::String, ::std::string::String>,
         order: ::std::result::Result<i32, ::std::string::String>,
         type_: ::std::result::Result<
@@ -4648,6 +4669,7 @@ pub mod builder {
     impl ::std::default::Default for CatalogEndpoint {
         fn default() -> Self {
             Self {
+                icon_url: Ok(Default::default()),
                 model_display_label: Err("no value supplied for model_display_label".to_string()),
                 order: Err("no value supplied for order".to_string()),
                 type_: Ok(Default::default()),
@@ -4657,6 +4679,16 @@ pub mod builder {
         }
     }
     impl CatalogEndpoint {
+        pub fn icon_url<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.icon_url = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for icon_url: {e}"));
+            self
+        }
         pub fn model_display_label<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::string::String>,
@@ -4714,6 +4746,7 @@ pub mod builder {
             value: CatalogEndpoint,
         ) -> ::std::result::Result<Self, super::error::ConversionError> {
             Ok(Self {
+                icon_url: value.icon_url?,
                 model_display_label: value.model_display_label?,
                 order: value.order?,
                 type_: value.type_?,
@@ -4725,6 +4758,7 @@ pub mod builder {
     impl ::std::convert::From<super::CatalogEndpoint> for CatalogEndpoint {
         fn from(value: super::CatalogEndpoint) -> Self {
             Self {
+                icon_url: Ok(value.icon_url),
                 model_display_label: Ok(value.model_display_label),
                 order: Ok(value.order),
                 type_: Ok(value.type_),
