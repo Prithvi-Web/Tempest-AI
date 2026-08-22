@@ -12,6 +12,7 @@ pub mod localmodel;
 pub mod lsp;
 pub mod pathguard;
 pub mod platform;
+pub mod platform_web;
 pub mod runners;
 pub mod supervisor;
 pub mod watcher;
@@ -92,6 +93,33 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 pub fn run() {
     let specta = specta_builder();
     tauri::Builder::default()
+        // The mounted platform client's world (C3): static dist + theme seam + /api over
+        // boundary E. Registered unconditionally (registration is inert without a window
+        // on the scheme); the window itself is flag-gated below.
+        .register_asynchronous_uri_scheme_protocol("tempest", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            let method = request.method().as_str().to_string();
+            let path = request.uri().path().to_string();
+            let body = request.body().clone();
+            // Off the main thread: the /api arm blocks on a boundary-E round trip.
+            std::thread::spawn(move || {
+                let reply = match platform_web::dist_dir() {
+                    Some(dist) => {
+                        let supervisor =
+                            app.try_state::<platform::Platform>().map(|p| Arc::clone(&p.0));
+                        platform_web::handle(supervisor.as_ref(), &dist, &method, &path, &body)
+                    }
+                    None => tauri::http::Response::builder()
+                        .status(503)
+                        .header("content-type", "text/plain; charset=utf-8")
+                        .body(
+                            b"TEMPEST_PLATFORM_WEB_DIST is not set or not a directory".to_vec(),
+                        )
+                        .expect("static response"),
+                };
+                responder.respond(reply);
+            });
+        })
         .invoke_handler(specta.invoke_handler())
         .setup(move |app| {
             specta.mount_events(app);
@@ -200,6 +228,26 @@ pub fn run() {
                         "[tempest] platform sidecar requested but the resource path did not \
                          resolve: {err}"
                     ),
+                }
+            }
+
+            // C3 (in flight): the platform surface as an opt-in preview window while the
+            // absorption completes. When C3 closes, this becomes the ONE webview.
+            if std::env::var("TEMPEST_PLATFORM_SIDECAR").as_deref() == Ok("1")
+                && platform_web::dist_dir().is_some()
+            {
+                let platform_window = WebviewWindowBuilder::new(
+                    app,
+                    "platform",
+                    WebviewUrl::CustomProtocol(
+                        "tempest://localhost/".parse().expect("static url parses"),
+                    ),
+                )
+                .title("Tempest")
+                .inner_size(1280.0, 860.0)
+                .min_inner_size(760.0, 520.0);
+                if let Err(err) = platform_window.build() {
+                    eprintln!("[tempest] platform preview window failed: {err}");
                 }
             }
 

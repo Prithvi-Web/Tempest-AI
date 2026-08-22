@@ -24,7 +24,14 @@ if (!reasonCode || !Array.isArray(reasonCode.enum)) {
 
 // The C2 method set is the boundary's lifecycle. Service methods arrive with C5 (ADR-0075's
 // thin client) and each lands here first — the schema leads, the code follows.
-const PLATFORM_METHODS = ["platform.ping", "platform.describe", "platform.shutdown"];
+const PLATFORM_METHODS = [
+  "platform.ping",
+  "platform.describe",
+  "platform.shutdown",
+  // C3: the webview's /api surface carried over boundary E (local mode now, C5 re-targets
+  // the dispatch onto LibreChat's services without the caller changing shape).
+  "platform.http",
+];
 const PROTOCOL_VERSION = "e1";
 
 const sortDeep = (node) => {
@@ -127,6 +134,31 @@ const document = sortDeep({
       additionalProperties: false,
       required: ["ok"],
       properties: { ok: { type: "boolean", enum: [true] } },
+    },
+    HttpRequest: {
+      type: "object",
+      additionalProperties: false,
+      description: "platform.http params.request — one webview API call crossing boundary E.",
+      required: ["method", "path", "body_base64"],
+      properties: {
+        method: {
+          type: "string",
+          enum: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+        },
+        path: { type: "string" },
+        body_base64: { type: "string" },
+      },
+    },
+    HttpResult: {
+      type: "object",
+      additionalProperties: false,
+      description: "platform.http result — status, media type, and base64 body.",
+      required: ["status", "content_type", "body_base64"],
+      properties: {
+        status: { type: "integer", minimum: 100, maximum: 599 },
+        content_type: { type: "string" },
+        body_base64: { type: "string" },
+      },
     },
   },
 });

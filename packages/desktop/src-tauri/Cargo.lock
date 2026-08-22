@@ -3405,6 +3405,7 @@ dependencies = [
 name = "tempest-desktop"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "libc",
  "regress",
@@ -3423,6 +3424,7 @@ dependencies = [
 name = "tempest-desktop-devtools"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "schemars 0.8.22",
  "serde",
  "serde_json",

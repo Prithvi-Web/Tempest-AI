@@ -2,7 +2,7 @@
 // Boundary E's Node-side contract copy: the schema object plus the enum value sets the
 // dependency-free validator in ../boundary.mjs enforces IN PRODUCTION, both directions.
 export const PROTOCOL_VERSION = "e1";
-export const PLATFORM_METHODS = Object.freeze(["platform.ping","platform.describe","platform.shutdown"]);
+export const PLATFORM_METHODS = Object.freeze(["platform.ping","platform.describe","platform.shutdown","platform.http"]);
 export const REASON_CODES = Object.freeze(["TARGET_UNREACHABLE","ENV_REPRODUCTION_FAILED","HARNESS_SYNTHESIS_FAILED","SYNTHESIS_DECLINED","UNINTERCEPTABLE_EFFECT","NONDETERMINISTIC_BASE","SANDBOX_UNAVAILABLE","VALUE_UNSERIALIZABLE","RECORD_REPLAY_UNAVAILABLE"]);
 export const SCHEMA = Object.freeze({
   "$defs": {
@@ -22,6 +22,59 @@ export const SCHEMA = Object.freeze({
       "required": [
         "protocol_version",
         "methods"
+      ],
+      "type": "object"
+    },
+    "HttpRequest": {
+      "additionalProperties": false,
+      "description": "platform.http params.request — one webview API call crossing boundary E.",
+      "properties": {
+        "body_base64": {
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH",
+            "HEAD",
+            "OPTIONS"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "path",
+        "body_base64"
+      ],
+      "type": "object"
+    },
+    "HttpResult": {
+      "additionalProperties": false,
+      "description": "platform.http result — status, media type, and base64 body.",
+      "properties": {
+        "body_base64": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "status": {
+          "maximum": 599,
+          "minimum": 100,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "content_type",
+        "body_base64"
       ],
       "type": "object"
     },
@@ -88,7 +141,8 @@ export const SCHEMA = Object.freeze({
       "enum": [
         "platform.ping",
         "platform.describe",
-        "platform.shutdown"
+        "platform.shutdown",
+        "platform.http"
       ],
       "type": "string"
     },

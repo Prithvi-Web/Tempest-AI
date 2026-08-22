@@ -1,0 +1,134 @@
+/* Tempest identity over the vendored client — the C3 design-token seam (master prompt §12).
+ *
+ * This file is injected as the LAST stylesheet by the Rust host's `tempest://` protocol
+ * handler when it serves index.html — zero edits to vendored files, and every value here is
+ * the SAME token the existing Tempest desktop surface uses (packages/desktop/src/styles.css):
+ * one identity, not two. The upstream client routes its entire visual language through the
+ * CSS variables overridden below (primitive `--gray-N` RGB triplets + a semantic layer), so
+ * winning the cascade here restyles ~1,100 components without touching one of them.
+ *
+ * Principles carried over (CRAFT.md, L26): system type stack — never a bundled webfont;
+ * neutral graphite surfaces; hairline separators via triplet+alpha; color reserved for
+ * meaning with ONE accent for primary actions; light and dark both first-class. Verdict
+ * colors do NOT appear here — platform surfaces never borrow the proof vocabulary (L31).
+ */
+
+:root {
+  /* ── primitive ramp → Tempest graphite (no blue cast, no dead grays) ─────────────── */
+  --white: 255 255 255;
+  --black: 29 29 31;
+  --gray-20: 236 236 238;   /* surface-sunken */
+  --gray-50: 245 245 247;   /* bg */
+  --gray-100: 236 236 238;
+  --gray-200: 227 227 229;
+  --gray-300: 205 205 207;
+  --gray-400: 152 152 159;
+  --gray-500: 110 110 115;  /* ink-secondary */
+  --gray-600: 95 95 100;    /* ink-secondary-strong */
+  --gray-650: 72 72 76;
+  --gray-700: 58 58 62;
+  --gray-800: 29 29 31;     /* ink */
+  --gray-850: 38 38 40;     /* dark surface */
+  --gray-875: 28 28 30;     /* dark bg */
+  --gray-900: 22 22 24;     /* dark sunken */
+
+  /* ── one accent, Tempest's own (primary actions; #0071e3 / dark #0a84ff) ─────────── */
+  --brand-purple: 0 113 227;          /* upstream's brand accents inherit the Tempest accent */
+  --accent-primary: 0 113 227;
+  --accent-primary-hover: 0 96 194;
+  --link: 0 113 227;
+  --link-hover: 0 96 194;
+  --link-visited: 0 96 194;           /* visited links do not change color in-app */
+  --surface-submit: 0 113 227;        /* the primary action is the accent, not a green */
+  --surface-submit-hover: 0 96 194;
+
+  /* ── hairline borders: black at Tempest's alpha, not solid grays ─────────────────── */
+  --border-light: 0 0 0;
+  --border-light-alpha: 0.1;
+  --border-medium: 0 0 0;
+  --border-medium-alt: 0 0 0;
+  --border-medium-alpha: 0.16;
+  --border-heavy: 0 0 0;
+  --border-heavy-alpha: 0.24;
+  --border-xheavy: 0 0 0;
+  --border-xheavy-alpha: 0.34;
+}
+
+html.dark {
+  /* Tempest dark palette (#1c1c1e / #262628 / #161618 / #f5f5f7 / #98989f / #0a84ff). */
+  --white: 38 38 40;                  /* dark: "white" surfaces are the raised surface   */
+  --black: 245 245 247;
+  --gray-20: 22 22 24;
+  --gray-50: 32 32 34;
+  --gray-100: 44 44 46;
+  --gray-200: 54 54 57;
+  --gray-300: 78 78 82;
+  --gray-400: 120 120 126;
+  --gray-500: 152 152 159;            /* dark ink-secondary */
+  --gray-600: 173 173 181;
+  --gray-650: 200 200 206;
+  --gray-700: 220 220 226;
+  --gray-800: 245 245 247;            /* dark ink */
+  --gray-850: 38 38 40;
+  --gray-875: 28 28 30;
+  --gray-900: 22 22 24;
+
+  --brand-purple: 10 132 255;
+  --accent-primary: 10 132 255;
+  --accent-primary-hover: 50 153 255;
+  --link: 10 132 255;
+  --link-hover: 50 153 255;
+  --link-visited: 50 153 255;
+  --surface-submit: 10 132 255;
+  --surface-submit-hover: 50 153 255;
+
+  --border-light: 255 255 255;
+  --border-light-alpha: 0.12;
+  --border-medium: 255 255 255;
+  --border-medium-alt: 255 255 255;
+  --border-medium-alpha: 0.2;
+  --border-heavy: 255 255 255;
+  --border-heavy-alpha: 0.28;
+  --border-xheavy: 255 255 255;
+  --border-xheavy-alpha: 0.38;
+}
+
+/* ── system type stack — the platform never ships a webfont it doesn't need ─────────── */
+html,
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", monospace;
+}
+
+/* ── quiet physical details: selection, scrollbars, focus ───────────────────────────── */
+::selection {
+  background: rgb(var(--accent-primary) / 0.22);
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--border-heavy) / var(--border-heavy-alpha));
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--accent-primary) / 0.85);
+  outline-offset: 1px;
+}

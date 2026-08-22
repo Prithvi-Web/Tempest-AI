@@ -66,6 +66,194 @@ impl DescribeResult {
         Default::default()
     }
 }
+#[doc = "platform.http params.request — one webview API call crossing boundary E."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"description\": \"platform.http params.request — one webview API call crossing boundary E.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"body_base64\","]
+#[doc = "    \"method\","]
+#[doc = "    \"path\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"body_base64\": {"]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"method\": {"]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"enum\": ["]
+#[doc = "        \"GET\","]
+#[doc = "        \"POST\","]
+#[doc = "        \"PUT\","]
+#[doc = "        \"DELETE\","]
+#[doc = "        \"PATCH\","]
+#[doc = "        \"HEAD\","]
+#[doc = "        \"OPTIONS\""]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"path\": {"]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": false"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HttpRequest {
+    pub body_base64: ::std::string::String,
+    pub method: HttpRequestMethod,
+    pub path: ::std::string::String,
+}
+impl HttpRequest {
+    pub fn builder() -> builder::HttpRequest {
+        Default::default()
+    }
+}
+#[doc = "`HttpRequestMethod`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"enum\": ["]
+#[doc = "    \"GET\","]
+#[doc = "    \"POST\","]
+#[doc = "    \"PUT\","]
+#[doc = "    \"DELETE\","]
+#[doc = "    \"PATCH\","]
+#[doc = "    \"HEAD\","]
+#[doc = "    \"OPTIONS\""]
+#[doc = "  ]"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum HttpRequestMethod {
+    #[serde(rename = "GET")]
+    Get,
+    #[serde(rename = "POST")]
+    Post,
+    #[serde(rename = "PUT")]
+    Put,
+    #[serde(rename = "DELETE")]
+    Delete,
+    #[serde(rename = "PATCH")]
+    Patch,
+    #[serde(rename = "HEAD")]
+    Head,
+    #[serde(rename = "OPTIONS")]
+    Options,
+}
+impl ::std::fmt::Display for HttpRequestMethod {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Get => f.write_str("GET"),
+            Self::Post => f.write_str("POST"),
+            Self::Put => f.write_str("PUT"),
+            Self::Delete => f.write_str("DELETE"),
+            Self::Patch => f.write_str("PATCH"),
+            Self::Head => f.write_str("HEAD"),
+            Self::Options => f.write_str("OPTIONS"),
+        }
+    }
+}
+impl ::std::str::FromStr for HttpRequestMethod {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "GET" => Ok(Self::Get),
+            "POST" => Ok(Self::Post),
+            "PUT" => Ok(Self::Put),
+            "DELETE" => Ok(Self::Delete),
+            "PATCH" => Ok(Self::Patch),
+            "HEAD" => Ok(Self::Head),
+            "OPTIONS" => Ok(Self::Options),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for HttpRequestMethod {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for HttpRequestMethod {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for HttpRequestMethod {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+#[doc = "platform.http result — status, media type, and base64 body."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"description\": \"platform.http result — status, media type, and base64 body.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"body_base64\","]
+#[doc = "    \"content_type\","]
+#[doc = "    \"status\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"body_base64\": {"]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"content_type\": {"]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"status\": {"]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 599.0,"]
+#[doc = "      \"minimum\": 100.0"]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": false"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct HttpResult {
+    pub body_base64: ::std::string::String,
+    pub content_type: ::std::string::String,
+    pub status: i64,
+}
+impl HttpResult {
+    pub fn builder() -> builder::HttpResult {
+        Default::default()
+    }
+}
 #[doc = "`PingResult`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -179,7 +367,8 @@ impl PlatformError {
 #[doc = "  \"enum\": ["]
 #[doc = "    \"platform.ping\","]
 #[doc = "    \"platform.describe\","]
-#[doc = "    \"platform.shutdown\""]
+#[doc = "    \"platform.shutdown\","]
+#[doc = "    \"platform.http\""]
 #[doc = "  ]"]
 #[doc = "}"]
 #[doc = r" ```"]
@@ -203,6 +392,8 @@ pub enum PlatformMethod {
     PlatformDescribe,
     #[serde(rename = "platform.shutdown")]
     PlatformShutdown,
+    #[serde(rename = "platform.http")]
+    PlatformHttp,
 }
 impl ::std::fmt::Display for PlatformMethod {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
@@ -210,6 +401,7 @@ impl ::std::fmt::Display for PlatformMethod {
             Self::PlatformPing => f.write_str("platform.ping"),
             Self::PlatformDescribe => f.write_str("platform.describe"),
             Self::PlatformShutdown => f.write_str("platform.shutdown"),
+            Self::PlatformHttp => f.write_str("platform.http"),
         }
     }
 }
@@ -220,6 +412,7 @@ impl ::std::str::FromStr for PlatformMethod {
             "platform.ping" => Ok(Self::PlatformPing),
             "platform.describe" => Ok(Self::PlatformDescribe),
             "platform.shutdown" => Ok(Self::PlatformShutdown),
+            "platform.http" => Ok(Self::PlatformHttp),
             _ => Err("invalid value".into()),
         }
     }
@@ -768,6 +961,142 @@ pub mod builder {
             Self {
                 methods: Ok(value.methods),
                 protocol_version: Ok(value.protocol_version),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct HttpRequest {
+        body_base64: ::std::result::Result<::std::string::String, ::std::string::String>,
+        method: ::std::result::Result<super::HttpRequestMethod, ::std::string::String>,
+        path: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for HttpRequest {
+        fn default() -> Self {
+            Self {
+                body_base64: Err("no value supplied for body_base64".to_string()),
+                method: Err("no value supplied for method".to_string()),
+                path: Err("no value supplied for path".to_string()),
+            }
+        }
+    }
+    impl HttpRequest {
+        pub fn body_base64<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.body_base64 = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for body_base64: {e}"));
+            self
+        }
+        pub fn method<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<super::HttpRequestMethod>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.method = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for method: {e}"));
+            self
+        }
+        pub fn path<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.path = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for path: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<HttpRequest> for super::HttpRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: HttpRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                body_base64: value.body_base64?,
+                method: value.method?,
+                path: value.path?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::HttpRequest> for HttpRequest {
+        fn from(value: super::HttpRequest) -> Self {
+            Self {
+                body_base64: Ok(value.body_base64),
+                method: Ok(value.method),
+                path: Ok(value.path),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct HttpResult {
+        body_base64: ::std::result::Result<::std::string::String, ::std::string::String>,
+        content_type: ::std::result::Result<::std::string::String, ::std::string::String>,
+        status: ::std::result::Result<i64, ::std::string::String>,
+    }
+    impl ::std::default::Default for HttpResult {
+        fn default() -> Self {
+            Self {
+                body_base64: Err("no value supplied for body_base64".to_string()),
+                content_type: Err("no value supplied for content_type".to_string()),
+                status: Err("no value supplied for status".to_string()),
+            }
+        }
+    }
+    impl HttpResult {
+        pub fn body_base64<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.body_base64 = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for body_base64: {e}"));
+            self
+        }
+        pub fn content_type<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.content_type = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for content_type: {e}"));
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i64>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<HttpResult> for super::HttpResult {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: HttpResult,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                body_base64: value.body_base64?,
+                content_type: value.content_type?,
+                status: value.status?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::HttpResult> for HttpResult {
+        fn from(value: super::HttpResult) -> Self {
+            Self {
+                body_base64: Ok(value.body_base64),
+                content_type: Ok(value.content_type),
+                status: Ok(value.status),
             }
         }
     }

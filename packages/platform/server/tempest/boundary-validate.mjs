@@ -101,6 +101,16 @@ const RESULT_SHAPES = {
     if (extra) return extra;
     return result.ok === true ? null : "ok must be true";
   },
+  "platform.http": (result) => {
+    const extra = onlyKeys(result, ["status", "content_type", "body_base64"]);
+    if (extra) return extra;
+    if (!Number.isInteger(result.status) || result.status < 100 || result.status > 599) {
+      return "status must be an HTTP status integer";
+    }
+    if (typeof result.content_type !== "string") return "content_type must be a string";
+    if (typeof result.body_base64 !== "string") return "body_base64 must be a string";
+    return null;
+  },
 };
 
 /** Per-method result-shape validation — the outbound half beyond the envelope.

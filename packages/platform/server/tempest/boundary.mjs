@@ -18,6 +18,7 @@ import process from "node:process";
 
 import { PLATFORM_METHODS, PROTOCOL_VERSION } from "./generated/platform-schema.mjs";
 import { checkRequest, checkResponse, checkResult } from "./boundary-validate.mjs";
+import { handleLocalApi } from "./local-api.mjs";
 
 const MAX_FRAME_BYTES = 64 * 1024 * 1024; // mirrors framing.rs
 const MAX_HEADER_BYTES = 8192;
@@ -70,6 +71,26 @@ const HANDLERS = {
   "platform.shutdown": () => {
     shutdownRequested = true;
     return { ok: true };
+  },
+  // C3: the webview's /api surface, carried over boundary E. In local mode the seam answers;
+  // C5 re-targets this dispatch onto LibreChat's real services (ADR-0075) without the caller
+  // changing shape.
+  "platform.http": (params) => {
+    const request = params?.request;
+    if (
+      !request ||
+      typeof request.method !== "string" ||
+      typeof request.path !== "string" ||
+      typeof request.body_base64 !== "string"
+    ) {
+      throw new Error("platform.http params.request needs {method, path, body_base64}");
+    }
+    const reply = handleLocalApi(request.method, request.path);
+    return {
+      status: reply.status,
+      content_type: reply.content_type,
+      body_base64: Buffer.from(reply.body, "utf8").toString("base64"),
+    };
   },
 };
 
@@ -151,7 +172,11 @@ const handleFrame = (connection, payloadBytes) => {
   }
   const handler = HANDLERS[parsed.method];
   try {
-    respond(connection, { jsonrpc: "2.0", id: parsed.id, result: handler() }, parsed.method);
+    respond(
+      connection,
+      { jsonrpc: "2.0", id: parsed.id, result: handler(parsed.params) },
+      parsed.method,
+    );
   } catch (err) {
     const id = diagnosticId();
     log(`handler ${parsed.method} threw [${id}]: ${err.stack ?? err}`);

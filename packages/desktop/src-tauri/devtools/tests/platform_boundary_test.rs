@@ -50,7 +50,12 @@ fn typed_lifecycle_calls_round_trip_over_the_real_socket() {
     assert!(ping.node_version.starts_with('v'), "node reports vX.Y.Z: {}", ping.node_version);
 
     let described = platform::describe(&supervisor).expect("typed describe");
-    assert_eq!(described.methods.len(), 3, "the C2 method set is the lifecycle");
+    let names: Vec<String> = described.methods.iter().map(|m| m.to_string()).collect();
+    assert_eq!(
+        names,
+        ["platform.ping", "platform.describe", "platform.shutdown", "platform.http"],
+        "describe lists exactly the schema's method set — content, not a frozen count"
+    );
 
     supervisor.shutdown();
     assert!(!socket.exists(), "the socket file must not outlive the sidecar");
@@ -185,5 +190,56 @@ fn a_header_with_high_bytes_is_rejected_not_ascii_masked() {
     let mut reader = BufReader::new(stream.try_clone().expect("clone"));
     let outcome = read_frame(&mut reader);
     assert!(outcome.is_err(), "the connection must be dropped, never answered: {outcome:?}");
+    supervisor.shutdown();
+}
+
+#[test]
+fn the_local_api_answers_over_the_full_boundary_chain() {
+    // C3's integration claim, tested at the wire: platform.http → Unix socket → Node
+    // validator → the local-mode seam → typed reply. The exact chain the webview rides.
+    use base64::Engine as _;
+    let (supervisor, _socket) = spawn_boundary("local-api");
+    let request = |method: &str, path: &str| {
+        supervisor
+            .call(
+                "platform.http",
+                json!({"request": {"method": method, "path": path, "body_base64": ""}}),
+                DEFAULT_CALL_TIMEOUT,
+            )
+            .expect("platform.http round trip")
+    };
+
+    let config = request("GET", "/api/config");
+    assert_eq!(config.get("status").and_then(serde_json::Value::as_u64), Some(200));
+    let body = base64::engine::general_purpose::STANDARD
+        .decode(config.get("body_base64").and_then(serde_json::Value::as_str).unwrap())
+        .expect("base64 body");
+    let parsed: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    assert_eq!(parsed.get("appTitle").and_then(serde_json::Value::as_str), Some("Tempest"));
+    assert_eq!(
+        parsed.get("registrationEnabled").and_then(serde_json::Value::as_bool),
+        Some(false),
+        "local mode has no registration surface"
+    );
+
+    let refresh = request("POST", "/api/auth/refresh");
+    let body = base64::engine::general_purpose::STANDARD
+        .decode(refresh.get("body_base64").and_then(serde_json::Value::as_str).unwrap())
+        .expect("base64 body");
+    let parsed: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    assert_eq!(
+        parsed.pointer("/user/username").and_then(serde_json::Value::as_str),
+        Some("local"),
+        "the implicit local principal answers the refresh"
+    );
+    let token = parsed.get("token").and_then(serde_json::Value::as_str).expect("token");
+    assert_eq!(token.split('.').count(), 3, "a decodable JWT shape for expiry scheduling");
+
+    let missing = request("GET", "/api/agents");
+    assert_eq!(
+        missing.get("status").and_then(serde_json::Value::as_u64),
+        Some(404),
+        "unwired routes refuse honestly instead of faking success"
+    );
     supervisor.shutdown();
 }
