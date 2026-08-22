@@ -1,3 +1,66 @@
+# ⚡ V3 SESSION HANDOFF — written 2026-08-21 late night, READ THIS BEFORE §0
+# (C0 ✅ C1 ✅ C2 ✅ all pushed+CI-green · C3 IN FLIGHT, 4 commits UNPUSHED — do not push
+# before a full `make verify` + `make verify-linux-denominator` pass on this tree)
+
+## Where C3 stands (docs/PLAN-V3.md C3; the v3 docs + TEMPEST-V3-MASTER-PROMPT.md live in docs/)
+
+DONE, committed (9039787 → e377357): vocab_check gate (L31, in verify-convergence + CI) ·
+C3.1 the vendored client BUILDS (workspace: platform/{provider,client-pkg,client};
+pnpm-workspace.yaml carries upstream's overrides + skew pins axios 1.18.1 /
+react-vtree>react-window 1.8.11 + packageExtensions for 10 phantom deps; 3 inline deltas in
+UPSTREAM.md ledger) · C3.2 the mount (tempest:// protocol in platform_web.rs — static dist +
+index transform injecting client/tempest/theme.css + title swap + SW no-op; /api/* over
+boundary E as platform.http, typed both sides, local principal in
+platform/server/tempest/local-api.mjs; boundary integration suite 8/8 incl. full-chain
+/api/config + /api/auth/refresh byte assertions) · C3.2b console tap (/api/__console → host
+stderr, stacks included) + ACAO header on every protocol response.
+
+Preview scaffolding (BY DESIGN, until absorption): second window behind
+TEMPEST_PLATFORM_SIDECAR=1 + TEMPEST_PLATFORM_WEB_DIST=<abs path to
+packages/platform/client/dist> + TEMPEST_PLATFORM_NODE=$(which node). **The owner's binding
+direction: ONE app, ONE window, product name Tempest — the moment the platform surface is
+healthy, absorb Tempest views into it and retire the scaffold window.**
+
+## THE OPEN BUG — the one thing blocking the C3 screenshot
+
+The platform webview crashes ONLY in WKWebView (Chromium renders the same dist cleanly —
+verified via `pnpm --filter @librechat/frontend exec vite preview --port 4173`):
+`null is not an object (evaluating 'E.H.useContext')`, React Router catches it on render.
+Captured stack (via the console tap, in scratchpad platform-live5.log of session
+8910e0b0…): begins in assets/tanstack-vendor.*.js touching React internals, through
+index.*.js into advanced-inputs.*.js. Diagnosis (STRONG hypothesis, not yet proven — trap
+49): manualChunks/advancedChunks in the vendored vite config produce a chunk-init ORDER that
+WebKit executes differently (vendor chunk runs before the react chunk finishes initializing
+→ React namespace exists, dispatcher H still null). NEXT MOVE, zero vendored edits: a seam
+build config `packages/platform/client/tempest/vite.config.mjs` that imports the vendored
+config and overrides chunking (disable advancedChunks/manualChunks or force react into the
+same chunk), build via
+`pnpm --filter @librechat/frontend exec vite build --config tempest/vite.config.mjs`,
+relaunch the preview, read the tap output (grep platform-webview in the launch log — the
+boundary only logs FAILURES, so silence on platform.http = the API path is healthy).
+Confirm the crash gone in-app, THEN take the owner's screenshot (bundle first: the raw
+debug binary hides its windows — always `pnpm tauri build` + ditto to /Applications and
+launch /Applications/Tempest.app/Contents/MacOS/tempest-desktop with the three env vars).
+
+## C3 remaining after the fix
+Absorb desktop views+vocabulary.tsx into the platform client (React 18 vs 19, Query v4 vs
+v5 — recon brief in the session's agent output; the ten views + editor/ + hooks.ts survive
+as a route subtree) · retire the scaffold window (ONE window) · egress_check --platform-tree
+--deny-all --airplane-mode-full-function + per-surface telemetry cases (RUM/GTM/turnstile
+inventoried: all config-gated off; PWA neutralized at the protocol) · zero-console-errors
+route sweep (the tap is the instrument) · perf_suite cold-launch row · flip C3 boxes with
+outputs · full verify + linux-denominator + app chain BEFORE any push.
+
+## Traps paid this session (do not repay)
+vite preview proves a bundle without tauri (engine-splitting diagnosis in one move) · the
+boundary logs only failures — silence IS the success signal · a raw target/debug binary's
+windows are invisible on this Mac; screenshot only bundled installs · pnpm 11 ignores
+package.json "pnpm" keys (workspace yaml owns overrides/packageExtensions) · upstream's
+un-vendored root manifest supplied version/overrides/hoisting — every gap surfaces as a
+build failure, fix in OUR config, never theirs · the C2 handler/schema drift guard fires on
+HALF-LANDED seam edits: never edit boundary handlers while a verify is mid-flight unless
+the schema regen lands in the same tree-state.
+
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;
 # **19, 19a, 20, 21 and 22 COMPLETE · 23 PART ONE · 24 and 25 NOT STARTED** — §0 is the only
 # thing to read before touching anything)
