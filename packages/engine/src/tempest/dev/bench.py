@@ -290,6 +290,50 @@ def _editor_measurements(
     return metrics, samples, provenance
 
 
+def _merged_measurements(
+    path: Path,
+) -> tuple[dict[str, float], dict[str, list[float]], dict[str, Any] | None]:
+    """Read the merged-app cold-launch samples `tempest.dev.bench_merged` wrote, if it ran.
+
+    Same contract as the editor leg: absent or unusable → `({}, {}, None)` and the budget
+    stays NOT-YET-MEASURED; a file from another commit is rejected, not merged (provenance is
+    checked, not merely recorded). The metric is the BEST launch, the same aggregate
+    `cold_launch_s` already uses — the floor is what the budget governs.
+    """
+    if not path.is_file():
+        return {}, {}, None
+    try:
+        doc: Any = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}, {}, None
+    if not isinstance(doc, dict):
+        return {}, {}, None
+    raw: Any = doc.get("samples")
+    if not isinstance(raw, dict):
+        return {}, {}, None
+    series: Any = raw.get("merged_cold_launch_ms")
+    if not isinstance(series, list):
+        return {}, {}, None
+    numeric = [float(v) for v in series if isinstance(v, (int, float))]
+    # Best-of-three mirrors bench's own cold_launch sampling; fewer launches is an anecdote
+    # about a warm cache, not a cold-launch measurement.
+    if len(numeric) < 3:
+        return {}, {}, None
+    head = _head_commit()
+    measured_at_commit = doc.get("commit")
+    if head is not None and isinstance(measured_at_commit, str) and measured_at_commit != head:
+        return {}, {}, None
+    metrics = {"merged_cold_launch_s": round(min(numeric) / 1000.0, 4)}
+    samples = {"merged_cold_launch_ms": numeric}
+    provenance = {
+        "commit": measured_at_commit,
+        "measured_at": doc.get("measured_at"),
+        "app": doc.get("app"),
+        "counts": {"merged_cold_launch_ms": len(numeric)},
+    }
+    return metrics, samples, provenance
+
+
 def _head_commit() -> str | None:
     """The commit the tree is on, or None when that cannot be established.
 
@@ -313,6 +357,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=Path("bench") / "bench.json")
     parser.add_argument(
         "--editor-metrics", type=Path, default=Path("bench") / "editor-metrics.json"
+    )
+    parser.add_argument(
+        "--merged-metrics", type=Path, default=Path("bench") / "merged-metrics.json"
     )
     args = parser.parse_args(argv)
 
@@ -341,6 +388,8 @@ def main(argv: list[str] | None = None) -> int:
 
     editor_metrics, editor_samples, editor_provenance = _editor_measurements(args.editor_metrics)
     metrics.update(editor_metrics)
+    merged_metrics, merged_samples, merged_provenance = _merged_measurements(args.merged_metrics)
+    metrics.update(merged_metrics)
 
     payload: dict[str, Any] = {
         "platform": platform.system().lower(),
@@ -349,18 +398,31 @@ def main(argv: list[str] | None = None) -> int:
         "runs_seeded": args.runs,
         "conditions": conditions_block(background=background, final=machine_conditions()),
         "metrics": metrics,
-        "pending": ["desktop-e2e: webview first-paint + app-level cold launch"],
+        "pending": ["desktop-e2e: webview first-paint"],
     }
     if editor_samples:
         # Raw samples, not an aggregate: a p95 cannot be derived from a mean, and perf_suite
         # refuses to invent one (it reports NOT-YET-MEASURED instead).
         payload["samples"] = editor_samples
+    if merged_samples:
+        existing = payload.get("samples")
+        payload["samples"] = {
+            **(existing if isinstance(existing, dict) else {}),
+            **merged_samples,
+        }
     if editor_provenance is not None:
         # Where the webview numbers came from, so a stale file cannot pass as this run's work.
         payload["editor_metrics_from"] = editor_provenance
     elif not editor_metrics:
         payload["pending"].append(
             "editor: run `make bench-editor` — open_file_ms/keystroke_ms are NOT-YET-MEASURED"
+        )
+    if merged_provenance is not None:
+        payload["merged_metrics_from"] = merged_provenance
+    elif not merged_metrics:
+        payload["pending"].append(
+            "merged app: install the bundle and run `make bench-merged` — "
+            "merged_cold_launch_s is NOT-YET-MEASURED"
         )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2) + "\n")

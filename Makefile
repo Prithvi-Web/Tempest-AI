@@ -43,6 +43,11 @@ verify-linux-denominator:
 bench-editor:
 	cd packages/desktop && TEMPEST_NO_POWER_PAUSE=1 npx playwright test --grep @bench
 
+# C3 (§10 merged-app row): cold-launch the INSTALLED bundle and record the instrument line.
+# Merged into bench.json by the next `make bench`; absent, the row stays NOT-YET-MEASURED.
+bench-merged:
+	uv run python -m tempest.dev.bench_merged
+
 # Phase 11 perf bench. Gate: make bench && uv run python -m tempest.dev.bench_guard --max-regression 15
 # Merges bench/editor-metrics.json when `make bench-editor` has produced it; when it has not, the
 # editor rows stay NOT-YET-MEASURED rather than quietly reading as met.

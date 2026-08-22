@@ -1,8 +1,8 @@
 """Phase 19.7 pins: the §5 performance budgets as a gate (L22).
 
-The property that matters is **honest coverage**: ten of the thirteen budgets measure surfaces
+The property that matters is **honest coverage**: most of the fourteen budgets measure surfaces
 that do not exist yet, and the gate must never let those read as met. A perf gate that prints
-PASS while enforcing 3 of 13 budgets is worse than no gate, because it manufactures confidence.
+PASS while enforcing 3 of 14 budgets is worse than no gate, because it manufactures confidence.
 """
 
 import json
@@ -44,8 +44,9 @@ def _is_committed(path: Path) -> bool:
 
 
 class TestTheTableIsTheMasterPromptsTable:
-    def test_all_thirteen_budgets_are_encoded(self) -> None:
-        assert len(ps.BUDGETS) == 13
+    def test_all_fourteen_budgets_are_encoded(self) -> None:
+        # Thirteen §5 rows plus the v3 §10 merged-app cold-launch row (C3).
+        assert len(ps.BUDGETS) == 14
 
     def test_keys_are_unique(self) -> None:
         keys = [b.key for b in ps.BUDGETS]
@@ -64,6 +65,7 @@ class TestTheTableIsTheMasterPromptsTable:
     def test_the_spot_values_match_the_master_prompt(self) -> None:
         by_key = {b.key: b for b in ps.BUDGETS}
         assert (by_key["cold_launch"].p50, by_key["cold_launch"].p95) == (0.8, 1.5)
+        assert (by_key["merged_cold_launch"].p50, by_key["merged_cold_launch"].p95) == (1.2, 2.0)
         assert (by_key["keystroke"].p50, by_key["keystroke"].p95) == (8, 16)
         assert (by_key["idle_ram"].p50, by_key["idle_ram"].p95) == (300, 450)
         assert (by_key["idle_cpu"].p50, by_key["idle_cpu"].p95) == (0.5, 1.0)
@@ -95,7 +97,7 @@ class TestUnmeasurableIsNeverPassing:
     def test_the_report_states_how_many_budgets_are_actually_covered(self) -> None:
         report = ps.evaluate(_metrics(), None, None)
         assert report.measured == 3
-        assert "3 of 13" in ps.render(report)
+        assert "3 of 14" in ps.render(report)
 
     def test_an_unmeasurable_budget_never_appears_as_met(self) -> None:
         rendered = ps.render(ps.evaluate(_metrics(), None, None))
@@ -328,13 +330,13 @@ class TestCli:
         # are ARMED and simply have no numbers in this artifact, because `make bench-editor`
         # writes them and nobody ran it. "The surface does not exist" and "nobody measured it"
         # are the two states this module exists to keep apart, and its own summary collapsed them.
-        assert "3 of 13 §5 budgets MEASURED and judged" in out
-        assert "3 armed but NOT-YET-MEASURED" in out
+        assert "3 of 14 §5 budgets MEASURED and judged" in out
+        assert "4 armed but NOT-YET-MEASURED" in out
         assert "7 NOT-YET-MEASURABLE" in out
         # Parsed BACK OUT of the rendered line. `assert 3 + 3 + 7 == 13` is a constant the
         # interpreter folds before the test runs: it asserts arithmetic, not perf_suite, and
         # would pass with the module deleted.
-        counts = [int(n) for n in re.findall(r"(\d+) (?:of 13|armed|NOT-YET-MEASURABLE)", out)]
+        counts = [int(n) for n in re.findall(r"(\d+) (?:of 14|armed|NOT-YET-MEASURABLE)", out)]
         assert len(counts) == 3, f"all three counts must be rendered: {out}"
         assert sum(counts) == len(ps.BUDGETS), (
             f"the three states must account for every budget, none double-counted: {counts}"
@@ -382,7 +384,7 @@ class TestCli:
         assert any("open_file" in f for f in report.failures), report.failures
 
     def test_all_three_editor_budgets_arm_together(self) -> None:
-        """20.3c armed the third. With all three measured the count is 6 of 13.
+        """20.3c armed the third. With all three measured the count is 6 of 14.
 
         The number is the honest definition of Phase 20's progress, which is why it is asserted
         rather than described: it cannot move because someone edited a comment.
@@ -390,7 +392,7 @@ class TestCli:
         full = _metrics(open_file_ms=15.6, keystroke_ms=1.3, completion_ms=40.0)
         report = ps.evaluate(full, None, None)
         assert report.measured == 6
-        assert "6 of 13" in ps.render(report)
+        assert "6 of 14" in ps.render(report)
         assert report.failures == [], report.failures
 
     def test_a_completion_over_budget_fails_like_any_other(self) -> None:
@@ -603,6 +605,7 @@ class TestLoadQualification:
         is genuinely a latency."""
         assert {b.key for b in ps.BUDGETS if b.load_inflated} == {
             "cold_launch",
+            "merged_cold_launch",
             "open_file",
             "keystroke",
             "completion",
@@ -799,11 +802,11 @@ class TestTheSummaryCountsWhatTheGateIsActuallyHolding:
         counts = [
             int(n)
             for n in re.findall(
-                r"(\d+) (?:of 13|armed|NOT-YET-MEA|INCONCLUSIVE r)",
+                r"(\d+) (?:of 14|armed|NOT-YET-MEA|INCONCLUSIVE r)",
                 rows_line.replace("NOT-YET-MEASURABLE", "NOT-YET-MEA"),
             )
         ]
-        assert sum(counts) == len(ps.BUDGETS) == 13, f"printed counts {counts} do not partition"
+        assert sum(counts) == len(ps.BUDGETS) == 14, f"printed counts {counts} do not partition"
 
     def test_a_p95_made_unusable_by_load_is_still_reported_somewhere(self) -> None:
         """Counting rows on p50 alone must not make a p95 disappear — it moves to the findings

@@ -117,6 +117,21 @@ BUDGETS: tuple[PerfBudget, ...] = (
         load_inflated=True,
         phase="partially: bench measures spawn → healthy stdio, not webview first paint",
     ),
+    # The v3 master prompt §10 merged-app row (C3): the whole bundle — Rust host, engine,
+    # Node platform sidecar, webview — from process exec to the authed shell's first
+    # /api/config fetch. Measured by `make bench-merged` against the INSTALLED bundle;
+    # provenance-checked in bench.py so a stale install cannot answer for this tree.
+    PerfBudget(
+        "merged_cold_launch",
+        "Cold launch → chat interactive (merged app, all sidecars)",
+        1.2,
+        2.0,
+        "s",
+        metric="merged_cold_launch_s",
+        load_inflated=True,
+        phase="to the shell's first /api/config fetch — the webview is up and asking for its "
+        "world; the landing paints from that answer",
+    ),
     # Phase 20.1b armed these: the editor surface exists, so "no surface measures this yet" is
     # no longer true. Absent numbers now read as NOT-YET-MEASURED (nobody ran `make bench-editor`)
     # rather than NOT-YET-MEASURABLE (nothing to run) — a smaller excuse, which is the point.
