@@ -48,6 +48,16 @@ overrides:
   # needs). Re-verify at every upstream merge.
   "axios": "1.18.1"
   "react-vtree>react-window": "1.8.11"
+  # ONE React, exactly as upstream's flat npm hoisting produces. Without this pin,
+  # librechat-data-provider (which declares no react dependency of its own) has its
+  # @tanstack/react-query peer auto-resolved against react@19, and the client bundle
+  # ships TWO reacts + TWO react-query context instances — React 19's dispatcher is
+  # never initialized and the webview dies at render (WKWebView surfaced it first:
+  # "null is not an object (evaluating 'E.H.useContext')"). Also the end-state pin:
+  # the merged client is React 18 until upstream moves, and the desktop views being
+  # absorbed into it are 18-safe.
+  "react": "18.3.1"
+  "react-dom": "18.3.1"
 
 # npm's flat hoisting let upstream code import undeclared ("phantom") dependencies; pnpm's
 # strict isolation exposes them. packageExtensions declares what the code actually imports —
