@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use tempest_desktop_lib::supervisor::{SpawnConfig, Supervisor, DEFAULT_CALL_TIMEOUT};
+use tempest_desktop_lib::supervisor::{SpawnConfig, Supervisor, Transport, DEFAULT_CALL_TIMEOUT};
 
 fn peer_config() -> SpawnConfig {
     SpawnConfig {
@@ -14,6 +14,8 @@ fn peer_config() -> SpawnConfig {
         // The production argument shape — the peer accepts and ignores it.
         args: vec!["--stdio".into(), "--data-dir".into(), "/tmp".into()],
         env_provider: None,
+        transport: Transport::Stdio,
+        rpc_prefix: "rpc",
     }
 }
 

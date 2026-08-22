@@ -11,6 +11,7 @@ pub mod keychain;
 pub mod localmodel;
 pub mod lsp;
 pub mod pathguard;
+pub mod platform;
 pub mod runners;
 pub mod supervisor;
 pub mod watcher;
@@ -121,6 +122,8 @@ pub fn run() {
                 env_provider: Some(Arc::new(|| {
                     keychain::engine_env(keychain::SERVICE, keychain::ACCOUNT)
                 })),
+                transport: supervisor::Transport::Stdio,
+                rpc_prefix: "rpc",
             });
             let handle = app.handle().clone();
             supervisor.set_listener(Arc::new(move |state: &str| {
@@ -151,6 +154,42 @@ pub fn run() {
                     eprintln!("[tempest] sidecar failed to start: {err}");
                 }
             });
+
+            // Boundary E (PLAN-V3 C2): the Node platform sidecar, OPT-IN until C3 mounts the
+            // client — nothing user-facing consumes it yet, and an idle Node process would be
+            // RAM spent on ceremony. `TEMPEST_PLATFORM_NODE` overrides the interpreter (the
+            // orphan gate passes an explicit path); bundling a runtime is C3's decision.
+            if std::env::var("TEMPEST_PLATFORM_SIDECAR").as_deref() == Ok("1") {
+                let node = std::env::var("TEMPEST_PLATFORM_NODE")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from("node"));
+                match app
+                    .path()
+                    .resolve("platform/server/tempest/boundary.mjs", tauri::path::BaseDirectory::Resource)
+                {
+                    Ok(script) if script.is_file() => {
+                        let platform_supervisor = Supervisor::new(platform::spawn_config(
+                            node,
+                            script,
+                            platform::socket_path(),
+                        ));
+                        app.manage(platform::Platform(Arc::clone(&platform_supervisor)));
+                        std::thread::spawn(move || {
+                            if let Err(err) = platform_supervisor.start() {
+                                eprintln!("[tempest] platform sidecar failed to start: {err}");
+                            }
+                        });
+                    }
+                    Ok(script) => eprintln!(
+                        "[tempest] platform sidecar requested but {script:?} is not bundled — \
+                         not spawning"
+                    ),
+                    Err(err) => eprintln!(
+                        "[tempest] platform sidecar requested but the resource path did not \
+                         resolve: {err}"
+                    ),
+                }
+            }
 
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Tempest")
@@ -189,6 +228,10 @@ fn sweep_on_exit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     app.state::<Arc<watcher::RunWatcher>>().shutdown();
     // Blocking sweep: after this, no sidecar or runner process exists (L11).
     app.state::<Arc<Supervisor>>().shutdown();
+    // The platform sidecar (boundary E) is a second supervised child with the same guarantee.
+    if let Some(platform) = app.try_state::<platform::Platform>() {
+        platform.0.shutdown();
+    }
     // ...and no language server, which is a process this app started and therefore owns.
     if let Ok(mut mux) = app.state::<Arc<std::sync::Mutex<lsp::Multiplexer>>>().lock() {
         mux.shutdown_all();

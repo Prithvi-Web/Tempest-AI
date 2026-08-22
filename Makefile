@@ -90,6 +90,11 @@ gen-contracts:
 	cargo typify packages/shared-schema/domain-schema.json \
 		--additional-derive specta::Type \
 		-o packages/desktop/src-tauri/src/generated/domain.rs
+	# Boundary E (PLAN-V3 C2): Rust host <-> Node platform sidecar. One schema, three
+	# consumers — platform.schema.json, the typify'd Rust, and the Node seam module.
+	node packages/shared-schema/scripts/gen-platform-schema.mjs
+	cargo typify packages/shared-schema/platform.schema.json \
+		-o packages/desktop/src-tauri/src/generated/platform.rs
 	cargo run -q --manifest-path $(DESKTOP_MANIFEST) -p tempest-desktop-devtools --bin export_bindings
 	# Boundary D (§9c, ADR-0035): the Agent Tool Protocol. Its artifacts land inside the paths
 	# verify-contract already diffs, so the fourth boundary is drift-gated by the same command.
@@ -148,7 +153,8 @@ verify-node:
 verify-contract:
 	$(MAKE) gen-contracts
 	git diff --exit-code packages/shared-schema \
-		packages/desktop/src/generated packages/desktop/src-tauri/src/generated
+		packages/desktop/src/generated packages/desktop/src-tauri/src/generated \
+		packages/platform/server/tempest/generated
 
 verify-grep-safe:
 	@! grep -rn --include='*.py' --include='*.ts' --include='*.tsx' -w 'SAFE' packages/ \

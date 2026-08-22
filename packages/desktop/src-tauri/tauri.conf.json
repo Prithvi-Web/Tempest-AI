@@ -21,6 +21,9 @@
       "app"
     ],
     "category": "DeveloperTool",
+    "resources": {
+      "../../platform/server/tempest/": "platform/server/tempest/"
+    },
     "externalBin": [
       "binaries/tempest-server"
     ],

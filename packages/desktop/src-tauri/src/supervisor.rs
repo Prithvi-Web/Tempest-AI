@@ -1,7 +1,10 @@
-//! Sidecar supervision (Phase 9 §3, L11): the Rust host OWNS the engine sidecar — it starts
-//! it in its own process group, health-checks it, restarts it with backoff when it dies, and
-//! sweeps the entire group on shutdown so orphans are impossible. All calls travel as
-//! JSON-RPC 2.0 frames over the child's stdin/stdout; no TCP socket exists.
+//! Sidecar supervision (Phase 9 §3, L11; extended for boundary E in PLAN-V3 C2): the Rust
+//! host OWNS every sidecar — it starts each in its own process group, health-checks it,
+//! restarts it with capped backoff when it dies, and sweeps the entire group on shutdown so
+//! orphans are impossible (L34). Calls travel as JSON-RPC 2.0 `Content-Length` frames over
+//! the child's transport: stdin/stdout for the engine (boundary A), a Unix domain socket the
+//! child binds for the platform sidecar (boundary E). **No TCP socket exists in either mode**
+//! — a listening port fails enterprise security review and the threat model says so.
 
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -23,6 +26,22 @@ const RESTART_BACKOFF_MAX: Duration = Duration::from_secs(8);
 const HEALTHY_RESET: Duration = Duration::from_secs(60);
 const SHUTDOWN_RPC_GRACE: Duration = Duration::from_millis(1000);
 const SHUTDOWN_TERM_GRACE: Duration = Duration::from_secs(2);
+/// How long a Unix-socket child gets to bind its socket after spawn before the connect gives
+/// up. Generous: a cold Node process on a loaded machine parses its module graph first.
+const UNIX_CONNECT_DEADLINE: Duration = Duration::from_secs(10);
+
+/// How a child's JSON-RPC frames travel. The supervision story — process group, health,
+/// backoff restart, guaranteed sweep — is identical in both; only the byte path differs.
+#[derive(Clone)]
+pub enum Transport {
+    /// Frames over the child's stdin/stdout (boundary A — the engine sidecar).
+    Stdio,
+    /// Frames over a Unix domain socket the CHILD binds at this path (boundary E — the
+    /// platform sidecar). The path reaches the child via `TEMPEST_PLATFORM_SOCKET`; the host
+    /// connects after spawn. The child's stdin stays piped and open as its parent-death
+    /// signal: SIGKILL of the host closes it, and the child exits on that EOF.
+    Unix { socket: PathBuf },
+}
 
 #[derive(Debug)]
 pub enum RpcError {
@@ -58,11 +77,36 @@ pub struct SpawnConfig {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub env_provider: Option<EnvProvider>,
+    pub transport: Transport,
+    /// Method namespace for the lifecycle RPCs this supervisor issues itself: `<prefix>.ping`
+    /// for health, `<prefix>.shutdown` for graceful stop. `"rpc"` for the engine (boundary A),
+    /// `"platform"` for the Node sidecar (boundary E) — the schema owns each list.
+    pub rpc_prefix: &'static str,
+}
+
+/// The write half of a child's frame stream.
+enum Wire {
+    Stdio(ChildStdin),
+    #[cfg(unix)]
+    Unix(std::os::unix::net::UnixStream),
+}
+
+impl Wire {
+    fn write_frame(&mut self, payload: &[u8]) -> Result<(), FrameError> {
+        match self {
+            Wire::Stdio(stdin) => write_frame(stdin, payload),
+            #[cfg(unix)]
+            Wire::Unix(stream) => write_frame(stream, payload),
+        }
+    }
 }
 
 struct Live {
     child: Child,
-    stdin: ChildStdin,
+    wire: Wire,
+    /// For Unix-transport children: the piped stdin held open for the child's lifetime. Its
+    /// closure — including by SIGKILL of this host — is the child's signal to exit itself.
+    _parent_pipe: Option<ChildStdin>,
     frames: Receiver<Result<Vec<u8>, String>>,
     pgid: i32,
     next_id: u64,
@@ -177,9 +221,10 @@ impl Supervisor {
     }
 
     fn wait_healthy(&self, deadline: Duration) -> Result<(), RpcError> {
+        let ping = format!("{}.ping", self.config.rpc_prefix);
         let until = Instant::now() + deadline;
         loop {
-            match self.call("rpc.ping", json!({}), Duration::from_secs(2)) {
+            match self.call(&ping, json!({}), Duration::from_secs(2)) {
                 Ok(_) => return Ok(()),
                 Err(_) if Instant::now() < until => std::thread::sleep(Duration::from_millis(100)),
                 Err(err) => return Err(err),
@@ -199,7 +244,7 @@ impl Supervisor {
         let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
         let payload = serde_json::to_vec(&request)
             .map_err(|err| RpcError::Transport(format!("encode: {err}")))?;
-        if let Err(err) = write_frame(&mut live.stdin, &payload) {
+        if let Err(err) = live.wire.write_frame(&payload) {
             let dead = slot.take().expect("held above");
             kill_group(dead.pgid);
             return Err(RpcError::Transport(format!("write: {err}")));
@@ -245,8 +290,9 @@ impl Supervisor {
         }
     }
 
-    /// Graceful stop, then guaranteed group sweep: rpc.shutdown → SIGTERM group → SIGKILL group.
-    /// After this returns, no process of the sidecar's group exists.
+    /// Graceful stop, then guaranteed group sweep: `<prefix>.shutdown` → SIGTERM group →
+    /// SIGKILL group. After this returns, no process of the sidecar's group exists, and a
+    /// Unix-transport child's socket file is gone.
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::SeqCst);
         let taken = self.live.lock().expect("live lock").take();
@@ -255,11 +301,11 @@ impl Supervisor {
             return;
         };
         live.next_id += 1;
-        let request = json!(
-            {"jsonrpc": "2.0", "id": live.next_id, "method": "rpc.shutdown", "params": {}}
-        );
+        let method = format!("{}.shutdown", self.config.rpc_prefix);
+        let request =
+            json!({"jsonrpc": "2.0", "id": live.next_id, "method": method, "params": {}});
         if let Ok(payload) = serde_json::to_vec(&request) {
-            if write_frame(&mut live.stdin, &payload).is_ok() {
+            if live.wire.write_frame(&payload).is_ok() {
                 let deadline = Instant::now() + SHUTDOWN_RPC_GRACE;
                 while Instant::now() < deadline {
                     match live.child.try_wait() {
@@ -279,6 +325,9 @@ impl Supervisor {
         }
         kill_group(live.pgid);
         let _ = live.child.wait(); // reap — no zombie rows in the process table
+        if let Transport::Unix { socket } = &self.config.transport {
+            let _ = std::fs::remove_file(socket);
+        }
         self.notify("stopped");
     }
 }
@@ -293,6 +342,20 @@ fn spawn_child(config: &SpawnConfig) -> Result<Live, RpcError> {
     if let Some(provider) = &config.env_provider {
         command.envs(provider());
     }
+    if let Transport::Unix { socket } = &config.transport {
+        // A stale socket file from a SIGKILL'd previous run would make the child's bind fail;
+        // removing a dead socket is safe because only this host's children bind here.
+        let _ = std::fs::remove_file(socket);
+        if let Some(dir) = socket.parent() {
+            let _ = std::fs::create_dir_all(dir);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+        command.env("TEMPEST_PLATFORM_SOCKET", socket);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -306,38 +369,131 @@ fn spawn_child(config: &SpawnConfig) -> Result<Live, RpcError> {
     let stdin = child.stdin.take().expect("stdin piped");
     let stdout = child.stdout.take().expect("stdout piped");
     let stderr = child.stderr.take().expect("stderr piped");
-
-    let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
-    std::thread::Builder::new()
-        .name("sidecar-reader".into())
-        .spawn(move || {
-            let mut reader = BufReader::new(stdout);
-            loop {
-                match read_frame(&mut reader) {
-                    Ok(frame) => {
-                        if tx.send(Ok(frame)).is_err() {
-                            return;
-                        }
-                    }
-                    Err(FrameError::Eof) => return,
-                    Err(err) => {
-                        let _ = tx.send(Err(err.to_string()));
-                        return;
-                    }
-                }
-            }
-        })
-        .map_err(|err| RpcError::Unavailable(format!("reader thread failed: {err}")))?;
+    let tag: &'static str = match &config.transport {
+        Transport::Stdio => "tempest-server",
+        Transport::Unix { .. } => "tempest-platform",
+    };
     std::thread::Builder::new()
         .name("sidecar-stderr".into())
         .spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                eprintln!("[tempest-server] {line}");
+                eprintln!("[{tag}] {line}");
             }
         })
         .map_err(|err| RpcError::Unavailable(format!("stderr thread failed: {err}")))?;
 
-    Ok(Live { child, stdin, frames: rx, pgid, next_id: 0 })
+    let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+    match &config.transport {
+        Transport::Stdio => {
+            std::thread::Builder::new()
+                .name("sidecar-reader".into())
+                .spawn(move || {
+                    let mut reader = BufReader::new(stdout);
+                    loop {
+                        match read_frame(&mut reader) {
+                            Ok(frame) => {
+                                if tx.send(Ok(frame)).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(FrameError::Eof) => return,
+                            Err(err) => {
+                                let _ = tx.send(Err(err.to_string()));
+                                return;
+                            }
+                        }
+                    }
+                })
+                .map_err(|err| RpcError::Unavailable(format!("reader thread failed: {err}")))?;
+            Ok(Live {
+                child,
+                wire: Wire::Stdio(stdin),
+                _parent_pipe: None,
+                frames: rx,
+                pgid,
+                next_id: 0,
+            })
+        }
+        #[cfg(unix)]
+        Transport::Unix { socket } => {
+            // A Unix child logs on stdout/stderr rather than speaking frames there; drain
+            // stdout so a chatty child can never block on a full pipe.
+            std::thread::Builder::new()
+                .name("sidecar-stdout".into())
+                .spawn(move || {
+                    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                        eprintln!("[{tag}] {line}");
+                    }
+                })
+                .map_err(|err| RpcError::Unavailable(format!("stdout thread failed: {err}")))?;
+
+            // The child binds; we connect. Poll until it is listening or provably dead.
+            let deadline = Instant::now() + UNIX_CONNECT_DEADLINE;
+            let stream = loop {
+                match std::os::unix::net::UnixStream::connect(socket) {
+                    Ok(stream) => break stream,
+                    Err(err) => {
+                        if let Ok(Some(status)) = child.try_wait() {
+                            kill_group(pgid);
+                            return Err(RpcError::Unavailable(format!(
+                                "platform sidecar exited before binding its socket ({status})"
+                            )));
+                        }
+                        if Instant::now() >= deadline {
+                            kill_group(pgid);
+                            let _ = child.wait();
+                            return Err(RpcError::Unavailable(format!(
+                                "platform sidecar never bound {socket:?} within \
+                                 {UNIX_CONNECT_DEADLINE:?}: {err}"
+                            )));
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                }
+            };
+            let read_half = stream
+                .try_clone()
+                .map_err(|err| RpcError::Unavailable(format!("socket clone failed: {err}")))?;
+            std::thread::Builder::new()
+                .name("sidecar-reader".into())
+                .spawn(move || {
+                    let mut reader = BufReader::new(read_half);
+                    loop {
+                        match read_frame(&mut reader) {
+                            Ok(frame) => {
+                                if tx.send(Ok(frame)).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(FrameError::Eof) => return,
+                            Err(err) => {
+                                let _ = tx.send(Err(err.to_string()));
+                                return;
+                            }
+                        }
+                    }
+                })
+                .map_err(|err| RpcError::Unavailable(format!("reader thread failed: {err}")))?;
+            Ok(Live {
+                child,
+                wire: Wire::Unix(stream),
+                _parent_pipe: Some(stdin),
+                frames: rx,
+                pgid,
+                next_id: 0,
+            })
+        }
+        #[cfg(not(unix))]
+        Transport::Unix { .. } => {
+            kill_group(pgid);
+            let _ = child.wait();
+            Err(RpcError::Unavailable(
+                "unix-socket transport is not supported on this platform (named-pipe support \
+                 arrives with a Windows desktop)"
+                    .into(),
+            ))
+        }
+    }
 }
 
 #[cfg(unix)]
