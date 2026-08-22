@@ -1,6 +1,38 @@
-# ⚡ V3 SESSION HANDOFF — written 2026-08-22 (~01:30), READ THIS BEFORE §0
-# (C0 ✅ C1 ✅ C2 ✅ pushed+CI-green · **C3 boxes ALL FLIPPED with evidence this session** ·
-# ~16 commits UNPUSHED — the owner pushes only when told it is safe)
+# ⚡ V3 SESSION HANDOFF — updated 2026-08-22 (~06:30), READ THIS BEFORE §0
+# (C0–C3 ✅ pushed+CI-green at fb9ab28 · **C4 boxes flipped with evidence this session** ·
+# ~12 commits UNPUSHED on top — the owner pushes only when told it is safe)
+
+## C4 in one paragraph (PLAN-V3 C4 has the evidence inline; read it before C5)
+
+One provider router, wired front to back: the engine's GET /v1/platform/catalog builds
+LibreChat's exact /api/endpoints + /api/models shapes from the ONE registry (models ADOPTED
+from upstream defaultModels; locals discovered live at loopback; keyed metadata-less remotes
+discovered only when their key exists — the verify_key BYOK egress class). The tempest://
+protocol intercepts both plus /api/keys, which now lives on the OS KEYCHAIN under accounts
+named by each provider's env var (engine_env ENUMERATES at spawn — the host holds no registry
+copy; legacy "anthropic" account read-through + migrate-on-write). 19.5b done: the anthropic
+SDK is gone; TEMPEST_SYNTHESIS_BASE_URL survives as an ALIAS onto
+TEMPEST_MODEL_BASE_URL_ANTHROPIC (both arms pinned). provider_matrix floor 16. The Apple
+design pass re-cut both seam stylesheets (type ladder 20/15/13/11, radii 8/10/14 shared,
+9 dark semantic repairs, ring=accent; 21/21 verdict values byte-identical — machine-checked).
+Smoothing/delta batching deliberately carried to C5 (its surface is the streamed turn).
+
+## Traps paid in C4 (do not repay)
+- **Upstream key-wire shapes are LAW**: keyless = {"expiresAt":null}, stored = literal
+  "never", PUT 201 empty, DELETE 204 empty (data/src/methods/key.ts). A guessed bare null
+  crashed useUnifiedSidebarLinks (its destructuring default covers undefined only).
+- **uri().path() drops query strings** — the protocol passes path_and_query now.
+- **A kill between git's worktree REGISTRATION and populate leaves "missing but locked"**
+  that single --force refuses and the presence-keyed discard never sees; double --force is
+  git's documented override (resume_test caught it live; repro + fix in worktree.py).
+- An unresolved var() is DISCARDED SILENTLY — three scoped-CSS tokens were never defined
+  (--muted/--border/--mono) and nothing logged; the design pass found them structurally.
+- reduced-motion durations are 1ms, never 0 — a zero-duration transition fires no
+  transitionend and a waiting component hangs.
+
+## Next: C5 (the largest item) — plus the C3-close bridge retirement (ADR-0077 e2e
+## re-target), the C4-carried smoothing item, and the quiet-machine bench re-take.
+
 
 ## What happened this session (the short version; PLAN-V3 C3 has the evidence inline)
 
