@@ -55,6 +55,11 @@ fn response(status: u16, mime: &str, body: Vec<u8>) -> tauri::http::Response<Vec
     tauri::http::Response::builder()
         .status(status)
         .header("content-type", mime)
+        // WKWebView treats custom-scheme responses without CORS headers as OPAQUE to any
+        // `crossorigin` request — and every module script/preload in the built client
+        // carries `crossorigin`. Without this header the module graph half-loads and React
+        // dies with null internals. The scheme is app-private; "*" exposes nothing.
+        .header("access-control-allow-origin", "*")
         .body(body)
         .expect("static response construction cannot fail")
 }
@@ -67,8 +72,14 @@ fn not_found(path: &str) -> tauri::http::Response<Vec<u8>> {
 fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
     match std::fs::read_to_string(dist.join("index.html")) {
         Ok(body) => {
+            // The console tap loads FIRST: every uncaught error, rejection, and
+            // console.error in the webview reaches the host's stderr via /api/__console —
+            // the instrument behind the C3 "zero console errors" gate, and the difference
+            // between diagnosing a webview crash and guessing at one.
+            let tap = "<script>(function(){var post=function(kind,text){try{fetch('/api/__console',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:kind,text:String(text).slice(0,4000)})})}catch(e){}};window.addEventListener('error',function(e){post('error',(e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||'')+(e.error&&e.error.stack?'\\n'+e.error.stack:''))});window.addEventListener('unhandledrejection',function(e){var r=e.reason;post('unhandledrejection',r&&r.stack?r.stack:String(r))});var orig=console.error;console.error=function(){post('console.error',Array.prototype.map.call(arguments,function(a){return a&&a.stack?a.stack:String(a)}).join(' | '));return orig.apply(console,arguments)}})();</script>";
             let body = body
                 .replace("<title>LibreChat</title>", "<title>Tempest</title>")
+                .replacen("<head>", &format!("<head>{tap}"), 1)
                 .replace(
                     "</head>",
                     "<link rel=\"stylesheet\" href=\"/tempest-theme.css\" />\n</head>",
@@ -147,6 +158,12 @@ pub fn handle(
     path: &str,
     body: &[u8],
 ) -> tauri::http::Response<Vec<u8>> {
+    if path == "/api/__console" {
+        // The webview's console tap — host-side visibility, never forwarded to the sidecar.
+        let line = String::from_utf8_lossy(body);
+        eprintln!("[platform-webview] {line}");
+        return response(204, "text/plain", Vec::new());
+    }
     if let Some(api_path) = path.strip_prefix("/api").map(|_| path) {
         return match supervisor {
             Some(supervisor) => forward_api(supervisor, method, api_path, body),
