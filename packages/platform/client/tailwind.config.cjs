@@ -1,15 +1,15 @@
 // const { fontFamily } = require('tailwindcss/defaultTheme');
 const {
   createTailwindColors,
-} = require('../packages/client/src/theme/utils/createTailwindColors.js');
-const libreChatTailwindPreset = require('../packages/client/tailwind.preset.cjs');
+} = require('../client-pkg/src/theme/utils/createTailwindColors.js');
+const libreChatTailwindPreset = require('../client-pkg/tailwind.preset.cjs');
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
     './src/**/*.{js,jsx,ts,tsx}',
     // Include component library files
-    '../packages/client/src/**/*.{js,jsx,ts,tsx}',
+    '../client-pkg/src/**/*.{js,jsx,ts,tsx}',
   ],
   // darkMode: 'class',
   darkMode: ['class'],

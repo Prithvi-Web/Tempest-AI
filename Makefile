@@ -148,8 +148,11 @@ verify-agent:
 	./scripts/agent-gates.sh
 
 verify-node:
-	pnpm -r typecheck
-	pnpm -r test
+	# Scoped to OUR packages: the vendored platform packages joined the workspace at C3 for
+	# the client build chain, but their own suites join `make verify-v3` at the phases that
+	# make them green (merge contract §6 rule 4) — not silently via -r.
+	pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' typecheck
+	pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' test
 	pnpm --filter @tempest/desktop build
 
 verify-contract:

@@ -4,7 +4,10 @@ import replace from '@rollup/plugin-replace';
 import { defineConfig } from 'tsdown';
 
 const require = createRequire(import.meta.url);
-const rootPkg = require('../../package.json');
+// TEMPEST inline delta (UPSTREAM.md ledger): upstream reads the monorepo root
+// package.json, which is deliberately not vendored; the client package tracks the
+// same upstream release version.
+const rootPkg = require('../client/package.json');
 
 export default defineConfig({
   entry: ['src/index.ts', 'src/react-query/index.ts'],

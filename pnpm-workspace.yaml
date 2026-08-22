@@ -2,6 +2,79 @@ packages:
   - "packages/shared-schema"
   - "packages/ts-sidecar"
   - "packages/desktop"
+  # C3: the vendored client build chain (provider -> client-pkg -> client). Server-side
+  # platform packages (data/api/server) join at C5/C6 when their phases wire them.
+  - "packages/platform/provider"
+  - "packages/platform/client-pkg"
+  - "packages/platform/client"
+
+# Upstream's `"*"` cross-deps must resolve to the VENDORED workspace packages, never
+# the registry copies of the same names (the silent-skew hazard).
+linkWorkspacePackages: true
+
+# Upstream root package.json's security/compat `overrides`, ported npm->pnpm selector
+# syntax at C3 (that root manifest is deliberately not vendored; the pins must not be
+# lost with it — recorded in packages/platform/UPSTREAM.md).
+overrides:
+  "minimatch@3>brace-expansion": "^1.1.16"
+  "minimatch@5>brace-expansion": "^2.1.2"
+  "minimatch@9>brace-expansion": "^2.1.2"
+  "minimatch@10>brace-expansion": "^5.0.8"
+  "@xmldom/xmldom": "^0.8.13"
+  "elliptic": "^6.6.1"
+  "form-data": "^4.0.6"
+  "langsmith": "^0.6.0"
+  "postcss": "^8.5.18"
+  "tslib": "^2.8.1"
+  "fast-xml-parser": "5.7.2"
+  "serialize-javascript": "7.0.5"
+  "mdast-util-gfm-autolink-literal": "2.0.0"
+  "katex": "^0.16.21"
+  "eslint>ajv": "6.14.0"
+  "underscore": "1.13.8"
+  "hono": "^4.12.25"
+  "@hono/node-server": "^2.0.11"
+  "monaco-editor>dompurify": "3.4.12"
+  "test-exclude": "^8.0.0"
+  "js-yaml": "^4.2.0"
+  "ws": "^8.21.0"
+  "@opentelemetry/core": "^2.9.0"
+  "@opentelemetry/propagator-jaeger": "^2.10.0"
+  "protobufjs": "^7.6.5"
+  "gaxios>uuid": "^11.1.1"
+  # Lockfile-skew mirrors: upstream's package-lock.json (not vendored) resolves these
+  # exact versions; fresh resolution floats past them and breaks the build (axios>=1.19
+  # types vs provider/src/request.ts; react-window 2.x removed the v1 API react-vtree
+  # needs). Re-verify at every upstream merge.
+  "axios": "1.18.1"
+  "react-vtree>react-window": "1.8.11"
+
+# npm's flat hoisting let upstream code import undeclared ("phantom") dependencies; pnpm's
+# strict isolation exposes them. packageExtensions declares what the code actually imports —
+# OUR workspace metadata, zero edits to vendored files. Grown empirically, one build error at
+# a time; re-verify at every upstream merge.
+packageExtensions:
+  "@librechat/frontend":
+    dependencies:
+      # Versions mirror upstream's package-lock.json resolution.
+      katex: "^0.16.21"
+      "@rc-component/mini-decimal": "1.1.0"
+      axios: "1.18.1"
+      dedent: "1.7.0"
+      lowlight: "2.9.0"
+      react-is: "18.3.1"
+      unified: "10.1.2"
+      unist-util-visit: "4.1.2"
+      uuid: "11.1.1"
+      react-zoom-pan-pinch: "3.7.0"
+
 allowBuilds:
   esbuild: true
   sharp: true
+  # C3, functional postinstalls of the vendored client chain:
+  protobufjs: true # writes generated version stubs
+  unrs-resolver: true # native resolver binary
+  # es5-ext's postinstall prints a message and builds nothing; allowed so the
+  # install carries an explicit decision.
+  es5-ext: true
+

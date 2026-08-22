@@ -30,7 +30,7 @@
     "test/**/*",
     "test/setupTests.js",
     "env.d.ts",
-    "../packages/client/src/hooks/useDelayedRender.tsx",
-    "../packages/client/src/components/InfoHoverCard.tsx"
+    "../client-pkg/src/hooks/useDelayedRender.tsx",
+    "../client-pkg/src/components/InfoHoverCard.tsx"
   ]
 }

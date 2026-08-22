@@ -83,4 +83,6 @@ seam directory and not a row of the brand-asset strip above. Cap enforced by
 
 | Path | Reason | Upstream issue |
 |---|---|---|
-| *(none)* | — | — |
+| `packages/platform/provider/tsdown.config.mjs` | upstream requires the monorepo ROOT package.json (deliberately not vendored) for `__LIBRECHAT_VERSION__`; retargeted to `../client/package.json`, which tracks the same upstream release (v0.8.8-rc1 at adoption — verify at every upstream merge) | — |
+| `packages/platform/client/tailwind.config.cjs` | the C1 tree mapping renames upstream `packages/client` → `client-pkg`; three sibling-relative requires/globs retargeted | — |
+| `packages/platform/client/tsconfig.json` | same rename: two include entries retargeted to `../client-pkg` | — |
