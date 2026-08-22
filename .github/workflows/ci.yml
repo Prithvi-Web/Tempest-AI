@@ -106,8 +106,13 @@ jobs:
           package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm -r typecheck
-      - run: pnpm -r test
+      # Scoped exactly like `make verify-node` (the two must not drift): the vendored
+      # platform packages joined the workspace at C3 for the client build chain, but their
+      # own suites join `make verify-v3` at the phases that make them green (merge contract
+      # §6 rule 4) — not silently via -r. An unscoped -r here is how this job went red on
+      # the C3 push while the local gate was green.
+      - run: pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' typecheck
+      - run: pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' test
 
   desktop:
     runs-on: macos-latest
