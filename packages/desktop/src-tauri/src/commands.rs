@@ -481,7 +481,14 @@ pub struct AiKeyStatus {
 }
 
 fn ai_key_status_now() -> CmdResult<AiKeyStatus> {
-    match crate::keychain::read(crate::keychain::SERVICE, crate::keychain::ACCOUNT) {
+    // Canonical per-provider account first (C4); the pre-C4 single item answers for an
+    // install that has never written since the migration.
+    let read_result = crate::keychain::read(crate::keychain::SERVICE, crate::keychain::ANTHROPIC_ACCOUNT)
+        .and_then(|found| match found {
+            Some(key) => Ok(Some(key)),
+            None => crate::keychain::read(crate::keychain::SERVICE, crate::keychain::LEGACY_ACCOUNT),
+        });
+    match read_result {
         Ok(Some(key)) => Ok(AiKeyStatus {
             configured: true,
             last4: Some(crate::keychain::last4(&key)),
@@ -509,7 +516,11 @@ pub fn set_ai_key(key: String) -> CmdResult<AiKeyStatus> {
                 .to_string(),
         });
     }
-    crate::keychain::store(crate::keychain::SERVICE, crate::keychain::ACCOUNT, trimmed)
+    // Writing migrates: the canonical account gets the key, the legacy item is retired so
+    // enumeration can never inject the same variable twice.
+    let stored = crate::keychain::store(crate::keychain::SERVICE, crate::keychain::ANTHROPIC_ACCOUNT, trimmed)
+        .and_then(|()| crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::LEGACY_ACCOUNT));
+    stored
         .map_err(|message| SidecarFailure { code: -3, message })?;
     ai_key_status_now()
 }
@@ -517,7 +528,8 @@ pub fn set_ai_key(key: String) -> CmdResult<AiKeyStatus> {
 #[tauri::command]
 #[specta::specta]
 pub fn clear_ai_key() -> CmdResult<AiKeyStatus> {
-    crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::ACCOUNT)
+    crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::ANTHROPIC_ACCOUNT)
+        .and_then(|()| crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::LEGACY_ACCOUNT))
         .map_err(|message| SidecarFailure { code: -3, message })?;
     ai_key_status_now()
 }

@@ -132,7 +132,7 @@ def _live(provider: mp.Provider, model: str | None) -> tuple[bool, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--min-providers", type=int, default=12)
+    parser.add_argument("--min-providers", type=int, default=16)
     parser.add_argument(
         "--live",
         action="store_true",

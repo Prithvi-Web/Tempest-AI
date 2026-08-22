@@ -100,7 +100,13 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("tempest", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             let method = request.method().as_str().to_string();
-            let path = request.uri().path().to_string();
+            // path AND query: the key bridge routes on `?name=…`, and `uri().path()` alone
+            // silently discarded every query string this protocol had ever been asked.
+            let path = request
+                .uri()
+                .path_and_query()
+                .map(|pq| pq.as_str().to_string())
+                .unwrap_or_else(|| request.uri().path().to_string());
             let body = request.body().clone();
             // Off the main thread: the /api arm blocks on a boundary-E round trip.
             std::thread::spawn(move || {
@@ -108,7 +114,15 @@ pub fn run() {
                     Some(dist) => {
                         let supervisor =
                             app.try_state::<platform::Platform>().map(|p| Arc::clone(&p.0));
-                        platform_web::handle(supervisor.as_ref(), &dist, &method, &path, &body)
+                        let engine = app.try_state::<Arc<Supervisor>>().map(|s| Arc::clone(&s));
+                        platform_web::handle(
+                            supervisor.as_ref(),
+                            engine.as_ref(),
+                            &dist,
+                            &method,
+                            &path,
+                            &body,
+                        )
                     }
                     None => tauri::http::Response::builder()
                         .status(503)
@@ -150,9 +164,7 @@ pub fn run() {
                 ],
                 // A keychain-stored AI key rides into every engine spawn as
                 // ANTHROPIC_API_KEY (keychain.rs — L9: env only, never files/DB/logs).
-                env_provider: Some(Arc::new(|| {
-                    keychain::engine_env(keychain::SERVICE, keychain::ACCOUNT)
-                })),
+                env_provider: Some(Arc::new(|| keychain::engine_env(keychain::SERVICE))),
                 transport: supervisor::Transport::Stdio,
                 rpc_prefix: "rpc",
             });

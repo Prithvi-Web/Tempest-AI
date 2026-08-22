@@ -176,16 +176,295 @@ fn forward_api(
     }
 }
 
+/// Fetch the provider catalog from the engine (Boundary A). One registry answers the chat
+/// surface's whole model world; the failure arm is a diagnosable 503, never a hang.
+fn fetch_catalog(
+    engine: Option<&Arc<Supervisor>>,
+) -> Result<crate::generated::domain::PlatformCatalog, Box<tauri::http::Response<Vec<u8>>>> {
+    let Some(engine) = engine else {
+        return Err(Box::new(response(
+            503,
+            "application/json",
+            serde_json::to_vec(&json!({"error": "the engine sidecar is not running"}))
+                .unwrap_or_default(),
+        )));
+    };
+    let value = engine
+        .call("getPlatformCatalog", json!({}), Duration::from_secs(20))
+        .map_err(|err| {
+            Box::new(response(
+                503,
+                "application/json",
+                serde_json::to_vec(&json!({
+                    "error": format!("provider catalog unavailable: {err}"),
+                }))
+                .unwrap_or_default(),
+            ))
+        })?;
+    serde_json::from_value(value).map_err(|err| {
+        Box::new(response(
+            502,
+            "application/json",
+            serde_json::to_vec(&json!({
+                "error": format!("contract violation decoding getPlatformCatalog: {err}"),
+            }))
+            .unwrap_or_default(),
+        ))
+    })
+}
+
+fn catalog_response(
+    engine: Option<&Arc<Supervisor>>,
+    route: &str,
+) -> tauri::http::Response<Vec<u8>> {
+    let catalog = match fetch_catalog(engine) {
+        Ok(catalog) => catalog,
+        Err(refusal) => return *refusal,
+    };
+    let payload = if route == "/api/endpoints" {
+        serde_json::to_vec(&catalog.endpoints)
+    } else {
+        serde_json::to_vec(&catalog.models)
+    };
+    response(200, "application/json", payload.unwrap_or_default())
+}
+
+/// The `value` a key save carries: the built-in anthropic dialog sends the raw key, the
+/// custom-endpoint form sends `JSON.stringify({apiKey, baseURL})`. Pure, and pinned.
+fn key_from_dialog_value(value: &str) -> String {
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
+        if let Some(api_key) = parsed.get("apiKey").and_then(|v| v.as_str()) {
+            return api_key.trim().to_string();
+        }
+    }
+    value.trim().to_string()
+}
+
+/// One percent-decoding, exactly what `?name=` needs (space and %XX); anything undecodable
+/// stays as-is rather than guessing.
+fn query_param(query: &str, name: &str) -> Option<String> {
+    for pair in query.split('&') {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if key == name {
+            let mut out = Vec::with_capacity(value.len());
+            let bytes = value.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'%' if i + 3 <= bytes.len() => {
+                        let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok();
+                        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                            Some(byte) => {
+                                out.push(byte);
+                                i += 3;
+                            }
+                            None => {
+                                out.push(b'%');
+                                i += 1;
+                            }
+                        }
+                    }
+                    b'+' => {
+                        out.push(b' ');
+                        i += 1;
+                    }
+                    other => {
+                        out.push(other);
+                        i += 1;
+                    }
+                }
+            }
+            return Some(String::from_utf8_lossy(&out).into_owned());
+        }
+    }
+    None
+}
+
+/// The key bridge (C4, L18): presence, storage, and revocation of provider keys, answered
+/// from the OS keychain under the account named by the provider's environment variable —
+/// `credentials.ts` replaced, not bridged (MERGE-CONTRACT). Key VALUES never appear in a
+/// response, an error, or a log line.
+fn keys_response(
+    engine: Option<&Arc<Supervisor>>,
+    method: &str,
+    route: &str,
+    query: &str,
+    body: &[u8],
+) -> tauri::http::Response<Vec<u8>> {
+    let catalog = match fetch_catalog(engine) {
+        Ok(catalog) => catalog,
+        Err(refusal) => return *refusal,
+    };
+    let env_for = |endpoint_key: &str| -> Option<String> {
+        catalog
+            .providers
+            .iter()
+            .find(|p| p.endpoint_key == endpoint_key && !p.key_env.is_empty())
+            .map(|p| p.key_env.clone())
+    };
+    let honest_404 = |endpoint_key: &str| {
+        response(
+            404,
+            "application/json",
+            serde_json::to_vec(&json!({
+                "error": format!("no keyed provider named {endpoint_key:?}"),
+            }))
+            .unwrap_or_default(),
+        )
+    };
+    match method {
+        "GET" => {
+            let Some(name) = query_param(query, "name") else {
+                return response(
+                    422,
+                    "application/json",
+                    serde_json::to_vec(&json!({"error": "the name parameter is required"}))
+                        .unwrap_or_default(),
+                );
+            };
+            let Some(env_var) = env_for(&name) else { return honest_404(&name) };
+            match crate::keychain::read(crate::keychain::SERVICE, &env_var) {
+                // Present-but-unexpiring is `{"expiresAt": ""}` and absent is a bare JSON
+                // null — exactly the two shapes the vendored key hooks distinguish.
+                Ok(Some(_)) => response(200, "application/json", b"{\"expiresAt\":\"\"}".to_vec()),
+                Ok(None) => {
+                    // The legacy single-item install still answers for anthropic until a
+                    // write migrates it.
+                    if env_var == crate::keychain::ANTHROPIC_ACCOUNT
+                        && matches!(
+                            crate::keychain::read(
+                                crate::keychain::SERVICE,
+                                crate::keychain::LEGACY_ACCOUNT
+                            ),
+                            Ok(Some(_))
+                        )
+                    {
+                        return response(
+                            200,
+                            "application/json",
+                            b"{\"expiresAt\":\"\"}".to_vec(),
+                        );
+                    }
+                    response(200, "application/json", b"null".to_vec())
+                }
+                Err(err) => response(
+                    500,
+                    "application/json",
+                    serde_json::to_vec(&json!({"error": err})).unwrap_or_default(),
+                ),
+            }
+        }
+        "PUT" | "POST" => {
+            let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(body) else {
+                return response(
+                    422,
+                    "application/json",
+                    serde_json::to_vec(&json!({"error": "the key payload is not JSON"}))
+                        .unwrap_or_default(),
+                );
+            };
+            let name = parsed.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let value = parsed.get("value").and_then(|v| v.as_str()).unwrap_or("");
+            let Some(env_var) = env_for(name) else { return honest_404(name) };
+            let key = key_from_dialog_value(value);
+            if key.is_empty() {
+                return response(
+                    422,
+                    "application/json",
+                    serde_json::to_vec(&json!({"error": "an empty key was refused"}))
+                        .unwrap_or_default(),
+                );
+            }
+            let stored = crate::keychain::store(crate::keychain::SERVICE, &env_var, &key)
+                .and_then(|()| {
+                    if env_var == crate::keychain::ANTHROPIC_ACCOUNT {
+                        // Writing migrates the pre-C4 item so enumeration cannot inject
+                        // the same variable twice.
+                        crate::keychain::clear(
+                            crate::keychain::SERVICE,
+                            crate::keychain::LEGACY_ACCOUNT,
+                        )
+                    } else {
+                        Ok(())
+                    }
+                });
+            match stored {
+                Ok(()) => response(200, "application/json", b"{\"expiresAt\":\"\"}".to_vec()),
+                Err(err) => response(
+                    500,
+                    "application/json",
+                    serde_json::to_vec(&json!({"error": err})).unwrap_or_default(),
+                ),
+            }
+        }
+        "DELETE" => {
+            if query_param(query, "all").as_deref() == Some("true") {
+                for provider in &catalog.providers {
+                    if !provider.key_env.is_empty() {
+                        let _ = crate::keychain::clear(crate::keychain::SERVICE, &provider.key_env);
+                    }
+                }
+                let _ =
+                    crate::keychain::clear(crate::keychain::SERVICE, crate::keychain::LEGACY_ACCOUNT);
+                return response(200, "application/json", b"{}".to_vec());
+            }
+            let endpoint_key = route.trim_start_matches("/api/keys/").to_string();
+            let Some(env_var) = env_for(&endpoint_key) else { return honest_404(&endpoint_key) };
+            let cleared = crate::keychain::clear(crate::keychain::SERVICE, &env_var).and_then(
+                |()| {
+                    if env_var == crate::keychain::ANTHROPIC_ACCOUNT {
+                        crate::keychain::clear(
+                            crate::keychain::SERVICE,
+                            crate::keychain::LEGACY_ACCOUNT,
+                        )
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            match cleared {
+                Ok(()) => response(200, "application/json", b"{}".to_vec()),
+                Err(err) => response(
+                    500,
+                    "application/json",
+                    serde_json::to_vec(&json!({"error": err})).unwrap_or_default(),
+                ),
+            }
+        }
+        other => response(
+            405,
+            "application/json",
+            serde_json::to_vec(&json!({"error": format!("method {other} is not part of the key bridge")}))
+                .unwrap_or_default(),
+        ),
+    }
+}
+
 /// The complete request → response mapping, synchronous; the caller runs it off the main
-/// thread and hands the result to the protocol responder.
+/// thread and hands the result to the protocol responder. `path` may carry a query string;
+/// `route` below is the query-less form every exact match uses.
 pub fn handle(
     supervisor: Option<&Arc<Supervisor>>,
+    engine: Option<&Arc<Supervisor>>,
     dist: &Path,
     method: &str,
     path: &str,
     body: &[u8],
 ) -> tauri::http::Response<Vec<u8>> {
-    if path == "/api/config" && !COLD_LAUNCH_PRINTED.swap(true, Ordering::Relaxed) {
+    let (route, query) = match path.split_once('?') {
+        Some((route, query)) => (route, query),
+        None => (path, ""),
+    };
+    // The C4 provider bridge: the chat surface's model world and its keys are answered by
+    // the HOST — the catalog from the engine's one registry, key presence and storage from
+    // the OS keychain (L18) — before anything is forwarded to the Node sidecar.
+    if route == "/api/endpoints" || route == "/api/models" {
+        return catalog_response(engine, route);
+    }
+    if route == "/api/keys" || route.starts_with("/api/keys/") {
+        return keys_response(engine, method, route, query, body);
+    }
+    if route == "/api/config" && !COLD_LAUNCH_PRINTED.swap(true, Ordering::Relaxed) {
         // The §10 merged-app cold-launch instrument: process start → the authed shell
         // fetching its world. One line, once, on stderr — bench_merged reads it.
         if let Some(started) = PROCESS_START.get() {
@@ -195,15 +474,16 @@ pub fn handle(
             );
         }
     }
-    if path == "/api/__console" {
+    if route == "/api/__console" {
         // The webview's console tap — host-side visibility, never forwarded to the sidecar.
         let line = String::from_utf8_lossy(body);
         eprintln!("[platform-webview] {line}");
         return response(204, "text/plain", Vec::new());
     }
-    if let Some(api_path) = path.strip_prefix("/api").map(|_| path) {
+    if route.starts_with("/api") {
+        // The node sidecar receives path+query verbatim; its own router splits the query.
         return match supervisor {
-            Some(supervisor) => forward_api(supervisor, method, api_path, body),
+            Some(supervisor) => forward_api(supervisor, method, path, body),
             None => response(
                 503,
                 "application/json",
@@ -214,7 +494,7 @@ pub fn handle(
             ),
         };
     }
-    if path == "/tempest-theme.css" {
+    if route == "/tempest-theme.css" {
         // The seam stylesheet lives beside dist/ in the seam directory.
         let theme = dist.parent().map(|p| p.join("tempest/theme.css"));
         return match theme.and_then(|p| std::fs::read(p).ok()) {
@@ -222,21 +502,21 @@ pub fn handle(
             None => not_found(path),
         };
     }
-    if path == "/registerSW.js" {
+    if route == "/registerSW.js" {
         return response(
             200,
             "text/javascript",
             b"// service worker disabled: a native shell has no browser-update layer".to_vec(),
         );
     }
-    if path == "/sw.js" || path.starts_with("/workbox-") {
+    if route == "/sw.js" || route.starts_with("/workbox-") {
         return not_found(path);
     }
-    if path == "/" || path == "/index.html" {
+    if route == "/" || route == "/index.html" {
         return serve_index(dist);
     }
     // Static asset — refuse traversal, serve by extension, SPA-fallback extensionless paths.
-    let relative = path.trim_start_matches('/');
+    let relative = route.trim_start_matches('/');
     if relative.split('/').any(|part| part == "..") {
         return not_found(path);
     }
@@ -252,4 +532,44 @@ pub fn handle(
         return serve_index(dist); // client-side route: /c/new, /login, …
     }
     not_found(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_anthropic_dialog_sends_a_raw_key_and_the_custom_form_sends_json() {
+        assert_eq!(key_from_dialog_value("sk-ant-api03-RAWKEY"), "sk-ant-api03-RAWKEY");
+        assert_eq!(
+            key_from_dialog_value(r#"{"apiKey":"gsk-live-key","baseURL":""}"#),
+            "gsk-live-key"
+        );
+        assert_eq!(key_from_dialog_value("  padded  "), "padded");
+        // JSON without an apiKey field is treated as a raw (odd) key, not a crash.
+        assert_eq!(key_from_dialog_value(r#"{"other":1}"#), r#"{"other":1}"#);
+    }
+
+    #[test]
+    fn query_params_decode_the_two_encodings_the_client_uses() {
+        assert_eq!(query_param("name=OpenAI", "name").as_deref(), Some("OpenAI"));
+        assert_eq!(
+            query_param("name=Ollama%20(local)&x=1", "name").as_deref(),
+            Some("Ollama (local)")
+        );
+        assert_eq!(query_param("name=Together+AI", "name").as_deref(), Some("Together AI"));
+        assert_eq!(query_param("all=true", "all").as_deref(), Some("true"));
+        assert_eq!(query_param("all=true", "name"), None);
+        assert_eq!(query_param("", "name"), None);
+        // A truncated escape stays literal rather than panicking or guessing.
+        assert_eq!(query_param("name=x%2", "name").as_deref(), Some("x%2"));
+    }
+
+    #[test]
+    fn the_key_bridge_refuses_without_an_engine_rather_than_hanging() {
+        let reply = keys_response(None, "GET", "/api/keys", "name=OpenAI", b"");
+        assert_eq!(reply.status(), 503);
+        let reply = catalog_response(None, "/api/endpoints");
+        assert_eq!(reply.status(), 503);
+    }
 }
