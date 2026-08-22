@@ -22,6 +22,26 @@ class TestMaterialize:
         assert (head.worktree / "m.py").read_text() == "VALUE = 'head'\n"
         assert base.worktree != head.worktree
 
+    def test_a_kill_between_gits_lock_and_populate_still_resumes(self, tmp_path: Path) -> None:
+        """The crash window resume_test hit live: a kill can land after git REGISTERS the
+        worktree (with a lock) but before the directory is populated. The registration is
+        then "missing but locked", which a single `--force` refuses — and the discard path
+        never fires because it keys on filesystem presence, not on git's bookkeeping. A
+        resume must clear this without manual repair (L5-zero-data-loss shape): reproduce
+        git's exact state — add, lock, delete the directory — then materialize again."""
+        repo = make_repo(tmp_path, {"m.py": "x = 1\n"})
+        commit_head(repo, {"m.py": "x = 2\n"})
+        cache = tmp_path / "cache"
+        first = materialize(repo, "head", cache)
+        _git(repo, "worktree", "lock", str(first.worktree))
+        import shutil
+
+        shutil.rmtree(first.worktree)
+        (first.worktree.parent / (first.worktree.name + ".ready")).unlink(missing_ok=True)
+
+        resumed = materialize(repo, "head", cache)
+        assert (resumed.worktree / "m.py").read_text() == "x = 2\n"
+
     def test_env_is_normalized_and_identical_across_revisions(self, tmp_path: Path) -> None:
         repo = make_repo(tmp_path, {"m.py": "x = 1\n"})
         commit_head(repo, {"m.py": "x = 2\n"})

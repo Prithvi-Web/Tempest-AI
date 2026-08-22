@@ -131,7 +131,15 @@ def _rebuild(repo: Path, worktree: Path, ready: Path, sha: str) -> None:
                 return  # somebody finished between our check and our lock
             if worktree.exists() or ready.exists():
                 _discard_incomplete(repo, worktree)
-            _git(repo, "worktree", "add", "--detach", "--force", str(worktree), sha)
+            # --force TWICE, deliberately: a kill can land after git registers the worktree
+            # (writing its own lock under .git/worktrees/) but before the directory is
+            # populated. That leaves a "missing but locked" registration the discard above
+            # never sees — it keys on filesystem presence, and there is no filesystem — and
+            # a single --force refuses it. Git documents the double force as the override
+            # for exactly this state; it cannot stomp a LIVE materialization because the
+            # exclusive-create lock above already serializes rebuilds of this path.
+            # resume_test caught the window live (kill-mid-proof → resume).
+            _git(repo, "worktree", "add", "--detach", "--force", "--force", str(worktree), sha)
             # Only now. The marker is a claim that the checkout finished, so it is written by the
             # line after the one that finishes it.
             ready.write_text(sha, encoding="utf-8")
