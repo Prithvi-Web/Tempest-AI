@@ -55,24 +55,14 @@
 }
 
 html.dark {
-  /* Tempest dark palette (#1c1c1e / #262628 / #161618 / #f5f5f7 / #98989f / #0a84ff). */
-  --white: 38 38 40;                  /* dark: "white" surfaces are the raised surface   */
-  --black: 245 245 247;
-  --gray-20: 22 22 24;
-  --gray-50: 32 32 34;
-  --gray-100: 44 44 46;
-  --gray-200: 54 54 57;
-  --gray-300: 78 78 82;
-  --gray-400: 120 120 126;
-  --gray-500: 152 152 159;            /* dark ink-secondary */
-  --gray-600: 173 173 181;
-  --gray-650: 200 200 206;
-  --gray-700: 220 220 226;
-  --gray-800: 245 245 247;            /* dark ink */
-  --gray-850: 38 38 40;
-  --gray-875: 28 28 30;
-  --gray-900: 22 22 24;
-
+  /* Tempest dark accents only. The primitive --gray ramp is deliberately NOT re-declared
+   * here: upstream's `.dark` semantic layer already performs the light↔dark inversion by
+   * re-deriving every surface/text token from the OTHER end of the one monotonic ramp
+   * (--presentation: var(--gray-800), --text-primary: var(--gray-100), …). Inverting the
+   * ramp here too double-inverts exactly the slots 20–800 — which is how the main pane
+   * once rendered white inside a dark shell while the sidebar (on the un-inverted 850/900
+   * slots) stayed dark. One ramp, two semantic derivations; only polarity-true values
+   * (accent, borders) belong in this block. */
   --brand-purple: 10 132 255;
   --accent-primary: 10 132 255;
   --accent-primary-hover: 50 153 255;
@@ -91,6 +81,16 @@ html.dark {
   --border-heavy-alpha: 0.28;
   --border-xheavy: 255 255 255;
   --border-xheavy-alpha: 0.38;
+}
+
+/* Native form controls, scrollbars and the UA canvas follow the app's mode, not the
+ * system's guess — without this WKWebView keeps light-mode controls inside a dark UI. */
+:root {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 /* ── system type stack — the platform never ships a webfont it doesn't need ─────────── */
