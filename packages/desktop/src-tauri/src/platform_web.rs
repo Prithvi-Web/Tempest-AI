@@ -31,6 +31,18 @@ use crate::supervisor::Supervisor;
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
 static COLD_LAUNCH_PRINTED: AtomicBool = AtomicBool::new(false);
 
+/// False when `apply_vibrancy` failed on this launch: serve_index then withholds the
+/// `tempest-vibrancy` class so the CSS keeps its OPAQUE grounds — a transparent window with
+/// thinned grounds and no material behind it is a window onto the raw desktop. The host sets
+/// this before the first page load (setup runs to completion before the webview navigates),
+/// so the class and the material can never disagree.
+static VIBRANCY_ATTACHED: AtomicBool = AtomicBool::new(true);
+
+/// Record that the window material failed to attach; the page then keeps solid grounds.
+pub fn mark_vibrancy_failed() {
+    VIBRANCY_ATTACHED.store(false, Ordering::Relaxed);
+}
+
 /// Record the host's start instant for the cold-launch instrument. Idempotent.
 pub fn mark_process_start(start: Instant) {
     let _ = PROCESS_START.set(start);
@@ -108,24 +120,48 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
             // 'color-theme'). First run seeds 'dark': the storm-navy identity ships dark
             // (owner mandate); the user's own later choice persists over it.
             let mode = "<script>(function(){try{var t=localStorage.getItem('color-theme');if(t==null){t='dark';localStorage.setItem('color-theme','dark')}var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d)}catch(e){}})();</script>";
-            // Liquid glass, macOS only: the class theme.css §7 keys its translucent grounds
-            // on (the window there is transparent over an NSVisualEffectView), plus two
-            // fixed drag surfaces for the full-bleed overlay titlebar — a 10px strip along
-            // the top edge and a 76×38 zone under the traffic lights, both empty regions by
-            // construction (the rail pads itself below the lights).
-            let glass = if cfg!(target_os = "macos") {
-                "<script>(function(){document.documentElement.classList.add('tempest-vibrancy');var mk=function(css){var d=document.createElement('div');d.setAttribute('data-tauri-drag-region','');d.style.cssText=css;return d};var add=function(){document.body.appendChild(mk('position:fixed;top:0;left:0;right:0;height:10px;z-index:2147482000'));document.body.appendChild(mk('position:fixed;top:0;left:0;width:76px;height:38px;z-index:2147482000'))};if(document.body){add()}else{document.addEventListener('DOMContentLoaded',add)}})();</script>"
+            // Liquid glass, macOS only. Two independent pieces:
+            // — the drag surfaces exist whenever the overlay-titlebar window does (without
+            //   them the full-bleed window cannot be moved): a 10px strip along the top edge
+            //   and a 52×38 zone under the traffic lights — 52 matches the sidebar rail's
+            //   width, and the whole sidebar pads itself 38px down (theme.css §7), so both
+            //   zones cover only empty glass;
+            // — the `tempest-vibrancy` class keys the translucent grounds, and is withheld
+            //   when the material failed to attach: transparent CSS over a windowless
+            //   desktop is a hole, not a theme.
+            let drag = if cfg!(target_os = "macos") {
+                "<script>(function(){var mk=function(css){var d=document.createElement('div');d.setAttribute('data-tauri-drag-region','');d.style.cssText=css;return d};var add=function(){document.body.appendChild(mk('position:fixed;top:0;left:0;right:0;height:10px;z-index:2147482000'));document.body.appendChild(mk('position:fixed;top:0;left:0;width:52px;height:38px;z-index:2147482000'))};if(document.body){add()}else{document.addEventListener('DOMContentLoaded',add)}})();</script>"
+            } else {
+                ""
+            };
+            let glass = if cfg!(target_os = "macos") && VIBRANCY_ATTACHED.load(Ordering::Relaxed)
+            {
+                "<script>document.documentElement.classList.add('tempest-vibrancy');</script>"
             } else {
                 ""
             };
             let tap = "<script>(function(){var post=function(kind,text){try{fetch('/api/__console',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind:kind,text:String(text).slice(0,4000)})})}catch(e){}};window.addEventListener('error',function(e){post('error',(e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||'')+(e.error&&e.error.stack?'\\n'+e.error.stack:''))});window.addEventListener('unhandledrejection',function(e){var r=e.reason;post('unhandledrejection',r&&r.stack?(r.message?r.message+'\\n':'')+r.stack:String(r))});var orig=console.error;console.error=function(){post('console.error',Array.prototype.map.call(arguments,function(a){return a&&a.stack?(a.message?a.message+'\\n':'')+a.stack:String(a)}).join(' | '));return orig.apply(console,arguments)}})();</script>";
+            // The identity rewrites are exact-string; an upstream merge that rewords either
+            // pattern would otherwise ship LibreChat's text again SILENTLY. Absence is
+            // stated on stderr the moment it happens, not discovered in a screenshot.
+            for (pattern, name) in [
+                ("<title>LibreChat</title>", "title"),
+                ("content=\"LibreChat - An open source chat application", "description"),
+            ] {
+                if !body.contains(pattern) {
+                    eprintln!(
+                        "[tempest] serve_index: the {name} identity rewrite found no target — \
+                         upstream index.html changed shape; re-pin the pattern"
+                    );
+                }
+            }
             let body = body
                 .replace("<title>LibreChat</title>", "<title>Tempest AI</title>")
                 .replace(
                     "content=\"LibreChat - An open source chat application with support for multiple AI models\"",
                     "content=\"Tempest AI — the assistant that shows you the evidence\"",
                 )
-                .replacen("<head>", &format!("<head>{mode}{tap}{glass}"), 1)
+                .replacen("<head>", &format!("<head>{mode}{tap}{drag}{glass}"), 1)
                 .replace(
                     "</head>",
                     "<link rel=\"stylesheet\" href=\"/tempest-theme.css\" />\n</head>",
@@ -138,6 +174,95 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
             format!("platform client dist unreadable: {err}").into_bytes(),
         ),
     }
+}
+
+/// Percent-encode a diagnostic detail for the `?detail=` query: unreserved bytes pass,
+/// everything else becomes %XX, and the result is bounded — an error string is context,
+/// not a payload.
+pub fn encode_detail(detail: &str) -> String {
+    let mut out = String::new();
+    for byte in detail.bytes().take(500) {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// Minimal HTML escape for text interpolated into the diagnostic page. The inputs are our
+/// own error strings, but an error string can quote arbitrary paths and env values — escaped
+/// on principle, pinned by test.
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// The full-screen diagnostic the fallback window shows when the platform surface cannot
+/// start. Copy is curated per cause slug — the page explains what failed and what fixes it,
+/// in the product's own voice and identity, with the raw detail quoted underneath.
+fn diagnostic_page(cause: &str, detail: &str) -> String {
+    let (title, remedy): (&str, &str) = match cause {
+        "client-missing" => (
+            "The chat surface isn\u{2019}t in this build",
+            "The bundled client files are missing. Reinstall Tempest AI \u{2014} or, in a \
+             development checkout, run `make platform-client-dist` (or point \
+             TEMPEST_PLATFORM_WEB_DIST at a built client).",
+        ),
+        "node-missing" => (
+            "Tempest AI needs Node.js for its chat surface",
+            "No Node runtime was found on this machine. Install Node 22 or newer (e.g. from \
+             nodejs.org), or set TEMPEST_PLATFORM_NODE to the full path of a node binary, \
+             then reopen Tempest AI.",
+        ),
+        "boundary-missing" => (
+            "This build is incomplete",
+            "A bundled component (boundary.mjs) is missing, which usually means a broken \
+             install. Reinstall Tempest AI.",
+        ),
+        "socket-failed" => (
+            "Tempest AI couldn\u{2019}t prepare its private socket",
+            "The per-user socket directory could not be created. Check the detail below \
+             \u{2014} it names the exact path and error \u{2014} then reopen Tempest AI.",
+        ),
+        _ => (
+            "Tempest AI couldn\u{2019}t open its chat surface",
+            "Something outside the usual failure set went wrong. The detail below names it; \
+             reopening the app is the first thing to try.",
+        ),
+    };
+    let detail_block = if detail.is_empty() {
+        String::new()
+    } else {
+        format!("<pre>{}</pre>", html_escape(detail))
+    };
+    format!(
+        r##"<!doctype html><html><head><meta charset="utf-8"><title>Tempest AI</title><style>
+:root {{ color-scheme: dark; }}
+html, body {{ margin: 0; height: 100%; background: #090E1A; color: #EDF2FC;
+  font: 400 13px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }}
+main {{ min-height: 100%; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 12px; padding: 48px; box-sizing: border-box; text-align: center; }}
+svg {{ margin-bottom: 8px; }}
+h1 {{ font-size: 20px; font-weight: 600; letter-spacing: -0.019em; margin: 0; }}
+p {{ max-width: 52ch; margin: 0; color: #93A1BF; }}
+code {{ font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #A9B6D2; }}
+pre {{ max-width: 60ch; overflow-x: auto; text-align: left; background: #060A14;
+  border: 1px solid rgba(143, 176, 255, 0.14); border-radius: 8px; padding: 10px 12px;
+  color: #A9B6D2; font: 400 11px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }}
+footer {{ margin-top: 16px; color: #5A657E; font-size: 11px; }}
+</style></head><body><main>
+<svg width="56" height="56" viewBox="0 0 1024 1024" aria-hidden="true"><path d="M577 206 337 556h133l-63 262 280-378H545l90-234Z" fill="#4D94FF"/></svg>
+<h1>{title}</h1>
+<p>{remedy}</p>
+{detail_block}
+<footer>The proof engine is unaffected — <code>tempest prove</code> works from any terminal.</footer>
+</main></body></html>"##
+    )
 }
 
 /// Forward one `/api/*` request over boundary E. The sidecar's local-mode seam answers the
@@ -236,16 +361,29 @@ fn catalog_response(
     engine: Option<&Arc<Supervisor>>,
     route: &str,
 ) -> tauri::http::Response<Vec<u8>> {
-    let catalog = match fetch_catalog(engine) {
+    let mut catalog = match fetch_catalog(engine) {
         Ok(catalog) => catalog,
         Err(refusal) => return *refusal,
     };
     let payload = if route == "/api/endpoints" {
+        decorate_endpoint_icons(&mut catalog);
         serde_json::to_vec(&catalog.endpoints)
     } else {
         serde_json::to_vec(&catalog.models)
     };
     response(200, "application/json", payload.unwrap_or_default())
+}
+
+/// The badge URLs are a HOST detail — only this protocol serves /tempest-assets/, so only
+/// this bridge writes them. The engine's own catalog stays clean of desktop serving layout,
+/// and any other consumer keeps the client's graceful no-iconURL fallback instead of a
+/// broken `<img>`.
+fn decorate_endpoint_icons(catalog: &mut crate::generated::domain::PlatformCatalog) {
+    for row in &catalog.providers {
+        if let Some(endpoint) = catalog.endpoints.get_mut(&row.endpoint_key) {
+            endpoint.icon_url = Some(format!("/tempest-assets/providers/{}.svg", row.id));
+        }
+    }
 }
 
 /// The `value` a key save carries: the built-in anthropic dialog sends the raw key, the
@@ -519,6 +657,18 @@ pub fn handle(
             ),
         };
     }
+    if route == "/__tempest-diagnostic" {
+        // The fallback surface when the platform client cannot start (L15.3: a failure is
+        // surfaced on SCREEN with its cause and remedy, never only a stderr line a
+        // Finder-launched app swallows). Self-contained — no dist, no sidecar, no assets.
+        let cause = query_param(query, "cause").unwrap_or_default();
+        let detail = query_param(query, "detail").unwrap_or_default();
+        return response(
+            200,
+            "text/html; charset=utf-8",
+            diagnostic_page(&cause, &detail).into_bytes(),
+        );
+    }
     if route == "/tempest-theme.css" {
         // The seam stylesheet lives beside dist/ in the seam directory.
         let theme = dist.parent().map(|p| p.join("tempest/theme.css"));
@@ -650,11 +800,79 @@ mod tests {
             assert!(html.contains("classList.add('tempest-vibrancy')"));
             assert_eq!(html.matches("data-tauri-drag-region").count(), 1); // the injector source
             assert!(html.contains("height:10px"));
-            assert!(html.contains("width:76px;height:38px"));
+            // 52 = the sidebar rail's width; wider overhangs the panel's first control row.
+            assert!(html.contains("width:52px;height:38px"));
         } else {
             assert!(!html.contains("tempest-vibrancy"));
         }
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn the_host_decorates_catalog_rows_with_badge_urls_by_provider_id() {
+        use crate::generated::domain::{CatalogEndpoint, CatalogProvider, PlatformCatalog};
+        let endpoint = |order: i32| CatalogEndpoint {
+            icon_url: None,
+            model_display_label: "X".into(),
+            order,
+            type_: Some("custom".into()),
+            user_provide: true,
+            user_provide_url: false,
+        };
+        let mut catalog = PlatformCatalog {
+            endpoints: [("Groq".to_string(), endpoint(0)), ("Orphan".to_string(), endpoint(1))]
+                .into_iter()
+                .collect(),
+            models: Default::default(),
+            providers: vec![CatalogProvider {
+                id: "groq".into(),
+                endpoint_key: "Groq".into(),
+                label: "Groq".into(),
+                wire: "openai".into(),
+                key_env: "GROQ_API_KEY".into(),
+                local: false,
+            }],
+        };
+        decorate_endpoint_icons(&mut catalog);
+        // Keyed by the registry row's ID (the badge filename), looked up by endpoint key.
+        assert_eq!(
+            catalog.endpoints["Groq"].icon_url.as_deref(),
+            Some("/tempest-assets/providers/groq.svg")
+        );
+        // A row with no registry entry stays undecorated — absent, not invented.
+        assert_eq!(catalog.endpoints["Orphan"].icon_url, None);
+    }
+
+    #[test]
+    fn the_diagnostic_page_names_the_cause_and_escapes_the_detail() {
+        let reply = handle(
+            None,
+            None,
+            Path::new("/nonexistent-dist"),
+            "GET",
+            "/__tempest-diagnostic?cause=node-missing&detail=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+            b"",
+        );
+        assert_eq!(reply.status(), 200);
+        let html = String::from_utf8(reply.body().clone()).unwrap();
+        // Curated remedy for the known cause; raw detail escaped, never interpreted.
+        assert!(html.contains("TEMPEST_PLATFORM_NODE"));
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>alert(1)"));
+        // The engine's independence is stated — the failure is scoped, not total.
+        assert!(html.contains("tempest prove"));
+
+        // An unknown cause still renders a complete page, never a blank window.
+        let generic = handle(
+            None,
+            None,
+            Path::new("/nonexistent-dist"),
+            "GET",
+            "/__tempest-diagnostic?cause=who-knows",
+            b"",
+        );
+        let html = String::from_utf8(generic.body().clone()).unwrap();
+        assert!(html.contains("couldn\u{2019}t open its chat surface"));
     }
 
     #[test]

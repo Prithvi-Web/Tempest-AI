@@ -5,9 +5,10 @@
  * body 13/400 · caption 11/400), neutral surfaces on an 8pt grid, hairline separators, one
  * radius ladder (6 small · 8 control · 10 card · pill). Color is RESERVED for verdicts (the
  * product's vocabulary — L2) plus one accent for primary actions. Light and dark palettes are
- * both first-class via prefers-color-scheme; every color, radius, elevation and duration lives
- * in a token here and nowhere else. Motion is ease-out at two speeds — 140ms for the feedback
- * under a pointer, 180ms for a view arriving — and fully disabled under prefers-reduced-motion.
+ * both first-class, keyed on the app's own `html.dark` polarity class; every color, radius,
+ * elevation and duration lives in a token here and nowhere else. Motion is ease-out at two
+ * speeds — 140ms for the feedback under a pointer, 180ms for a view arriving — and quieted to
+ * 1ms under prefers-reduced-motion.
  * Monospace appears ONLY where the content is evidence: SHAs, inputs, repro scripts, log
  * records.
  *

@@ -221,6 +221,10 @@ pub fn run() {
                 .ok()
                 .filter(|p| p.is_file());
             let mut platform_ready = false;
+            // A genuine startup failure opens the DIAGNOSTIC surface (cause + remedy on
+            // screen, L15.3) — the legacy window remains only behind the two explicit env
+            // escapes until the ADR-0077 deletion retires it.
+            let mut diagnostic: Option<(&'static str, String)> = None;
             if legacy_forced {
                 eprintln!(
                     "[tempest] TEMPEST_LEGACY_WINDOW=1 — opening the pre-merge desktop webview"
@@ -230,17 +234,20 @@ pub fn run() {
             } else if !dist_present {
                 eprintln!(
                     "[tempest] platform client dist not found (no bundled resource, no \
-                     TEMPEST_PLATFORM_WEB_DIST) — falling back to the legacy window"
+                     TEMPEST_PLATFORM_WEB_DIST) — opening the diagnostic surface"
                 );
+                diagnostic = Some(("client-missing", String::new()));
             } else if node.is_none() {
                 eprintln!(
                     "[tempest] no Node runtime found (TEMPEST_PLATFORM_NODE, PATH, standard \
-                     locations) — falling back to the legacy window"
+                     locations) — opening the diagnostic surface"
                 );
+                diagnostic = Some(("node-missing", String::new()));
             } else if script.is_none() {
                 eprintln!(
-                    "[tempest] boundary.mjs is not bundled — falling back to the legacy window"
+                    "[tempest] boundary.mjs is not bundled — opening the diagnostic surface"
                 );
+                diagnostic = Some(("boundary-missing", String::new()));
             } else if let (Some(node), Some(script)) = (node, script) {
                 // prepare_socket creates the private per-user 0700 socket directory
                 // and sweeps dead siblings; the supervisor itself never touches dirs.
@@ -263,10 +270,13 @@ pub fn run() {
                         });
                         platform_ready = true;
                     }
-                    Err(err) => eprintln!(
-                        "[tempest] platform socket dir failed: {err} — falling back to the \
-                         legacy window"
-                    ),
+                    Err(err) => {
+                        eprintln!(
+                            "[tempest] platform socket dir failed: {err} — opening the \
+                             diagnostic surface"
+                        );
+                        diagnostic = Some(("socket-failed", err.to_string()));
+                    }
                 }
             }
 
@@ -302,6 +312,10 @@ pub fn run() {
                     None,
                     None,
                 ) {
+                    // Withheld class = the CSS keeps opaque grounds. This runs before the
+                    // webview's first navigation (setup completes first), so the page can
+                    // never carry translucent grounds over a missing material.
+                    platform_web::mark_vibrancy_failed();
                     eprintln!(
                         "[tempest] window vibrancy unavailable: {err} — the opaque navy \
                          ground stands"
@@ -309,6 +323,22 @@ pub fn run() {
                 }
                 #[cfg(not(target_os = "macos"))]
                 drop(window);
+            } else if let Some((cause, detail)) = diagnostic {
+                let url = format!(
+                    "tempest://localhost/__tempest-diagnostic?cause={cause}&detail={}",
+                    platform_web::encode_detail(&detail)
+                );
+                WebviewWindowBuilder::new(
+                    app,
+                    "main",
+                    WebviewUrl::CustomProtocol(
+                        url.parse().expect("slug + percent-encoded detail always parses"),
+                    ),
+                )
+                .title("Tempest AI")
+                .inner_size(760.0, 560.0)
+                .min_inner_size(560.0, 420.0)
+                .build()?;
             } else {
                 let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                     .title("Tempest AI")

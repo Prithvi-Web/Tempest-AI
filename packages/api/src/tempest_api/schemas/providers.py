@@ -25,9 +25,10 @@ class CatalogEndpoint(BaseModel):
     userProvide: bool
     userProvideURL: bool = False
     modelDisplayLabel: str
-    #: Root-relative badge the desktop host serves from the client seam
-    #: (/tempest-assets/providers/<id>.svg) — never a remote URL (L32). The client's
-    #: UnknownIcon renders it verbatim as an <img src>; built-in rows ignore it.
+    #: Root-relative badge (/tempest-assets/providers/<id>.svg) — written by the DESKTOP
+    #: HOST as it bridges the catalog, because only its protocol serves that route; the
+    #: engine always emits None. Never a remote URL (L32). The client's UnknownIcon
+    #: renders it verbatim as an <img src>; built-in rows ignore it.
     iconURL: str | None = None
 
 

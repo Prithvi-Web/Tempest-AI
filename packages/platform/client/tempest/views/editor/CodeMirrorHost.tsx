@@ -26,9 +26,9 @@ import { modelBackedSource } from "./modelSource";
  * CodeMirror's bundled highlight style is tuned for a white page. Dropped into this app's dark
  * palette it rendered keywords at roughly 1.7:1 against the background — technically present,
  * practically unreadable, and invisible to every gate because no screenshot or contrast check
- * was looking at this view. Emitting `var(--code-*)` instead lets the app's existing
- * prefers-color-scheme block define both schemes in one place, the way every other surface here
- * already works.
+ * was looking at this view. Emitting `var(--code-*)` instead lets the app's token blocks
+ * (light on `.tempest-views`, dark under `html.dark`) define both schemes in one place, the
+ * way every other surface here already works.
  */
 const appHighlight = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--code-keyword)" },

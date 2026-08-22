@@ -211,21 +211,23 @@ class TestKeyedDiscovery:
 
 
 class TestProviderIcons:
-    """Every selector row carries a local badge (L32: no remote icon fetch, ever).
+    """Every selector row's badge exists locally (L32: no remote icon fetch, ever).
 
-    The vendored client renders custom endpoints through `UnknownIcon`, whose `iconURL` arm is
-    a bare `<img>` with no error handler — a missing file is an unstyled broken-image box in
-    the model menu. So the catalog pins BOTH halves: the URL it emits, and the badge file that
-    URL resolves to in the seam the host serves.
+    The URL itself is written by the DESKTOP HOST as it bridges the catalog — only its
+    protocol serves /tempest-assets/, and an engine-side URL would hand every other consumer
+    a broken <img> (the vendored UnknownIcon's iconURL arm has no error handler). So the
+    engine pins the ABSENCE of the URL, and the seam pins the badge file the host's
+    decoration resolves to, one per registry row. The host's half is pinned in Rust
+    (platform_web.rs: the decoration test).
     """
 
-    def test_every_endpoint_carries_a_local_badge_url(self, client: TestClient) -> None:
+    def test_the_engine_emits_no_icon_url_the_host_decorates(self, client: TestClient) -> None:
         payload = _catalog(client)
         endpoints = payload["endpoints"]
         assert isinstance(endpoints, dict)
         for provider in registry.PROVIDERS:
             key = "anthropic" if provider.id == "anthropic" else provider.label
-            assert endpoints[key]["iconURL"] == f"/tempest-assets/providers/{provider.id}.svg"
+            assert endpoints[key]["iconURL"] is None
 
     def test_every_badge_url_resolves_to_a_bundled_seam_file(self) -> None:
         for provider in registry.PROVIDERS:

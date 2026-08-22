@@ -478,10 +478,12 @@ html.tempest-vibrancy.dark .bg-surface-chat {
   background-color: rgb(var(--gray-800) / 0.72);
 }
 
-/* The window is full-bleed under an overlay titlebar on macOS: the traffic lights float over
- * the sidebar rail's head, so the rail starts below them. The drag surface itself is injected
- * by the host beside this class. */
-html.tempest-vibrancy aside .border-r.bg-surface-primary-alt {
+/* The window is full-bleed under an overlay titlebar on macOS: the traffic lights span past
+ * the 52px icon rail into the panel beside it, so the WHOLE sidebar starts below them — the
+ * rail alone left the panel's first control row under the lights and the host's drag zone.
+ * Scoped to the shell's first aside (the unified sidebar); the right-hand side panel keeps
+ * its own geometry. The drag surfaces are injected by the host beside this class. */
+html.tempest-vibrancy .z-0 > aside:first-child {
   padding-top: 38px;
 }
 
@@ -492,9 +494,13 @@ html.tempest-vibrancy aside .border-r.bg-surface-primary-alt {
  * ahead of the iconURL arm. Rather than edit that resolution order in place (two more
  * ledger rows for an icon), the seam dresses those component marks in the same badge:
  * circle, gradient, hairline ring, light ink — POLISH item 16's "one icon family at one
- * optical size" without touching the components. Scoped to the endpoint rows' icon slot;
- * the row's gear and check affordances live outside the aria-hidden icon wrapper. */
-:is([role='listbox'], [role='menu']) [aria-hidden='true'] > svg.icon-md {
+ * optical size" without touching the components. Keyed to the icon element's own class
+ * triple (which the endpoint rows AND the menu's search results both pass to it) so the
+ * dressing follows the mark through every in-menu surface; the row's gear, pin and check
+ * affordances are size-4, not icon-md, and stay untouched. The closed-menu trigger keeps
+ * its bare mark deliberately — a chip inside a chip reads as heavy, and that surface shows
+ * one mark alone, never a mixed family. */
+:is([role='listbox'], [role='menu']) svg.icon-md.shrink-0.text-text-primary {
   color: #e9f1ff;
   background: linear-gradient(#16233f, #0a1226);
   border-radius: 999px;
