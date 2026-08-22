@@ -315,3 +315,24 @@ class TestFixWavePins:
             "~~~markdown\n- **Vendor baseline:** " + "b" * 40 + "\n~~~\n" + md.read_text()
         )
         assert _run(repo) == 0
+
+
+class TestShallowClonePin:
+    """The gate's FIRST CI run failed inside actions/checkout's depth-1 clone: the vendor
+    baseline is a parent commit a shallow checkout cannot resolve. Reproduced locally in a
+    `git clone --depth 1` copy before the fix; this pin keeps the cause named forever."""
+
+    def test_a_shallow_clone_names_the_real_cause_and_the_fix(
+        self, repo: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        clone = tmp_path / "shallow"
+        subprocess.run(
+            ["git", "clone", "--depth", "1", f"file://{repo}", str(clone)],
+            capture_output=True,
+            check=True,
+        )
+        assert _run(clone) == 1
+        err = capsys.readouterr().err
+        assert "SHALLOW" in err
+        assert "fetch-depth: 0" in err
+        assert "fictional" not in err  # the un-actionable message must not fire for this cause

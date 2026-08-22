@@ -10,6 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # upstream_check diffs packages/platform/** against the vendor-baseline commit in
+          # UPSTREAM.md; a depth-1 clone cannot resolve that parent commit. The gate's very
+          # first CI run went red exactly here — reproduced locally in a `git clone --depth 1`
+          # copy before this line was added.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"

@@ -228,10 +228,27 @@ def main(argv: list[str] | None = None) -> int:
             == 0
         )
         if not resolvable:
-            fail.append(
-                f"UPSTREAM.md: vendor baseline {baseline[:12]} does not resolve to a commit "
-                "in this repository — the ledger's reference point is fictional"
+            shallow = (
+                subprocess.run(
+                    ["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                == "true"
             )
+            if shallow:
+                fail.append(
+                    f"UPSTREAM.md: vendor baseline {baseline[:12]} is not in this SHALLOW "
+                    "clone — the commit exists upstream but a depth-limited checkout cannot "
+                    "see it. Fetch full history (actions/checkout: fetch-depth: 0; locally: "
+                    "git fetch --unshallow) — the drift check needs the baseline to diff "
+                    "against"
+                )
+            else:
+                fail.append(
+                    f"UPSTREAM.md: vendor baseline {baseline[:12]} does not resolve to a "
+                    "commit in this repository — the ledger's reference point is fictional"
+                )
             baseline = None
 
     rows = _ledger_rows(body)
