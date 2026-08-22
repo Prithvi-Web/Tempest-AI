@@ -448,7 +448,10 @@ export function SettingsView() {
     <main>
       <h1>Settings</h1>
 
-      {data.problem !== null && (
+      {/* Loose on purpose: the generated Rust layer omits `problem` when it is None
+       * (skip_serializing_if), so a healthy read arrives as `undefined` — a strict
+       * `!== null` renders a phantom warning on every healthy settings screen. */}
+      {data.problem != null && (
         <div className="panel notproven" role="alert">
           <strong className="yellow">the settings file could not be read</strong>
           <p style={{ marginBottom: 0 }}>

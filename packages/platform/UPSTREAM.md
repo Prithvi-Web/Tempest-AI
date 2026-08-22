@@ -88,3 +88,4 @@ seam directory and not a row of the brand-asset strip above. Cap enforced by
 | `packages/platform/client/tsconfig.json` | same rename: two include entries retargeted to `../client-pkg` | — |
 | `packages/platform/client/src/routes/index.tsx` | C3 absorption: one lazy loader + one `tempest/*` route entry mounting the seam subtree (`client/tempest/views`) — the router's entire knowledge of the absorbed proof surface | — |
 | `packages/platform/client/src/hooks/Nav/useUnifiedSidebarLinks.ts` | C3 absorption: one nav link (`Tempest`, insights-link pattern) reaching the seam subtree; i18n key lands at C11 | — |
+| `packages/platform/client/src/components/UnifiedSidebar/ExpandedPanel.tsx` | upstream defect: `onClick={toggleClick}` hands the pointer event to `onCollapse(afterSlide?)`, and `useSidebarToggle` calls it on every non-'slide' (desktop) path — uncaught TypeError per collapse click; wrapped zero-arg | worth filing upstream |

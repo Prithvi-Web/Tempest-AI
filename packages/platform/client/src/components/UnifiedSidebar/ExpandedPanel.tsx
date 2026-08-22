@@ -142,7 +142,10 @@ function ExpandedPanel({
   const isInsightsRoute = location.pathname.startsWith('/insights');
 
   const toggleLabel = expanded ? 'com_nav_close_sidebar' : 'com_nav_open_sidebar';
-  const toggleClick = expanded ? onCollapse : onExpand;
+  /** Zero-arg on purpose: `onCollapse` is `(afterSlide?: () => void) => void`, and handing it
+   * the click event makes `setSidebarOpen` CALL that event on every non-'slide' (desktop)
+   * path — an uncaught TypeError on each collapse click. Inline delta, UPSTREAM.md ledger. */
+  const toggleClick = () => (expanded ? onCollapse?.() : onExpand?.());
   const toggleSidebarHint = useShortcutHint('toggleSidebar', localize(toggleLabel));
   const toggleSidebarAriaKey = useShortcutAriaKey('toggleSidebar');
 
