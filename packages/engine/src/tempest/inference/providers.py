@@ -50,6 +50,14 @@ class Provider:
     default_model: str | None
     #: Runs on the user's machine: no key, and it works with the network unplugged (L23).
     local: bool = False
+    #: Static model-spec metadata, ADOPTED from upstream LibreChat's `defaultModels` tables
+    #: (provider/src/config.ts at the vendored commit) for the providers upstream declares
+    #: statically — refreshed at every upstream merge (L27), never invented here. Providers
+    #: upstream serves by LIVE fetch keep an empty tuple and are discovered the same way:
+    #: the catalog route probes `{base_url}/models` — always for local runners (loopback,
+    #: keyless), and for remote providers only when their key is configured, which is the
+    #: same user-sanctioned BYOK egress surface `verify_key` already uses (L10, ADR-0024).
+    models: tuple[str, ...] = ()
 
     @property
     def needs_key(self) -> bool:
@@ -68,6 +76,26 @@ PROVIDERS: tuple[Provider, ...] = (
         base_url="https://api.anthropic.com",
         env_var="ANTHROPIC_API_KEY",
         default_model="claude-sonnet-5",
+        models=(
+            # Upstream sharedAnthropicModels at the vendored commit, dated duplicate
+            # aliases collapsed onto their canonical ids — refreshed at upstream merges.
+            "claude-fable-5",
+            "claude-opus-5",
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-sonnet-5",
+            "claude-sonnet-4-6",
+            "claude-opus-4-6",
+            "claude-sonnet-4-5",
+            "claude-haiku-4-5",
+            "claude-opus-4-1",
+            "claude-opus-4-5",
+            "claude-sonnet-4-0",
+            "claude-opus-4-0",
+            "claude-3-7-sonnet-latest",
+            "claude-3-5-haiku-20241022",
+            "claude-3-5-sonnet-latest",
+        ),
     ),
     Provider(
         id="openai",
@@ -76,6 +104,32 @@ PROVIDERS: tuple[Provider, ...] = (
         base_url="https://api.openai.com/v1",
         env_var="OPENAI_API_KEY",
         default_model=None,
+        models=(
+            # Upstream sharedOpenAIModels at the vendored commit, the legacy instruct/vision
+            # tail dropped — refreshed at upstream merges.
+            "gpt-5.6",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+            "gpt-5.5",
+            "gpt-5.5-pro",
+            "chat-latest",
+            "gpt-5.4",
+            "gpt-5.4-pro",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "gpt-5.3-codex",
+            "gpt-5.2",
+            "gpt-5.1",
+            "gpt-5.1-codex",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+        ),
     ),
     Provider(
         id="azure-openai",
@@ -93,6 +147,20 @@ PROVIDERS: tuple[Provider, ...] = (
         base_url="https://generativelanguage.googleapis.com/v1beta/openai",
         env_var="GOOGLE_API_KEY",
         default_model=None,
+        models=(
+            # Upstream defaultModels[google] at the vendored commit — refreshed at
+            # upstream merges.
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-pro-preview",
+            "gemini-3-pro-preview",
+            "gemini-3-flash-preview",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+        ),
     ),
     Provider(
         id="groq",

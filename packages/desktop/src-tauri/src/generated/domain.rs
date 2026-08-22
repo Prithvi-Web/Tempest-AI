@@ -368,6 +368,136 @@ impl CancelAccepted {
         Default::default()
     }
 }
+#[doc = "One `/api/endpoints` row, exactly the fields the vendored client reads."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"CatalogEndpoint\","]
+#[doc = "  \"description\": \"One `/api/endpoints` row, exactly the fields the vendored client reads.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"modelDisplayLabel\","]
+#[doc = "    \"order\","]
+#[doc = "    \"userProvide\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"modelDisplayLabel\": {"]
+#[doc = "      \"title\": \"Modeldisplaylabel\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"order\": {"]
+#[doc = "      \"title\": \"Order\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"type\": {"]
+#[doc = "      \"title\": \"Type\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"userProvide\": {"]
+#[doc = "      \"title\": \"Userprovide\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"userProvideURL\": {"]
+#[doc = "      \"title\": \"Userprovideurl\","]
+#[doc = "      \"default\": false,"]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct CatalogEndpoint {
+    #[serde(rename = "modelDisplayLabel")]
+    pub model_display_label: ::std::string::String,
+    pub order: i32,
+    #[serde(
+        rename = "type",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub type_: ::std::option::Option<::std::string::String>,
+    #[serde(rename = "userProvide")]
+    pub user_provide: bool,
+    #[serde(rename = "userProvideURL", default)]
+    pub user_provide_url: bool,
+}
+impl CatalogEndpoint {
+    pub fn builder() -> builder::CatalogEndpoint {
+        Default::default()
+    }
+}
+#[doc = "One registry row, host-facing: enough for the key bridge, never a secret."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"CatalogProvider\","]
+#[doc = "  \"description\": \"One registry row, host-facing: enough for the key bridge, never a secret.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"endpoint_key\","]
+#[doc = "    \"id\","]
+#[doc = "    \"key_env\","]
+#[doc = "    \"label\","]
+#[doc = "    \"local\","]
+#[doc = "    \"wire\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"endpoint_key\": {"]
+#[doc = "      \"title\": \"Endpoint Key\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"id\": {"]
+#[doc = "      \"title\": \"Id\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"key_env\": {"]
+#[doc = "      \"title\": \"Key Env\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"label\": {"]
+#[doc = "      \"title\": \"Label\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"local\": {"]
+#[doc = "      \"title\": \"Local\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"wire\": {"]
+#[doc = "      \"title\": \"Wire\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct CatalogProvider {
+    pub endpoint_key: ::std::string::String,
+    pub id: ::std::string::String,
+    pub key_env: ::std::string::String,
+    pub label: ::std::string::String,
+    pub local: bool,
+    pub wire: ::std::string::String,
+}
+impl CatalogProvider {
+    pub fn builder() -> builder::CatalogProvider {
+        Default::default()
+    }
+}
 #[doc = "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -1746,6 +1876,60 @@ pub struct PageRunSummary {
 }
 impl PageRunSummary {
     pub fn builder() -> builder::PageRunSummary {
+        Default::default()
+    }
+}
+#[doc = "`PlatformCatalog`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"PlatformCatalog\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"endpoints\","]
+#[doc = "    \"models\","]
+#[doc = "    \"providers\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"endpoints\": {"]
+#[doc = "      \"title\": \"Endpoints\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": {"]
+#[doc = "        \"$ref\": \"#/$defs/CatalogEndpoint\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"models\": {"]
+#[doc = "      \"title\": \"Models\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": {"]
+#[doc = "        \"type\": \"array\","]
+#[doc = "        \"items\": {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        }"]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"providers\": {"]
+#[doc = "      \"title\": \"Providers\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/CatalogProvider\""]
+#[doc = "      }"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct PlatformCatalog {
+    pub endpoints: ::std::collections::HashMap<::std::string::String, CatalogEndpoint>,
+    pub models:
+        ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>>,
+    pub providers: ::std::vec::Vec<CatalogProvider>,
+}
+impl PlatformCatalog {
+    pub fn builder() -> builder::PlatformCatalog {
         Default::default()
     }
 }
@@ -4451,6 +4635,215 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct CatalogEndpoint {
+        model_display_label: ::std::result::Result<::std::string::String, ::std::string::String>,
+        order: ::std::result::Result<i32, ::std::string::String>,
+        type_: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        user_provide: ::std::result::Result<bool, ::std::string::String>,
+        user_provide_url: ::std::result::Result<bool, ::std::string::String>,
+    }
+    impl ::std::default::Default for CatalogEndpoint {
+        fn default() -> Self {
+            Self {
+                model_display_label: Err("no value supplied for model_display_label".to_string()),
+                order: Err("no value supplied for order".to_string()),
+                type_: Ok(Default::default()),
+                user_provide: Err("no value supplied for user_provide".to_string()),
+                user_provide_url: Ok(Default::default()),
+            }
+        }
+    }
+    impl CatalogEndpoint {
+        pub fn model_display_label<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.model_display_label = value.try_into().map_err(|e| {
+                format!("error converting supplied value for model_display_label: {e}")
+            });
+            self
+        }
+        pub fn order<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.order = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for order: {e}"));
+            self
+        }
+        pub fn type_<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.type_ = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for type_: {e}"));
+            self
+        }
+        pub fn user_provide<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.user_provide = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for user_provide: {e}"));
+            self
+        }
+        pub fn user_provide_url<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.user_provide_url = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for user_provide_url: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<CatalogEndpoint> for super::CatalogEndpoint {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: CatalogEndpoint,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                model_display_label: value.model_display_label?,
+                order: value.order?,
+                type_: value.type_?,
+                user_provide: value.user_provide?,
+                user_provide_url: value.user_provide_url?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::CatalogEndpoint> for CatalogEndpoint {
+        fn from(value: super::CatalogEndpoint) -> Self {
+            Self {
+                model_display_label: Ok(value.model_display_label),
+                order: Ok(value.order),
+                type_: Ok(value.type_),
+                user_provide: Ok(value.user_provide),
+                user_provide_url: Ok(value.user_provide_url),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct CatalogProvider {
+        endpoint_key: ::std::result::Result<::std::string::String, ::std::string::String>,
+        id: ::std::result::Result<::std::string::String, ::std::string::String>,
+        key_env: ::std::result::Result<::std::string::String, ::std::string::String>,
+        label: ::std::result::Result<::std::string::String, ::std::string::String>,
+        local: ::std::result::Result<bool, ::std::string::String>,
+        wire: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for CatalogProvider {
+        fn default() -> Self {
+            Self {
+                endpoint_key: Err("no value supplied for endpoint_key".to_string()),
+                id: Err("no value supplied for id".to_string()),
+                key_env: Err("no value supplied for key_env".to_string()),
+                label: Err("no value supplied for label".to_string()),
+                local: Err("no value supplied for local".to_string()),
+                wire: Err("no value supplied for wire".to_string()),
+            }
+        }
+    }
+    impl CatalogProvider {
+        pub fn endpoint_key<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.endpoint_key = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for endpoint_key: {e}"));
+            self
+        }
+        pub fn id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for id: {e}"));
+            self
+        }
+        pub fn key_env<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.key_env = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for key_env: {e}"));
+            self
+        }
+        pub fn label<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.label = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for label: {e}"));
+            self
+        }
+        pub fn local<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.local = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for local: {e}"));
+            self
+        }
+        pub fn wire<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.wire = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for wire: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<CatalogProvider> for super::CatalogProvider {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: CatalogProvider,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                endpoint_key: value.endpoint_key?,
+                id: value.id?,
+                key_env: value.key_env?,
+                label: value.label?,
+                local: value.local?,
+                wire: value.wire?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::CatalogProvider> for CatalogProvider {
+        fn from(value: super::CatalogProvider) -> Self {
+            Self {
+                endpoint_key: Ok(value.endpoint_key),
+                id: Ok(value.id),
+                key_env: Ok(value.key_env),
+                label: Ok(value.label),
+                local: Ok(value.local),
+                wire: Ok(value.wire),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct ComposeRequest {
         accepted: ::std::result::Result<
             ::std::option::Option<::std::vec::Vec<::std::string::String>>,
@@ -5759,6 +6152,91 @@ pub mod builder {
             Self {
                 items: Ok(value.items),
                 next_cursor: Ok(value.next_cursor),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct PlatformCatalog {
+        endpoints: ::std::result::Result<
+            ::std::collections::HashMap<::std::string::String, super::CatalogEndpoint>,
+            ::std::string::String,
+        >,
+        models: ::std::result::Result<
+            ::std::collections::HashMap<
+                ::std::string::String,
+                ::std::vec::Vec<::std::string::String>,
+            >,
+            ::std::string::String,
+        >,
+        providers:
+            ::std::result::Result<::std::vec::Vec<super::CatalogProvider>, ::std::string::String>,
+    }
+    impl ::std::default::Default for PlatformCatalog {
+        fn default() -> Self {
+            Self {
+                endpoints: Err("no value supplied for endpoints".to_string()),
+                models: Err("no value supplied for models".to_string()),
+                providers: Err("no value supplied for providers".to_string()),
+            }
+        }
+    }
+    impl PlatformCatalog {
+        pub fn endpoints<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::collections::HashMap<::std::string::String, super::CatalogEndpoint>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.endpoints = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for endpoints: {e}"));
+            self
+        }
+        pub fn models<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::collections::HashMap<
+                    ::std::string::String,
+                    ::std::vec::Vec<::std::string::String>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.models = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for models: {e}"));
+            self
+        }
+        pub fn providers<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::CatalogProvider>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.providers = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for providers: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<PlatformCatalog> for super::PlatformCatalog {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: PlatformCatalog,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                endpoints: value.endpoints?,
+                models: value.models?,
+                providers: value.providers?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::PlatformCatalog> for PlatformCatalog {
+        fn from(value: super::PlatformCatalog) -> Self {
+            Self {
+                endpoints: Ok(value.endpoints),
+                models: Ok(value.models),
+                providers: Ok(value.providers),
             }
         }
     }

@@ -106,6 +106,87 @@
       "title": "CancelAccepted",
       "type": "object"
     },
+    "CatalogEndpoint": {
+      "description": "One `/api/endpoints` row, exactly the fields the vendored client reads.",
+      "properties": {
+        "modelDisplayLabel": {
+          "title": "Modeldisplaylabel",
+          "type": "string"
+        },
+        "order": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Order",
+          "type": "integer"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Type"
+        },
+        "userProvide": {
+          "title": "Userprovide",
+          "type": "boolean"
+        },
+        "userProvideURL": {
+          "default": false,
+          "title": "Userprovideurl",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "order",
+        "userProvide",
+        "modelDisplayLabel"
+      ],
+      "title": "CatalogEndpoint",
+      "type": "object"
+    },
+    "CatalogProvider": {
+      "description": "One registry row, host-facing: enough for the key bridge, never a secret.",
+      "properties": {
+        "endpoint_key": {
+          "title": "Endpoint Key",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "key_env": {
+          "title": "Key Env",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "local": {
+          "title": "Local",
+          "type": "boolean"
+        },
+        "wire": {
+          "title": "Wire",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "endpoint_key",
+        "label",
+        "wire",
+        "key_env",
+        "local"
+      ],
+      "title": "CatalogProvider",
+      "type": "object"
+    },
     "ComposeRequest": {
       "description": "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff.",
       "properties": {
@@ -666,6 +747,41 @@
         "next_cursor"
       ],
       "title": "Page[RunSummary]",
+      "type": "object"
+    },
+    "PlatformCatalog": {
+      "properties": {
+        "endpoints": {
+          "additionalProperties": {
+            "$ref": "#/$defs/CatalogEndpoint"
+          },
+          "title": "Endpoints",
+          "type": "object"
+        },
+        "models": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Models",
+          "type": "object"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/$defs/CatalogProvider"
+          },
+          "title": "Providers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "endpoints",
+        "models",
+        "providers"
+      ],
+      "title": "PlatformCatalog",
       "type": "object"
     },
     "ReasonCode": {

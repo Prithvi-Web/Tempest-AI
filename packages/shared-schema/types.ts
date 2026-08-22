@@ -212,6 +212,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/platform/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Platform Catalog */
+        get: operations["getPlatformCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/runs": {
         parameters: {
             query?: never;
@@ -538,6 +555,43 @@ export interface components {
             run_id: number;
         };
         /**
+         * CatalogEndpoint
+         * @description One `/api/endpoints` row, exactly the fields the vendored client reads.
+         */
+        CatalogEndpoint: {
+            /** Modeldisplaylabel */
+            modelDisplayLabel: string;
+            /** Order */
+            order: number;
+            /** Type */
+            type?: string | null;
+            /** Userprovide */
+            userProvide: boolean;
+            /**
+             * Userprovideurl
+             * @default false
+             */
+            userProvideURL: boolean;
+        };
+        /**
+         * CatalogProvider
+         * @description One registry row, host-facing: enough for the key bridge, never a secret.
+         */
+        CatalogProvider: {
+            /** Endpoint Key */
+            endpoint_key: string;
+            /** Id */
+            id: string;
+            /** Key Env */
+            key_env: string;
+            /** Label */
+            label: string;
+            /** Local */
+            local: boolean;
+            /** Wire */
+            wire: string;
+        };
+        /**
          * ComposeRequest
          * @description Show me this change as rows, with `accepted` applied.
          *
@@ -762,6 +816,19 @@ export interface components {
             items: components["schemas"]["RunSummary"][];
             /** Next Cursor */
             next_cursor: string | null;
+        };
+        /** PlatformCatalog */
+        PlatformCatalog: {
+            /** Endpoints */
+            endpoints: {
+                [key: string]: components["schemas"]["CatalogEndpoint"];
+            };
+            /** Models */
+            models: {
+                [key: string]: string[];
+            };
+            /** Providers */
+            providers: components["schemas"]["CatalogProvider"][];
         };
         /**
          * ReasonCode
@@ -1536,6 +1603,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getPlatformCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformCatalog"];
                 };
             };
         };
