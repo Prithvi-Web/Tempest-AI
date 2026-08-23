@@ -238,6 +238,21 @@
             "title": "Generationprotocolversion",
             "type": "integer"
           },
+          "pendingSteers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pendingsteers"
+          },
           "settled": {
             "anyOf": [
               {
@@ -457,6 +472,21 @@
             ],
             "title": "Pendingaction"
           },
+          "pendingSteers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pendingsteers"
+          },
           "status": {
             "anyOf": [
               {
@@ -478,6 +508,21 @@
               }
             ],
             "title": "Streamid"
+          },
+          "unrecoveredSteers": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unrecoveredsteers"
           }
         },
         "required": [
@@ -1727,6 +1772,60 @@
           "endpoint"
         ],
         "title": "StartChatTurnRequest",
+        "type": "object"
+      },
+      "SteerCancelRequest": {
+        "additionalProperties": true,
+        "description": "Reclaim one queued steer by either id (LC17).",
+        "properties": {
+          "clientSteerId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientsteerid"
+          },
+          "steerId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steerid"
+          }
+        },
+        "title": "SteerCancelRequest",
+        "type": "object"
+      },
+      "SteerRequest": {
+        "additionalProperties": true,
+        "description": "The client's steer body (C5, LC16). `extra='allow'` for files/preempt riding along.",
+        "properties": {
+          "clientSteerId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clientsteerid"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "title": "SteerRequest",
         "type": "object"
       },
       "SymbolDivergence": {
@@ -3369,6 +3468,107 @@
           }
         },
         "summary": "Resolve Chat Approval",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/turns/{stream_id}/steer": {
+      "post": {
+        "description": "Queue a follow-up for the live agent turn (C5, LC16). 202: queued, not applied \u2014\nthe drain happens at the loop's next turn boundary and publishes on_steer_applied.",
+        "operationId": "steerChatTurn",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "title": "Stream Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SteerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Steer Chat Turn",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/turns/{stream_id}/steer/cancel": {
+      "post": {
+        "operationId": "cancelChatSteer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "title": "Stream Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SteerCancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Chat Steer",
         "tags": [
           "chat"
         ]

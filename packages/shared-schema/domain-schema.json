@@ -227,6 +227,21 @@
           "title": "Generationprotocolversion",
           "type": "integer"
         },
+        "pendingSteers": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pendingsteers"
+        },
         "settled": {
           "anyOf": [
             {
@@ -458,6 +473,21 @@
           ],
           "title": "Pendingaction"
         },
+        "pendingSteers": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pendingsteers"
+        },
         "status": {
           "anyOf": [
             {
@@ -479,6 +509,21 @@
             }
           ],
           "title": "Streamid"
+        },
+        "unrecoveredSteers": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrecoveredsteers"
         }
       },
       "required": [
@@ -1780,6 +1825,60 @@
         "endpoint"
       ],
       "title": "StartChatTurnRequest",
+      "type": "object"
+    },
+    "SteerCancelRequest": {
+      "additionalProperties": true,
+      "description": "Reclaim one queued steer by either id (LC17).",
+      "properties": {
+        "clientSteerId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Clientsteerid"
+        },
+        "steerId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Steerid"
+        }
+      },
+      "title": "SteerCancelRequest",
+      "type": "object"
+    },
+    "SteerRequest": {
+      "additionalProperties": true,
+      "description": "The client's steer body (C5, LC16). `extra='allow'` for files/preempt riding along.",
+      "properties": {
+        "clientSteerId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Clientsteerid"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "title": "SteerRequest",
       "type": "object"
     },
     "SymbolDivergence": {

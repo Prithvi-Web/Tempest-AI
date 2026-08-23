@@ -246,12 +246,21 @@ async function handleChatSeam(req, res, method, route) {
     return handleAgentCrud(req, res, method, route);
   }
   const sub = route.replace(/^\/api\/agents\/chat\/?/, "");
-  if (method === "POST" && (sub === "steer" || sub.startsWith("steer/"))) {
-    // Mirrors the host's explicit refusal — the mis-route this replaces started a turn.
-    respond(res, 501, "application/json", JSON.stringify({
-      code: "STEER_UNSUPPORTED",
-      error: "steering is not wired yet (C5 run control)",
-    }));
+  if (method === "POST" && sub === "steer/arm") {
+    // Mirrors the host: preempt is honestly unsupported at this surface's granularity.
+    respond(res, 200, "application/json", JSON.stringify({ armed: false, code: "PREEMPT_UNSUPPORTED" }));
+    return true;
+  }
+  if (method === "POST" && (sub === "steer" || sub === "steer/deliver" || sub === "steer/cancel")) {
+    // C5 steering, mirroring the host: engine statuses and top-level codes pass through.
+    const parsed = JSON.parse((await readBody(req)) || "{}");
+    const streamId = parsed.conversationId ?? parsed.streamId ?? "";
+    if (!streamId) {
+      respond(res, 400, "application/json", JSON.stringify({ error: "no conversation to steer" }));
+      return true;
+    }
+    const operation = sub === "steer/cancel" ? "cancelChatSteer" : "steerChatTurn";
+    await agentOp(res, operation, { stream_id: streamId, body: parsed });
     return true;
   }
   if (method === "POST" && sub === "resume") {

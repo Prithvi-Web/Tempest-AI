@@ -11,13 +11,18 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from tempest.inference import cost
 from tempest_api.agentstore import AgentStore
 from tempest_api.chatturn import (
+    GENERATION_PROTOCOL_VERSION,
     ApprovalInvalid,
     ApprovalStale,
     ChatTurns,
+    SteerInvalid,
+    SteerNoRun,
+    SteerUnsupported,
     TurnConflict,
     TurnRejected,
 )
@@ -33,6 +38,8 @@ from tempest_api.schemas.chat import (
     ConversationsOut,
     ResumeApprovalRequest,
     StartChatTurnRequest,
+    SteerCancelRequest,
+    SteerRequest,
     TurnEventsOut,
 )
 
@@ -124,6 +131,44 @@ async def resolve_chat_approval(stream_id: str, body: ResumeApprovalRequest) -> 
         raise ApiError(409, ErrorCode.IDEMPOTENCY_CONFLICT, str(exc)) from exc
     except ApprovalInvalid as exc:
         raise ApiError(400, ErrorCode.VALIDATION_ERROR, str(exc)) from exc
+
+
+def _steer_refusal(status: int, code: str, message: str) -> JSONResponse:
+    """The steer family's refusals carry a TOP-LEVEL `code` — the exact field the vendored
+    client's useSteering switches on to degrade gracefully (NO_ACTIVE_RUN → plain send;
+    STEER_UNSUPPORTED → client-side queue). The ApiError envelope would hide it."""
+    return JSONResponse(
+        status_code=status,
+        content={
+            "code": code,
+            "error": message,
+            "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
+        },
+    )
+
+
+@router.post("/v1/chat/turns/{stream_id}/steer", operation_id="steerChatTurn", status_code=202)
+async def steer_chat_turn(stream_id: str, body: SteerRequest) -> JSONResponse:
+    """Queue a follow-up for the live agent turn (C5, LC16). 202: queued, not applied —
+    the drain happens at the loop's next turn boundary and publishes on_steer_applied."""
+    try:
+        payload = await asyncio.to_thread(_turns().queue_steer, stream_id, body.model_dump())
+    except SteerNoRun as exc:
+        return _steer_refusal(404, "NO_ACTIVE_RUN", str(exc))
+    except SteerUnsupported as exc:
+        return _steer_refusal(501, "STEER_UNSUPPORTED", str(exc))
+    except SteerInvalid as exc:
+        return _steer_refusal(400, "EMPTY_TEXT", str(exc))
+    return JSONResponse(status_code=202, content=payload)
+
+
+@router.post("/v1/chat/turns/{stream_id}/steer/cancel", operation_id="cancelChatSteer")
+async def cancel_chat_steer(stream_id: str, body: SteerCancelRequest) -> JSONResponse:
+    try:
+        payload = await asyncio.to_thread(_turns().cancel_steer, stream_id, body.model_dump())
+    except SteerNoRun as exc:
+        return _steer_refusal(404, "NO_ACTIVE_RUN", str(exc))
+    return JSONResponse(status_code=200, content=payload)
 
 
 @router.get("/v1/chat/conversations", operation_id="listConversations")

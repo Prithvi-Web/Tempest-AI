@@ -240,6 +240,11 @@ class TaskSpec:
     #: may raise `ProveCancelled` to unwind a park the user abandoned; anything it blocks on
     #: is the SURFACE's budget to bound.
     approver: Callable[[ApprovalRequest], ApprovalDecision] | None = None
+    #: C5 steering (LC16). Polled at the TOP of each turn; every returned text becomes a
+    #: user message the model sees before it is asked again, and the drain must CONSUME
+    #: (a source that keeps returning the same steer re-steers every turn). `None` means
+    #: this surface has no steering.
+    steer_source: Callable[[], tuple[str, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -427,6 +432,12 @@ def _converse(
         turns = turn + 1
         if spec.cancel is not None:
             spec.cancel.raise_if_cancelled()
+        if spec.steer_source is not None:
+            # Queued follow-ups land HERE, before the model is asked again (LC16): a steer
+            # is a user message the model must see, never a whisper the surface interprets.
+            for steer in spec.steer_source():
+                history.append(Message(role="user", content=steer))
+                emit("steer", steer)
         try:
             answer = complete(
                 spec.provider,

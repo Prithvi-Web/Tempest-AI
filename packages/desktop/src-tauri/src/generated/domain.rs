@@ -560,6 +560,21 @@ impl CancelAccepted {
 #[doc = "      \"maximum\": 2147483647.0,"]
 #[doc = "      \"minimum\": -2147483648.0"]
 #[doc = "    },"]
+#[doc = "    \"pendingSteers\": {"]
+#[doc = "      \"title\": \"Pendingsteers\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"array\","]
+#[doc = "          \"items\": {"]
+#[doc = "            \"type\": \"object\","]
+#[doc = "            \"additionalProperties\": true"]
+#[doc = "          }"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"settled\": {"]
 #[doc = "      \"title\": \"Settled\","]
 #[doc = "      \"anyOf\": ["]
@@ -585,6 +600,14 @@ pub struct CancelTurnOut {
     pub aborted: ::std::option::Option<::std::string::String>,
     #[serde(rename = "generationProtocolVersion")]
     pub generation_protocol_version: i32,
+    #[serde(
+        rename = "pendingSteers",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub pending_steers: ::std::option::Option<
+        ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    >,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub settled: ::std::option::Option<bool>,
     pub success: bool,
@@ -901,6 +924,21 @@ impl ChatTurnAck {
 #[doc = "        }"]
 #[doc = "      ]"]
 #[doc = "    },"]
+#[doc = "    \"pendingSteers\": {"]
+#[doc = "      \"title\": \"Pendingsteers\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"array\","]
+#[doc = "          \"items\": {"]
+#[doc = "            \"type\": \"object\","]
+#[doc = "            \"additionalProperties\": true"]
+#[doc = "          }"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"status\": {"]
 #[doc = "      \"title\": \"Status\","]
 #[doc = "      \"anyOf\": ["]
@@ -917,6 +955,21 @@ impl ChatTurnAck {
 #[doc = "      \"anyOf\": ["]
 #[doc = "        {"]
 #[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"unrecoveredSteers\": {"]
+#[doc = "      \"title\": \"Unrecoveredsteers\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"array\","]
+#[doc = "          \"items\": {"]
+#[doc = "            \"type\": \"object\","]
+#[doc = "            \"additionalProperties\": true"]
+#[doc = "          }"]
 #[doc = "        },"]
 #[doc = "        {"]
 #[doc = "          \"type\": \"null\""]
@@ -953,6 +1006,14 @@ pub struct ChatTurnStatusOut {
     )]
     pub pending_action:
         ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    #[serde(
+        rename = "pendingSteers",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub pending_steers: ::std::option::Option<
+        ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    >,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub status: ::std::option::Option<::std::string::String>,
     #[serde(
@@ -961,6 +1022,14 @@ pub struct ChatTurnStatusOut {
         skip_serializing_if = "::std::option::Option::is_none"
     )]
     pub stream_id: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "unrecoveredSteers",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub unrecovered_steers: ::std::option::Option<
+        ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    >,
 }
 impl ChatTurnStatusOut {
     pub fn builder() -> builder::ChatTurnStatusOut {
@@ -4087,6 +4156,126 @@ impl StartChatTurnRequest {
         Default::default()
     }
 }
+#[doc = "Reclaim one queued steer by either id (LC17)."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SteerCancelRequest\","]
+#[doc = "  \"description\": \"Reclaim one queued steer by either id (LC17).\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"clientSteerId\": {"]
+#[doc = "      \"title\": \"Clientsteerid\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"steerId\": {"]
+#[doc = "      \"title\": \"Steerid\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": true"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SteerCancelRequest {
+    #[serde(
+        rename = "clientSteerId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub client_steer_id: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "steerId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub steer_id: ::std::option::Option<::std::string::String>,
+}
+impl ::std::default::Default for SteerCancelRequest {
+    fn default() -> Self {
+        Self {
+            client_steer_id: Default::default(),
+            steer_id: Default::default(),
+        }
+    }
+}
+impl SteerCancelRequest {
+    pub fn builder() -> builder::SteerCancelRequest {
+        Default::default()
+    }
+}
+#[doc = "The client's steer body (C5, LC16). `extra='allow'` for files/preempt riding along."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"SteerRequest\","]
+#[doc = "  \"description\": \"The client's steer body (C5, LC16). `extra='allow'` for files/preempt riding along.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"clientSteerId\": {"]
+#[doc = "      \"title\": \"Clientsteerid\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"text\": {"]
+#[doc = "      \"title\": \"Text\","]
+#[doc = "      \"default\": \"\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": true"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct SteerRequest {
+    #[serde(
+        rename = "clientSteerId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub client_steer_id: ::std::option::Option<::std::string::String>,
+    #[serde(default)]
+    pub text: ::std::string::String,
+}
+impl ::std::default::Default for SteerRequest {
+    fn default() -> Self {
+        Self {
+            client_steer_id: Default::default(),
+            text: Default::default(),
+        }
+    }
+}
+impl SteerRequest {
+    pub fn builder() -> builder::SteerRequest {
+        Default::default()
+    }
+}
 #[doc = "One divergence recorded against a symbol, carrying the symbol it was recorded FOR.\n\n`qualname` and `module` are on every hit deliberately: a bare identifier in an editor can\nmatch more than one recorded symbol (two classes with a `post` method), and a badge that\nsaid \"3 divergences recorded here\" without being able to name them would be over-claiming."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -5655,6 +5844,12 @@ pub mod builder {
             ::std::string::String,
         >,
         generation_protocol_version: ::std::result::Result<i32, ::std::string::String>,
+        pending_steers: ::std::result::Result<
+            ::std::option::Option<
+                ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            >,
+            ::std::string::String,
+        >,
         settled: ::std::result::Result<::std::option::Option<bool>, ::std::string::String>,
         success: ::std::result::Result<bool, ::std::string::String>,
     }
@@ -5665,6 +5860,7 @@ pub mod builder {
                 generation_protocol_version: Err(
                     "no value supplied for generation_protocol_version".to_string(),
                 ),
+                pending_steers: Ok(Default::default()),
                 settled: Ok(Default::default()),
                 success: Err("no value supplied for success".to_string()),
             }
@@ -5689,6 +5885,20 @@ pub mod builder {
             self.generation_protocol_version = value.try_into().map_err(|e| {
                 format!("error converting supplied value for generation_protocol_version: {e}")
             });
+            self
+        }
+        pub fn pending_steers<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.pending_steers = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for pending_steers: {e}"));
             self
         }
         pub fn settled<T>(mut self, value: T) -> Self
@@ -5720,6 +5930,7 @@ pub mod builder {
             Ok(Self {
                 aborted: value.aborted?,
                 generation_protocol_version: value.generation_protocol_version?,
+                pending_steers: value.pending_steers?,
                 settled: value.settled?,
                 success: value.success?,
             })
@@ -5730,6 +5941,7 @@ pub mod builder {
             Self {
                 aborted: Ok(value.aborted),
                 generation_protocol_version: Ok(value.generation_protocol_version),
+                pending_steers: Ok(value.pending_steers),
                 settled: Ok(value.settled),
                 success: Ok(value.success),
             }
@@ -6106,12 +6318,24 @@ pub mod builder {
             ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
             ::std::string::String,
         >,
+        pending_steers: ::std::result::Result<
+            ::std::option::Option<
+                ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            >,
+            ::std::string::String,
+        >,
         status: ::std::result::Result<
             ::std::option::Option<::std::string::String>,
             ::std::string::String,
         >,
         stream_id: ::std::result::Result<
             ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        unrecovered_steers: ::std::result::Result<
+            ::std::option::Option<
+                ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            >,
             ::std::string::String,
         >,
     }
@@ -6126,8 +6350,10 @@ pub mod builder {
                     "no value supplied for generation_protocol_version".to_string(),
                 ),
                 pending_action: Ok(Default::default()),
+                pending_steers: Ok(Default::default()),
                 status: Ok(Default::default()),
                 stream_id: Ok(Default::default()),
+                unrecovered_steers: Ok(Default::default()),
             }
         }
     }
@@ -6196,6 +6422,20 @@ pub mod builder {
                 .map_err(|e| format!("error converting supplied value for pending_action: {e}"));
             self
         }
+        pub fn pending_steers<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.pending_steers = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for pending_steers: {e}"));
+            self
+        }
         pub fn status<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
@@ -6216,6 +6456,20 @@ pub mod builder {
                 .map_err(|e| format!("error converting supplied value for stream_id: {e}"));
             self
         }
+        pub fn unrecovered_steers<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.unrecovered_steers = value.try_into().map_err(|e| {
+                format!("error converting supplied value for unrecovered_steers: {e}")
+            });
+            self
+        }
     }
     impl ::std::convert::TryFrom<ChatTurnStatusOut> for super::ChatTurnStatusOut {
         type Error = super::error::ConversionError;
@@ -6229,8 +6483,10 @@ pub mod builder {
                 generation_created_at: value.generation_created_at?,
                 generation_protocol_version: value.generation_protocol_version?,
                 pending_action: value.pending_action?,
+                pending_steers: value.pending_steers?,
                 status: value.status?,
                 stream_id: value.stream_id?,
+                unrecovered_steers: value.unrecovered_steers?,
             })
         }
     }
@@ -6243,8 +6499,10 @@ pub mod builder {
                 generation_created_at: Ok(value.generation_created_at),
                 generation_protocol_version: Ok(value.generation_protocol_version),
                 pending_action: Ok(value.pending_action),
+                pending_steers: Ok(value.pending_steers),
                 status: Ok(value.status),
                 stream_id: Ok(value.stream_id),
+                unrecovered_steers: Ok(value.unrecovered_steers),
             }
         }
     }
@@ -9063,6 +9321,123 @@ pub mod builder {
                 message_id: Ok(value.message_id),
                 model_parameters: Ok(value.model_parameters),
                 parent_message_id: Ok(value.parent_message_id),
+                text: Ok(value.text),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SteerCancelRequest {
+        client_steer_id: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        steer_id: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for SteerCancelRequest {
+        fn default() -> Self {
+            Self {
+                client_steer_id: Ok(Default::default()),
+                steer_id: Ok(Default::default()),
+            }
+        }
+    }
+    impl SteerCancelRequest {
+        pub fn client_steer_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.client_steer_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for client_steer_id: {e}"));
+            self
+        }
+        pub fn steer_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.steer_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for steer_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SteerCancelRequest> for super::SteerCancelRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SteerCancelRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                client_steer_id: value.client_steer_id?,
+                steer_id: value.steer_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SteerCancelRequest> for SteerCancelRequest {
+        fn from(value: super::SteerCancelRequest) -> Self {
+            Self {
+                client_steer_id: Ok(value.client_steer_id),
+                steer_id: Ok(value.steer_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct SteerRequest {
+        client_steer_id: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        text: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for SteerRequest {
+        fn default() -> Self {
+            Self {
+                client_steer_id: Ok(Default::default()),
+                text: Ok(Default::default()),
+            }
+        }
+    }
+    impl SteerRequest {
+        pub fn client_steer_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.client_steer_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for client_steer_id: {e}"));
+            self
+        }
+        pub fn text<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.text = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for text: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<SteerRequest> for super::SteerRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: SteerRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                client_steer_id: value.client_steer_id?,
+                text: value.text?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::SteerRequest> for SteerRequest {
+        fn from(value: super::SteerRequest) -> Self {
+            Self {
+                client_steer_id: Ok(value.client_steer_id),
                 text: Ok(value.text),
             }
         }

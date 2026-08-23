@@ -443,6 +443,115 @@ class TestHumanInTheLoopWire:
         assert "blue, always blue" in json.dumps(agent_env.requests[-1])
 
 
+class TestSteeringWire:
+    """LC16/LC17 over the wire: queue → drain into the next turn → applied frame; reclaim
+    by cancel; honest refusals in the client's own vocabulary (top-level `code`, which is
+    what useSteering switches on to degrade gracefully)."""
+
+    def _parked_agent_turn(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        agent = _make_agent(api, tools=["read_file", "run_command"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Running it.",
+                "tool_calls": [{"name": "run_command", "arguments": {"argv": ["echo", "ok"]}}],
+            },
+            {"text": "Done."},
+        ]
+        ack = _start(api, agent["id"], "Run it")
+        pending = _wait_pending(api, ack["streamId"])
+        return ack, pending
+
+    def _approve(self, api: Any, ack: dict[str, Any], pending: dict[str, Any]) -> None:
+        request = pending["payload"]["action_requests"][0]
+        api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [{"tool_call_id": request["tool_call_id"], "decision": "approve"}],
+            },
+        )
+
+    def test_a_queued_steer_drains_into_the_next_turn(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, pending = self._parked_agent_turn(api, agent_env, repo)
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer",
+            json={"text": "also check the README", "clientSteerId": "cs-1"},
+        )
+        assert resp.status_code == 202, resp.text
+        body = resp.json()
+        assert body["status"] == "queued"
+        assert body["steerId"].startswith("steer_")
+        assert body["position"] == 1
+
+        self._approve(api, ack, pending)
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete"
+        assert "also check the README" in json.dumps(agent_env.requests[-1]), (
+            "the steer must reach the model's next turn"
+        )
+        applied = [f for f in _frames(payload) if f.get("event") == "on_steer_applied"]
+        assert applied and applied[0]["data"]["part"]["steer"] == "also check the README"
+        assert applied[0]["data"]["clientSteerId"] == "cs-1"
+
+    def test_reclaim_removes_an_unconsumed_steer(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, pending = self._parked_agent_turn(api, agent_env, repo)
+        queued = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer", json={"text": "never mind"}
+        ).json()
+        removed = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer/cancel",
+            json={"steerId": queued["steerId"]},
+        )
+        assert removed.status_code == 200
+        assert removed.json()["removed"] is True
+        self._approve(api, ack, pending)
+        payload = _wait_terminal(api, ack["streamId"])
+        assert "never mind" not in json.dumps(agent_env.requests[-1])
+        assert not [f for f in _frames(payload) if f.get("event") == "on_steer_applied"]
+
+    def test_no_active_run_answers_the_fallback_code(self, api: Any, agent_env: AgentPeer) -> None:
+        resp = api.client.post("/v1/chat/turns/convo-nope/steer", json={"text": "hi"})
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "NO_ACTIVE_RUN", (
+            "the client falls back to a normal send on exactly this code"
+        )
+
+    def test_a_plain_streamed_turn_refuses_steering_honestly(
+        self, api: Any, agent_env: AgentPeer
+    ) -> None:
+        """A plain completion has no turn boundary to drain at; 'queued' would be a lie the
+        client cannot see. STEER_UNSUPPORTED makes it queue client-side instead."""
+        resp = api.client.post(
+            "/v1/chat/turns",
+            json={"text": "hello", "endpoint": "Ollama (local)", "model": "test-model"},
+        )
+        assert resp.status_code == 200, resp.text
+        stream_id = resp.json()["streamId"]
+        steer = api.client.post(f"/v1/chat/turns/{stream_id}/steer", json={"text": "more"})
+        assert steer.status_code == 501
+        assert steer.json()["code"] == "STEER_UNSUPPORTED"
+        _wait_terminal(api, stream_id)
+
+    def test_unconsumed_steers_ride_the_status_and_the_abort(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, _pending = self._parked_agent_turn(api, agent_env, repo)
+        api.client.post(f"/v1/chat/turns/{ack['streamId']}/steer", json={"text": "leftover"})
+        status = api.client.get(f"/v1/chat/turns/{ack['streamId']}").json()
+        assert [s["text"] for s in status["pendingSteers"]] == ["leftover"]
+        cancel = api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel").json()
+        assert [s["text"] for s in cancel.get("pendingSteers", [])] == ["leftover"], (
+            "an aborted run must hand unconsumed steers back for the client to reclaim"
+        )
+        _wait_terminal(api, ack["streamId"])
+
+
 class TestTheForge:
     def test_the_agent_turn_stores_no_verdict_outside_the_engine(
         self, api: Any, agent_env: AgentPeer, repo: Path

@@ -199,6 +199,38 @@ def run_agent_turn(
             raise AgentError("an approval was signalled decided with no decision recorded")
         return decision
 
+    def steer_source() -> tuple[str, ...]:
+        """Drain queued follow-ups (LC16) — consumed under the job lock, then published as
+        `on_steer_applied` frames (outside the lock: `append` takes it too) so the client's
+        chips flip from pending to applied."""
+        with job.lock:
+            drained = list(job.steers)
+            if drained:
+                job.steers.clear()
+                base_index = len(job.steers_applied)
+                job.steers_applied.extend(drained)
+        if not drained:
+            return ()
+        for offset, row in enumerate(drained):
+            job.append(
+                {
+                    "event": "on_steer_applied",
+                    "data": {
+                        "steerId": row["steerId"],
+                        "clientSteerId": row.get("clientSteerId"),
+                        # Content-part slot: the narration text is part 0; steers follow.
+                        "index": base_index + offset + 1,
+                        "part": {
+                            "type": "steer",
+                            "steer": row["text"],
+                            "createdAt": row["createdAt"],
+                        },
+                    },
+                }
+            )
+        turns._flush_if_due(job)
+        return tuple(str(row.get("text") or "") for row in drained)
+
     try:
         spec = spec_for(
             job,
@@ -209,7 +241,7 @@ def run_agent_turn(
             meter=turns._meter,
             cancel=scope,
         )
-        spec = dataclasses.replace(spec, approver=approver)
+        spec = dataclasses.replace(spec, approver=approver, steer_source=steer_source)
         run_task(spec, env=turns._env_provider(), on_event=emit)
     except ProveCancelled:
         aborted = True
@@ -221,6 +253,11 @@ def run_agent_turn(
         error_text = f"the agent turn failed inside Tempest: {exc!r}"
     # usage=None on purpose: the ORCHESTRATOR already metered every completion through
     # `TaskSpec.meter`; a second spend here would double-charge the turn.
+    with job.lock:
+        steer_parts = [
+            {"type": "steer", "steer": row["text"], "createdAt": row["createdAt"]}
+            for row in job.steers_applied
+        ]
     turns._finish(
         job,
         conversation,
@@ -232,4 +269,5 @@ def run_agent_turn(
         provider,
         aborted=aborted,
         error=error_text,
+        extra_parts=steer_parts,
     )

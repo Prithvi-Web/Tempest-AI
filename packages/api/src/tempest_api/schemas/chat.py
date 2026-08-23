@@ -34,6 +34,24 @@ class ResumeApprovalRequest(BaseModel):
     answers: dict[str, str] | None = None
 
 
+class SteerRequest(BaseModel):
+    """The client's steer body (C5, LC16). `extra='allow'` for files/preempt riding along."""
+
+    model_config = ConfigDict(extra="allow")
+
+    text: str = ""
+    clientSteerId: str | None = None
+
+
+class SteerCancelRequest(BaseModel):
+    """Reclaim one queued steer by either id (LC17)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    steerId: str | None = None
+    clientSteerId: str | None = None
+
+
 class ChatTurnAck(BaseModel):
     streamId: str
     conversationId: str
@@ -66,6 +84,10 @@ class ChatTurnStatusOut(BaseModel):
     #: The live park, when a tool call is waiting on a human (C5 HITL): the client rebuilds
     #: its approval UI from this after a reload.
     pendingAction: dict[str, Any] | None = None
+    #: Queued follow-ups not yet drained (LC16), while the run is active.
+    pendingSteers: list[dict[str, Any]] | None = None
+    #: Steers a SETTLED run never consumed (LC17): the client re-materializes them.
+    unrecoveredSteers: list[dict[str, Any]] | None = None
 
 
 class ActiveTurnsOut(BaseModel):
@@ -77,6 +99,8 @@ class CancelTurnOut(BaseModel):
     generationProtocolVersion: int
     aborted: str | None = None
     settled: bool | None = None
+    #: Steers the aborted run never consumed (LC17): handed back for the client to reclaim.
+    pendingSteers: list[dict[str, Any]] | None = None
 
 
 class ConversationsOut(BaseModel):

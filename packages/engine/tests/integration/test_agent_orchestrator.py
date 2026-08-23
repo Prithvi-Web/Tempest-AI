@@ -538,6 +538,51 @@ class TestHumanInTheLoop:
         assert refused, "a question with nobody to ask must refuse, not invent an answer"
 
 
+class TestSteering:
+    """C5 steering (LC16): queued follow-ups drain at the top of each turn — the model sees
+    them as user messages BEFORE it is asked again, and each drained steer is emitted so the
+    surface can mark its chip applied."""
+
+    def test_a_queued_steer_reaches_the_next_model_call(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "read_file", "input": {"path": "app.py"}}]
+        queue: list[str] = []
+        drained: list[str] = []
+
+        def steer_source() -> tuple[str, ...]:
+            out = tuple(queue)
+            queue.clear()
+            return out
+
+        with fake_anthropic_server(fake) as url:
+
+            def after_first_tool(kind: str, detail: str) -> None:
+                if kind == "tool":
+                    queue.append("actually, focus on the docstring")
+                    fake.tool_uses = []
+                    fake.reply_text = "Focusing on the docstring."
+                if kind == "steer":
+                    drained.append(detail)
+
+            run_task(
+                _spec(repo, steer_source=steer_source),
+                env=_env(url),
+                on_event=after_first_tool,
+            )
+        assert drained == ["actually, focus on the docstring"]
+        second_request = json.dumps(fake.requests[-1])
+        assert "focus on the docstring" in second_request, (
+            "the steer must reach the model as a user message before its next turn"
+        )
+
+    def test_no_steer_source_changes_nothing(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.reply_text = "done"
+        with fake_anthropic_server(fake) as url:
+            run = run_task(_spec(repo), env=_env(url))
+        assert run.stopped_because == "the model finished"
+
+
 class TestWhatTheModelMayNotDo:
     def test_it_cannot_run_the_proof_itself(self, repo: Path) -> None:
         fake = FakeAnthropic()

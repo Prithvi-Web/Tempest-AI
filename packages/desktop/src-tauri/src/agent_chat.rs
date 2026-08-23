@@ -244,18 +244,15 @@ pub fn handle_chat(
             .unwrap_or_else(|| json!({"activeJobIds": []}));
         return Some(json_response(200, &jobs));
     }
-    // Steering does not exist yet and answers SO, explicitly — engine-free, so the answer
-    // holds during a restart too. Before this arm, `resume` and `steer` fell into the start
-    // branch below ("no slash in the segment") and were silently mis-routed into
-    // startChatTurn — a tool approval would have begun a SECOND generation. The code is one
-    // the client degrades gracefully on (a client-side queue); the real steer family lands
-    // with the C5 steering item and replaces this arm.
+    // Preempt-arm is answered engine-free: this surface's steers drain at turn boundaries
+    // (LC16's granularity here), so escalating one to interrupt the CURRENT step is
+    // honestly unsupported — a code the client relabels the chip on, never an error.
     if is_chat && method == "POST" {
         let sub = route.trim_start_matches("/api/agents/chat").trim_start_matches('/');
-        if sub == "steer" || sub.starts_with("steer/") {
+        if sub == "steer/arm" {
             return Some(json_response(
-                501,
-                &json!({"code": "STEER_UNSUPPORTED", "error": "steering is not wired yet (C5 run control)"}),
+                200,
+                &json!({"armed": false, "code": "PREEMPT_UNSUPPORTED"}),
             ));
         }
     }
@@ -325,6 +322,35 @@ pub fn handle_chat(
                 params["generation_created_at"] = json!(epoch);
             }
             return Some(engine_reply(engine, "cancelChatTurn", params));
+        }
+        if method == "POST" && (sub == "steer" || sub == "steer/deliver" || sub == "steer/cancel") {
+            // C5 steering (LC16/LC17): queue, idempotent re-delivery (the engine dedupes by
+            // clientSteerId), and reclaim. The stream id IS the conversation id; the
+            // engine's own statuses and top-level codes pass through — NO_ACTIVE_RUN is how
+            // the client knows to fall back to a plain send.
+            let parsed: Value = match serde_json::from_slice(body) {
+                Ok(value) => value,
+                Err(err) => {
+                    return Some(json_response(
+                        400,
+                        &json!({"error": format!("unreadable steer payload: {err}")}),
+                    ));
+                }
+            };
+            let stream_id = ["conversationId", "streamId"]
+                .iter()
+                .find_map(|key| parsed.get(*key).and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_string();
+            if stream_id.is_empty() {
+                return Some(json_response(400, &json!({"error": "no conversation to steer"})));
+            }
+            let operation = if sub == "steer/cancel" { "cancelChatSteer" } else { "steerChatTurn" };
+            return Some(engine_reply_passthrough(
+                engine,
+                operation,
+                json!({"stream_id": stream_id, "body": parsed}),
+            ));
         }
         if method == "POST" && sub == "resume" {
             // C5 HITL: answer the parked approval. The stream id IS the conversation id on
@@ -630,18 +656,22 @@ mod tests {
     fn resume_and_steer_are_never_mis_started() {
         // The defect this pins: both fell into the start branch ("no slash in the segment")
         // and began a NEW generation — a tool approval would have started a second turn.
-        // Resume is now the real HITL arm (engine-backed: engineless answers 503, and a
-        // body naming no stream is a 400 before any engine call); steer still answers its
-        // explicit refusal until the steering item lands.
-        let reply = handle_chat(None, None, "POST", "/api/agents/chat/resume", "", b"{}")
-            .expect("resume belongs to the seam");
-        assert_eq!(reply.status(), 503, "engineless resume is a loud 503, never a start");
-        for route in ["/api/agents/chat/steer", "/api/agents/chat/steer/arm"] {
+        // Both are real engine-backed arms now: engineless answers a loud 503, never a
+        // start. Preempt-arm alone stays engine-free with the code the client relabels on.
+        for route in [
+            "/api/agents/chat/resume",
+            "/api/agents/chat/steer",
+            "/api/agents/chat/steer/deliver",
+            "/api/agents/chat/steer/cancel",
+        ] {
             let reply = handle_chat(None, None, "POST", route, "", b"{}")
-                .expect("steer belongs to the seam");
-            assert_eq!(reply.status(), 501, "{route}");
-            assert!(String::from_utf8_lossy(reply.body()).contains("STEER_UNSUPPORTED"));
+                .unwrap_or_else(|| panic!("{route} belongs to the seam"));
+            assert_eq!(reply.status(), 503, "engineless {route} is a loud 503, never a start");
         }
+        let reply = handle_chat(None, None, "POST", "/api/agents/chat/steer/arm", "", b"{}")
+            .expect("steer/arm belongs to the seam");
+        assert_eq!(reply.status(), 200);
+        assert!(String::from_utf8_lossy(reply.body()).contains("PREEMPT_UNSUPPORTED"));
     }
 
     #[test]

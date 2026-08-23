@@ -90,6 +90,20 @@ class ApprovalInvalid(Exception):
     """The resume payload is malformed or incomplete — a retryable 400."""
 
 
+class SteerNoRun(Exception):
+    """No active generation to steer — 404 with code NO_ACTIVE_RUN, which is exactly the
+    signal the client falls back to a normal send on."""
+
+
+class SteerUnsupported(Exception):
+    """This turn kind has no loop to drain a steer into — 501 with code STEER_UNSUPPORTED;
+    the client queues client-side instead of erroring."""
+
+
+class SteerInvalid(Exception):
+    """The steer payload is malformed — 400 with code EMPTY_TEXT."""
+
+
 @dataclass
 class _Job:
     stream_id: str
@@ -107,6 +121,13 @@ class _Job:
     #: `agentturn.ApprovalBox`. `resolve_approval` writes the decision into it; `status`
     #: serves its pending action so a reloaded client can rebuild the approval UI.
     approval_box: Any = None
+    #: Which worker owns this job: "chat" (plain streamed completion) or "agent" (the
+    #: run_task re-target). Steering exists only where a turn LOOP exists to drain it.
+    kind: str = "chat"
+    #: Queued follow-ups not yet drained (C5 steering, LC16) — mutated under `lock`.
+    steers: list[dict[str, Any]] = field(default_factory=list)
+    #: Steers the turn loop consumed, in application order (their chips and content parts).
+    steers_applied: list[dict[str, Any]] = field(default_factory=list)
     settled: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
     #: Ledger rows not yet flushed to the store, id → doc.
@@ -264,6 +285,7 @@ class ChatTurns:
             # A tool-bearing agent turn dispatches through the ONE runtime (L29): the worker
             # in `agentturn` hands the job to `run_task` and streams narration back through
             # this ledger. Never a second loop.
+            job.kind = "agent"
             thread = threading.Thread(
                 target=agentturn.run_agent_turn,
                 args=(
@@ -415,6 +437,7 @@ class ChatTurns:
         *,
         aborted: bool = False,
         error: str | None = None,
+        extra_parts: list[dict[str, Any]] | None = None,
     ) -> None:
         cap_note = self._record_spend(job, provider, model, usage)
         if cap_note is not None:
@@ -424,6 +447,10 @@ class ChatTurns:
         content: list[dict[str, Any]] = []
         if text:
             content.append(chatwire.text_content_part(text))
+        if extra_parts:
+            # The agent turn's applied-steer parts (LC16): the persisted message must show
+            # what the live stream showed, or a reload rewrites history.
+            content.extend(extra_parts)
         if error is not None:
             content.append(chatwire.error_content_part(error))
         response_message = {
@@ -669,12 +696,94 @@ class ChatTurns:
                 # A reloaded client rebuilds the approval UI from the status (the sync
                 # path's resumeState.pendingAction and the top-level field are both read).
                 answer["pendingAction"] = box.pending
+            steers = self._steer_rows(job)
+            if steers:
+                answer["pendingSteers"] = steers
             return answer
-        return {
+        inactive: dict[str, Any] = {
             "active": False,
             "conversationId": conversation_id,
             "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
         }
+        if job is not None:
+            leftovers = self._steer_rows(job)
+            if leftovers:
+                # LC17's escalate half: steers the run never consumed come back to the
+                # client, which re-materializes them for the user to reclaim or resend.
+                inactive["unrecoveredSteers"] = leftovers
+        return inactive
+
+    def queue_steer(self, stream_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Queue one follow-up for the live agent turn (C5 steering, LC16). The ack is the
+        client's own 202 shape; a duplicate clientSteerId replays its original ack rather
+        than double-queueing (the deliver/retry path)."""
+        with self._lock:
+            job = self._jobs.get(stream_id)
+        if job is None or job.status != "active":
+            raise SteerNoRun(f"no active generation for {stream_id}")
+        if job.kind != "agent":
+            raise SteerUnsupported(
+                "this turn is a plain streamed completion with no turn loop to steer"
+            )
+        text = str(body.get("text") or "").strip()
+        if not text:
+            raise SteerInvalid("a steer with no text steers nothing")
+        client_steer_id = str(body.get("clientSteerId") or "") or None
+        with job.lock:
+            if client_steer_id is not None:
+                for position, row in enumerate(job.steers, start=1):
+                    if row.get("clientSteerId") == client_steer_id:
+                        return {
+                            "status": "queued",
+                            "steerId": row["steerId"],
+                            "position": position,
+                            "conversationId": job.conversation_id,
+                            "replayed": True,
+                            "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
+                        }
+            row = {
+                "steerId": f"steer_{uuid.uuid4().hex[:12]}",
+                "clientSteerId": client_steer_id,
+                "text": text,
+                "createdAt": _now_ms(),
+            }
+            job.steers.append(row)
+            position = len(job.steers)
+        return {
+            "status": "queued",
+            "steerId": row["steerId"],
+            "position": position,
+            "conversationId": job.conversation_id,
+            "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
+        }
+
+    def cancel_steer(self, stream_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Reclaim an unconsumed steer (LC17). A steer the loop already drained is not
+        removable — the model has seen it — and the honest answer is `removed: false`."""
+        with self._lock:
+            job = self._jobs.get(stream_id)
+        if job is None or job.status != "active":
+            raise SteerNoRun(f"no active generation for {stream_id}")
+        steer_id = str(body.get("steerId") or "")
+        client_steer_id = str(body.get("clientSteerId") or "")
+        removed = False
+        with job.lock:
+            kept: list[dict[str, Any]] = []
+            for row in job.steers:
+                matches = (steer_id and row["steerId"] == steer_id) or (
+                    client_steer_id and row.get("clientSteerId") == client_steer_id
+                )
+                if matches:
+                    removed = True
+                else:
+                    kept.append(row)
+            job.steers[:] = kept
+        return {"removed": removed, "generationProtocolVersion": GENERATION_PROTOCOL_VERSION}
+
+    @staticmethod
+    def _steer_rows(job: _Job) -> list[dict[str, Any]]:
+        with job.lock:
+            return [dict(row) for row in job.steers]
 
     def resolve_approval(self, stream_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Answer the live park (C5 HITL): validate against the client's own contract —
@@ -763,11 +872,16 @@ class ChatTurns:
         # before this returns; a silent upstream is bounded by the stream timeout instead,
         # and the client's stream stays open until the final lands either way.
         job.settled.wait(timeout=_CANCEL_SETTLE_WAIT_S)
-        return {
+        answer: dict[str, Any] = {
             "success": True,
             "aborted": stream_id,
             "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
         }
+        leftovers = self._steer_rows(job)
+        if leftovers:
+            # LC17: an aborted run hands unconsumed steers back for the client to reclaim.
+            answer["pendingSteers"] = leftovers
+        return answer
 
     def conversations(self, *, limit: int = 100) -> list[dict[str, Any]]:
         return self._store.list_ordered(

@@ -311,6 +311,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/chat/turns/{stream_id}/steer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Steer Chat Turn
+         * @description Queue a follow-up for the live agent turn (C5, LC16). 202: queued, not applied —
+         *     the drain happens at the loop's next turn boundary and publishes on_steer_applied.
+         */
+        post: operations["steerChatTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/turns/{stream_id}/steer/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Chat Steer */
+        post: operations["cancelChatSteer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/diagnostics": {
         parameters: {
             query?: never;
@@ -870,6 +908,10 @@ export interface components {
             aborted?: string | null;
             /** Generationprotocolversion */
             generationProtocolVersion: number;
+            /** Pendingsteers */
+            pendingSteers?: {
+                [key: string]: unknown;
+            }[] | null;
             /** Settled */
             settled?: boolean | null;
             /** Success */
@@ -947,10 +989,18 @@ export interface components {
             pendingAction?: {
                 [key: string]: unknown;
             } | null;
+            /** Pendingsteers */
+            pendingSteers?: {
+                [key: string]: unknown;
+            }[] | null;
             /** Status */
             status?: string | null;
             /** Streamid */
             streamId?: string | null;
+            /** Unrecoveredsteers */
+            unrecoveredSteers?: {
+                [key: string]: unknown;
+            }[] | null;
         };
         /**
          * ComposeRequest
@@ -1433,6 +1483,33 @@ export interface components {
             } | null;
             /** Parentmessageid */
             parentMessageId?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SteerCancelRequest
+         * @description Reclaim one queued steer by either id (LC17).
+         */
+        SteerCancelRequest: {
+            /** Clientsteerid */
+            clientSteerId?: string | null;
+            /** Steerid */
+            steerId?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SteerRequest
+         * @description The client's steer body (C5, LC16). `extra='allow'` for files/preempt riding along.
+         */
+        SteerRequest: {
+            /** Clientsteerid */
+            clientSteerId?: string | null;
             /**
              * Text
              * @default
@@ -2432,6 +2509,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    steerChatTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SteerRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancelChatSteer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SteerCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
