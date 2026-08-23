@@ -15,7 +15,7 @@
 //! seam carries bytes. One protocol implementation, two thin transports (L29's spirit at
 //! the transport layer).
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -62,12 +62,14 @@ pub fn frames_from(page: &TurnEventsOut) -> Vec<AgentStreamFrame> {
         .collect()
 }
 
-/// Streams with a live poller thread. A second start for the same stream joins the running
-/// poller rather than racing it; entries clear when the poller exits.
-static POLLERS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// Live pollers, stream id → the generation epoch they serve. A NEW turn on the same
+/// conversation-scoped stream id SUPERSEDES the old poller (its generation vanishes from the
+/// map and it exits at its next check) — without this, a poller still draining turn N would
+/// block turn N+1 from ever getting a live feed, and a rapid follow-up send would stall.
+static POLLERS: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
 
-fn pollers() -> &'static Mutex<HashSet<String>> {
-    POLLERS.get_or_init(|| Mutex::new(HashSet::new()))
+fn pollers() -> &'static Mutex<HashMap<String, i64>> {
+    POLLERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 const POLL_INTERVAL: Duration = Duration::from_millis(40);
@@ -129,8 +131,29 @@ pub fn handle_chat(
     }
     // Engine-independent answers first: these must hold even while the engine restarts.
     if route.starts_with("/api/convos/gen_title/") {
-        // Titles ride the final frame's conversation; this poll has nothing to add.
-        return Some(json_response(404, &json!({"error": "title rides the final frame"})));
+        // The title already lives on the conversation row (set at creation, carried by the
+        // final frame); answer the poll from it so the client's fallback path stays quiet.
+        let conversation_id = route.trim_start_matches("/api/convos/gen_title/");
+        if let Some(engine) = engine {
+            if let Ok(value) = engine.call("listConversations", json!({}), POLL_CALL_TIMEOUT) {
+                let title = value
+                    .get("conversations")
+                    .and_then(Value::as_array)
+                    .and_then(|rows| {
+                        rows.iter().find(|row| {
+                            row.get("conversationId").and_then(Value::as_str)
+                                == Some(conversation_id)
+                        })
+                    })
+                    .and_then(|row| row.get("title"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if let Some(title) = title {
+                    return Some(json_response(200, &json!({"title": title})));
+                }
+            }
+        }
+        return Some(json_response(404, &json!({"error": "no title yet"})));
     }
     if is_chat && route.trim_start_matches("/api/agents/chat/").starts_with("stream/") {
         // The app's live path is boundary B (the seam SSE); a stray fetch of the stream URL
@@ -157,7 +180,18 @@ pub fn handle_chat(
         if route == "/api/convos" && method == "GET" {
             return Some(engine_reply(engine, "listConversations", json!({})));
         }
-        // Single-conversation reads and mutations join with the conversation platform (C7).
+        if method == "GET" {
+            // The single-conversation read the chat view mounts from; the rest of the
+            // conversation platform (rename, archive, delete) joins at C7.
+            let conversation_id = route.trim_start_matches("/api/convos/");
+            if !conversation_id.is_empty() && !conversation_id.contains('/') {
+                return Some(engine_reply(
+                    engine,
+                    "getConversation",
+                    json!({"conversation_id": conversation_id}),
+                ));
+            }
+        }
         return Some(json_response(
             404,
             &json!({"error": "not part of local mode yet (C7 conversations)"}),
@@ -209,7 +243,7 @@ pub fn handle_chat(
             let decoded = urlencoding_decode(sub);
             payload["endpoint"] = json!(decoded);
         }
-        let ack = match engine.call("startChatTurn", payload, POLL_CALL_TIMEOUT) {
+        let ack = match engine.call("startChatTurn", json!({"body": payload}), POLL_CALL_TIMEOUT) {
             Ok(value) => value,
             Err(err) => {
                 return Some(json_response(
@@ -220,7 +254,11 @@ pub fn handle_chat(
         };
         if let (Some(app), Some(stream_id)) = (app, ack.get("streamId").and_then(Value::as_str))
         {
-            spawn_poller(app.clone(), Arc::clone(engine), stream_id.to_string());
+            let generation = ack
+                .get("generationCreatedAt")
+                .and_then(Value::as_i64)
+                .unwrap_or_default();
+            spawn_poller(app.clone(), Arc::clone(engine), stream_id.to_string(), generation);
         }
         return Some(json_response(200, &ack));
     }
@@ -269,17 +307,23 @@ fn urlencoding_decode(segment: &str) -> String {
 /// Drain the engine's frame ledger for one turn at token cadence and push every batch to
 /// the webview. Exits after the terminal status has been delivered with a drained read; a
 /// dead engine is tolerated across supervisor restarts and reported honestly past the cap.
-fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: String) {
+fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: String, generation: i64) {
     {
         let mut live = pollers().lock().expect("poller lock");
-        if !live.insert(stream_id.clone()) {
-            return; // one poller per stream; the running one serves this turn too
-        }
+        // Claim (or reclaim) the stream for THIS generation; a running predecessor sees its
+        // epoch replaced and stands down at its next loop check.
+        live.insert(stream_id.clone(), generation);
     }
     std::thread::spawn(move || {
         let mut after: i64 = 0;
         let mut failures: u32 = 0;
         loop {
+            {
+                let live = pollers().lock().expect("poller lock");
+                if live.get(&stream_id) != Some(&generation) {
+                    return; // superseded by a newer turn's poller — it owns the exit cleanup
+                }
+            }
             let reply = engine.call(
                 "listChatTurnEvents",
                 json!({"stream_id": stream_id, "after": after}),
@@ -324,10 +368,10 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
             }
             std::thread::sleep(POLL_INTERVAL);
         }
-        pollers()
-            .lock()
-            .expect("poller lock")
-            .remove(&stream_id);
+        let mut live = pollers().lock().expect("poller lock");
+        if live.get(&stream_id) == Some(&generation) {
+            live.remove(&stream_id);
+        }
     });
 }
 

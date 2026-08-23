@@ -52,6 +52,15 @@ if (!existsSync(fixtureRepo)) throw new Error("pyfix fixture build produced noth
 
 // ── sidecar process (spawned exactly like the app: --stdio --data-dir) ────────────────────
 let child = null;
+let chatPeer = {
+  chunks: ["Hello ", "from ", "the peer"],
+  usage: { prompt_tokens: 5, completion_tokens: 3 },
+  holdAfterFirst: false,
+  status: 200,
+  resume: false,
+  closedEarly: false,
+  requests: [],
+};
 let stdoutBuf = Buffer.alloc(0);
 let nextRpcId = 1;
 const pending = new Map(); // rpc id -> {resolve, reject, timer}
@@ -59,7 +68,14 @@ const pending = new Map(); // rpc id -> {resolve, reject, timer}
 function spawnSidecar() {
   child = spawn("uv", ["run", "tempest-server", "--stdio", "--data-dir", dataDir], {
     cwd: REPO_ROOT,
-    env: { ...process.env, TEMPEST_DEV: "1", TEMPEST_NO_POWER_PAUSE: "1" },
+    env: {
+      ...process.env,
+      TEMPEST_DEV: "1",
+      TEMPEST_NO_POWER_PAUSE: "1",
+      // C5 chat specs: the engine's ollama provider reaches the bridge's own scripted
+      // OpenAI-wire peer — the exact way a real local runner is reached, no mocks (L4).
+      TEMPEST_MODEL_BASE_URL_OLLAMA: `http://127.0.0.1:${PORT}/chat-peer/v1`,
+    },
     stdio: ["pipe", "pipe", "inherit"],
     detached: true, // own process group, so engine-down can SIGKILL the whole tree
   });
@@ -242,6 +258,117 @@ const server = http.createServer(async (req, res) => {
     json(res, 200, { violations: ledger });
     return;
   }
+  // ── C5: the scripted chat peer + the chat-operation door ────────────────────────────
+  // The peer is the OpenAI-wire SSE endpoint the engine's ollama row points at (spawn env
+  // above); /admin/chat-peer scripts its next answers. hold/resume make cancellation a fact
+  // rather than a race (trap 61): the peer stops after its first delta until resumed, and
+  // records whether the client genuinely hung up.
+  if (req.method === "POST" && req.url === "/admin/chat-peer") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      try {
+        const body = JSON.parse(raw);
+        chatPeer = {
+          chunks: Array.isArray(body.chunks) ? body.chunks : ["Hello ", "from ", "the peer"],
+          usage: body.usage === null ? null : (body.usage ?? { prompt_tokens: 5, completion_tokens: 3 }),
+          // Frame indices to PARK after; each /resume releases one hold in order. Staged
+          // holds are how "the engine hung up" becomes observable without a buffer race
+          // (trap 61): park, let the test drive the state it needs, then the NEXT write
+          // is the measurement.
+          holds: Array.isArray(body.holds)
+            ? body.holds
+            : body.holdAfterFirst === true
+              ? [0]
+              : [],
+          resumeCount: 0,
+          status: typeof body.status === "number" ? body.status : 200,
+          closedEarly: false,
+          requests: [],
+        };
+        json(res, 200, { armed: true });
+      } catch (err) {
+        json(res, 400, { error: String(err) });
+      }
+    });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/admin/chat-peer/resume") {
+    chatPeer.resumeCount += 1;
+    json(res, 200, { resumed: chatPeer.resumeCount });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/admin/chat-peer/state") {
+    json(res, 200, {
+      closedEarly: chatPeer.closedEarly,
+      requests: chatPeer.requests,
+    });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/chat-peer/v1/chat/completions") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", async () => {
+      const body = JSON.parse(raw);
+      chatPeer.requests.push(body);
+      if (chatPeer.status !== 200) {
+        json(res, chatPeer.status, { error: { message: "planted failure" } });
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const frames = chatPeer.chunks.map(
+        (chunk) => `data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`,
+      );
+      if (chatPeer.usage !== null) {
+        frames.push(`data: ${JSON.stringify({ choices: [], usage: chatPeer.usage })}\n\n`);
+      }
+      frames.push("data: [DONE]\n\n");
+      try {
+        let holdsPassed = 0;
+        for (let index = 0; index < frames.length; index += 1) {
+          res.write(frames[index]);
+          if (res.writableEnded || res.destroyed) throw new Error("gone");
+          if (chatPeer.holds.includes(index)) {
+            holdsPassed += 1;
+            const needed = holdsPassed;
+            const deadline = Date.now() + 10_000; // safety net, not an expected wait
+            while (chatPeer.resumeCount < needed && Date.now() < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+          }
+        }
+        res.end();
+      } catch {
+        chatPeer.closedEarly = true;
+      }
+    });
+    res.on("close", () => {
+      // Abnormal close ONLY: node fires 'close' on ordinary completion too, and a flag
+      // that sets itself on success is a vacuous assertion (trap 45).
+      if (!res.writableEnded) {
+        chatPeer.closedEarly = true;
+      }
+    });
+    return;
+  }
+  // The platform harness's chat routes reach the engine's chat operations here — raw
+  // operationIds, no tauri-command indirection (these are host-protocol intercepts in the
+  // app, not commands; their shapes are pinned by the api suite and the client's behavior).
+  if (req.method === "POST" && req.url === "/chat-op") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", async () => {
+      try {
+        const body = JSON.parse(raw);
+        const reply = await call(body.operation, body.params ?? {});
+        json(res, 200, reply);
+      } catch (err) {
+        json(res, 502, { error: err instanceof Error ? err.message : JSON.stringify(err) });
+      }
+    });
+    return;
+  }
+
   // Phase 20.1: `read_project_file` is a HOST command with no sidecar behind it, so the bridge
   // performs a genuine read from a real fixture project. The guard's RULES (traversal,
   // credentials, symlink escapes, binary) are pinned by 26 Rust tests in pathguard.rs; what this

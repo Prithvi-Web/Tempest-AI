@@ -145,6 +145,16 @@ const json = (status, value) => ({
 /** Route one local-mode API request. Exported for the boundary AND for direct tests. */
 export function handleLocalApi(method, path) {
   const route = `${method.toUpperCase()} ${path.split("?")[0]}`;
+  if (method.toUpperCase() === "GET" && path.startsWith("/api/share/link/")) {
+    // Not shared — the honest local answer until C7's sharing lands (TSharedLinkGetResponse).
+    return json(200, { shareId: null, success: false });
+  }
+  if (method.toUpperCase() === "GET" && path.startsWith("/api/agents/tools/calls")) {
+    // No tool calls exist for a plain chat turn; the chat surface polls this per
+    // conversation, and the empty list is the truthful shape until the C5 agent-run
+    // re-target starts filling it.
+    return json(200, []);
+  }
   switch (route) {
     case "GET /api/config":
       return json(200, STARTUP_CONFIG);

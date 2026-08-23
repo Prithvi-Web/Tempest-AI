@@ -106,8 +106,18 @@ const CATALOG_ENDPOINTS = {
     modelDisplayLabel: "Anthropic",
     iconURL: "/tempest-assets/providers/anthropic.svg",
   },
+  // The C5 chat specs' endpoint: keyless and local, exactly the catalog row the engine
+  // serves for ollama — whose base URL the bridge points at its own scripted peer.
+  "Ollama (local)": {
+    order: 1,
+    type: "custom",
+    userProvide: false,
+    userProvideURL: false,
+    modelDisplayLabel: "Ollama (local)",
+    iconURL: "/tempest-assets/providers/ollama.svg",
+  },
 };
-const CATALOG_MODELS = { anthropic: [] };
+const CATALOG_MODELS = { anthropic: [], "Ollama (local)": ["test-model"] };
 
 function keysResponse(res, method) {
   switch (method) {
@@ -138,14 +148,171 @@ function respond(res, status, contentType, body) {
   res.end(body);
 }
 
-const server = http.createServer((req, res) => {
-  // Bodies are never consumed by any route below (local-api routes on method+path alone;
-  // the key bridge stand-in answers by protocol) — drain so the socket never stalls.
-  req.resume();
+const BRIDGE = `http://127.0.0.1:${process.env.E2E_BRIDGE_PORT ?? 39755}`;
 
+async function chatOp(operation, params) {
+  const reply = await fetch(`${BRIDGE}/chat-op`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ operation, params }),
+  });
+  if (!reply.ok) {
+    throw new Error(`chat-op ${operation}: ${reply.status} ${await reply.text()}`);
+  }
+  return reply.json();
+}
+
+function readBody(req) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+  });
+}
+
+/// The C5 agent seam, mirroring agent_chat.rs route for route — with the ONE deliberate
+/// difference ADR-0078 names: node can stream, so GET stream/:id is REAL SSE (the sse.js
+/// transport path), while the app rides boundary-B events for the same frames.
+async function handleChatSeam(req, res, method, route) {
+  if (route.startsWith("/api/convos/gen_title/")) {
+    const conversationId = decodeURIComponent(route.slice("/api/convos/gen_title/".length));
+    const listing = await chatOp("listConversations", {});
+    const row = (listing.conversations ?? []).find((c) => c.conversationId === conversationId);
+    if (row && typeof row.title === "string") {
+      respond(res, 200, "application/json", JSON.stringify({ title: row.title }));
+    } else {
+      respond(res, 404, "application/json", JSON.stringify({ error: "no title yet" }));
+    }
+    return true;
+  }
+  if (route === "/api/convos" && method === "GET") {
+    respond(res, 200, "application/json", JSON.stringify(await chatOp("listConversations", {})));
+    return true;
+  }
+  if (route.startsWith("/api/convos/") && method === "GET" && !route.includes("/gen_title/")) {
+    const conversationId = decodeURIComponent(route.slice("/api/convos/".length));
+    if (conversationId && !conversationId.includes("/")) {
+      try {
+        respond(
+          res,
+          200,
+          "application/json",
+          JSON.stringify(await chatOp("getConversation", { conversation_id: conversationId })),
+        );
+      } catch {
+        respond(res, 404, "application/json", JSON.stringify({ error: "no such conversation" }));
+      }
+      return true;
+    }
+  }
+  if (route.startsWith("/api/messages/") && method === "GET") {
+    const conversationId = decodeURIComponent(route.slice("/api/messages/".length));
+    respond(
+      res,
+      200,
+      "application/json",
+      JSON.stringify(await chatOp("getConversationMessages", { conversation_id: conversationId })),
+    );
+    return true;
+  }
+  if (!(route === "/api/agents/chat" || route.startsWith("/api/agents/chat/"))) {
+    return false;
+  }
+  const sub = route.replace(/^\/api\/agents\/chat\/?/, "");
+  if (method === "GET" && sub === "active") {
+    respond(res, 200, "application/json", JSON.stringify(await chatOp("listActiveChatTurns", {})));
+    return true;
+  }
+  if (method === "GET" && sub.startsWith("status/")) {
+    const id = decodeURIComponent(sub.slice("status/".length));
+    respond(
+      res,
+      200,
+      "application/json",
+      JSON.stringify(await chatOp("getChatTurnStatus", { stream_id: id })),
+    );
+    return true;
+  }
+  if (method === "GET" && sub.startsWith("stream/")) {
+    const id = decodeURIComponent(sub.slice("stream/".length).split("?")[0] ?? "");
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+    });
+    let after = 0;
+    for (;;) {
+      let page;
+      try {
+        page = await chatOp("listChatTurnEvents", { stream_id: id, after });
+      } catch (err) {
+        res.write(`event: error\ndata: ${JSON.stringify({ error: String(err) })}\n\n`);
+        break;
+      }
+      for (const event of page.events) {
+        after = event.seq;
+        res.write(`event: message\ndata: ${JSON.stringify(event.frame)}\n\n`);
+      }
+      if (page.status !== "active" && page.events.length === 0) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (res.writableEnded || res.destroyed) {
+        return true;
+      }
+    }
+    res.end();
+    return true;
+  }
+  if (method === "POST" && sub === "abort") {
+    const parsed = JSON.parse((await readBody(req)) || "{}");
+    const streamId = parsed.streamId ?? parsed.conversationId ?? parsed.abortKey ?? "";
+    const params = { stream_id: streamId };
+    if (typeof parsed.generationCreatedAt === "number") {
+      params.generation_created_at = parsed.generationCreatedAt;
+    }
+    respond(res, 200, "application/json", JSON.stringify(await chatOp("cancelChatTurn", params)));
+    return true;
+  }
+  if (method === "POST" && !sub.includes("/")) {
+    const payload = JSON.parse((await readBody(req)) || "{}");
+    if (!payload.endpoint && sub) {
+      payload.endpoint = decodeURIComponent(sub);
+    }
+    respond(
+      res,
+      200,
+      "application/json",
+      JSON.stringify(await chatOp("startChatTurn", { body: payload })),
+    );
+    return true;
+  }
+  respond(res, 404, "application/json", JSON.stringify({ error: "not part of the chat seam" }));
+  return true;
+}
+
+const server = http.createServer((req, res) => {
   const url = req.url ?? "/";
   const [route] = url.split("?");
   const method = (req.method ?? "GET").toUpperCase();
+
+  // The C5 chat seam consumes ITS OWN bodies; everything else drains below.
+  const chatFamily =
+    route === "/api/agents/chat" ||
+    route.startsWith("/api/agents/chat/") ||
+    route === "/api/convos" ||
+    route.startsWith("/api/convos/") ||
+    route.startsWith("/api/messages/");
+  if (chatFamily) {
+    handleChatSeam(req, res, method, route).catch((err) => {
+      respond(res, 502, "application/json", JSON.stringify({ error: String(err) }));
+    });
+    return;
+  }
+
+  // Bodies are never consumed by any route below (local-api routes on method+path alone;
+  // the key bridge stand-in answers by protocol) — drain so the socket never stalls.
+  req.resume();
 
   // The C4 provider bridge families, before anything reaches the local seam.
   if (route === "/api/endpoints" || route === "/api/models") {
