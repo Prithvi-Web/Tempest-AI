@@ -173,12 +173,16 @@ jobs:
               echo "::error::$line"
             done
           fi
-      - name: keep the playwright report when it fails
+      - name: keep the playwright traces when it fails
+        # The reporter is `list` (playwright.config.ts) — no HTML report is ever written.
+        # What a failure actually leaves behind is `trace: "retain-on-failure"` output under
+        # test-results/, which the first red run of spec 21 proved: the upload step named a
+        # directory that never exists and shipped nothing.
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-report
-          path: packages/desktop/playwright-report
+          name: playwright-traces
+          path: packages/desktop/test-results
           retention-days: 7
 
   contract-check:

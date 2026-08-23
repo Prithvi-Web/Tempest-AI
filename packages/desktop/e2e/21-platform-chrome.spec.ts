@@ -9,8 +9,24 @@
  * wrapper's static position below the fold (clipped at the window's bottom edge). The suite
  * stayed green because nothing asserted GEOMETRY: every control was still clickable where it
  * lay. These specs assert the geometry.
+ *
+ * The glass assertions PIN the transparency preference rather than inheriting the host's:
+ * theme.css §7 deliberately answers `prefers-reduced-transparency: reduce` with solid
+ * surfaces, and GitHub's macOS runner images ship with that preference ON — the first CI run
+ * of this spec failed on exactly that, measuring the runner's accessibility settings instead
+ * of the code. Both preference states are asserted, so the accessible branch is pinned too.
  */
+import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+
+async function emulateTransparency(page: Page, value: "no-preference" | "reduce") {
+  // Playwright's emulateMedia() has no reducedTransparency knob at this pin; CDP's
+  // setEmulatedMedia is the same mechanism one level down, Chromium-only like the suite.
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-transparency", value }],
+  });
+}
 
 test("the settings dialog opens centered over a dimmed page", async ({ page }) => {
   await page.goto("/");
@@ -48,17 +64,37 @@ test("the settings dialog opens centered over a dimmed page", async ({ page }) =
   expect(scrimBox.height).toBeGreaterThanOrEqual(viewport.height - 1);
 
   // Glass belongs on the PANEL; the wrapper must never carry a backdrop-filter again —
-  // that is the exact property whose violation created the containing block.
-  const filters = await panel.evaluate((el) => {
-    const wrapper = el.closest('[role="dialog"]');
-    if (!wrapper) throw new Error("the panel must live inside the dialog wrapper");
-    return {
-      wrapper: getComputedStyle(wrapper).backdropFilter,
-      panel: getComputedStyle(el).backdropFilter,
-    };
-  });
-  expect(filters.wrapper).toBe("none");
-  expect(filters.panel).toContain("blur");
+  // that is the exact property whose violation created the containing block. Pinned under
+  // an explicit no-preference so the assertion is about theme.css, not the host's
+  // accessibility settings (the CI runner ships with reduce-transparency ON).
+  const readFilters = () =>
+    panel.evaluate((el) => {
+      const wrapper = el.closest('[role="dialog"]');
+      if (!wrapper) throw new Error("the panel must live inside the dialog wrapper");
+      return {
+        wrapper: getComputedStyle(wrapper).backdropFilter,
+        panel: getComputedStyle(el).backdropFilter,
+        panelBackground: getComputedStyle(el).backgroundColor,
+      };
+    });
+
+  await emulateTransparency(page, "no-preference");
+  const glass = await readFilters();
+  expect(glass.wrapper).toBe("none");
+  expect(glass.panel).toContain("blur");
+
+  // A reader who asked for reduced transparency gets a SOLID panel (theme.css §7's media
+  // block), the wrapper still carries no filter, and the panel stays where it was — the
+  // accessible branch re-declares the same selectors and deserves its own pin.
+  await emulateTransparency(page, "reduce");
+  const solid = await readFilters();
+  expect(solid.wrapper).toBe("none");
+  expect(solid.panel).toBe("none");
+  expect(solid.panelBackground).toMatch(/^rgb\(/); // rgb(...), no alpha channel: fully opaque
+  const solidBox = await panel.boundingBox();
+  if (!solidBox) throw new Error("the dialog panel must keep its box under reduce");
+  expect(solidBox.y).toBeGreaterThanOrEqual(0);
+  expect(solidBox.y + solidBox.height).toBeLessThanOrEqual(viewport.height + 1);
 });
 
 test("the rail wears the Tempest mark, top-left, actually loaded", async ({ page }) => {
