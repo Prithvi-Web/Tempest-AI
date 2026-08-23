@@ -160,15 +160,41 @@ export const commands = {
 	 *  relaunch on the next hover.
 	 */
 	updateEditorRunners: (runners: EditorRunners) => typedError<EditorRunnersOut, SidecarFailure>(__TAURI_INVOKE("update_editor_runners", { runners })),
+	/**
+	 *  The seam SSE's ledger replay: everything the turn has emitted so far, so a stream that
+	 *  subscribes late (or a webview that reloaded) starts complete before following the live
+	 *  pushes. Same boundary-A operation the host poller drains.
+	 */
+	replayChatTurn: (streamId: string) => typedError<ChatTurnReplay, SidecarFailure>(__TAURI_INVOKE("replay_chat_turn", { streamId })),
 };
 
 /** Events */
 export const events = {
+	agentStreamEvent: makeEvent<AgentStreamEvent>("agent-stream-event"),
 	runProgressEvent: makeEvent<RunProgressEvent>("run-progress-event"),
 	sidecarStateEvent: makeEvent<SidecarStateEvent>("sidecar-state-event"),
 };
 
 /* Types */
+/**  One frame batch pushed to the webview. */
+export type AgentStreamEvent = {
+	stream_id: string,
+	status: string,
+	events: AgentStreamFrame[],
+};
+
+/**
+ *  One ledger frame at boundary B. The frame itself crosses as its JSON TEXT: SSE's
+ *  `e.data` is a string by definition, the seam SSE hands it to the vendored parser
+ *  verbatim, and specta cannot type arbitrary JSON anyway (BigInt-forbidden). Boundary A
+ *  still types the frames as objects; the e2e suite validates their content against the
+ *  real client.
+ */
+export type AgentStreamFrame = {
+	seq: number,
+	frame_json: string,
+};
+
 /**
  *  Everything the webview is allowed to know about the stored AI key (L9): whether one
  *  exists and its last four characters for recognition — never the key itself.
@@ -359,6 +385,13 @@ export type Base = string;
 export type CancelAccepted = {
 	cancelling: boolean,
 	run_id: number,
+};
+
+/**  A full ledger replay for one stream — what `replay_chat_turn` answers. */
+export type ChatTurnReplay = {
+	stream_id: string,
+	status: string,
+	events: AgentStreamFrame[],
 };
 
 /**

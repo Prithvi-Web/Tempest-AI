@@ -119,6 +119,9 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
             // ThemeProvider's storage contract exactly (raw 'dark'|'light'|'system' under
             // 'color-theme'). First run seeds 'dark': the storm-navy identity ships dark
             // (owner mandate); the user's own later choice persists over it.
+            // The seam transports key on this marker: TempestSSE takes the boundary-B path only
+            // inside the desktop app; the harness and server mode keep real sse.js.
+            let app_marker = "<script>window.__TEMPEST_APP__=true;</script>";
             let mode = "<script>(function(){try{var t=localStorage.getItem('color-theme');if(t==null){t='dark';localStorage.setItem('color-theme','dark')}var d=t==='dark'||(t==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('dark',d)}catch(e){}})();</script>";
             // Liquid glass, macOS only. Two independent pieces:
             // — the drag surfaces exist whenever the overlay-titlebar window does (without
@@ -161,7 +164,7 @@ fn serve_index(dist: &Path) -> tauri::http::Response<Vec<u8>> {
                     "content=\"LibreChat - An open source chat application with support for multiple AI models\"",
                     "content=\"Tempest AI — the assistant that shows you the evidence\"",
                 )
-                .replacen("<head>", &format!("<head>{mode}{tap}{drag}{glass}"), 1)
+                .replacen("<head>", &format!("<head>{app_marker}{mode}{tap}{drag}{glass}"), 1)
                 .replace(
                     "</head>",
                     "<link rel=\"stylesheet\" href=\"/tempest-theme.css\" />\n</head>",
@@ -613,6 +616,7 @@ fn keys_response(
 /// thread and hands the result to the protocol responder. `path` may carry a query string;
 /// `route` below is the query-less form every exact match uses.
 pub fn handle(
+    app: Option<&tauri::AppHandle>,
     supervisor: Option<&Arc<Supervisor>>,
     engine: Option<&Arc<Supervisor>>,
     dist: &Path,
@@ -632,6 +636,14 @@ pub fn handle(
     }
     if route == "/api/keys" || route.starts_with("/api/keys/") {
         return keys_response(engine, method, route, query, body);
+    }
+    // The C5 agent seam: chat turns, their stream family, and the conversation reads the
+    // final-frame contract depends on — answered by the HOST from boundary A (ADR-0078).
+    // These routes never reach the Node sidecar; the vendored Express agent stack stays
+    // dormant in local mode.
+    if let Some(reply) = crate::agent_chat::handle_chat(app, engine, method, route, query, body)
+    {
+        return reply;
     }
     if route == "/api/config" && !COLD_LAUNCH_PRINTED.swap(true, Ordering::Relaxed) {
         // The §10 merged-app cold-launch instrument: process start → the authed shell
@@ -854,6 +866,7 @@ mod tests {
         let reply = handle(
             None,
             None,
+            None,
             Path::new("/nonexistent-dist"),
             "GET",
             "/__tempest-diagnostic?cause=node-missing&detail=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
@@ -870,6 +883,7 @@ mod tests {
 
         // An unknown cause still renders a complete page, never a blank window.
         let generic = handle(
+            None,
             None,
             None,
             Path::new("/nonexistent-dist"),
@@ -891,7 +905,7 @@ mod tests {
         std::fs::write(providers.join("openai.svg"), b"<svg/>").unwrap();
         std::fs::write(base.join("secret.txt"), b"nope").unwrap();
 
-        let ok = handle(None, None, &dist, "GET", "/tempest-assets/providers/openai.svg", b"");
+        let ok = handle(None, None, None, &dist, "GET", "/tempest-assets/providers/openai.svg", b"");
         assert_eq!(ok.status(), 200);
         assert_eq!(ok.headers().get("content-type").unwrap(), "image/svg+xml");
         assert_eq!(ok.body().as_slice(), b"<svg/>");
@@ -904,7 +918,7 @@ mod tests {
             "/tempest-assets/providers/absent.svg",
             "/tempest-assets/",
         ] {
-            assert_eq!(handle(None, None, &dist, "GET", path, b"").status(), 404, "{path}");
+            assert_eq!(handle(None, None, None, &dist, "GET", path, b"").status(), 404, "{path}");
         }
         std::fs::remove_dir_all(&base).ok();
     }

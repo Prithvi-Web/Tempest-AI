@@ -3,6 +3,7 @@
 //! no TCP socket ever listens (CLAUDE.md §9b Boundary A). The webview reaches the sidecar
 //! only through typed Tauri commands (Boundary B).
 
+pub mod agent_chat;
 pub mod agent_tools;
 pub mod commands;
 pub mod framing;
@@ -83,10 +84,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::lsp_hover,
             commands::get_editor_runners,
             commands::update_editor_runners,
+            commands::replay_chat_turn,
         ])
         .events(tauri_specta::collect_events![
             commands::SidecarStateEvent,
-            commands::RunProgressEvent
+            commands::RunProgressEvent,
+            agent_chat::AgentStreamEvent
         ])
 }
 
@@ -116,6 +119,7 @@ pub fn run() {
                             app.try_state::<platform::Platform>().map(|p| Arc::clone(&p.0));
                         let engine = app.try_state::<Arc<Supervisor>>().map(|s| Arc::clone(&s));
                         platform_web::handle(
+                            Some(&app),
                             supervisor.as_ref(),
                             engine.as_ref(),
                             &dist,

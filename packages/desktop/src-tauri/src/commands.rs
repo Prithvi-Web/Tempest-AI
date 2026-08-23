@@ -315,6 +315,24 @@ fn call_typed<T: serde::de::DeserializeOwned>(
     })
 }
 
+/// The seam SSE's ledger replay: everything the turn has emitted so far, so a stream that
+/// subscribes late (or a webview that reloaded) starts complete before following the live
+/// pushes. Same boundary-A operation the host poller drains.
+#[tauri::command]
+#[specta::specta]
+pub fn replay_chat_turn(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    stream_id: String,
+) -> CmdResult<crate::agent_chat::ChatTurnReplay> {
+    let page: crate::generated::domain::TurnEventsOut =
+        call_typed(&state, "listChatTurnEvents", json!({"stream_id": stream_id, "after": 0}))?;
+    Ok(crate::agent_chat::ChatTurnReplay {
+        stream_id: page.stream_id.clone(),
+        status: page.status.clone(),
+        events: crate::agent_chat::frames_from(&page),
+    })
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn get_health(state: tauri::State<'_, Arc<Supervisor>>) -> CmdResult<HealthResponse> {

@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { v4 } from 'uuid';
 import { SSE } from 'sse.js';
+// Inline delta, UPSTREAM.md ledger: inside the desktop app the SSE transport is the
+// boundary-B seam (the tempest:// protocol cannot stream); everywhere else this import
+// resolves and sse.js keeps serving. Interface-identical by construction and by test.
+import { TempestSSE } from '../../../tempest/stream/TempestSSE';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSetRecoilState, useRecoilCallback } from 'recoil';
 import {
@@ -1507,7 +1511,8 @@ export default function useResumableSSE(
       const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
       logger.log('ResumableSSE', 'Subscribing to stream:', url, { isResume });
 
-      const sse = new SSE(url, {
+      const SSEImpl = TempestSSE.available() ? TempestSSE : SSE;
+      const sse = new SSEImpl(url, {
         headers: {
           Authorization: `Bearer ${token}`,
           ...generationProtocolHeaders(),

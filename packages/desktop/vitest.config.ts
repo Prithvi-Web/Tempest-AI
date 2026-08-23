@@ -36,6 +36,14 @@ const SEAM = path.resolve(
   "tempest",
   "views",
 );
+const STREAM = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "platform",
+  "client",
+  "tempest",
+  "stream",
+);
 
 export default defineConfig({
   plugins: [react()],
@@ -62,6 +70,9 @@ export default defineConfig({
         `${SEAM}/editor/risk.ts`,
         `${SEAM}/editor/divergenceLookup.ts`,
         `${SEAM}/editor/hoverSource.ts`,
+        // The C5 stream transport's state machine; its tauri glue (streamHost.ts) is
+        // e2e-pinned like hooks.ts and deliberately not measured here.
+        `${STREAM}/TempestSSE.ts`,
       ],
       thresholds: { statements: 100, branches: 100, functions: 100, lines: 100 },
     },
