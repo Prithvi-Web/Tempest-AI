@@ -144,6 +144,26 @@ class Usage:
 
 
 @dataclass(frozen=True)
+class TextDelta:
+    """One streamed text chunk, as the provider sent it."""
+
+    text: str
+
+
+@dataclass(frozen=True)
+class StreamUsage:
+    """Token counts the provider reported INSIDE its own stream (L21: measured, never
+    estimated). A server that streams no usage produces no event — absence stays absence,
+    not a fabricated zero."""
+
+    input_tokens: int
+    output_tokens: int
+
+
+StreamEvent = TextDelta | StreamUsage
+
+
+@dataclass(frozen=True)
 class ToolCatalog:
     """The committed, model-facing tool definitions for BOTH wires.
 
@@ -286,6 +306,7 @@ def _body(
     stream: bool,
     system: str | None,
     tools: ToolCatalog | None = None,
+    want_usage: bool = False,
 ) -> dict[str, Any]:
     """The one place the two wires differ in shape, and only by where `system` goes.
 
@@ -312,6 +333,11 @@ def _body(
             payload["tools"] = tools.openai
     if stream:
         payload["stream"] = True
+        if want_usage and provider.wire != WIRE_ANTHROPIC:
+            # Anthropic streams usage unasked; the OpenAI wire reports it only when asked.
+            # Asked only on the usage-aware path, so every existing request stays
+            # byte-identical to what its pinned tests recorded.
+            payload["stream_options"] = {"include_usage": True}
     return payload
 
 
@@ -326,13 +352,14 @@ def _open(
     timeout: float,
     system: str | None,
     tools: ToolCatalog | None = None,
+    want_usage: bool = False,
 ) -> Any:
     key = resolve_key(provider, env)
     base = resolve_base_url(provider, env)
     request = urllib.request.Request(
         _endpoint(provider, base),
         data=json.dumps(
-            _body(provider, model, messages, max_tokens, stream, system, tools)
+            _body(provider, model, messages, max_tokens, stream, system, tools, want_usage)
         ).encode(),
         headers=_headers(provider, key),
         method="POST",
@@ -528,6 +555,66 @@ def stream(
     upstream connection so the model stops generating — and stops charging. A client that only
     stops displaying tokens is pretending, and the user pays for the pretence.
     """
+    for event in _stream_core(
+        provider_id,
+        messages,
+        env=env,
+        model=model,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        cancel=cancel,
+        system=system,
+        want_usage=False,
+    ):
+        if isinstance(event, TextDelta):
+            yield event.text
+
+
+def stream_events(
+    provider_id: str,
+    messages: list[Message],
+    *,
+    env: dict[str, str],
+    model: str | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    cancel: threading.Event | None = None,
+    system: str | None = None,
+) -> Iterator[StreamEvent]:
+    """`stream()` with the provider's own usage report riding along.
+
+    Text arrives as `TextDelta`s; when the provider states token counts inside its stream
+    (Anthropic always does; the OpenAI wire does when asked, which this path asks for), ONE
+    trailing `StreamUsage` follows the last delta. A server that reports nothing produces no
+    usage event — the cost meter records absence, never an estimate (L21). Cancellation is
+    `stream()`'s, unchanged: the connection is torn down for real, and no usage is claimed
+    for a turn the caller killed.
+    """
+    return _stream_core(
+        provider_id,
+        messages,
+        env=env,
+        model=model,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        cancel=cancel,
+        system=system,
+        want_usage=True,
+    )
+
+
+def _stream_core(
+    provider_id: str,
+    messages: list[Message],
+    *,
+    env: dict[str, str],
+    model: str | None,
+    max_tokens: int,
+    timeout: float,
+    cancel: threading.Event | None,
+    system: str | None,
+    want_usage: bool,
+) -> Iterator[StreamEvent]:
     provider = get(provider_id)
     chosen = resolve_model(provider, model)
     response = _open(
@@ -539,7 +626,10 @@ def stream(
         stream=True,
         timeout=timeout,
         system=system,
+        want_usage=want_usage,
     )
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     try:
         for raw_line in response:
             if cancel is not None and cancel.is_set():
@@ -555,11 +645,48 @@ def stream(
                 payload: Any = json.loads(data)
             except ValueError:
                 continue  # a keep-alive or a partial frame is not an error
+            if want_usage and isinstance(payload, dict):
+                observed_in, observed_out = _sse_usage(provider, payload)
+                input_tokens = observed_in if observed_in is not None else input_tokens
+                output_tokens = observed_out if observed_out is not None else output_tokens
             delta = _sse_delta(provider, payload)
             if delta:
-                yield delta
+                yield TextDelta(delta)
     finally:
         response.close()
+    if want_usage and (input_tokens is not None or output_tokens is not None):
+        yield StreamUsage(input_tokens or 0, output_tokens or 0)
+
+
+def _sse_usage(provider: Provider, payload: dict[str, Any]) -> tuple[int | None, int | None]:
+    """(input, output) stated by one event — either side None when the event is silent on it.
+
+    Anthropic: `message_start` carries the input count, `message_delta` the cumulative output
+    count (the last one wins, which is the total). OpenAI wire: a chunk-level `usage` object
+    with prompt/completion counts, sent once at the end when `include_usage` was requested.
+    """
+    if provider.wire == WIRE_ANTHROPIC:
+        if payload.get("type") == "message_start":
+            message = payload.get("message")
+            usage = message.get("usage") if isinstance(message, dict) else None
+            if isinstance(usage, dict) and isinstance(usage.get("input_tokens"), int):
+                return usage["input_tokens"], None
+            return None, None
+        if payload.get("type") == "message_delta":
+            usage = payload.get("usage")
+            if isinstance(usage, dict) and isinstance(usage.get("output_tokens"), int):
+                return None, usage["output_tokens"]
+            return None, None
+        return None, None
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+        return (
+            prompt if isinstance(prompt, int) else None,
+            completion if isinstance(completion, int) else None,
+        )
+    return None, None
 
 
 def describe_env(provider_id: str) -> dict[str, str]:

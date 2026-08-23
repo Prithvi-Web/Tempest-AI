@@ -281,6 +281,120 @@ class TestStreamingAndCancellation:
             assert peer.closed_early.wait(timeout=5), "the upstream connection stayed open"
         assert len(received) == 1, "cancellation did not stop the stream promptly"
 
+
+class TestStreamEvents:
+    """`stream_events` — deltas plus the provider's own in-stream usage report (C5.1)."""
+
+    def test_anthropic_usage_rides_message_start_and_message_delta(self) -> None:
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 12}}}\n\n',
+            b'data: {"type": "content_block_delta", "delta": {"text": "al"}}\n\n',
+            b'data: {"type": "content_block_delta", "delta": {"text": "pha"}}\n\n',
+            b'data: {"type": "message_delta", "usage": {"output_tokens": 3}}\n\n',
+            b'data: {"type": "message_delta", "usage": {"output_tokens": 7}}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "anthropic", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert [e.text for e in events if isinstance(e, mc.TextDelta)] == ["al", "pha"]
+        usage = [e for e in events if isinstance(e, mc.StreamUsage)]
+        # The LAST cumulative output count wins, and usage follows every delta.
+        assert usage == [mc.StreamUsage(input_tokens=12, output_tokens=7)]
+        assert isinstance(events[-1], mc.StreamUsage)
+
+    def test_openai_usage_is_requested_and_read(self) -> None:
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"choices": [{"delta": {"content": "one "}}]}\n\n',
+            b'data: {"choices": [{"delta": {"content": "two"}}]}\n\n',
+            b'data: {"choices": [], "usage": {"prompt_tokens": 9, "completion_tokens": 4}}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "openai", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert [e.text for e in events if isinstance(e, mc.TextDelta)] == ["one ", "two"]
+        assert events[-1] == mc.StreamUsage(input_tokens=9, output_tokens=4)
+        # The OpenAI wire reports stream usage only when asked — the request must ask.
+        assert peer.requests[0]["stream_options"] == {"include_usage": True}
+
+    def test_plain_stream_never_asks_for_usage(self) -> None:
+        """`stream()`'s request stays byte-compatible: no stream_options arrives uninvited."""
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.sse = ["hi"]
+        with serve(peer) as base:
+            list(
+                mc.stream("openai", [mc.Message("user", "hi")], env=_env(provider, base), model="m")
+            )
+        assert "stream_options" not in peer.requests[0]
+
+    def test_a_silent_server_yields_no_usage_event(self) -> None:
+        """Absence is absence — no fabricated zeros for a server that reported nothing."""
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.sse = ["only text"]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "openai", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert events == [mc.TextDelta("only text")]
+
+    def test_malformed_usage_shapes_are_ignored_not_fatal(self) -> None:
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"type": "message_start", "message": "not-a-dict"}\n\n',
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": "NaN"}}}\n\n',
+            b'data: {"type": "message_delta", "usage": []}\n\n',
+            b'data: {"type": "content_block_delta", "delta": {"text": "ok"}}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "anthropic", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert events == [mc.TextDelta("ok")]
+
+    def test_cancellation_reports_no_usage_for_a_killed_turn(self) -> None:
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        # Frame 0 must BE a delta: the peer holds after its first frame, and the client can
+        # only cancel from inside the loop — a leading usage-only frame would leave both
+        # sides waiting on the safety timeout instead of on each other (trap 61).
+        peer.raw = [b'data: {"type": "content_block_delta", "delta": {"text": "first"}}\n\n'] + [
+            b'data: {"type": "content_block_delta", "delta": {"text": "more"}}\n\n'
+            for _ in range(50)
+        ]
+        peer.hold_after_first.set()
+        cancel = threading.Event()
+        events: list[mc.StreamEvent] = []
+        with serve(peer) as base:
+            with pytest.raises(mc.Cancelled):
+                for event in mc.stream_events(
+                    "anthropic",
+                    [mc.Message("user", "hi")],
+                    env=_env(provider, base),
+                    model="m",
+                    cancel=cancel,
+                ):
+                    events.append(event)
+                    cancel.set()
+            peer.resume.set()
+            assert peer.closed_early.wait(timeout=5), "the upstream connection stayed open"
+        assert not any(isinstance(e, mc.StreamUsage) for e in events)
+
     def test_a_stream_cancelled_before_the_first_chunk_still_tears_down(self) -> None:
         provider = mp.get("openai")
         peer = Peer(provider.wire)
