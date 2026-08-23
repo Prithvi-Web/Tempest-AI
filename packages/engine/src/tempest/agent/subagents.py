@@ -191,6 +191,11 @@ def _child_spec(fleet: _Fleet, parent: TaskSpec, spec: SubagentSpec, task_id: st
         ),
         # The root's key, not this child's id: one task cap for the whole delegation (L21).
         cost_task_key=fleet.parent.cost_task_key or fleet.parent.task_id,
+        # The FLEET's scope, always: a fleet cancel must abort the child that is mid-model-call
+        # (C5 run control), not only the children queued behind it. Before this, propagation
+        # reached spawned processes (the ContextVar registration) but a child blocked inside
+        # `complete()` ran its call to the end.
+        cancel=fleet.scope,
     )
 
 

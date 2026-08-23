@@ -8,6 +8,7 @@ free and deterministic in CI, which is the standing answer to QV2/QV10.
 
 import json
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -42,6 +43,17 @@ class Peer:
         #: which the test sets only once the client has actually torn the connection down.
         self.hold_after_first = threading.Event()
         self.resume = threading.Event()
+        #: Arm to make the peer go SILENT: SSE headers and then not one byte until `resume`.
+        #: This is the trap-58 condition — a blocked read that no deadline around the loop can
+        #: interrupt, because the loop body never returns to check anything.
+        self.silent_stream = threading.Event()
+        #: Arm to stall a NON-stream response mid-body: full Content-Length promised, half the
+        #: bytes delivered, then silence until `resume`. `complete()`'s read blocks exactly here.
+        self.stall_body = threading.Event()
+        #: Arm to BREAK a non-stream response mid-body: half the promised bytes, then the
+        #: connection closes. A real upstream fault, for pinning that the cancel guard passes
+        #: genuine errors through untranslated when nobody cancelled.
+        self.truncate_body = threading.Event()
 
     def body(self) -> bytes:
         if self.wire == mp.WIRE_ANTHROPIC:
@@ -92,6 +104,20 @@ def serve(peer: Peer) -> Iterator[str]:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
+                if peer.silent_stream.is_set():
+                    # Not one byte until the test releases the hold. The client's only honest
+                    # exits are its socket timeout or a bounded read observing its cancel flag.
+                    peer.resume.wait(timeout=10)
+                    try:
+                        # Several writes, not one: the first send after the peer's FIN merely
+                        # collects the RST — EPIPE surfaces on a SUBSEQUENT write.
+                        for _ in range(20):
+                            self.wfile.write(b"data: {}\n\n")
+                            self.wfile.flush()
+                            time.sleep(0.02)
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        peer.closed_early.set()  # the client really hung up while we were silent
+                    return
                 try:
                     for index, frame in enumerate(peer.sse_frames()):
                         self.wfile.write(frame)
@@ -107,6 +133,29 @@ def serve(peer: Peer) -> Iterator[str]:
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            if peer.truncate_body.is_set():
+                # Half the promised bytes, then the connection dies: an upstream FAULT, not a
+                # cancellation, and it must surface as one.
+                self.wfile.write(body[: len(body) // 2])
+                self.wfile.flush()
+                self.connection.close()
+                return
+            if peer.stall_body.is_set():
+                # Half the promised bytes, then silence: `complete()` is now blocked inside its
+                # body read with the connection alive and nothing arriving.
+                half = len(body) // 2
+                self.wfile.write(body[:half])
+                self.wfile.flush()
+                peer.resume.wait(timeout=10)
+                try:
+                    # Several writes, not one — see the silent_stream arm.
+                    for chunk in [body[half:]] + [b" "] * 20:
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                        time.sleep(0.02)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    peer.closed_early.set()  # the client hung up mid-body
+                return
             self.wfile.write(body)
 
         def log_message(self, *_: object) -> None:
@@ -280,6 +329,137 @@ class TestStreamingAndCancellation:
             peer.resume.set()
             assert peer.closed_early.wait(timeout=5), "the upstream connection stayed open"
         assert len(received) == 1, "cancellation did not stop the stream promptly"
+
+
+class TestBoundedReads:
+    """C5 run control: cancellation interrupts a SILENT upstream, not just a chatty one.
+
+    Trap 58 — a deadline around a blocking read is not a deadline. The old stream loop checked
+    its cancel event only after `readline()` returned, so a provider that stopped sending bytes
+    held the turn hostage for the full socket timeout, and `complete()` had no cancel at all.
+    These tests hold the upstream SILENT and require cancellation to land within a couple of
+    seconds while the socket timeout is thirty — the difference is the bounded read existing.
+    """
+
+    def test_cancel_interrupts_a_silent_stream_before_the_socket_timeout(self) -> None:
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.silent_stream.set()
+        cancel = threading.Event()
+        timer = threading.Timer(0.3, cancel.set)
+        with serve(peer) as base:
+            timer.start()
+            started = time.monotonic()
+            with pytest.raises(mc.Cancelled):
+                for _ in mc.stream(
+                    "openai",
+                    [mc.Message("user", "hi")],
+                    env=_env(provider, base),
+                    model="m-1",
+                    timeout=30.0,
+                    cancel=cancel,
+                ):
+                    pass  # pragma: no cover — the peer never sends a frame
+            elapsed = time.monotonic() - started
+            # Only now release the peer; its next write observes the closed socket.
+            peer.resume.set()
+            assert peer.closed_early.wait(timeout=5), "the silent connection stayed open"
+        assert elapsed < 5.0, f"cancel took {elapsed:.1f}s against a silent upstream"
+
+    def test_stream_events_honors_the_same_bound(self) -> None:
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.silent_stream.set()
+        cancel = threading.Event()
+        timer = threading.Timer(0.3, cancel.set)
+        with serve(peer) as base:
+            timer.start()
+            started = time.monotonic()
+            with pytest.raises(mc.Cancelled):
+                for _ in mc.stream_events(
+                    "anthropic",
+                    [mc.Message("user", "hi")],
+                    env=_env(provider, base),
+                    model="m-1",
+                    timeout=30.0,
+                    cancel=cancel,
+                ):
+                    pass  # pragma: no cover — the peer never sends a frame
+            elapsed = time.monotonic() - started
+            peer.resume.set()
+            assert peer.closed_early.wait(timeout=5), "the silent connection stayed open"
+        assert elapsed < 5.0, f"cancel took {elapsed:.1f}s against a silent upstream"
+
+    def test_complete_aborts_a_stalled_body_on_cancel(self) -> None:
+        """`complete()` is the agent loop's one model call; C5 threads cancellation into it."""
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.stall_body.set()
+        cancel = threading.Event()
+        timer = threading.Timer(0.3, cancel.set)
+        with serve(peer) as base:
+            timer.start()
+            started = time.monotonic()
+            with pytest.raises(mc.Cancelled):
+                mc.complete(
+                    "openai",
+                    [mc.Message("user", "hi")],
+                    env=_env(provider, base),
+                    model="m-1",
+                    timeout=30.0,
+                    cancel=cancel,
+                )
+            elapsed = time.monotonic() - started
+            peer.resume.set()
+            assert peer.closed_early.wait(timeout=5), "the stalled connection stayed open"
+        assert elapsed < 5.0, f"cancel took {elapsed:.1f}s against a stalled body"
+
+    def test_complete_with_an_unset_cancel_answers_normally(self) -> None:
+        """The cancel parameter must cost nothing when nobody cancels."""
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        with serve(peer) as base:
+            answer = mc.complete(
+                "openai",
+                [mc.Message("user", "hi")],
+                env=_env(provider, base),
+                model="m-1",
+                cancel=threading.Event(),
+            )
+        assert answer.text == "hello from the peer"
+        assert answer.usage.input_tokens == 11
+
+    def test_an_upstream_fault_is_not_dressed_up_as_a_cancellation(self) -> None:
+        """The guard translates a read failure into `Cancelled` ONLY when the caller cancelled;
+        a genuinely broken upstream keeps its own face."""
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.truncate_body.set()
+        with serve(peer) as base, pytest.raises(Exception) as caught:
+            mc.complete(
+                "openai",
+                [mc.Message("user", "hi")],
+                env=_env(provider, base),
+                model="m-1",
+                cancel=threading.Event(),  # armed, never set
+            )
+        assert not isinstance(caught.value, mc.Cancelled), (
+            "an upstream fault was mislabelled as a cancellation"
+        )
+
+    def test_complete_refuses_immediately_when_already_cancelled(self) -> None:
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        done = threading.Event()
+        done.set()
+        with serve(peer) as base, pytest.raises(mc.Cancelled):
+            mc.complete(
+                "openai",
+                [mc.Message("user", "hi")],
+                env=_env(provider, base),
+                model="m-1",
+                cancel=done,
+            )
 
 
 class TestStreamEvents:

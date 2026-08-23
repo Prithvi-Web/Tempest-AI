@@ -119,7 +119,9 @@ def serve_peer(peer: ChatPeer) -> Iterator[str]:
                         deadline = time.monotonic() + 10  # a safety net, not an expected wait
                         while peer.released < holds_passed and time.monotonic() < deadline:
                             time.sleep(0.02)
-            except (BrokenPipeError, ConnectionResetError):
+            except OSError:
+                # BrokenPipe and ConnectionReset are the textbook spellings, but macOS also
+                # surfaces send-after-FIN races as plain OSError(EPROTOTYPE) — one net for all.
                 peer.closed_early.set()
 
         def log_message(self, *_: object) -> None:
@@ -364,6 +366,42 @@ class TestCancellation:
         # The turn settled above; the second hold's release writes into the socket the
         # engine closed — the deterministic observation of the hangup.
         chat_env.release()
+        assert chat_env.closed_early.wait(timeout=5), "the upstream connection stayed open"
+
+    def test_cancel_lands_while_the_upstream_is_silent(self, api: Any, chat_env: ChatPeer) -> None:
+        """Trap 58 closed (C5 run control): the blocked READ is bounded, not just the loop
+        around it. The peer is PARKED — not one byte arriving — when the cancel lands, and
+        nothing ever releases it before the abort settles. The old loop could only observe
+        cancel at the next chunk, so this exact scenario blocked for the full 300 s socket
+        timeout; the bound is the difference between an abort and a hostage. 200 chunks,
+        matching the test above: the hangup observation needs enough post-park writes to
+        outrun the socket buffer (trap 61)."""
+        chat_env.chunks = [f"chunk{i} " for i in range(200)]
+        chat_env.holds = [0, 1]
+        ack = _start(api, "Long story please")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if any(
+                f.get("event") == "on_message_delta" for f in _frames(_events(api, ack["streamId"]))
+            ):
+                break
+            time.sleep(0.02)
+        else:
+            raise AssertionError("the first delta never arrived")
+
+        started = time.monotonic()
+        resp = api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel")
+        assert resp.status_code == 200
+        assert resp.json()["aborted"] == ack["streamId"]
+        payload = _wait_terminal(api, ack["streamId"])
+        elapsed = time.monotonic() - started
+        assert payload["status"] == "aborted"
+        assert elapsed < 5.0, f"the abort waited {elapsed:.1f}s on a silent upstream"
+        final = _frames(payload)[-1]
+        assert final["aborted"] is True
+        assert final["responseMessage"]["unfinished"] is True
+        # Only now let the parked peer go; its next write observes the dead socket.
+        chat_env.release(2)
         assert chat_env.closed_early.wait(timeout=5), "the upstream connection stayed open"
 
     def test_a_matching_epoch_aborts_exactly_its_own_turn(

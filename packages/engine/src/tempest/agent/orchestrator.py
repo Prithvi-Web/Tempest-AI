@@ -46,10 +46,12 @@ from tempest.bundle.bundle import run_verdict
 from tempest.config import TempestConfig, TempestConfigError, is_ignored
 from tempest.envrepro.deps import attach_deps, fetch_enabled
 from tempest.envrepro.worktree import materialize
+from tempest.execute.cancel import CancelScope, ProveCancelled
 from tempest.execute.runner import module_for_path, module_loads
 from tempest.inference import cost as cost_mod
 from tempest.inference.client import (
     DEFAULT_TIMEOUT_S,
+    Cancelled,
     Message,
     ModelError,
     ToolCall,
@@ -213,6 +215,13 @@ class TaskSpec:
     #: nothing to repair against, and an agent guessing at what the user wanted is precisely what
     #: F2 exists to prevent. Set to 0 to prove once and stop.
     max_repair_attempts: int = repair_mod.DEFAULT_MAX_ATTEMPTS
+    #: C5 run control. One scope threads the whole task: the turn loop polls it, the in-flight
+    #: model call aborts on it (the read is bounded — trap 58), and the prove observes it at
+    #: its checkpoints via `ProveConfig.cancel`. Cancellation UNWINDS as `ProveCancelled` and
+    #: never mints a verdict; the turnlog's durable record is how the task resumes later. A
+    #: model OUTAGE still soft-breaks and proves (L23) — a cancel is the user saying stop,
+    #: which is a different fact from the model going away.
+    cancel: CancelScope | None = None
 
 
 @dataclass(frozen=True)
@@ -397,6 +406,8 @@ def _converse(
     turns = 0
     for turn in range(spec.max_turns):
         turns = turn + 1
+        if spec.cancel is not None:
+            spec.cancel.raise_if_cancelled()
         try:
             answer = complete(
                 spec.provider,
@@ -406,7 +417,13 @@ def _converse(
                 system=SYSTEM_PROMPT,
                 tools=catalog,
                 timeout=spec.model_timeout_s,
+                cancel=spec.cancel.event if spec.cancel is not None else None,
             )
+        except Cancelled as exc:
+            # Ordered above ModelError on purpose (Cancelled IS a ModelError): a cancel must
+            # UNWIND, never soft-break into a proved partial the way an outage deliberately
+            # does — the user said stop, and "stop" includes the prove.
+            raise ProveCancelled("task cancelled during the model call") from exc
         except ModelError as exc:
             # A model failure ends the LOOP, never the task: whatever is already staged still
             # gets proved and shown with its real verdict (L23 — degrade explicitly).
@@ -445,6 +462,10 @@ def _converse(
 
         history.append(Message(role="assistant", content=answer.text, tool_calls=answer.tool_calls))
         for call in answer.tool_calls:
+            if spec.cancel is not None:
+                # Between tool calls too: a cancel that lands during a long command must not
+                # wait for the whole batch the model asked for.
+                spec.cancel.raise_if_cancelled()
             result = dispatcher.call(call.name, call.arguments)
             calls.append(
                 ToolCallRecord(
@@ -641,6 +662,10 @@ def _prove_and_classify(
             head=head,
             max_inputs=spec.max_inputs,
             seed=spec.seed,
+            # C5 run control: the prove observes the task's scope at its checkpoints, so a
+            # cancel mid-prove unwinds with children killed rather than running to a verdict
+            # nobody is waiting for. The PROVING row is already durable — resume reproves.
+            cancel=spec.cancel,
         )
     )
     change = ProvenChange(

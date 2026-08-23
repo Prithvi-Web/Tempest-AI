@@ -54,10 +54,10 @@ _CHAT_TIMEOUT_S = 300.0
 #: Settled jobs kept in memory for fast replay; older ones serve from the store.
 _SETTLED_JOBS_KEPT = 8
 #: How long a cancel waits for the stream loop to observe the event and land the abort-final
-#: before answering anyway. The observation happens at the next chunk — milliseconds on a
-#: streaming model; a SILENT upstream is bounded by the stream timeout, not this wait, and
-#: the bound is stated in ADR-0078. (Bounding the blocked read itself is the trap-58-shaped
-#: upgrade, queued with the C5 run-control item.)
+#: before answering anyway. The C5 run-control item closed the trap-58 gap this comment used
+#: to queue: the READ itself is now bounded (`inference.client._cancel_guard` shuts the socket
+#: down at the fd when the cancel fires), so even a SILENT upstream settles within the guard's
+#: poll interval — this wait is generous slack, not the bound.
 _CANCEL_SETTLE_WAIT_S = 2.0
 
 GENERATION_PROTOCOL_VERSION = 1

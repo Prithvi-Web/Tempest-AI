@@ -21,6 +21,8 @@ edit is behaviour-preserving · the edit is divergent.
 from __future__ import annotations
 
 import subprocess
+import threading
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -30,6 +32,8 @@ import pytest
 from tempest.agent import contracts
 from tempest.agent.orchestrator import AgentError, ProvenChange, TaskSpec, run_task
 from tempest.agent.tools import Budgets
+from tempest.agent.turnlog import TurnLog, plan_resume
+from tempest.execute.cancel import CancelScope, ProveCancelled
 from tempest.inference.providers import get
 from tempest.model import Verdict
 
@@ -265,6 +269,68 @@ class TestTheLoopIsBounded:
         assert "model unavailable" in run.stopped_because
         assert run.change.changed_files == ("app.py",)
         assert run.change.verdict is Verdict.DIVERGENT
+
+
+class TestRunControl:
+    """C5 run control: `TaskSpec.cancel` threads one `CancelScope` through the whole task —
+    the turn loop polls it, the model call aborts on it, and the prove observes it at its
+    checkpoints. Cancellation UNWINDS (`ProveCancelled`); it never soft-breaks into a proved
+    partial the way a model outage deliberately does."""
+
+    def test_cancel_between_turns_stops_asking_the_model(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "read_file", "input": {"path": "app.py"}}]
+        scope = CancelScope()
+
+        def cancel_on_tool(kind: str, _detail: str) -> None:
+            if kind == "tool":
+                scope.cancel()
+
+        with fake_anthropic_server(fake) as url, pytest.raises(ProveCancelled):
+            run_task(_spec(repo, cancel=scope), env=_env(url), on_event=cancel_on_tool)
+        assert len(fake.requests) == 1, "a cancelled task kept asking the model"
+
+    def test_cancel_mid_model_call_unwinds_rather_than_soft_breaking(self, repo: Path) -> None:
+        """A model OUTAGE soft-breaks and still proves (L23). A CANCEL is the user saying stop:
+        it must abort the in-flight completion within the read bound and leave no verdict —
+        the turnlog's durable record is how the task resumes later, not a FINISHED row."""
+        fake = FakeAnthropic()
+        fake.hold_mid_reply.set()
+        scope = CancelScope()
+        timer = threading.Timer(0.5, lambda: scope.cancel())
+        with fake_anthropic_server(fake) as url:
+            timer.start()
+            started = time.monotonic()
+            with pytest.raises(ProveCancelled):
+                run_task(_spec(repo, cancel=scope), env=_env(url))
+            elapsed = time.monotonic() - started
+            fake.resume.set()
+        assert elapsed < 10.0, f"cancel took {elapsed:.1f}s against a stalled model reply"
+        plan = plan_resume(TurnLog(repo), "t1")
+        assert not plan.finished, "cancellation must never mint a verdict"
+
+    def test_cancel_reaches_the_prove_checkpoints(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.reply_text = "nothing to change"
+        scope = CancelScope()
+
+        def cancel_when_proving(kind: str, _detail: str) -> None:
+            if kind == "proving":
+                scope.cancel()
+
+        with fake_anthropic_server(fake) as url, pytest.raises(ProveCancelled):
+            run_task(_spec(repo, cancel=scope), env=_env(url), on_event=cancel_when_proving)
+        plan = plan_resume(TurnLog(repo), "t1")
+        assert plan.reprove, "a task cancelled mid-prove must resume by reproving"
+
+    def test_an_uncancelled_scope_changes_nothing(self, repo: Path) -> None:
+        """The cancel field must cost nothing when nobody cancels."""
+        fake = FakeAnthropic()
+        fake.reply_text = "all done"
+        with fake_anthropic_server(fake) as url:
+            run = run_task(_spec(repo, cancel=CancelScope()), env=_env(url))
+        assert run.stopped_because == "the model finished"
+        assert run.change.bundle_id
 
 
 class TestWhatTheModelMayNotDo:

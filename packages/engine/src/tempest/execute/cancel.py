@@ -33,6 +33,13 @@ class CancelScope:
     def cancelled(self) -> bool:
         return self._cancelled.is_set()
 
+    @property
+    def event(self) -> threading.Event:
+        """The underlying flag, for APIs that watch a `threading.Event` (`inference.complete`
+        and `stream` take one). Read-only by convention: setting it directly would skip the
+        process-group sweep that `cancel()` performs — cancel through `cancel()`, always."""
+        return self._cancelled
+
     def raise_if_cancelled(self) -> None:
         if self._cancelled.is_set():
             raise ProveCancelled("prove cancelled by the user")

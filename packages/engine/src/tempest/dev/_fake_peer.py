@@ -35,6 +35,11 @@ class FakeAnthropic:
         # for. `stall_on_request` is 1-based over `requests`; 0 means never stall.
         self.stall_seconds: float = 0.0
         self.stall_on_request: int = 0
+        # C5 run control: park MID-BODY — headers and half the reply delivered, then silence
+        # until `resume`. `stall_*` above stalls BEFORE the response line, which the socket
+        # timeout bounds; this stalls the phase only a bounded READ can interrupt (trap 58).
+        self.hold_mid_reply = threading.Event()
+        self.resume = threading.Event()
 
     def reply_for(self, body_text: str) -> str:
         for needle, reply in self.replies.items():
@@ -87,6 +92,19 @@ def fake_anthropic_server(fake: FakeAnthropic) -> Iterator[str]:
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(payload)))
             self.end_headers()
+            if fake.hold_mid_reply.is_set():
+                # Half the promised bytes, then not one more until `resume` — the client is
+                # now blocked inside its body read with the connection alive.
+                half = len(payload) // 2
+                self.wfile.write(payload[:half])
+                self.wfile.flush()
+                fake.resume.wait(timeout=15)
+                try:
+                    self.wfile.write(payload[half:])
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    pass  # the client hung up mid-body, which is the point
+                return
             self.wfile.write(payload)
 
         def log_message(self, *args: object) -> None:

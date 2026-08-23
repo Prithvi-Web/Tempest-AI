@@ -9,10 +9,13 @@ feature code" true rather than aspirational.
 dependency and the whole point of P1 is that a provider costs a table row. It also keeps the
 frozen sidecar small and keeps the egress surface something we can see in one file (L10).
 
-**Cancellation actually cancels (master prompt §7).** `stream()` checks the cancel token between
-chunks and **closes the HTTP response**, which tears down the upstream connection — the model
-stops generating and stops billing. Hiding output while the request runs to completion would be
-the dishonest version of this feature, and it is the version most clients ship.
+**Cancellation actually cancels (master prompt §7).** `stream()` and `complete()` take a cancel
+token and **close the HTTP response** when it fires, which tears down the upstream connection —
+the model stops generating and stops billing. The READ itself is bounded (`_cancel_guard`,
+trap 58): a provider that goes silent cannot hold the abort hostage until the socket timeout,
+because the watcher closes the response out from under the blocked read. Hiding output while
+the request runs to completion would be the dishonest version of this feature, and it is the
+version most clients ship.
 
 **Errors are actionable (L15.3).** A missing key names the provider, the environment variable,
 and how to set it. An unreachable endpoint says whether we are offline or the endpoint refused
@@ -24,7 +27,10 @@ would be worse than repeating what the provider said.
 when local runners are configured, the suggestion that they keep working unplugged.
 """
 
+import contextlib
+import http.client
 import json
+import socket
 import threading
 import urllib.error
 import urllib.parse
@@ -45,6 +51,9 @@ from tempest.inference.providers import (
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TIMEOUT_S = 60.0
+#: How often the cancel watcher looks up. It bounds how long a cancel can go unnoticed while
+#: the reading thread is blocked inside a socket read — NOT how often anything polls the wire.
+_CANCEL_POLL_S = 0.1
 
 
 class _Redirected(Exception):
@@ -480,6 +489,74 @@ def _stop_reason(provider: Provider, document: Any, calls: tuple[ToolCall, ...])
     return "tool_use" if calls and normalised != "length" else normalised
 
 
+def _shutdown_fd(fd: int) -> None:
+    """`shutdown(2)` on a socket fd, borrowing — never owning — the descriptor."""
+    sock = socket.socket(fileno=fd)
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    finally:
+        # The fd still belongs to the response; detaching stops this wrapper's GC from
+        # closing it a second time under whoever reuses the number next.
+        sock.detach()
+
+
+@contextlib.contextmanager
+def _cancel_guard(cancel: threading.Event | None, response: Any, label: str) -> Iterator[None]:
+    """Bound the READ, not just the loop around it (trap 58).
+
+    A cancel check between chunks is only reachable when chunks arrive; a provider that goes
+    SILENT leaves the reading thread blocked inside a socket read that no deadline around the
+    loop can interrupt. The guard watches the cancel flag from beside the read and, the moment
+    it fires, **shuts the socket down at the fd** — `response.close()` will not do: the
+    buffered reader's own lock is held by the blocked read, so a cross-thread close queues
+    behind the very block it is trying to break (measured: a 10 s stall served in full).
+    `shutdown(2)` touches no Python buffering and makes the OS read return at once.
+
+    The unblocked read then ends as an I/O error (translated to `Cancelled` if and only if the
+    caller really cancelled — a genuine upstream fault keeps its own face) or as a clean EOF,
+    which is why both call sites re-check the flag after the read: a shut-down stream must
+    never impersonate a completed one. The shutdown IS the abort — the connection dies, the
+    model stops generating and stops billing.
+
+    The fd is captured while nothing is blocked; the watcher is joined before the guard
+    returns, so it can never touch the descriptor after the response is closed and the number
+    reused.
+    """
+    if cancel is None:
+        yield
+        return
+    if cancel.is_set():
+        response.close()
+        raise Cancelled(f"cancelled by the caller; {label} connection closed")
+    fd: int = -1
+    with contextlib.suppress(OSError, ValueError):
+        fd = response.fileno()
+    finished = threading.Event()
+
+    def watch() -> None:
+        while not finished.wait(_CANCEL_POLL_S):
+            if cancel.is_set():
+                if fd >= 0:
+                    with contextlib.suppress(OSError):
+                        _shutdown_fd(fd)
+                return
+
+    watcher = threading.Thread(target=watch, name="tempest-cancel-watch", daemon=True)
+    watcher.start()
+    try:
+        yield
+    # AttributeError belongs in this tuple: a response closed out from under a blocked read
+    # Nones its `fp` mid-`readinto`, and the read surfaces AS AttributeError — observed on the
+    # first cut of this guard, not theorized.
+    except (OSError, ValueError, AttributeError, http.client.HTTPException) as err:
+        if cancel.is_set():
+            raise Cancelled(f"cancelled by the caller; {label} connection closed") from None
+        raise err
+    finally:
+        finished.set()
+        watcher.join(timeout=1.0)
+
+
 def complete(
     provider_id: str,
     messages: list[Message],
@@ -490,22 +567,34 @@ def complete(
     timeout: float = DEFAULT_TIMEOUT_S,
     system: str | None = None,
     tools: ToolCatalog | None = None,
+    cancel: threading.Event | None = None,
 ) -> Completion:
-    """One non-streaming completion. `env` is passed in so callers can scope the key exactly."""
+    """One non-streaming completion. `env` is passed in so callers can scope the key exactly.
+
+    `cancel` aborts the in-flight request the way `stream()`'s does: the response is closed —
+    the real hang-up, observed by the peer — and `Cancelled` is raised. The read is bounded
+    (`_cancel_guard`), so a silent upstream cannot hold the abort hostage."""
     provider = get(provider_id)
     chosen = resolve_model(provider, model)
-    with _open(
-        provider,
-        chosen,
-        messages,
-        env=env,
-        max_tokens=max_tokens,
-        stream=False,
-        timeout=timeout,
-        system=system,
-        tools=tools,
-    ) as response:
+    with (
+        _open(
+            provider,
+            chosen,
+            messages,
+            env=env,
+            max_tokens=max_tokens,
+            stream=False,
+            timeout=timeout,
+            system=system,
+            tools=tools,
+        ) as response,
+        _cancel_guard(cancel, response, provider.label),
+    ):
         raw = response.read().decode("utf-8", errors="replace")
+        if cancel is not None and cancel.is_set():
+            # A shut-down socket can end the read as a clean-looking EOF; a partial body
+            # must never be parsed as an answer the caller asked to abandon.
+            raise Cancelled(f"cancelled by the caller; {provider.label} connection closed")
     try:
         document: Any = json.loads(raw)
     except ValueError as err:
@@ -631,27 +720,32 @@ def _stream_core(
     input_tokens: int | None = None
     output_tokens: int | None = None
     try:
-        for raw_line in response:
+        with _cancel_guard(cancel, response, provider.label):
+            for raw_line in response:
+                if cancel is not None and cancel.is_set():
+                    response.close()  # the deterministic between-chunks abort
+                    raise Cancelled(f"cancelled by the caller; {provider.label} connection closed")
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[len("data:") :].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    payload: Any = json.loads(data)
+                except ValueError:
+                    continue  # a keep-alive or a partial frame is not an error
+                if isinstance(payload, dict):
+                    observed_in, observed_out = _sse_usage(provider, payload)
+                    input_tokens = observed_in if observed_in is not None else input_tokens
+                    output_tokens = observed_out if observed_out is not None else output_tokens
+                delta = _sse_delta(provider, payload)
+                if delta:
+                    yield TextDelta(delta)
             if cancel is not None and cancel.is_set():
-                response.close()  # the actual abort, not a cosmetic one
+                # The watcher's shutdown ends the iteration as EOF, not an exception; a
+                # cancelled stream must never impersonate a completed one.
                 raise Cancelled(f"cancelled by the caller; {provider.label} connection closed")
-            line = raw_line.decode("utf-8", errors="replace").strip()
-            if not line.startswith("data:"):
-                continue
-            data = line[len("data:") :].strip()
-            if not data or data == "[DONE]":
-                continue
-            try:
-                payload: Any = json.loads(data)
-            except ValueError:
-                continue  # a keep-alive or a partial frame is not an error
-            if isinstance(payload, dict):
-                observed_in, observed_out = _sse_usage(provider, payload)
-                input_tokens = observed_in if observed_in is not None else input_tokens
-                output_tokens = observed_out if observed_out is not None else output_tokens
-            delta = _sse_delta(provider, payload)
-            if delta:
-                yield TextDelta(delta)
     finally:
         response.close()
     if input_tokens is not None and output_tokens is not None:

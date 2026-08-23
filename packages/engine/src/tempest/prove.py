@@ -149,6 +149,10 @@ def _checkpoint(cfg: ProveConfig) -> None:
 
 
 def _run_prove(cfg: ProveConfig) -> ProveResult:
+    # Entry checkpoint: a prove asked to start under an already-cancelled scope refuses here,
+    # deterministically. Without it an EMPTY changeset — zero targets, so the between-targets
+    # checkpoint never fires — would run to a verdict nobody is waiting for (C5 run control).
+    _checkpoint(cfg)
     repo = cfg.repo.resolve()
     if cfg.ignore_globs is None or cfg.source_roots is None:
         # The repo's tempest.toml is honored by EVERY entry point (CLI, desktop, CI) —
