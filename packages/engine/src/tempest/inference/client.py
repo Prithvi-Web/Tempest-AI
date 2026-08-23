@@ -645,7 +645,7 @@ def _stream_core(
                 payload: Any = json.loads(data)
             except ValueError:
                 continue  # a keep-alive or a partial frame is not an error
-            if want_usage and isinstance(payload, dict):
+            if isinstance(payload, dict):
                 observed_in, observed_out = _sse_usage(provider, payload)
                 input_tokens = observed_in if observed_in is not None else input_tokens
                 output_tokens = observed_out if observed_out is not None else output_tokens
@@ -654,9 +654,11 @@ def _stream_core(
                 yield TextDelta(delta)
     finally:
         response.close()
-    if want_usage and input_tokens is not None and output_tokens is not None:
+    if input_tokens is not None and output_tokens is not None:
         # BOTH halves observed, or nothing: a half-known count padded with a zero would be
-        # the fabricated number L21 forswears, flowing into the meter as "measured".
+        # the fabricated number L21 forswears, flowing into the meter as "measured". The
+        # Anthropic wire states usage unasked, so `stream()` receives (and filters) the
+        # event too — `want_usage` gates only the OpenAI request knob, never the parsing.
         yield StreamUsage(input_tokens, output_tokens)
 
 

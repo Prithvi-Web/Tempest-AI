@@ -24,8 +24,10 @@ ENDPOINT = "Ollama (local)"
 
 
 class ChatPeer:
-    """A recording OpenAI-wire SSE peer, with the blocking hold that makes cancellation a
-    fact instead of a race (trap 61)."""
+    """A recording OpenAI-wire SSE peer with STAGED holds (trap 61): park after the frame
+    indices in `holds`, release one hold per `release()` — so "the client hung up" is a
+    write into a socket that died seconds ago, never a buffer race the suite's load can
+    flip."""
 
     def __init__(self) -> None:
         self.chunks: list[str] = ["Hel", "lo ", "there"]
@@ -33,9 +35,20 @@ class ChatPeer:
         self.status = 200
         self.reject_stream_options = False
         self.requests: list[dict[str, Any]] = []
-        self.hold_after_first = threading.Event()
-        self.resume = threading.Event()
+        self.holds: list[int] = []
+        self.released = 0
         self.closed_early = threading.Event()
+
+    @property
+    def hold_after_first(self) -> "_HoldSugar":
+        return _HoldSugar(self)
+
+    @property
+    def resume(self) -> "_ReleaseSugar":
+        return _ReleaseSugar(self)
+
+    def release(self, count: int = 1) -> None:
+        self.released += count
 
     def frames(self) -> list[bytes]:
         out = [
@@ -48,6 +61,26 @@ class ChatPeer:
             )
         out.append(b"data: [DONE]\n\n")
         return out
+
+
+class _HoldSugar:
+    """`peer.hold_after_first.set()` — the original single-hold spelling, kept readable."""
+
+    def __init__(self, peer: ChatPeer) -> None:
+        self._peer = peer
+
+    def set(self) -> None:
+        self._peer.holds = [0]
+
+
+class _ReleaseSugar:
+    """`peer.resume.set()` releases every hold the script declared."""
+
+    def __init__(self, peer: ChatPeer) -> None:
+        self._peer = peer
+
+    def set(self) -> None:
+        self._peer.release(len(self._peer.holds) or 1)
 
 
 @contextmanager
@@ -77,11 +110,15 @@ def serve_peer(peer: ChatPeer) -> Iterator[str]:
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             try:
+                holds_passed = 0
                 for index, frame in enumerate(peer.frames()):
                     self.wfile.write(frame)
                     self.wfile.flush()
-                    if index == 0 and peer.hold_after_first.is_set():
-                        peer.resume.wait(timeout=10)
+                    if index in peer.holds:
+                        holds_passed += 1
+                        deadline = time.monotonic() + 10  # a safety net, not an expected wait
+                        while peer.released < holds_passed and time.monotonic() < deadline:
+                            time.sleep(0.02)
             except (BrokenPipeError, ConnectionResetError):
                 peer.closed_early.set()
 
@@ -297,7 +334,11 @@ class TestRegenerate:
 class TestCancellation:
     def test_cancel_mid_stream_really_hangs_up(self, api: Any, chat_env: ChatPeer) -> None:
         chat_env.chunks = [f"chunk{i} " for i in range(200)]
-        chat_env.hold_after_first.set()
+        # Two staged holds: the cancel lands during the first; releasing it lets the engine
+        # observe the cancel at chunk 2 and close; the SECOND hold parks the peer until the
+        # turn has settled, so its next write measures a dead socket rather than racing the
+        # suite's load into the buffer (trap 61).
+        chat_env.holds = [0, 1]
         ack = _start(api, "Long story please")
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -313,13 +354,16 @@ class TestCancellation:
         assert resp.status_code == 200
         assert resp.json()["aborted"] == ack["streamId"]
 
-        chat_env.resume.set()
+        chat_env.release()
         payload = _wait_terminal(api, ack["streamId"])
         assert payload["status"] == "aborted"
         final = _frames(payload)[-1]
         assert final["aborted"] is True
         assert final["responseMessage"]["unfinished"] is True
         assert final["responseMessage"]["text"].startswith("chunk0")
+        # The turn settled above; the second hold's release writes into the socket the
+        # engine closed — the deterministic observation of the hangup.
+        chat_env.release()
         assert chat_env.closed_early.wait(timeout=5), "the upstream connection stayed open"
 
     def test_a_matching_epoch_aborts_exactly_its_own_turn(
@@ -778,6 +822,35 @@ class TestCoverageNamedArms:
         stored_tail = _events(api, ack["streamId"], after=total - 1)
         assert [e["seq"] for e in stored_tail["events"]] == [total]
         assert stored_tail["events"][0]["frame"].get("final") is True
+
+    def test_a_broken_meter_disk_never_kills_the_turn(
+        self, chat_env: ChatPeer, tmp_path: Path
+    ) -> None:
+        """The spend ledger's volume filling up degrades to an unrecorded charge with a
+        logged cause — never a dead turn thread that leaves the conversation active forever."""
+
+        class DiskFullMeter:
+            def spend(self, **_: Any) -> None:
+                raise OSError("no space left on device")
+
+        turns, _ = _direct_turns(tmp_path, meter=DiskFullMeter())
+        payload = _drive(turns, "spend fails")
+        assert payload["status"] == "complete"
+        final = payload["events"][-1]["frame"]
+        assert final["responseMessage"]["text"] == "Hello there"
+        assert "[cost cap:" not in final["responseMessage"]["text"]
+
+    def test_the_single_conversation_read_serves_the_view_mount(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        ack = _start(api, "mount me")
+        _wait_terminal(api, ack["streamId"])
+        doc = api.get_json(f"/v1/chat/conversations/{ack['conversationId']}")
+        assert doc["conversationId"] == ack["conversationId"]
+        assert doc["title"] == "mount me"
+        missing = api.client.get("/v1/chat/conversations/no-such-conversation")
+        assert missing.status_code == 404
+        assert missing.json()["error"]["code"] == "NOT_FOUND"
 
     def test_a_long_first_message_becomes_a_trimmed_title(
         self, api: Any, chat_env: ChatPeer

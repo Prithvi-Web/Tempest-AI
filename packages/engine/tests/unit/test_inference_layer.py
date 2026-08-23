@@ -326,6 +326,24 @@ class TestStreamEvents:
         # The OpenAI wire reports stream usage only when asked — the request must ask.
         assert peer.requests[0]["stream_options"] == {"include_usage": True}
 
+    def test_plain_stream_filters_the_usage_event_to_text(self) -> None:
+        """Anthropic states usage unasked; `stream()`'s contract stays text-only — the
+        event arrives and the adapter drops it rather than leaking a foreign type."""
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 2}}}\n\n',
+            b'data: {"type": "content_block_delta", "delta": {"text": "only text"}}\n\n',
+            b'data: {"type": "message_delta", "usage": {"output_tokens": 4}}\n\n',
+        ]
+        with serve(peer) as base:
+            got = list(
+                mc.stream(
+                    "anthropic", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert got == ["only text"]
+
     def test_plain_stream_never_asks_for_usage(self) -> None:
         """`stream()`'s request stays byte-compatible: no stream_options arrives uninvited."""
         provider = mp.get("openai")
