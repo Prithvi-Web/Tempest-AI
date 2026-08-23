@@ -654,8 +654,10 @@ def _stream_core(
                 yield TextDelta(delta)
     finally:
         response.close()
-    if want_usage and (input_tokens is not None or output_tokens is not None):
-        yield StreamUsage(input_tokens or 0, output_tokens or 0)
+    if want_usage and input_tokens is not None and output_tokens is not None:
+        # BOTH halves observed, or nothing: a half-known count padded with a zero would be
+        # the fabricated number L21 forswears, flowing into the meter as "measured".
+        yield StreamUsage(input_tokens, output_tokens)
 
 
 def _sse_usage(provider: Provider, payload: dict[str, Any]) -> tuple[int | None, int | None]:

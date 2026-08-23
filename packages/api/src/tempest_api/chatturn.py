@@ -486,6 +486,15 @@ class ChatTurns:
             # (and recording the overage) arrives with configurable budgets in the C5
             # run-control item.
             return f"\n\n[cost cap: {exc}]"
+        except Exception:
+            # The meter's ledger is disk I/O on the same volume as the store; a full disk
+            # here must degrade to an unrecorded charge with a logged cause — never a dead
+            # turn thread that leaves the conversation claiming active forever (L15.3).
+            get_logger("chat").exception(
+                "spend recording failed",
+                extra={"tempest_extra": {"stream_id": job.stream_id}},
+            )
+            return None
         return None
 
     def _flush_if_due(self, job: _Job) -> None:
@@ -634,6 +643,9 @@ class ChatTurns:
         return self._store.list_ordered(
             "conversations", order_by="updatedAt", descending=True, limit=limit
         )
+
+    def conversation(self, conversation_id: str) -> dict[str, Any] | None:
+        return self._store.get("conversations", conversation_id)
 
     def messages_for(self, conversation_id: str) -> list[dict[str, Any]]:
         return self._store.find_equal(

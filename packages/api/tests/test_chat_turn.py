@@ -322,6 +322,28 @@ class TestCancellation:
         assert final["responseMessage"]["text"].startswith("chunk0")
         assert chat_env.closed_early.wait(timeout=5), "the upstream connection stayed open"
 
+    def test_a_matching_epoch_aborts_exactly_its_own_turn(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        chat_env.hold_after_first.set()
+        ack = _start(api, "Hold and abort me")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if any(
+                f.get("event") == "on_message_delta" for f in _frames(_events(api, ack["streamId"]))
+            ):
+                break
+            time.sleep(0.02)
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/cancel",
+            params={"generation_created_at": ack["generationCreatedAt"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["aborted"] == ack["streamId"]
+        chat_env.resume.set()
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "aborted"
+
     def test_a_stale_epoch_cannot_abort_the_successor_turn(
         self, api: Any, chat_env: ChatPeer
     ) -> None:
@@ -341,7 +363,12 @@ class TestCancellation:
 
 
 class TestHonestFailure:
-    def test_missing_key_is_an_error_final_not_a_500(self, api: Any, chat_env: ChatPeer) -> None:
+    def test_missing_key_is_an_error_final_not_a_500(
+        self, api: Any, chat_env: ChatPeer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Hermetic on EVERY machine: a developer's exported key must never turn this into a
+        # real, paid api.anthropic.com call (the suite's own trap-23 discipline).
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         ack_resp = api.client.post("/v1/chat/turns", json={"text": "hi", "endpoint": "anthropic"})
         assert ack_resp.status_code == 200  # the ack is honest; the turn itself reports
         payload = _wait_terminal(api, ack_resp.json()["streamId"])
@@ -617,8 +644,15 @@ class TestCoverageNamedArms:
         assert Decimal is not None  # keep the import honest
 
     def test_a_failed_terminal_commit_publishes_an_error_not_a_lie(
-        self, chat_env: ChatPeer, tmp_path: Path
+        self, chat_env: ChatPeer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import tempest_api.chatturn as chatturn_module
+
+        # Call #2 must BE the terminal commit on every machine: a loaded runner can stretch
+        # the opening past the time-based flush trigger, landing the planted failure on a
+        # recoverable mid-stream flush instead. Frames stay under the count trigger; the
+        # clock trigger is parked.
+        monkeypatch.setattr(chatturn_module, "_FLUSH_EVERY_SECONDS", 3600.0)
         store = _FlakyStore(tmp_path / "flaky2" / "store.sqlite3", fail_on_calls={2})
         turns, _ = _direct_turns(tmp_path, store=store)
         payload = _drive(turns, "hi")
@@ -714,6 +748,36 @@ class TestCoverageNamedArms:
         assert found is job
         # No reconciliation happened: no aborted final was written for the live turn.
         assert store.find_equal("turn_events", "streamId", "race-c", order_by="seq") == []
+
+    def test_the_token_ceiling_clamps_and_model_parameters_is_a_real_source(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        _wait_terminal(api, _start(api, "top-level huge", maxOutputTokens=999_999)["streamId"])
+        assert chat_env.requests[-1]["max_tokens"] == 32_768  # the ceiling bites
+
+        body = {
+            "text": "nested source",
+            "endpoint": ENDPOINT,
+            "model_parameters": {"model": "test-model", "maxOutputTokens": 777},
+        }
+        resp = api.client.post("/v1/chat/turns", json=body)
+        assert resp.status_code == 200
+        _wait_terminal(api, resp.json()["streamId"])
+        assert chat_env.requests[-1]["max_tokens"] == 777
+
+    def test_events_after_a_cursor_serves_only_the_tail_on_both_paths(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        ack = _start(api, "cursor test")
+        full = _wait_terminal(api, ack["streamId"])
+        total = len(full["events"])
+        tail = _events(api, ack["streamId"], after=total - 1)
+        assert [e["seq"] for e in tail["events"]] == [total]
+        assert tail["events"][0]["frame"].get("final") is True
+        chat_router._REGISTRY.clear()  # the store path must agree with the memory path
+        stored_tail = _events(api, ack["streamId"], after=total - 1)
+        assert [e["seq"] for e in stored_tail["events"]] == [total]
+        assert stored_tail["events"][0]["frame"].get("final") is True
 
     def test_a_long_first_message_becomes_a_trimmed_title(
         self, api: Any, chat_env: ChatPeer

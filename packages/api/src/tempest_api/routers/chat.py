@@ -6,6 +6,7 @@ thread, and the ledger is polled — here at token cadence by the host's stream 
 
 import asyncio
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -30,21 +31,26 @@ from tempest_api.schemas.chat import (
 router = APIRouter(tags=["chat"])
 
 _REGISTRY: dict[str, ChatTurns] = {}
+_REGISTRY_LOCK = threading.Lock()
 
 
 def _turns() -> ChatTurns:
     """One `ChatTurns` per data root, created on first use. Keyed by the resolved directory
-    so tests pointing `TEMPEST_DATA_DIR` at fresh roots get fresh worlds."""
+    so tests pointing `TEMPEST_DATA_DIR` at fresh roots get fresh worlds. The lock matters:
+    two instances over one store would give the dead-turn reconciler a second world in which
+    a living job is invisible — the exact check-then-act class start_turn's reservation
+    kills one layer below."""
     root = str(data_dir())
-    turns = _REGISTRY.get(root)
-    if turns is None:
-        turns = ChatTurns(
-            PlatformStore(Path(root) / "platform" / "store.sqlite3"),
-            env_provider=lambda: dict(os.environ),
-            meter=cost.Meter(repo=Path(root) / "platform"),
-        )
-        _REGISTRY[root] = turns
-    return turns
+    with _REGISTRY_LOCK:
+        turns = _REGISTRY.get(root)
+        if turns is None:
+            turns = ChatTurns(
+                PlatformStore(Path(root) / "platform" / "store.sqlite3"),
+                env_provider=lambda: dict(os.environ),
+                meter=cost.Meter(repo=Path(root) / "platform"),
+            )
+            _REGISTRY[root] = turns
+        return turns
 
 
 @router.post(
@@ -94,6 +100,18 @@ async def cancel_chat_turn(
 async def list_conversations() -> ConversationsOut:
     docs = await asyncio.to_thread(_turns().conversations)
     return ConversationsOut(conversations=docs, nextCursor=None)
+
+
+@router.get(
+    "/v1/chat/conversations/{conversation_id}",
+    operation_id="getConversation",
+    responses=error_responses(404),
+)
+async def get_conversation(conversation_id: str) -> dict[str, Any]:
+    doc = await asyncio.to_thread(_turns().conversation, conversation_id)
+    if doc is None:
+        raise ApiError(404, ErrorCode.NOT_FOUND, f"no conversation {conversation_id}")
+    return doc
 
 
 @router.get(

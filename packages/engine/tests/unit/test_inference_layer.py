@@ -337,6 +337,23 @@ class TestStreamEvents:
             )
         assert "stream_options" not in peer.requests[0]
 
+    def test_a_half_observed_usage_stays_absent(self) -> None:
+        """message_start arrived, the output count never did (early close): padding the
+        missing half with zero would be a fabricated measurement (L21) — absence wins."""
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"type": "message_start", "message": {"usage": {"input_tokens": 5}}}\n\n',
+            b'data: {"type": "content_block_delta", "delta": {"text": "cut short"}}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "anthropic", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert events == [mc.TextDelta("cut short")]
+
     def test_a_silent_server_yields_no_usage_event(self) -> None:
         """Absence is absence — no fabricated zeros for a server that reported nothing."""
         provider = mp.get("openai")
