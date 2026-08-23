@@ -112,6 +112,36 @@ fn engine_reply(
     }
 }
 
+/// How long a READ will out-wait a supervised engine restart before failing loudly. The
+/// supervisor's backoff brings the sidecar back within a few seconds; a read that painted
+/// the console red (and blanked the rail) for that window would turn routine recovery into
+/// visible breakage. Past the bound the failure IS the story and it surfaces honestly.
+const PATIENT_READ_DEADLINE: Duration = Duration::from_secs(8);
+
+/// `engine_reply` for machine-initiated READS: retries across the restart window. Writes
+/// and user-initiated starts stay immediate — a user's click deserves a fast, loud answer.
+fn engine_reply_patient(
+    engine: &Arc<Supervisor>,
+    operation: &str,
+    params: Value,
+) -> tauri::http::Response<Vec<u8>> {
+    let deadline = std::time::Instant::now() + PATIENT_READ_DEADLINE;
+    loop {
+        match engine.call(operation, params.clone(), POLL_CALL_TIMEOUT) {
+            Ok(value) => return json_response(200, &value),
+            Err(err) => {
+                if std::time::Instant::now() >= deadline {
+                    return json_response(
+                        502,
+                        &json!({"error": format!("{operation}: {err}")}),
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        }
+    }
+}
+
 /// The family router. `Some(response)` when the route belongs to this seam; `None` lets the
 /// caller fall through to the generic forward. Routes handled here must NEVER reach the
 /// Node sidecar — the vendored Express agent stack stays dormant (ADR-0078 / runtime_check).
@@ -160,6 +190,21 @@ pub fn handle_chat(
         // must return at once rather than hang a one-shot protocol responder.
         return Some(response(200, "text/event-stream", Vec::new()));
     }
+    // The 5-second active-jobs poll must stay QUIET through a supervised engine restart:
+    // a dead engine runs no generations, so the empty list is the truth — and a machine-
+    // initiated poll painting the console red during recovery would fail the zero-console
+    // bar for a condition the supervisor heals on its own. User-initiated operations below
+    // keep their loud, honest errors.
+    if method == "GET" && route == "/api/agents/chat/active" {
+        let jobs = engine
+            .and_then(|engine| {
+                engine
+                    .call("listActiveChatTurns", json!({}), POLL_CALL_TIMEOUT)
+                    .ok()
+            })
+            .unwrap_or_else(|| json!({"activeJobIds": []}));
+        return Some(json_response(200, &jobs));
+    }
     let Some(engine) = engine else {
         return Some(no_engine());
     };
@@ -169,7 +214,7 @@ pub fn handle_chat(
             return Some(json_response(405, &json!({"error": "method not allowed"})));
         }
         let conversation_id = route.trim_start_matches("/api/messages/");
-        return Some(engine_reply(
+        return Some(engine_reply_patient(
             engine,
             "getConversationMessages",
             json!({"conversation_id": conversation_id}),
@@ -178,14 +223,14 @@ pub fn handle_chat(
 
     if is_convos {
         if route == "/api/convos" && method == "GET" {
-            return Some(engine_reply(engine, "listConversations", json!({})));
+            return Some(engine_reply_patient(engine, "listConversations", json!({})));
         }
         if method == "GET" {
             // The single-conversation read the chat view mounts from; the rest of the
             // conversation platform (rename, archive, delete) joins at C7.
             let conversation_id = route.trim_start_matches("/api/convos/");
             if !conversation_id.is_empty() && !conversation_id.contains('/') {
-                return Some(engine_reply(
+                return Some(engine_reply_patient(
                     engine,
                     "getConversation",
                     json!({"conversation_id": conversation_id}),
@@ -202,12 +247,9 @@ pub fn handle_chat(
     let sub = route.trim_start_matches("/api/agents/chat");
     let sub = sub.trim_start_matches('/');
 
-    if method == "GET" && sub == "active" {
-        return Some(engine_reply(engine, "listActiveChatTurns", json!({})));
-    }
     if method == "GET" && sub.starts_with("status/") {
         let id = sub.trim_start_matches("status/");
-        return Some(engine_reply(engine, "getChatTurnStatus", json!({"stream_id": id})));
+        return Some(engine_reply_patient(engine, "getChatTurnStatus", json!({"stream_id": id})));
     }
     if method == "POST" && sub == "abort" {
         let parsed: Value = serde_json::from_slice(body).unwrap_or_else(|_| json!({}));

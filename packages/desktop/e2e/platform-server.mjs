@@ -162,6 +162,21 @@ async function chatOp(operation, params) {
   return reply.json();
 }
 
+/** READS out-wait a supervised engine restart (mirroring the host's patient window):
+ * routine recovery must not paint the console red or blank the rail. Past the bound the
+ * failure surfaces honestly. */
+async function chatOpPatient(operation, params) {
+  const deadline = Date.now() + 8000;
+  for (;;) {
+    try {
+      return await chatOp(operation, params);
+    } catch (err) {
+      if (Date.now() >= deadline) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     const chunks = [];
@@ -176,7 +191,7 @@ function readBody(req) {
 async function handleChatSeam(req, res, method, route) {
   if (route.startsWith("/api/convos/gen_title/")) {
     const conversationId = decodeURIComponent(route.slice("/api/convos/gen_title/".length));
-    const listing = await chatOp("listConversations", {});
+    const listing = await chatOpPatient("listConversations", {});
     const row = (listing.conversations ?? []).find((c) => c.conversationId === conversationId);
     if (row && typeof row.title === "string") {
       respond(res, 200, "application/json", JSON.stringify({ title: row.title }));
@@ -186,7 +201,7 @@ async function handleChatSeam(req, res, method, route) {
     return true;
   }
   if (route === "/api/convos" && method === "GET") {
-    respond(res, 200, "application/json", JSON.stringify(await chatOp("listConversations", {})));
+    respond(res, 200, "application/json", JSON.stringify(await chatOpPatient("listConversations", {})));
     return true;
   }
   if (route.startsWith("/api/convos/") && method === "GET" && !route.includes("/gen_title/")) {
@@ -197,7 +212,7 @@ async function handleChatSeam(req, res, method, route) {
           res,
           200,
           "application/json",
-          JSON.stringify(await chatOp("getConversation", { conversation_id: conversationId })),
+          JSON.stringify(await chatOpPatient("getConversation", { conversation_id: conversationId })),
         );
       } catch {
         respond(res, 404, "application/json", JSON.stringify({ error: "no such conversation" }));
@@ -211,7 +226,7 @@ async function handleChatSeam(req, res, method, route) {
       res,
       200,
       "application/json",
-      JSON.stringify(await chatOp("getConversationMessages", { conversation_id: conversationId })),
+      JSON.stringify(await chatOpPatient("getConversationMessages", { conversation_id: conversationId })),
     );
     return true;
   }
@@ -220,7 +235,14 @@ async function handleChatSeam(req, res, method, route) {
   }
   const sub = route.replace(/^\/api\/agents\/chat\/?/, "");
   if (method === "GET" && sub === "active") {
-    respond(res, 200, "application/json", JSON.stringify(await chatOp("listActiveChatTurns", {})));
+    // Quiet through an engine restart, mirroring the host: a dead engine runs nothing.
+    let jobs = { activeJobIds: [] };
+    try {
+      jobs = await chatOp("listActiveChatTurns", {});
+    } catch {
+      /* the empty answer above is the truth while the engine is down */
+    }
+    respond(res, 200, "application/json", JSON.stringify(jobs));
     return true;
   }
   if (method === "GET" && sub.startsWith("status/")) {
@@ -229,7 +251,7 @@ async function handleChatSeam(req, res, method, route) {
       res,
       200,
       "application/json",
-      JSON.stringify(await chatOp("getChatTurnStatus", { stream_id: id })),
+      JSON.stringify(await chatOpPatient("getChatTurnStatus", { stream_id: id })),
     );
     return true;
   }
