@@ -6,12 +6,16 @@ may run it. The no-marker path pins TEMPEST_DOCKER at a nonexistent binary so th
 the honest all-UNPROVEN(SANDBOX_UNAVAILABLE) outcome everywhere — Docker-equipped CI included.
 """
 
+import asyncio
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+import tempest_api.localprove as localprove
 
 
 def _micro_repo(tmp_path: Path, *, marker: bool) -> Path:
@@ -185,5 +189,50 @@ class TestLocalProveHonestPath:
         assert run["divergence_count"] == 0
 
         stages = _stages(api, run_id)
+        assert stages[-1] == "complete"
+        assert "error" not in stages
+
+    def test_status_complete_implies_terminal_ledger(
+        self, api: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The moment `/v1/runs/{id}` reads COMPLETE, the events ledger already ends terminal.
+
+        CI run 32610670936 caught the window this pins: ingestion committed `status=COMPLETE`
+        plus the `ingested` row, then blob GC and telemetry ran, and only a LATER transaction
+        appended `complete` — so a poller that saw COMPLETE could read a timeline that still
+        ended mid-ingestion. The prove coroutine is parked at the exact post-ingest point (the
+        GC call) so the ex-window is held open deterministically rather than raced for
+        (trap 61): with the split commits this fails every time, never one time in forty.
+        """
+        real_collect_garbage = localprove.collect_garbage
+        reached = threading.Event()
+        release = threading.Event()
+
+        async def parked_collect_garbage(*args: Any, **kwargs: Any) -> None:
+            reached.set()
+            while not release.is_set():  # held open until the test thread has looked
+                await asyncio.sleep(0.01)
+            await real_collect_garbage(*args, **kwargs)
+
+        monkeypatch.setattr(localprove, "collect_garbage", parked_collect_garbage)
+
+        repo = _micro_repo(tmp_path, marker=False)
+        monkeypatch.setenv("TEMPEST_DOCKER", "/nonexistent/docker")
+        monkeypatch.setenv("TEMPEST_NO_SEATBELT", "1")
+        monkeypatch.setenv("TEMPEST_DATA_DIR", str(tmp_path / "appdata"))
+
+        run_id = _start_prove(api, repo)
+        try:
+            assert reached.wait(timeout=120.0), "prove never reached the post-ingest point"
+            assert api.get_json(f"/v1/runs/{run_id}")["status"] == "COMPLETE"
+            stages = _stages(api, run_id)
+            assert stages[-1] == "complete", stages
+        finally:
+            release.set()
+
+        run = _poll_until_complete(api, run_id)
+        assert run["verdict"] == "UNPROVEN"
+        stages = _stages(api, run_id)
+        assert stages.count("complete") == 1
         assert stages[-1] == "complete"
         assert "error" not in stages

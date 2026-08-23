@@ -213,6 +213,21 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
                     # crossing — a measurement artifact, not a gap.
                     return  # pragma: no cover — attribution artifact; behavior is pinned
                 bundle = await ingest_zip_bytes(session, run, result.zip_path.read_bytes())
+                # `status=COMPLETE` and the terminal ledger row are ONE committed truth: a
+                # poller that reads COMPLETE must never read a timeline that still ends
+                # mid-ingestion, so `complete` lands in the same transaction as the status.
+                divergence_total = sum(len(t.divergences) for t in bundle.targets)
+                complete_message = (
+                    f"run complete: verdict {bundle.manifest.verdict.value}, "
+                    f"{len(bundle.targets)} targets, {divergence_total} divergences"
+                )
+                get_logger("prove").info(
+                    complete_message,
+                    extra={"tempest_extra": {"run_id": run_id, "stage": "complete"}},
+                )
+                await append_run_event(
+                    session, run_id, "local.complete", stage="complete", message=complete_message
+                )
                 await session.commit()
                 # Review C1: blob GC only after commit, against committed truth.
                 await collect_garbage(
@@ -228,17 +243,6 @@ async def _prove_and_ingest(run_id: int, cfg: ProveConfig, database_url: str) ->
                     if t.verdict is Verdict.UNPROVEN and t.reason_code is not None
                 ),
                 duration_ms=duration_ms,
-            )
-            divergence_total = sum(len(t.divergences) for t in bundle.targets)
-            await _event(
-                factory,
-                run_id,
-                stage="complete",
-                lock=ledger_lock,
-                message=(
-                    f"run complete: verdict {bundle.manifest.verdict.value}, "
-                    f"{len(bundle.targets)} targets, {divergence_total} divergences"
-                ),
             )
         except ProveCancelled:
             # The user stopped it (L11) — an honest terminal state, never an ERROR (L2).
