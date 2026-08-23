@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter
 
 from tempest.inference import cost
+from tempest_api.agentstore import AgentStore
 from tempest_api.chatturn import ChatTurns, TurnConflict, TurnRejected
 from tempest_api.errors import ApiError, error_responses
 from tempest_api.localprove import data_dir
@@ -44,10 +45,14 @@ def _turns() -> ChatTurns:
     with _REGISTRY_LOCK:
         turns = _REGISTRY.get(root)
         if turns is None:
+            store = PlatformStore(Path(root) / "platform" / "store.sqlite3")
             turns = ChatTurns(
-                PlatformStore(Path(root) / "platform" / "store.sqlite3"),
+                store,
                 env_provider=lambda: dict(os.environ),
                 meter=cost.Meter(repo=Path(root) / "platform"),
+                # The agents ENDPOINT resolves documents from the same store (C5): one world,
+                # whichever router touched it first.
+                agents=AgentStore(store),
             )
             _REGISTRY[root] = turns
         return turns

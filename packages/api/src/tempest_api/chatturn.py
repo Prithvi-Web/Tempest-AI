@@ -38,7 +38,8 @@ from tempest.inference.client import (
     stream_events,
 )
 from tempest.obslog import get_logger
-from tempest_api import chatwire
+from tempest_api import agentturn, chatwire
+from tempest_api.agentstore import AgentStore
 from tempest_api.platformstore import PlatformStore
 
 #: Streamed deltas flush to the store in batches; the memory ledger is the live source.
@@ -89,6 +90,9 @@ class _Job:
     status: str = "active"  # active | complete | aborted | error
     frames: list[dict[str, Any]] = field(default_factory=list)
     cancel: threading.Event = field(default_factory=threading.Event)
+    #: Set by the AGENT-turn worker (C5): the runtime's cancellation scope, so an abort can
+    #: kill registered children through `scope.cancel()` rather than only flag the event.
+    cancel_scope: Any = None
     settled: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
     #: Ledger rows not yet flushed to the store, id → doc.
@@ -120,10 +124,12 @@ class ChatTurns:
         *,
         env_provider: Callable[[], dict[str, str]],
         meter: cost.Meter | None,
+        agents: AgentStore | None = None,
     ) -> None:
         self._store = store
         self._env_provider = env_provider
         self._meter = meter
+        self._agents = agents
         self._jobs: dict[str, _Job] = {}
         self._lock = threading.Lock()
 
@@ -134,9 +140,24 @@ class ChatTurns:
         answer the ack — the client's POST body in, the client's ack body out."""
         text = str(payload.get("text") or "").strip()
         endpoint = str(payload.get("endpoint") or "").strip()
-        provider = _provider_for_endpoint(endpoint)
-        if provider is None:
-            raise TurnRejected(f"unknown endpoint {endpoint!r} — not in the provider catalog")
+        agent_doc: dict[str, Any] | None = None
+        if endpoint == "agents":
+            # The AGENT resolves the provider and model (C5, ADR-0075): the client sends
+            # only the agent id, and the document carries what the builder configured.
+            agent_id = str(payload.get("agent_id") or "")
+            agent_doc = self._agents.get(agent_id) if self._agents is not None else None
+            if agent_doc is None:
+                raise TurnRejected(f"unknown agent {agent_id!r} — it is not in the store")
+            provider = _provider_for_endpoint(str(agent_doc.get("provider") or ""))
+            if provider is None:
+                raise TurnRejected(
+                    f"agent {agent_doc.get('name') or agent_id} names provider "
+                    f"{agent_doc.get('provider')!r}, which is not in the catalog"
+                )
+        else:
+            provider = _provider_for_endpoint(endpoint)
+            if provider is None:
+                raise TurnRejected(f"unknown endpoint {endpoint!r} — not in the provider catalog")
         regenerate = bool(payload.get("isRegenerate"))
         if not text and not regenerate:
             raise TurnRejected("an empty message cannot start a turn")
@@ -144,6 +165,8 @@ class ChatTurns:
         conversation_id = str(payload.get("conversationId") or "") or str(uuid.uuid4())
         stream_id = conversation_id
         model = _model_from(payload, provider)
+        if agent_doc is not None:
+            model = str(agent_doc.get("model") or "").strip() or model
         now = _now_rfc3339()
         conversation = self._store.get("conversations", conversation_id) or {
             "conversationId": conversation_id,
@@ -154,6 +177,9 @@ class ChatTurns:
         conversation["updatedAt"] = now
         conversation["endpoint"] = endpoint
         conversation["model"] = model
+        if agent_doc is not None:
+            # The client's mount-after-reload restores the agent context from this field.
+            conversation["agent_id"] = str(agent_doc.get("id") or "")
 
         if regenerate:
             # The client regenerates by naming the TARGET user message in
@@ -220,21 +246,46 @@ class ChatTurns:
                 self._jobs.pop(stream_id, None)
             raise
 
-        thread = threading.Thread(
-            target=self._run_turn,
-            args=(
-                job,
-                provider,
-                model,
-                dict(user_message),
-                dict(conversation),
-                endpoint,
-                _max_tokens_from(payload),
-                _system_from(payload),
-            ),
-            name=f"chat-turn-{stream_id[:8]}",
-            daemon=True,
-        )
+        if agent_doc is not None and (agent_doc.get("tools") or []):
+            # A tool-bearing agent turn dispatches through the ONE runtime (L29): the worker
+            # in `agentturn` hands the job to `run_task` and streams narration back through
+            # this ledger. Never a second loop.
+            thread = threading.Thread(
+                target=agentturn.run_agent_turn,
+                args=(
+                    self,
+                    job,
+                    dict(agent_doc),
+                    provider,
+                    model,
+                    dict(user_message),
+                    dict(conversation),
+                    endpoint,
+                ),
+                name=f"agent-turn-{stream_id[:8]}",
+                daemon=True,
+            )
+        else:
+            system = _system_from(payload)
+            if agent_doc is not None:
+                # A PERSONA agent (no tools) is plain streamed chat wearing its
+                # instructions as the system prompt.
+                system = str(agent_doc.get("instructions") or "") or system
+            thread = threading.Thread(
+                target=self._run_turn,
+                args=(
+                    job,
+                    provider,
+                    model,
+                    dict(user_message),
+                    dict(conversation),
+                    endpoint,
+                    _max_tokens_from(payload),
+                    system,
+                ),
+                name=f"chat-turn-{stream_id[:8]}",
+                daemon=True,
+            )
         thread.start()
         return {
             "streamId": stream_id,
@@ -629,6 +680,10 @@ class ChatTurns:
                 "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
             }
         job.cancel.set()
+        if job.cancel_scope is not None:
+            # The agent-turn path: cancel through the SCOPE so registered children are
+            # killed, not merely flagged (`CancelScope.cancel` sweeps process groups).
+            job.cancel_scope.cancel()
         # Usually the loop observes at the very next chunk and the abort-final is durable
         # before this returns; a silent upstream is bounded by the stream timeout instead,
         # and the client's stream stays open until the final lands either way.

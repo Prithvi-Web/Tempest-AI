@@ -124,13 +124,18 @@ ANTHROPIC_TOOLS_PATH = _SCHEMA_DIR / "agent-tools.anthropic.json"
 OPENAI_TOOLS_PATH = _SCHEMA_DIR / "agent-tools.openai.json"
 
 
-def model_facing_catalog() -> ToolCatalog:
+def model_facing_catalog(allowed: frozenset[str] | None = None) -> ToolCatalog:
     """Load both wire shapes and check they describe the SAME tools as the canonical manifest.
 
     The cross-check is the point. Three files are generated from one Rust declaration, and the
     failure this guards is not a parse error but a *silent* divergence — a model offered a tool
     the orchestrator cannot dispatch, or dispatchable tools the model is never told about. Either
     one is boundary D failing exactly as §9c describes, and neither is a type error.
+
+    `allowed` narrows the catalog to an AGENT's tool selection (C5, LC15): the subset is applied
+    AFTER the cross-check so a filtered catalog can never hide a drifted artifact, and a name
+    outside the manifest is a loud error — an agent document naming a tool that does not exist
+    is data corruption, not a preference.
     """
     anthropic: Any = json.loads(ANTHROPIC_TOOLS_PATH.read_text(encoding="utf-8"))
     openai: Any = json.loads(OPENAI_TOOLS_PATH.read_text(encoding="utf-8"))
@@ -145,6 +150,17 @@ def model_facing_catalog() -> ToolCatalog:
             f"anthropic={sorted(named_anthropic)} openai={sorted(named_openai)} — "
             f"run `make gen-contracts`"
         )
+    if allowed is not None:
+        unknown = allowed - canonical
+        if unknown:
+            raise ToolError(
+                f"allowed tools {sorted(unknown)} are not in the manifest — the agent's tool "
+                f"selection names something boundary D does not declare"
+            )
+        anthropic = [entry for entry in anthropic if str(entry.get("name")) in allowed]
+        openai = [
+            entry for entry in openai if str(entry.get("function", {}).get("name")) in allowed
+        ]
     return ToolCatalog(anthropic=anthropic, openai=openai)
 
 
@@ -196,6 +212,10 @@ class Dispatcher:
     #: Why there is no tier, quoted back to the model so the refusal is actionable.
     sandbox_reason: str = ""
     manifest: dict[str, ToolSpec] = field(default_factory=load_manifest)
+    #: An AGENT's tool selection (C5, LC15). `None` means the full manifest; a set narrows
+    #: dispatch to exactly those names — defense in depth beside the filtered catalog, so a
+    #: model that hallucinates an unoffered tool still meets a refusal, never a handler.
+    allowed: frozenset[str] | None = None
     calls_made: int = 0
 
     # -- containment ---------------------------------------------------------------------
@@ -248,6 +268,11 @@ class Dispatcher:
                 raise ToolError(
                     f"unknown tool {name!r}; this orchestrator offers "
                     f"{', '.join(sorted(self.manifest))}"
+                )
+            if self.allowed is not None and name not in self.allowed:
+                raise ToolError(
+                    f"{name} is not part of this agent's toolset; it offers "
+                    f"{', '.join(sorted(self.allowed)) or 'nothing'}"
                 )
             if spec.policy.needs_grant and name not in self.grants:
                 raise ToolError(

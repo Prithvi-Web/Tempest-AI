@@ -90,8 +90,23 @@ PATHS: tuple[AuditPath, ...] = (
             "::test_the_chat_surface_cannot_author_a_proof_claim"
         ),
         note=(
-            "authors NO repository change — no tools, no shadow, no ProvenChange; the forge "
-            "test pins that vacancy so it cannot erode silently"
+            "the PLAIN chat path authors NO repository change — no tools, no shadow, no "
+            "ProvenChange; tool-bearing agent turns leave this path entirely (the "
+            "agent-chat-surface row below) and the forge test pins the plain path's vacancy"
+        ),
+    ),
+    AuditPath(
+        path_id="agent-chat-surface",
+        entry_file="packages/api/src/tempest_api/agentturn.py",
+        entry_signature="def run_agent_turn(",
+        forge_node=(
+            "packages/api/tests/test_agent_turn.py::TestTheForge"
+            "::test_the_agent_turn_stores_no_verdict_outside_the_engine"
+        ),
+        note=(
+            "chat's tool-bearing turns delegate to run_task — one loop, one shadow, one "
+            "engine verdict; the platform store never carries a verdict word (L31), swept "
+            "by the forge"
         ),
     ),
 )
@@ -100,6 +115,7 @@ PATHS: tuple[AuditPath, ...] = (
 _RUN_TASK_HOMES = {
     "packages/engine/src/tempest/agent/orchestrator.py",
     "packages/engine/src/tempest/agent/subagents.py",
+    "packages/api/src/tempest_api/agentturn.py",
 }
 #: src files allowed to call `.accept(` on the shadow.
 _ACCEPT_HOMES = {

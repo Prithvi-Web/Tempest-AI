@@ -51,6 +51,10 @@ _UPDATABLE = (
     "hide_sequential_outputs",
     "artifacts",
     "support_contact",
+    # Tempest extension (C5): the repository a tool-bearing agent works in. Tools act on a
+    # checkout — the shadow worktree is cut from it, the proof runs against it — so an agent
+    # with tools and no repository refuses to start a turn, actionably.
+    "tempest_repo",
 )
 
 #: The version snapshot excludes the history itself and mutable bookkeeping.

@@ -86,7 +86,9 @@ class TestTheCatalogIsTheRegistry:
         endpoints = payload["endpoints"]
         models = payload["models"]
         assert isinstance(endpoints, dict) and isinstance(models, dict)
-        assert len(endpoints) == len(registry.PROVIDERS)
+        # Registry rows plus the ONE non-provider row: `agents` (C5) mounts the builder and
+        # picks no model of its own.
+        assert len(endpoints) == len(registry.PROVIDERS) + 1
         assert set(endpoints) == set(models)
 
     def test_anthropic_is_the_one_builtin_and_first(self, client: TestClient) -> None:
@@ -97,7 +99,7 @@ class TestTheCatalogIsTheRegistry:
         assert anthropic["type"] is None
         assert anthropic["order"] == 0
         assert anthropic["userProvide"] is True
-        others = [row for key, row in endpoints.items() if key != "anthropic"]
+        others = [row for key, row in endpoints.items() if key not in ("anthropic", "agents")]
         assert all(row["type"] == "custom" for row in others)
 
     def test_object_keys_are_display_names_and_order_is_registry_order(
@@ -108,7 +110,20 @@ class TestTheCatalogIsTheRegistry:
         assert isinstance(endpoints, dict)
         by_order = sorted(endpoints.items(), key=lambda item: item[1]["order"])
         expected = ["anthropic" if p.id == "anthropic" else p.label for p in registry.PROVIDERS]
-        assert [key for key, _row in by_order] == expected
+        assert [key for key, _row in by_order] == [*expected, "agents"]
+
+    def test_the_agents_endpoint_arms_the_builder(self, client: TestClient) -> None:
+        """C5 (ADR-0075): this key EXISTING is what mounts the vendored builder — the nav
+        entry, the agent queries, the tool picker all gate on it. Its shape is the client's
+        contract: builder enabled, capabilities naming only what the re-target serves."""
+        payload = _catalog(client)
+        endpoints = payload["endpoints"]
+        assert isinstance(endpoints, dict)
+        agents = endpoints["agents"]
+        assert agents["disableBuilder"] is False
+        assert agents["userProvide"] is False
+        assert "tools" in agents["capabilities"]
+        assert payload["models"]["agents"] == [], "the agents row picks agents, not models"
 
     def test_local_runners_need_no_key(self, client: TestClient) -> None:
         payload = _catalog(client)

@@ -222,6 +222,10 @@ class TaskSpec:
     #: model OUTAGE still soft-breaks and proves (L23) — a cancel is the user saying stop,
     #: which is a different fact from the model going away.
     cancel: CancelScope | None = None
+    #: An AGENT's tool selection (C5, LC15). `None` means the full manifest. The subset narrows
+    #: BOTH sides of boundary D — the catalog the model is shown and the dispatcher that
+    #: answers it — and a name outside the manifest is a loud error at task start.
+    tools_allowed: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -555,8 +559,9 @@ def run_task(
         sandbox=selection.sandbox,
         sandbox_tier=selection.tier,
         sandbox_reason=selection.reason or "",
+        allowed=spec.tools_allowed,
     )
-    catalog = model_facing_catalog()
+    catalog = model_facing_catalog(spec.tools_allowed)
     if not plan.resuming:
         log.checkpoint(
             spec.task_id, turnlog_mod.STARTED, prompt=spec.prompt, baseline=shadow.baseline
