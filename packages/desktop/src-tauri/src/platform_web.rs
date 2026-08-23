@@ -836,6 +836,8 @@ mod tests {
             type_: Some("custom".into()),
             user_provide: true,
             user_provide_url: false,
+            capabilities: None,
+            disable_builder: None,
         };
         let mut catalog = PlatformCatalog {
             endpoints: [("Groq".to_string(), endpoint(0)), ("Orphan".to_string(), endpoint(1))]

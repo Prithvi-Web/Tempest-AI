@@ -113,4 +113,19 @@ async def get_platform_catalog() -> PlatformCatalog:
                 local=provider.local,
             )
         )
+    # The AGENTS endpoint (PLAN-V3 C5, ADR-0075): the vendored builder, marketplace nav and
+    # agent picker all mount on this key existing — `useListAgentsQuery` and
+    # `useAvailableAgentToolsQuery` compute `enabled` from it, so without the row the whole
+    # surface is invisible, not merely hidden. Capabilities name what the re-target serves
+    # TODAY (the tool picker over the one boundary-D registry); run-control capabilities join
+    # the list with the C5 items that make them true.
+    endpoints["agents"] = CatalogEndpoint(
+        order=len(registry.PROVIDERS),
+        type=None,
+        userProvide=False,
+        modelDisplayLabel="Agents",
+        capabilities=["tools"],
+        disableBuilder=False,
+    )
+    models["agents"] = []
     return PlatformCatalog(endpoints=endpoints, models=models, providers=provider_rows)

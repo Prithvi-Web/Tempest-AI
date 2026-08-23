@@ -30,6 +30,13 @@ class CatalogEndpoint(BaseModel):
     #: engine always emits None. Never a remote URL (L32). The client's UnknownIcon
     #: renders it verbatim as an <img src>; built-in rows ignore it.
     iconURL: str | None = None
+    #: The `agents` endpoint row only (PLAN-V3 C5): which builder sub-sections the client
+    #: may show. Declared per what the re-target actually serves — the honest list grows as
+    #: run-control items land, and a capability named here that the runtime refuses would be
+    #: the UI writing a check the engine bounces.
+    capabilities: list[str] | None = None
+    #: The `agents` endpoint row only: False is what mounts the no-code builder nav entry.
+    disableBuilder: bool | None = None
 
 
 class CatalogProvider(BaseModel):

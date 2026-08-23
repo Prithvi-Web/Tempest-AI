@@ -16,6 +16,92 @@
       "title": "ActiveTurnsOut",
       "type": "object"
     },
+    "AgentIn": {
+      "additionalProperties": true,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "instructions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Instructions"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model"
+        },
+        "model_parameters": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Parameters"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Name"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tools"
+        }
+      },
+      "title": "AgentIn",
+      "type": "object"
+    },
     "AiKeyTestResult": {
       "description": "One live ping's honest outcome (never stored, never cached).",
       "properties": {
@@ -167,6 +253,31 @@
     "CatalogEndpoint": {
       "description": "One `/api/endpoints` row, exactly the fields the vendored client reads.",
       "properties": {
+        "capabilities": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Capabilities"
+        },
+        "disableBuilder": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Disablebuilder"
+        },
         "iconURL": {
           "anyOf": [
             {
@@ -1006,6 +1117,21 @@
       ],
       "title": "ReasonCode",
       "type": "string"
+    },
+    "RevertIn": {
+      "properties": {
+        "version_index": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Version Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version_index"
+      ],
+      "title": "RevertIn",
+      "type": "object"
     },
     "RunCreate": {
       "properties": {

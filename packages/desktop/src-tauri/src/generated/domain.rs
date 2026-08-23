@@ -62,6 +62,135 @@ impl ActiveTurnsOut {
         Default::default()
     }
 }
+#[doc = "`AgentIn`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"AgentIn\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"description\": {"]
+#[doc = "      \"title\": \"Description\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"instructions\": {"]
+#[doc = "      \"title\": \"Instructions\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"model\": {"]
+#[doc = "      \"title\": \"Model\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"model_parameters\": {"]
+#[doc = "      \"title\": \"Model Parameters\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"object\","]
+#[doc = "          \"additionalProperties\": true"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"name\": {"]
+#[doc = "      \"title\": \"Name\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"provider\": {"]
+#[doc = "      \"title\": \"Provider\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"tools\": {"]
+#[doc = "      \"title\": \"Tools\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"array\","]
+#[doc = "          \"items\": {}"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": true"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct AgentIn {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub description: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub instructions: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model_parameters:
+        ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub name: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub provider: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub tools: ::std::option::Option<::std::vec::Vec<::serde_json::Value>>,
+}
+impl ::std::default::Default for AgentIn {
+    fn default() -> Self {
+        Self {
+            description: Default::default(),
+            instructions: Default::default(),
+            model: Default::default(),
+            model_parameters: Default::default(),
+            name: Default::default(),
+            provider: Default::default(),
+            tools: Default::default(),
+        }
+    }
+}
+impl AgentIn {
+    pub fn builder() -> builder::AgentIn {
+        Default::default()
+    }
+}
 #[doc = "One live ping's honest outcome (never stored, never cached)."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -480,6 +609,31 @@ impl CancelTurnOut {
 #[doc = "    \"userProvide\""]
 #[doc = "  ],"]
 #[doc = "  \"properties\": {"]
+#[doc = "    \"capabilities\": {"]
+#[doc = "      \"title\": \"Capabilities\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"array\","]
+#[doc = "          \"items\": {"]
+#[doc = "            \"type\": \"string\""]
+#[doc = "          }"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"disableBuilder\": {"]
+#[doc = "      \"title\": \"Disablebuilder\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"boolean\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"iconURL\": {"]
 #[doc = "      \"title\": \"Iconurl\","]
 #[doc = "      \"anyOf\": ["]
@@ -527,6 +681,14 @@ impl CancelTurnOut {
 #[doc = r" </details>"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
 pub struct CatalogEndpoint {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub capabilities: ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+    #[serde(
+        rename = "disableBuilder",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub disable_builder: ::std::option::Option<bool>,
     #[serde(
         rename = "iconURL",
         default,
@@ -2526,6 +2688,37 @@ impl<'de> ::serde::Deserialize<'de> for RepoPath {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+#[doc = "`RevertIn`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"RevertIn\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"version_index\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"version_index\": {"]
+#[doc = "      \"title\": \"Version Index\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct RevertIn {
+    pub version_index: i32,
+}
+impl RevertIn {
+    pub fn builder() -> builder::RevertIn {
+        Default::default()
     }
 }
 #[doc = "`RunCreate`"]
@@ -4948,6 +5141,153 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct AgentIn {
+        description: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        instructions: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        model: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        model_parameters: ::std::result::Result<
+            ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            ::std::string::String,
+        >,
+        name: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        provider: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        tools: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<::serde_json::Value>>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for AgentIn {
+        fn default() -> Self {
+            Self {
+                description: Ok(Default::default()),
+                instructions: Ok(Default::default()),
+                model: Ok(Default::default()),
+                model_parameters: Ok(Default::default()),
+                name: Ok(Default::default()),
+                provider: Ok(Default::default()),
+                tools: Ok(Default::default()),
+            }
+        }
+    }
+    impl AgentIn {
+        pub fn description<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.description = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for description: {e}"));
+            self
+        }
+        pub fn instructions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.instructions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for instructions: {e}"));
+            self
+        }
+        pub fn model<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.model = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for model: {e}"));
+            self
+        }
+        pub fn model_parameters<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.model_parameters = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for model_parameters: {e}"));
+            self
+        }
+        pub fn name<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.name = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for name: {e}"));
+            self
+        }
+        pub fn provider<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.provider = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for provider: {e}"));
+            self
+        }
+        pub fn tools<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::vec::Vec<::serde_json::Value>>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.tools = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for tools: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<AgentIn> for super::AgentIn {
+        type Error = super::error::ConversionError;
+        fn try_from(value: AgentIn) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                description: value.description?,
+                instructions: value.instructions?,
+                model: value.model?,
+                model_parameters: value.model_parameters?,
+                name: value.name?,
+                provider: value.provider?,
+                tools: value.tools?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::AgentIn> for AgentIn {
+        fn from(value: super::AgentIn) -> Self {
+            Self {
+                description: Ok(value.description),
+                instructions: Ok(value.instructions),
+                model: Ok(value.model),
+                model_parameters: Ok(value.model_parameters),
+                name: Ok(value.name),
+                provider: Ok(value.provider),
+                tools: Ok(value.tools),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct AiKeyTestResult {
         detail: ::std::result::Result<::std::string::String, ::std::string::String>,
         model: ::std::result::Result<
@@ -5296,6 +5636,11 @@ pub mod builder {
     }
     #[derive(Clone, Debug)]
     pub struct CatalogEndpoint {
+        capabilities: ::std::result::Result<
+            ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+            ::std::string::String,
+        >,
+        disable_builder: ::std::result::Result<::std::option::Option<bool>, ::std::string::String>,
         icon_url: ::std::result::Result<
             ::std::option::Option<::std::string::String>,
             ::std::string::String,
@@ -5312,6 +5657,8 @@ pub mod builder {
     impl ::std::default::Default for CatalogEndpoint {
         fn default() -> Self {
             Self {
+                capabilities: Ok(Default::default()),
+                disable_builder: Ok(Default::default()),
                 icon_url: Ok(Default::default()),
                 model_display_label: Err("no value supplied for model_display_label".to_string()),
                 order: Err("no value supplied for order".to_string()),
@@ -5322,6 +5669,28 @@ pub mod builder {
         }
     }
     impl CatalogEndpoint {
+        pub fn capabilities<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<::std::vec::Vec<::std::string::String>>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.capabilities = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for capabilities: {e}"));
+            self
+        }
+        pub fn disable_builder<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<bool>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.disable_builder = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for disable_builder: {e}"));
+            self
+        }
         pub fn icon_url<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
@@ -5389,6 +5758,8 @@ pub mod builder {
             value: CatalogEndpoint,
         ) -> ::std::result::Result<Self, super::error::ConversionError> {
             Ok(Self {
+                capabilities: value.capabilities?,
+                disable_builder: value.disable_builder?,
                 icon_url: value.icon_url?,
                 model_display_label: value.model_display_label?,
                 order: value.order?,
@@ -5401,6 +5772,8 @@ pub mod builder {
     impl ::std::convert::From<super::CatalogEndpoint> for CatalogEndpoint {
         fn from(value: super::CatalogEndpoint) -> Self {
             Self {
+                capabilities: Ok(value.capabilities),
+                disable_builder: Ok(value.disable_builder),
                 icon_url: Ok(value.icon_url),
                 model_display_label: Ok(value.model_display_label),
                 order: Ok(value.order),
@@ -7209,6 +7582,44 @@ pub mod builder {
                 endpoints: Ok(value.endpoints),
                 models: Ok(value.models),
                 providers: Ok(value.providers),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct RevertIn {
+        version_index: ::std::result::Result<i32, ::std::string::String>,
+    }
+    impl ::std::default::Default for RevertIn {
+        fn default() -> Self {
+            Self {
+                version_index: Err("no value supplied for version_index".to_string()),
+            }
+        }
+    }
+    impl RevertIn {
+        pub fn version_index<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.version_index = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for version_index: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<RevertIn> for super::RevertIn {
+        type Error = super::error::ConversionError;
+        fn try_from(value: RevertIn) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                version_index: value.version_index?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::RevertIn> for RevertIn {
+        fn from(value: super::RevertIn) -> Self {
+            Self {
+                version_index: Ok(value.version_index),
             }
         }
     }

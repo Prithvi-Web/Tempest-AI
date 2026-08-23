@@ -155,6 +155,21 @@ export function handleLocalApi(method, path) {
     // re-target starts filling it.
     return json(200, []);
   }
+  if (method.toUpperCase() === "GET" && path.startsWith("/api/files/agent/")) {
+    // The builder lists an agent's attached files on select; none exist until C8's file
+    // surfaces land, and the honest empty keeps the console clean.
+    return json(200, []);
+  }
+  if (
+    method.toUpperCase() === "GET" &&
+    /^\/api\/permissions\/[^/]+\/[^/]+\/effective$/.test(path.split("?")[0])
+  ) {
+    // Local single-user mode: the one principal OWNS every resource it can name — the
+    // builder's edit gate reads these bits (VIEW|EDIT|DELETE|SHARE = 15). The real ACL
+    // arrives with C10's sharing; answering less here would lock the owner out of their
+    // own agents ("Agent Not Available"), which the first builder boot did.
+    return json(200, { permissionBits: 15 });
+  }
   switch (route) {
     case "GET /api/config":
       return json(200, STARTUP_CONFIG);
@@ -229,6 +244,9 @@ export function handleLocalApi(method, path) {
     case "GET /api/tags":
     case "GET /api/categories":
     case "GET /api/agents/tools":
+    // The builder queries OpenAPI actions on mount; none exist in local mode until C8,
+    // and the honest empty keeps the console clean (the host forwards this family here).
+    case "GET /api/agents/actions":
     case "GET /api/api-keys":
       return json(200, []);
     case "GET /api/agents/tools/web_search/auth":

@@ -363,7 +363,19 @@ const server = http.createServer(async (req, res) => {
         const reply = await call(body.operation, body.params ?? {});
         json(res, 200, reply);
       } catch (err) {
-        json(res, 502, { error: err instanceof Error ? err.message : JSON.stringify(err) });
+        // The engine's own HTTP status and body ride the RPC error's data (stdiorpc's
+        // _HTTP_ERROR envelope); pass them through so a 404 stays a 404 — mirroring the
+        // host's engine_reply_passthrough. Transport failures keep the loud 502.
+        const data = err && typeof err === "object" ? err.data : undefined;
+        const status =
+          data && typeof data.status === "number" && data.status >= 400 && data.status < 600
+            ? data.status
+            : 502;
+        const body =
+          data && data.body !== undefined
+            ? data.body
+            : { error: err instanceof Error ? err.message : (err && err.message) || JSON.stringify(err) };
+        json(res, status, body);
       }
     });
     return;

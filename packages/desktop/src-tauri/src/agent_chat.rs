@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 use tauri_specta::Event;
 
 use crate::generated::domain::TurnEventsOut;
-use crate::supervisor::Supervisor;
+use crate::supervisor::{RpcError, Supervisor};
 
 /// One ledger frame at boundary B. The frame itself crosses as its JSON TEXT: SSE's
 /// `e.data` is a string by definition, the seam SSE hands it to the vendored parser
@@ -112,6 +112,32 @@ fn engine_reply(
     }
 }
 
+/// `engine_reply` for the CRUD family: the ENGINE's OWN HTTP status and body pass through.
+/// A 404 for a missing agent must reach the client as a 404 — the builder's error surfaces
+/// read `error.response.status`, and a flattened 502 would turn "no such agent" into "the
+/// backend is broken". Transport-level failures keep the loud 502.
+fn engine_reply_passthrough(
+    engine: &Arc<Supervisor>,
+    operation: &str,
+    params: Value,
+) -> tauri::http::Response<Vec<u8>> {
+    match engine.call(operation, params, POLL_CALL_TIMEOUT) {
+        Ok(value) => json_response(200, &value),
+        Err(RpcError::Peer { message, data, .. }) => {
+            let status = data.get("status").and_then(Value::as_u64).unwrap_or(0);
+            if (400..600).contains(&status) {
+                let body = data
+                    .get("body")
+                    .cloned()
+                    .unwrap_or_else(|| json!({"error": message}));
+                return json_response(status as u16, &body);
+            }
+            json_response(502, &json!({"error": format!("{operation}: {message}")}))
+        }
+        Err(err) => json_response(502, &json!({"error": format!("{operation}: {err}")})),
+    }
+}
+
 /// How long a READ will out-wait a supervised engine restart before failing loudly. The
 /// supervisor's backoff brings the sidecar back within a few seconds; a read that painted
 /// the console red (and blanked the rail) for that window would turn routine recovery into
@@ -154,9 +180,22 @@ pub fn handle_chat(
     body: &[u8],
 ) -> Option<tauri::http::Response<Vec<u8>>> {
     let is_chat = route == "/api/agents/chat" || route.starts_with("/api/agents/chat/");
+    let is_agents = route == "/api/agents" || route.starts_with("/api/agents/");
     let is_convos = route == "/api/convos" || route.starts_with("/api/convos/");
     let is_messages = route.starts_with("/api/messages/");
-    if !is_chat && !is_convos && !is_messages {
+    if !is_agents && !is_convos && !is_messages {
+        return None;
+    }
+    // Sub-families the NODE seam still owns, forwarded deliberately: tool CALLS and per-tool
+    // auth (honest local-mode stubs until C8), OpenAPI actions (C8), and the api-key v1
+    // sub-routers (dormant server mode). Everything else under /api/agents is this seam's.
+    if is_agents
+        && !is_chat
+        && (route.starts_with("/api/agents/tools/")
+            || route == "/api/agents/actions"
+            || route.starts_with("/api/agents/actions/")
+            || route.starts_with("/api/agents/v1/"))
+    {
         return None;
     }
     // Engine-independent answers first: these must hold even while the engine restarts.
@@ -205,6 +244,27 @@ pub fn handle_chat(
             .unwrap_or_else(|| json!({"activeJobIds": []}));
         return Some(json_response(200, &jobs));
     }
+    // Run-control routes that do not exist yet answer SO, explicitly — and engine-free, so
+    // the answer holds during a restart too. Before this arm, `resume` and `steer` fell into
+    // the start branch below ("no slash in the segment") and were silently mis-routed into
+    // startChatTurn — a tool approval would have begun a SECOND generation. The codes are
+    // ones the client degrades gracefully on; the real handlers land with the C5 back-half
+    // items and replace this arm.
+    if is_chat && method == "POST" {
+        let sub = route.trim_start_matches("/api/agents/chat").trim_start_matches('/');
+        if sub == "steer" || sub.starts_with("steer/") {
+            return Some(json_response(
+                501,
+                &json!({"code": "STEER_UNSUPPORTED", "error": "steering is not wired yet (C5 run control)"}),
+            ));
+        }
+        if sub == "resume" {
+            return Some(json_response(
+                501,
+                &json!({"code": "RESUME_UNSUPPORTED", "error": "resume is not wired yet (C5 run control)"}),
+            ));
+        }
+    }
     let Some(engine) = engine else {
         return Some(no_engine());
     };
@@ -243,73 +303,150 @@ pub fn handle_chat(
         ));
     }
 
-    // ── /api/agents/chat family ─────────────────────────────────────────────────────────
-    let sub = route.trim_start_matches("/api/agents/chat");
-    let sub = sub.trim_start_matches('/');
+    if is_chat {
+        // ── /api/agents/chat family ────────────────────────────────────────────────────
+        let sub = route.trim_start_matches("/api/agents/chat");
+        let sub = sub.trim_start_matches('/');
 
-    if method == "GET" && sub.starts_with("status/") {
-        let id = sub.trim_start_matches("status/");
-        return Some(engine_reply_patient(engine, "getChatTurnStatus", json!({"stream_id": id})));
-    }
-    if method == "POST" && sub == "abort" {
-        let parsed: Value = serde_json::from_slice(body).unwrap_or_else(|_| json!({}));
-        let stream_id = ["streamId", "conversationId", "abortKey"]
-            .iter()
-            .find_map(|key| parsed.get(*key).and_then(Value::as_str))
-            .unwrap_or_default()
-            .to_string();
-        if stream_id.is_empty() {
-            return Some(json_response(400, &json!({"error": "no stream to abort"})));
+        if method == "GET" && sub.starts_with("status/") {
+            let id = sub.trim_start_matches("status/");
+            return Some(engine_reply_patient(
+                engine,
+                "getChatTurnStatus",
+                json!({"stream_id": id}),
+            ));
         }
-        let mut params = json!({"stream_id": stream_id});
-        if let Some(epoch) = parsed.get("generationCreatedAt").and_then(Value::as_i64) {
-            params["generation_created_at"] = json!(epoch);
-        }
-        return Some(engine_reply(engine, "cancelChatTurn", params));
-    }
-    if method == "POST" && !sub.contains('/') {
-        // POST /api/agents/chat and POST /api/agents/chat/{endpoint}: the start. The body
-        // is the client's own TPayload, forwarded verbatim; the path endpoint fills in only
-        // when the body lacks one (they are the same value in every client build we serve).
-        let mut payload: Value = match serde_json::from_slice(body) {
-            Ok(value) => value,
-            Err(err) => {
-                return Some(json_response(
-                    400,
-                    &json!({"error": format!("unreadable chat payload: {err}")}),
-                ));
+        if method == "POST" && sub == "abort" {
+            let parsed: Value = serde_json::from_slice(body).unwrap_or_else(|_| json!({}));
+            let stream_id = ["streamId", "conversationId", "abortKey"]
+                .iter()
+                .find_map(|key| parsed.get(*key).and_then(Value::as_str))
+                .unwrap_or_default()
+                .to_string();
+            if stream_id.is_empty() {
+                return Some(json_response(400, &json!({"error": "no stream to abort"})));
             }
-        };
-        if payload.get("endpoint").and_then(Value::as_str).unwrap_or("").is_empty() && !sub.is_empty()
-        {
-            let decoded = urlencoding_decode(sub);
-            payload["endpoint"] = json!(decoded);
-        }
-        let ack = match engine.call("startChatTurn", json!({"body": payload}), POLL_CALL_TIMEOUT) {
-            Ok(value) => value,
-            Err(err) => {
-                return Some(json_response(
-                    502,
-                    &json!({"error": format!("startChatTurn: {err}")}),
-                ));
+            let mut params = json!({"stream_id": stream_id});
+            if let Some(epoch) = parsed.get("generationCreatedAt").and_then(Value::as_i64) {
+                params["generation_created_at"] = json!(epoch);
             }
-        };
-        if let (Some(app), Some(stream_id)) = (app, ack.get("streamId").and_then(Value::as_str))
-        {
-            let generation = ack
-                .get("generationCreatedAt")
-                .and_then(Value::as_i64)
-                .unwrap_or_default();
-            spawn_poller(app.clone(), Arc::clone(engine), stream_id.to_string(), generation);
+            return Some(engine_reply(engine, "cancelChatTurn", params));
         }
-        return Some(json_response(200, &ack));
+        if method == "POST" && !sub.contains('/') {
+            // POST /api/agents/chat and POST /api/agents/chat/{endpoint}: the start. The body
+            // is the client's own TPayload, forwarded verbatim; the path endpoint fills in only
+            // when the body lacks one (they are the same value in every client build we serve).
+            let mut payload: Value = match serde_json::from_slice(body) {
+                Ok(value) => value,
+                Err(err) => {
+                    return Some(json_response(
+                        400,
+                        &json!({"error": format!("unreadable chat payload: {err}")}),
+                    ));
+                }
+            };
+            if payload.get("endpoint").and_then(Value::as_str).unwrap_or("").is_empty()
+                && !sub.is_empty()
+            {
+                let decoded = urlencoding_decode(sub);
+                payload["endpoint"] = json!(decoded);
+            }
+            let ack =
+                match engine.call("startChatTurn", json!({"body": payload}), POLL_CALL_TIMEOUT) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        return Some(json_response(
+                            502,
+                            &json!({"error": format!("startChatTurn: {err}")}),
+                        ));
+                    }
+                };
+            if let (Some(app), Some(stream_id)) = (app, ack.get("streamId").and_then(Value::as_str))
+            {
+                let generation = ack
+                    .get("generationCreatedAt")
+                    .and_then(Value::as_i64)
+                    .unwrap_or_default();
+                spawn_poller(app.clone(), Arc::clone(engine), stream_id.to_string(), generation);
+            }
+            return Some(json_response(200, &ack));
+        }
+
+        return Some(json_response(
+            404,
+            &json!({"error": "not part of the chat seam", "route": route, "method": method}),
+        ));
     }
 
-    let _ = query;
-    Some(json_response(
-        404,
-        &json!({"error": "not part of the chat seam", "route": route, "method": method}),
-    ))
+    // ── /api/agents CRUD family (PLAN-V3 C5: the builder's wire, ADR-0075) ─────────────
+    // Literals before `{agent_id}`: an agent named "tools" must never shadow the picker —
+    // the collision the vendored Express router carries a warning about.
+    if method == "GET" && route == "/api/agents/tools" {
+        return Some(engine_reply_patient(engine, "listAgentTools", json!({})));
+    }
+    if method == "GET" && route == "/api/agents/categories" {
+        return Some(engine_reply_patient(engine, "listAgentCategories", json!({})));
+    }
+    if route == "/api/agents" {
+        return Some(match method {
+            "GET" => engine_reply_patient(engine, "listAgents", list_params(query)),
+            "POST" => match serde_json::from_slice::<Value>(body) {
+                Ok(payload) => {
+                    engine_reply_passthrough(engine, "createAgent", json!({"body": payload}))
+                }
+                Err(err) => {
+                    json_response(400, &json!({"error": format!("unreadable agent: {err}")}))
+                }
+            },
+            _ => json_response(405, &json!({"error": "method not allowed"})),
+        });
+    }
+    let rest = route.trim_start_matches("/api/agents/");
+    let (agent_id, tail) = match rest.split_once('/') {
+        Some((id, tail)) => (id, Some(tail)),
+        None => (rest, None),
+    };
+    if agent_id.is_empty() {
+        return Some(json_response(404, &json!({"error": "no agent id in the route"})));
+    }
+    let id = json!({"agent_id": agent_id});
+    let with_body = |operation: &str| -> tauri::http::Response<Vec<u8>> {
+        match serde_json::from_slice::<Value>(body) {
+            Ok(payload) => engine_reply_passthrough(
+                engine,
+                operation,
+                json!({"agent_id": agent_id, "body": payload}),
+            ),
+            Err(err) => json_response(400, &json!({"error": format!("unreadable body: {err}")})),
+        }
+    };
+    Some(match (method, tail) {
+        ("GET", None) => engine_reply_passthrough(engine, "getAgent", id),
+        ("PATCH", None) => with_body("updateAgent"),
+        ("DELETE", None) => engine_reply_passthrough(engine, "deleteAgent", id),
+        ("GET", Some("expanded")) => engine_reply_passthrough(engine, "getExpandedAgent", id),
+        ("GET", Some("versions")) => engine_reply_passthrough(engine, "listAgentVersions", id),
+        ("POST", Some("duplicate")) => engine_reply_passthrough(engine, "duplicateAgent", id),
+        ("POST", Some("revert")) => with_body("revertAgentVersion"),
+        _ => json_response(
+            404,
+            &json!({"error": "not part of the agent seam", "route": route, "method": method}),
+        ),
+    })
+}
+
+/// The list query the builder sends, reduced to the scalars the engine op reads. Unknown
+/// keys (requiredPermission, promoted) are deliberately dropped: local single-user mode has
+/// one principal and no promotion tiers.
+fn list_params(query: &str) -> Value {
+    let mut params = serde_json::Map::new();
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        if matches!(key, "limit" | "cursor" | "search" | "category") {
+            params.insert(key.to_string(), json!(urlencoding_decode(value)));
+        }
+    }
+    Value::Object(params)
 }
 
 /// Percent-decode the endpoint path segment ("Ollama%20(local)" → "Ollama (local)").
@@ -424,7 +561,74 @@ mod tests {
     #[test]
     fn the_router_ignores_foreign_routes() {
         assert!(handle_chat(None, None, "GET", "/api/banner", "", b"").is_none());
-        assert!(handle_chat(None, None, "GET", "/api/agents/tools", "", b"").is_none());
+    }
+
+    #[test]
+    fn node_owned_agent_subfamilies_are_forwarded_not_served() {
+        // Tool CALLS, per-tool auth, actions, and the dormant v1 sub-routers keep their node
+        // seam stubs until their C-phases; the router must hand them through untouched.
+        for route in [
+            "/api/agents/tools/calls",
+            "/api/agents/tools/web_search/auth",
+            "/api/agents/actions",
+            "/api/agents/actions/agent_1/act_1",
+            "/api/agents/v1/models",
+        ] {
+            assert!(
+                handle_chat(None, None, "GET", route, "", b"").is_none(),
+                "{route} must forward to the node seam"
+            );
+        }
+    }
+
+    #[test]
+    fn the_crud_family_belongs_to_the_seam_now() {
+        // Engineless 503 (not None, not a forward): the builder's wire is host-served. The
+        // regression this pins: /api/agents/tools used to fall through to a stub that
+        // answered an empty picker.
+        for (method, route) in [
+            ("GET", "/api/agents/tools"),
+            ("GET", "/api/agents/categories"),
+            ("GET", "/api/agents"),
+            ("POST", "/api/agents"),
+            ("GET", "/api/agents/agent_1"),
+            ("PATCH", "/api/agents/agent_1"),
+            ("DELETE", "/api/agents/agent_1"),
+            ("GET", "/api/agents/agent_1/expanded"),
+            ("GET", "/api/agents/agent_1/versions"),
+            ("POST", "/api/agents/agent_1/duplicate"),
+            ("POST", "/api/agents/agent_1/revert"),
+        ] {
+            let reply = handle_chat(None, None, method, route, "", b"{}")
+                .unwrap_or_else(|| panic!("{method} {route} must belong to the seam"));
+            assert_eq!(reply.status(), 503, "{method} {route} without an engine");
+        }
+    }
+
+    #[test]
+    fn resume_and_steer_are_refused_explicitly_never_mis_started() {
+        // The defect this pins: both fell into the start branch ("no slash in the segment")
+        // and began a NEW generation — a tool approval would have started a second turn.
+        let reply = handle_chat(None, None, "POST", "/api/agents/chat/resume", "", b"{}")
+            .expect("resume belongs to the seam");
+        assert_eq!(reply.status(), 501);
+        assert!(String::from_utf8_lossy(reply.body()).contains("RESUME_UNSUPPORTED"));
+        for route in ["/api/agents/chat/steer", "/api/agents/chat/steer/arm"] {
+            let reply = handle_chat(None, None, "POST", route, "", b"{}")
+                .expect("steer belongs to the seam");
+            assert_eq!(reply.status(), 501, "{route}");
+            assert!(String::from_utf8_lossy(reply.body()).contains("STEER_UNSUPPORTED"));
+        }
+    }
+
+    #[test]
+    fn the_list_query_reduces_to_the_scalars_the_engine_reads() {
+        let params = list_params("limit=2&cursor=agent_9&search=docs%20helper&promoted=1");
+        assert_eq!(params["limit"], "2");
+        assert_eq!(params["cursor"], "agent_9");
+        assert_eq!(params["search"], "docs helper");
+        assert!(params.get("promoted").is_none(), "unknown keys are dropped");
+        assert_eq!(list_params(""), serde_json::json!({}));
     }
 
     #[test]

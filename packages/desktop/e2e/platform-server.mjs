@@ -116,8 +116,20 @@ const CATALOG_ENDPOINTS = {
     modelDisplayLabel: "Ollama (local)",
     iconURL: "/tempest-assets/providers/ollama.svg",
   },
+  // The C5 agents endpoint, mirroring routers/providers.py: this key EXISTING is what
+  // mounts the builder nav and arms the agent queries — without it the whole surface is
+  // invisible, and the builder specs would pass vacuously against nothing.
+  agents: {
+    order: 2,
+    type: null,
+    userProvide: false,
+    userProvideURL: false,
+    modelDisplayLabel: "Agents",
+    capabilities: ["tools"],
+    disableBuilder: false,
+  },
 };
-const CATALOG_MODELS = { anthropic: [], "Ollama (local)": ["test-model"] };
+const CATALOG_MODELS = { anthropic: [], "Ollama (local)": ["test-model"], agents: [] };
 
 function keysResponse(res, method) {
   switch (method) {
@@ -231,9 +243,24 @@ async function handleChatSeam(req, res, method, route) {
     return true;
   }
   if (!(route === "/api/agents/chat" || route.startsWith("/api/agents/chat/"))) {
-    return false;
+    return handleAgentCrud(req, res, method, route);
   }
   const sub = route.replace(/^\/api\/agents\/chat\/?/, "");
+  if (method === "POST" && (sub === "steer" || sub.startsWith("steer/"))) {
+    // Mirrors the host's explicit refusal — the mis-route this replaces started a turn.
+    respond(res, 501, "application/json", JSON.stringify({
+      code: "STEER_UNSUPPORTED",
+      error: "steering is not wired yet (C5 run control)",
+    }));
+    return true;
+  }
+  if (method === "POST" && sub === "resume") {
+    respond(res, 501, "application/json", JSON.stringify({
+      code: "RESUME_UNSUPPORTED",
+      error: "resume is not wired yet (C5 run control)",
+    }));
+    return true;
+  }
   if (method === "GET" && sub === "active") {
     // Quiet through an engine restart, mirroring the host: a dead engine runs nothing.
     let jobs = { activeJobIds: [] };
@@ -313,22 +340,126 @@ async function handleChatSeam(req, res, method, route) {
   return true;
 }
 
+/** One engine op with the engine's own status and body passed through — the mirror of the
+ * host's `engine_reply_passthrough` (a missing agent must 404, never flatten to 502). */
+async function agentOp(res, operation, params) {
+  const reply = await fetch(`${BRIDGE}/chat-op`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ operation, params }),
+  });
+  const text = await reply.text();
+  respond(res, reply.status, "application/json", text);
+}
+
+/// The C5 agent CRUD seam, mirroring agent_chat.rs route for route. Node-owned stubs
+/// (tool calls, per-tool auth, actions, the dormant v1 sub-routers) fall through to
+/// handleLocalApi exactly as the host forwards them to the node seam.
+async function handleAgentCrud(req, res, method, route) {
+  if (!(route === "/api/agents" || route.startsWith("/api/agents/"))) {
+    return false;
+  }
+  if (
+    route.startsWith("/api/agents/tools/") ||
+    route === "/api/agents/actions" ||
+    route.startsWith("/api/agents/actions/") ||
+    route.startsWith("/api/agents/v1/")
+  ) {
+    return false;
+  }
+  if (method === "GET" && route === "/api/agents/tools") {
+    respond(res, 200, "application/json", JSON.stringify(await chatOpPatient("listAgentTools", {})));
+    return true;
+  }
+  if (method === "GET" && route === "/api/agents/categories") {
+    respond(res, 200, "application/json", JSON.stringify(await chatOpPatient("listAgentCategories", {})));
+    return true;
+  }
+  if (route === "/api/agents") {
+    if (method === "GET") {
+      const query = new URL(req.url ?? "/", "http://x").searchParams;
+      const params = {};
+      for (const key of ["limit", "cursor", "search", "category"]) {
+        const value = query.get(key);
+        if (value) params[key] = value;
+      }
+      respond(res, 200, "application/json", JSON.stringify(await chatOpPatient("listAgents", params)));
+      return true;
+    }
+    if (method === "POST") {
+      const payload = JSON.parse((await readBody(req)) || "{}");
+      await agentOp(res, "createAgent", { body: payload });
+      return true;
+    }
+    respond(res, 405, "application/json", JSON.stringify({ error: "method not allowed" }));
+    return true;
+  }
+  const rest = route.slice("/api/agents/".length);
+  const slash = rest.indexOf("/");
+  const agentId = decodeURIComponent(slash === -1 ? rest : rest.slice(0, slash));
+  const tail = slash === -1 ? null : rest.slice(slash + 1);
+  const id = { agent_id: agentId };
+  if (method === "GET" && tail === null) {
+    await agentOp(res, "getAgent", id);
+    return true;
+  }
+  if (method === "PATCH" && tail === null) {
+    const payload = JSON.parse((await readBody(req)) || "{}");
+    await agentOp(res, "updateAgent", { agent_id: agentId, body: payload });
+    return true;
+  }
+  if (method === "DELETE" && tail === null) {
+    await agentOp(res, "deleteAgent", id);
+    return true;
+  }
+  if (method === "GET" && tail === "expanded") {
+    await agentOp(res, "getExpandedAgent", id);
+    return true;
+  }
+  if (method === "GET" && tail === "versions") {
+    await agentOp(res, "listAgentVersions", id);
+    return true;
+  }
+  if (method === "POST" && tail === "duplicate") {
+    await agentOp(res, "duplicateAgent", id);
+    return true;
+  }
+  if (method === "POST" && tail === "revert") {
+    const payload = JSON.parse((await readBody(req)) || "{}");
+    await agentOp(res, "revertAgentVersion", { agent_id: agentId, body: payload });
+    return true;
+  }
+  respond(res, 404, "application/json", JSON.stringify({ error: "not part of the agent seam", route, method }));
+  return true;
+}
+
 const server = http.createServer((req, res) => {
   const url = req.url ?? "/";
   const [route] = url.split("?");
   const method = (req.method ?? "GET").toUpperCase();
 
-  // The C5 chat seam consumes ITS OWN bodies; everything else drains below.
-  const chatFamily =
-    route === "/api/agents/chat" ||
-    route.startsWith("/api/agents/chat/") ||
+  // The C5 seam consumes ITS OWN bodies; everything else drains below. The whole
+  // /api/agents family routes through it (chat + CRUD, mirroring agent_chat.rs); a FALSE
+  // answer means the seam forwards this sub-family to the node stubs, exactly as the host
+  // returns None and platform_web falls through to boundary E.
+  const seamFamily =
+    route === "/api/agents" ||
+    route.startsWith("/api/agents/") ||
     route === "/api/convos" ||
     route.startsWith("/api/convos/") ||
     route.startsWith("/api/messages/");
-  if (chatFamily) {
-    handleChatSeam(req, res, method, route).catch((err) => {
-      respond(res, 502, "application/json", JSON.stringify({ error: String(err) }));
-    });
+  if (seamFamily) {
+    handleChatSeam(req, res, method, route)
+      .then((handled) => {
+        if (!handled) {
+          req.resume();
+          const answer = handleLocalApi(method, url);
+          respond(res, answer.status, answer.content_type, answer.body);
+        }
+      })
+      .catch((err) => {
+        respond(res, 502, "application/json", JSON.stringify({ error: String(err) }));
+      });
     return;
   }
 
