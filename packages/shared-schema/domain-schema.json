@@ -1,5 +1,21 @@
 {
   "$defs": {
+    "ActiveTurnsOut": {
+      "properties": {
+        "activeJobIds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Activejobids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "activeJobIds"
+      ],
+      "title": "ActiveTurnsOut",
+      "type": "object"
+    },
     "AiKeyTestResult": {
       "description": "One live ping's honest outcome (never stored, never cached).",
       "properties": {
@@ -106,6 +122,48 @@
       "title": "CancelAccepted",
       "type": "object"
     },
+    "CancelTurnOut": {
+      "properties": {
+        "aborted": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Aborted"
+        },
+        "generationProtocolVersion": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Generationprotocolversion",
+          "type": "integer"
+        },
+        "settled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Settled"
+        },
+        "success": {
+          "title": "Success",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "success",
+        "generationProtocolVersion"
+      ],
+      "title": "CancelTurnOut",
+      "type": "object"
+    },
     "CatalogEndpoint": {
       "description": "One `/api/endpoints` row, exactly the fields the vendored client reads.",
       "properties": {
@@ -196,6 +254,116 @@
         "local"
       ],
       "title": "CatalogProvider",
+      "type": "object"
+    },
+    "ChatTurnAck": {
+      "properties": {
+        "conversationId": {
+          "title": "Conversationid",
+          "type": "string"
+        },
+        "generationCreatedAt": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Generationcreatedat",
+          "type": "integer"
+        },
+        "generationProtocolVersion": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Generationprotocolversion",
+          "type": "integer"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "streamId": {
+          "title": "Streamid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "streamId",
+        "conversationId",
+        "generationCreatedAt",
+        "status",
+        "generationProtocolVersion"
+      ],
+      "title": "ChatTurnAck",
+      "type": "object"
+    },
+    "ChatTurnStatusOut": {
+      "properties": {
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "conversationId": {
+          "title": "Conversationid",
+          "type": "string"
+        },
+        "createdAt": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Createdat"
+        },
+        "generationCreatedAt": {
+          "anyOf": [
+            {
+              "maximum": 2147483647,
+              "minimum": -2147483648,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Generationcreatedat"
+        },
+        "generationProtocolVersion": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Generationprotocolversion",
+          "type": "integer"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Status"
+        },
+        "streamId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Streamid"
+        }
+      },
+      "required": [
+        "active",
+        "conversationId",
+        "generationProtocolVersion"
+      ],
+      "title": "ChatTurnStatusOut",
       "type": "object"
     },
     "ComposeRequest": {
@@ -295,6 +463,34 @@
         "selection_head"
       ],
       "title": "ComposeView",
+      "type": "object"
+    },
+    "ConversationsOut": {
+      "properties": {
+        "conversations": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Conversations",
+          "type": "array"
+        },
+        "nextCursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Nextcursor"
+        }
+      },
+      "required": [
+        "conversations"
+      ],
+      "title": "ConversationsOut",
       "type": "object"
     },
     "DiagnosticBundle": {
@@ -1324,6 +1520,75 @@
       "title": "Severity",
       "type": "string"
     },
+    "StartChatTurnRequest": {
+      "additionalProperties": true,
+      "properties": {
+        "conversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Conversationid"
+        },
+        "endpoint": {
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "isRegenerate": {
+          "default": false,
+          "title": "Isregenerate",
+          "type": "boolean"
+        },
+        "messageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Messageid"
+        },
+        "model_parameters": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Model Parameters"
+        },
+        "parentMessageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Parentmessageid"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "endpoint"
+      ],
+      "title": "StartChatTurnRequest",
+      "type": "object"
+    },
     "SymbolDivergence": {
       "description": "One divergence recorded against a symbol, carrying the symbol it was recorded FOR.\n\n`qualname` and `module` are on every hit deliberately: a bare identifier in an editor can\nmatch more than one recorded symbol (two classes with a `post` method), and a badge that\nsaid \"3 divergences recorded here\" without being able to name them would be over-claiming.",
       "properties": {
@@ -1660,6 +1925,53 @@
         "divergence_count"
       ],
       "title": "TargetSummary",
+      "type": "object"
+    },
+    "TurnEventOut": {
+      "properties": {
+        "frame": {
+          "additionalProperties": true,
+          "title": "Frame",
+          "type": "object"
+        },
+        "seq": {
+          "maximum": 2147483647,
+          "minimum": -2147483648,
+          "title": "Seq",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "frame"
+      ],
+      "title": "TurnEventOut",
+      "type": "object"
+    },
+    "TurnEventsOut": {
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/$defs/TurnEventOut"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "streamId": {
+          "title": "Streamid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "streamId",
+        "status",
+        "events"
+      ],
+      "title": "TurnEventsOut",
       "type": "object"
     },
     "UiErrorRecorded": {

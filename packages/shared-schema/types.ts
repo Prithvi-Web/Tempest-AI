@@ -27,6 +27,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/chat/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversations */
+        get: operations["listConversations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation Messages */
+        get: operations["getConversationMessages"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/turns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Active Chat Turns */
+        get: operations["listActiveChatTurns"];
+        put?: never;
+        /** Start Chat Turn */
+        post: operations["startChatTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/turns/{stream_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Chat Turn Status */
+        get: operations["getChatTurnStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/turns/{stream_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Chat Turn
+         * @description `generation_created_at` is the epoch guard: a stale tab's abort names the turn it
+         *     watched, and a successor turn on the same conversation-scoped id survives it.
+         */
+        post: operations["cancelChatTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/chat/turns/{stream_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Chat Turn Events */
+        get: operations["listChatTurnEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/diagnostics": {
         parameters: {
             query?: never;
@@ -510,6 +617,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActiveTurnsOut */
+        ActiveTurnsOut: {
+            /** Activejobids */
+            activeJobIds: string[];
+        };
         /**
          * AiKeyTestResult
          * @description One live ping's honest outcome (never stored, never cached).
@@ -554,6 +666,17 @@ export interface components {
             /** Run Id */
             run_id: number;
         };
+        /** CancelTurnOut */
+        CancelTurnOut: {
+            /** Aborted */
+            aborted?: string | null;
+            /** Generationprotocolversion */
+            generationProtocolVersion: number;
+            /** Settled */
+            settled?: boolean | null;
+            /** Success */
+            success: boolean;
+        };
         /**
          * CatalogEndpoint
          * @description One `/api/endpoints` row, exactly the fields the vendored client reads.
@@ -592,6 +715,36 @@ export interface components {
             local: boolean;
             /** Wire */
             wire: string;
+        };
+        /** ChatTurnAck */
+        ChatTurnAck: {
+            /** Conversationid */
+            conversationId: string;
+            /** Generationcreatedat */
+            generationCreatedAt: number;
+            /** Generationprotocolversion */
+            generationProtocolVersion: number;
+            /** Status */
+            status: string;
+            /** Streamid */
+            streamId: string;
+        };
+        /** ChatTurnStatusOut */
+        ChatTurnStatusOut: {
+            /** Active */
+            active: boolean;
+            /** Conversationid */
+            conversationId: string;
+            /** Createdat */
+            createdAt?: number | null;
+            /** Generationcreatedat */
+            generationCreatedAt?: number | null;
+            /** Generationprotocolversion */
+            generationProtocolVersion: number;
+            /** Status */
+            status?: string | null;
+            /** Streamid */
+            streamId?: string | null;
         };
         /**
          * ComposeRequest
@@ -639,6 +792,15 @@ export interface components {
             reproved_paths?: string[];
             /** Selection Head */
             selection_head: string;
+        };
+        /** ConversationsOut */
+        ConversationsOut: {
+            /** Conversations */
+            conversations: {
+                [key: string]: unknown;
+            }[];
+            /** Nextcursor */
+            nextCursor?: string | null;
         };
         /**
          * DiagnosticBundle
@@ -1020,6 +1182,33 @@ export interface components {
          * @enum {string}
          */
         Severity: "LOW" | "NORMAL" | "HEADLINE";
+        /** StartChatTurnRequest */
+        StartChatTurnRequest: {
+            /** Conversationid */
+            conversationId?: string | null;
+            /** Endpoint */
+            endpoint: string;
+            /**
+             * Isregenerate
+             * @default false
+             */
+            isRegenerate: boolean;
+            /** Messageid */
+            messageId?: string | null;
+            /** Model Parameters */
+            model_parameters?: {
+                [key: string]: unknown;
+            } | null;
+            /** Parentmessageid */
+            parentMessageId?: string | null;
+            /**
+             * Text
+             * @default
+             */
+            text: string;
+        } & {
+            [key: string]: unknown;
+        };
         /**
          * SymbolDivergence
          * @description One divergence recorded against a symbol, carrying the symbol it was recorded FOR.
@@ -1138,6 +1327,24 @@ export interface components {
             /** Run Id */
             run_id: number;
             verdict: components["schemas"]["Verdict"];
+        };
+        /** TurnEventOut */
+        TurnEventOut: {
+            /** Frame */
+            frame: {
+                [key: string]: unknown;
+            };
+            /** Seq */
+            seq: number;
+        };
+        /** TurnEventsOut */
+        TurnEventsOut: {
+            /** Events */
+            events: components["schemas"]["TurnEventOut"][];
+            /** Status */
+            status: string;
+            /** Streamid */
+            streamId: string;
         };
         /** UiErrorRecorded */
         UiErrorRecorded: {
@@ -1258,6 +1465,227 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listConversations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationsOut"];
+                };
+            };
+        };
+    };
+    getConversationMessages: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listActiveChatTurns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActiveTurnsOut"];
+                };
+            };
+        };
+    };
+    startChatTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartChatTurnRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatTurnAck"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getChatTurnStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChatTurnStatusOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancelChatTurn: {
+        parameters: {
+            query?: {
+                generation_created_at?: number | null;
+            };
+            header?: never;
+            path: {
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CancelTurnOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listChatTurnEvents: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnEventsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

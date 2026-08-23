@@ -29,6 +29,39 @@ pub mod error {
         }
     }
 }
+#[doc = "`ActiveTurnsOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ActiveTurnsOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"activeJobIds\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"activeJobIds\": {"]
+#[doc = "      \"title\": \"Activejobids\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"string\""]
+#[doc = "      }"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ActiveTurnsOut {
+    #[serde(rename = "activeJobIds")]
+    pub active_job_ids: ::std::vec::Vec<::std::string::String>,
+}
+impl ActiveTurnsOut {
+    pub fn builder() -> builder::ActiveTurnsOut {
+        Default::default()
+    }
+}
 #[doc = "One live ping's honest outcome (never stored, never cached)."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -368,6 +401,70 @@ impl CancelAccepted {
         Default::default()
     }
 }
+#[doc = "`CancelTurnOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"CancelTurnOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"generationProtocolVersion\","]
+#[doc = "    \"success\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"aborted\": {"]
+#[doc = "      \"title\": \"Aborted\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"generationProtocolVersion\": {"]
+#[doc = "      \"title\": \"Generationprotocolversion\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"settled\": {"]
+#[doc = "      \"title\": \"Settled\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"boolean\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"success\": {"]
+#[doc = "      \"title\": \"Success\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct CancelTurnOut {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub aborted: ::std::option::Option<::std::string::String>,
+    #[serde(rename = "generationProtocolVersion")]
+    pub generation_protocol_version: i32,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub settled: ::std::option::Option<bool>,
+    pub success: bool,
+}
+impl CancelTurnOut {
+    pub fn builder() -> builder::CancelTurnOut {
+        Default::default()
+    }
+}
 #[doc = "One `/api/endpoints` row, exactly the fields the vendored client reads."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -515,6 +612,180 @@ impl CatalogProvider {
         Default::default()
     }
 }
+#[doc = "`ChatTurnAck`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ChatTurnAck\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"conversationId\","]
+#[doc = "    \"generationCreatedAt\","]
+#[doc = "    \"generationProtocolVersion\","]
+#[doc = "    \"status\","]
+#[doc = "    \"streamId\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"conversationId\": {"]
+#[doc = "      \"title\": \"Conversationid\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"generationCreatedAt\": {"]
+#[doc = "      \"title\": \"Generationcreatedat\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"generationProtocolVersion\": {"]
+#[doc = "      \"title\": \"Generationprotocolversion\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"status\": {"]
+#[doc = "      \"title\": \"Status\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"streamId\": {"]
+#[doc = "      \"title\": \"Streamid\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ChatTurnAck {
+    #[serde(rename = "conversationId")]
+    pub conversation_id: ::std::string::String,
+    #[serde(rename = "generationCreatedAt")]
+    pub generation_created_at: i32,
+    #[serde(rename = "generationProtocolVersion")]
+    pub generation_protocol_version: i32,
+    pub status: ::std::string::String,
+    #[serde(rename = "streamId")]
+    pub stream_id: ::std::string::String,
+}
+impl ChatTurnAck {
+    pub fn builder() -> builder::ChatTurnAck {
+        Default::default()
+    }
+}
+#[doc = "`ChatTurnStatusOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ChatTurnStatusOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"active\","]
+#[doc = "    \"conversationId\","]
+#[doc = "    \"generationProtocolVersion\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"active\": {"]
+#[doc = "      \"title\": \"Active\","]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"conversationId\": {"]
+#[doc = "      \"title\": \"Conversationid\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"createdAt\": {"]
+#[doc = "      \"title\": \"Createdat\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"integer\","]
+#[doc = "          \"maximum\": 2147483647.0,"]
+#[doc = "          \"minimum\": -2147483648.0"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"generationCreatedAt\": {"]
+#[doc = "      \"title\": \"Generationcreatedat\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"integer\","]
+#[doc = "          \"maximum\": 2147483647.0,"]
+#[doc = "          \"minimum\": -2147483648.0"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"generationProtocolVersion\": {"]
+#[doc = "      \"title\": \"Generationprotocolversion\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    },"]
+#[doc = "    \"status\": {"]
+#[doc = "      \"title\": \"Status\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"streamId\": {"]
+#[doc = "      \"title\": \"Streamid\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ChatTurnStatusOut {
+    pub active: bool,
+    #[serde(rename = "conversationId")]
+    pub conversation_id: ::std::string::String,
+    #[serde(
+        rename = "createdAt",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub created_at: ::std::option::Option<i32>,
+    #[serde(
+        rename = "generationCreatedAt",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub generation_created_at: ::std::option::Option<i32>,
+    #[serde(rename = "generationProtocolVersion")]
+    pub generation_protocol_version: i32,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub status: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "streamId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub stream_id: ::std::option::Option<::std::string::String>,
+}
+impl ChatTurnStatusOut {
+    pub fn builder() -> builder::ChatTurnStatusOut {
+        Default::default()
+    }
+}
 #[doc = "Show me this change as rows, with `accepted` applied.\n\n`accepted=None` means \"all of them\" — the state the composer opens in. An empty LIST is a\ndifferent request: it means the user has rejected everything, and the honest answer to that\nis a proof of the baseline against itself, not a proof of the whole diff."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -659,6 +930,57 @@ pub struct ComposeView {
 }
 impl ComposeView {
     pub fn builder() -> builder::ComposeView {
+        Default::default()
+    }
+}
+#[doc = "`ConversationsOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ConversationsOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"conversations\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"conversations\": {"]
+#[doc = "      \"title\": \"Conversations\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"type\": \"object\","]
+#[doc = "        \"additionalProperties\": true"]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"nextCursor\": {"]
+#[doc = "      \"title\": \"Nextcursor\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ConversationsOut {
+    pub conversations:
+        ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    #[serde(
+        rename = "nextCursor",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub next_cursor: ::std::option::Option<::std::string::String>,
+}
+impl ConversationsOut {
+    pub fn builder() -> builder::ConversationsOut {
         Default::default()
     }
 }
@@ -3361,6 +3683,116 @@ impl<'de> ::serde::Deserialize<'de> for Source {
             })
     }
 }
+#[doc = "`StartChatTurnRequest`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"StartChatTurnRequest\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"endpoint\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"conversationId\": {"]
+#[doc = "      \"title\": \"Conversationid\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"endpoint\": {"]
+#[doc = "      \"title\": \"Endpoint\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"isRegenerate\": {"]
+#[doc = "      \"title\": \"Isregenerate\","]
+#[doc = "      \"default\": false,"]
+#[doc = "      \"type\": \"boolean\""]
+#[doc = "    },"]
+#[doc = "    \"messageId\": {"]
+#[doc = "      \"title\": \"Messageid\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"model_parameters\": {"]
+#[doc = "      \"title\": \"Model Parameters\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"object\","]
+#[doc = "          \"additionalProperties\": true"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"parentMessageId\": {"]
+#[doc = "      \"title\": \"Parentmessageid\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"text\": {"]
+#[doc = "      \"title\": \"Text\","]
+#[doc = "      \"default\": \"\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": true"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct StartChatTurnRequest {
+    #[serde(
+        rename = "conversationId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub conversation_id: ::std::option::Option<::std::string::String>,
+    pub endpoint: ::std::string::String,
+    #[serde(rename = "isRegenerate", default)]
+    pub is_regenerate: bool,
+    #[serde(
+        rename = "messageId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub message_id: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub model_parameters:
+        ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    #[serde(
+        rename = "parentMessageId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub parent_message_id: ::std::option::Option<::std::string::String>,
+    #[serde(default)]
+    pub text: ::std::string::String,
+}
+impl StartChatTurnRequest {
+    pub fn builder() -> builder::StartChatTurnRequest {
+        Default::default()
+    }
+}
 #[doc = "One divergence recorded against a symbol, carrying the symbol it was recorded FOR.\n\n`qualname` and `module` are on every hit deliberately: a bare identifier in an editor can\nmatch more than one recorded symbol (two classes with a `post` method), and a badge that\nsaid \"3 divergences recorded here\" without being able to name them would be over-claiming."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -3937,6 +4369,89 @@ impl TempestDomain {
         Default::default()
     }
 }
+#[doc = "`TurnEventOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"TurnEventOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"frame\","]
+#[doc = "    \"seq\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"frame\": {"]
+#[doc = "      \"title\": \"Frame\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": true"]
+#[doc = "    },"]
+#[doc = "    \"seq\": {"]
+#[doc = "      \"title\": \"Seq\","]
+#[doc = "      \"type\": \"integer\","]
+#[doc = "      \"maximum\": 2147483647.0,"]
+#[doc = "      \"minimum\": -2147483648.0"]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct TurnEventOut {
+    pub frame: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    pub seq: i32,
+}
+impl TurnEventOut {
+    pub fn builder() -> builder::TurnEventOut {
+        Default::default()
+    }
+}
+#[doc = "`TurnEventsOut`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"TurnEventsOut\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"events\","]
+#[doc = "    \"status\","]
+#[doc = "    \"streamId\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"events\": {"]
+#[doc = "      \"title\": \"Events\","]
+#[doc = "      \"type\": \"array\","]
+#[doc = "      \"items\": {"]
+#[doc = "        \"$ref\": \"#/$defs/TurnEventOut\""]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    \"status\": {"]
+#[doc = "      \"title\": \"Status\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"streamId\": {"]
+#[doc = "      \"title\": \"Streamid\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    }"]
+#[doc = "  }"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct TurnEventsOut {
+    pub events: ::std::vec::Vec<TurnEventOut>,
+    pub status: ::std::string::String,
+    #[serde(rename = "streamId")]
+    pub stream_id: ::std::string::String,
+}
+impl TurnEventsOut {
+    pub fn builder() -> builder::TurnEventsOut {
+        Default::default()
+    }
+}
 #[doc = "`UiErrorRecorded`"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
@@ -4392,6 +4907,47 @@ impl WatchStatus {
 #[doc = r" Types for composing complex structures."]
 pub mod builder {
     #[derive(Clone, Debug)]
+    pub struct ActiveTurnsOut {
+        active_job_ids:
+            ::std::result::Result<::std::vec::Vec<::std::string::String>, ::std::string::String>,
+    }
+    impl ::std::default::Default for ActiveTurnsOut {
+        fn default() -> Self {
+            Self {
+                active_job_ids: Err("no value supplied for active_job_ids".to_string()),
+            }
+        }
+    }
+    impl ActiveTurnsOut {
+        pub fn active_job_ids<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.active_job_ids = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for active_job_ids: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ActiveTurnsOut> for super::ActiveTurnsOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ActiveTurnsOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                active_job_ids: value.active_job_ids?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ActiveTurnsOut> for ActiveTurnsOut {
+        fn from(value: super::ActiveTurnsOut) -> Self {
+            Self {
+                active_job_ids: Ok(value.active_job_ids),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct AiKeyTestResult {
         detail: ::std::result::Result<::std::string::String, ::std::string::String>,
         model: ::std::result::Result<
@@ -4652,6 +5208,93 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct CancelTurnOut {
+        aborted: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        generation_protocol_version: ::std::result::Result<i32, ::std::string::String>,
+        settled: ::std::result::Result<::std::option::Option<bool>, ::std::string::String>,
+        success: ::std::result::Result<bool, ::std::string::String>,
+    }
+    impl ::std::default::Default for CancelTurnOut {
+        fn default() -> Self {
+            Self {
+                aborted: Ok(Default::default()),
+                generation_protocol_version: Err(
+                    "no value supplied for generation_protocol_version".to_string(),
+                ),
+                settled: Ok(Default::default()),
+                success: Err("no value supplied for success".to_string()),
+            }
+        }
+    }
+    impl CancelTurnOut {
+        pub fn aborted<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.aborted = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for aborted: {e}"));
+            self
+        }
+        pub fn generation_protocol_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.generation_protocol_version = value.try_into().map_err(|e| {
+                format!("error converting supplied value for generation_protocol_version: {e}")
+            });
+            self
+        }
+        pub fn settled<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<bool>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.settled = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for settled: {e}"));
+            self
+        }
+        pub fn success<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.success = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for success: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<CancelTurnOut> for super::CancelTurnOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: CancelTurnOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                aborted: value.aborted?,
+                generation_protocol_version: value.generation_protocol_version?,
+                settled: value.settled?,
+                success: value.success?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::CancelTurnOut> for CancelTurnOut {
+        fn from(value: super::CancelTurnOut) -> Self {
+            Self {
+                aborted: Ok(value.aborted),
+                generation_protocol_version: Ok(value.generation_protocol_version),
+                settled: Ok(value.settled),
+                success: Ok(value.success),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct CatalogEndpoint {
         icon_url: ::std::result::Result<
             ::std::option::Option<::std::string::String>,
@@ -4878,6 +5521,239 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct ChatTurnAck {
+        conversation_id: ::std::result::Result<::std::string::String, ::std::string::String>,
+        generation_created_at: ::std::result::Result<i32, ::std::string::String>,
+        generation_protocol_version: ::std::result::Result<i32, ::std::string::String>,
+        status: ::std::result::Result<::std::string::String, ::std::string::String>,
+        stream_id: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for ChatTurnAck {
+        fn default() -> Self {
+            Self {
+                conversation_id: Err("no value supplied for conversation_id".to_string()),
+                generation_created_at: Err(
+                    "no value supplied for generation_created_at".to_string()
+                ),
+                generation_protocol_version: Err(
+                    "no value supplied for generation_protocol_version".to_string(),
+                ),
+                status: Err("no value supplied for status".to_string()),
+                stream_id: Err("no value supplied for stream_id".to_string()),
+            }
+        }
+    }
+    impl ChatTurnAck {
+        pub fn conversation_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.conversation_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for conversation_id: {e}"));
+            self
+        }
+        pub fn generation_created_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.generation_created_at = value.try_into().map_err(|e| {
+                format!("error converting supplied value for generation_created_at: {e}")
+            });
+            self
+        }
+        pub fn generation_protocol_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.generation_protocol_version = value.try_into().map_err(|e| {
+                format!("error converting supplied value for generation_protocol_version: {e}")
+            });
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+        pub fn stream_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.stream_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for stream_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ChatTurnAck> for super::ChatTurnAck {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ChatTurnAck,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                conversation_id: value.conversation_id?,
+                generation_created_at: value.generation_created_at?,
+                generation_protocol_version: value.generation_protocol_version?,
+                status: value.status?,
+                stream_id: value.stream_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ChatTurnAck> for ChatTurnAck {
+        fn from(value: super::ChatTurnAck) -> Self {
+            Self {
+                conversation_id: Ok(value.conversation_id),
+                generation_created_at: Ok(value.generation_created_at),
+                generation_protocol_version: Ok(value.generation_protocol_version),
+                status: Ok(value.status),
+                stream_id: Ok(value.stream_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct ChatTurnStatusOut {
+        active: ::std::result::Result<bool, ::std::string::String>,
+        conversation_id: ::std::result::Result<::std::string::String, ::std::string::String>,
+        created_at: ::std::result::Result<::std::option::Option<i32>, ::std::string::String>,
+        generation_created_at:
+            ::std::result::Result<::std::option::Option<i32>, ::std::string::String>,
+        generation_protocol_version: ::std::result::Result<i32, ::std::string::String>,
+        status: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        stream_id: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for ChatTurnStatusOut {
+        fn default() -> Self {
+            Self {
+                active: Err("no value supplied for active".to_string()),
+                conversation_id: Err("no value supplied for conversation_id".to_string()),
+                created_at: Ok(Default::default()),
+                generation_created_at: Ok(Default::default()),
+                generation_protocol_version: Err(
+                    "no value supplied for generation_protocol_version".to_string(),
+                ),
+                status: Ok(Default::default()),
+                stream_id: Ok(Default::default()),
+            }
+        }
+    }
+    impl ChatTurnStatusOut {
+        pub fn active<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.active = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for active: {e}"));
+            self
+        }
+        pub fn conversation_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.conversation_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for conversation_id: {e}"));
+            self
+        }
+        pub fn created_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<i32>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.created_at = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for created_at: {e}"));
+            self
+        }
+        pub fn generation_created_at<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<i32>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.generation_created_at = value.try_into().map_err(|e| {
+                format!("error converting supplied value for generation_created_at: {e}")
+            });
+            self
+        }
+        pub fn generation_protocol_version<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.generation_protocol_version = value.try_into().map_err(|e| {
+                format!("error converting supplied value for generation_protocol_version: {e}")
+            });
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+        pub fn stream_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.stream_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for stream_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ChatTurnStatusOut> for super::ChatTurnStatusOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ChatTurnStatusOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                active: value.active?,
+                conversation_id: value.conversation_id?,
+                created_at: value.created_at?,
+                generation_created_at: value.generation_created_at?,
+                generation_protocol_version: value.generation_protocol_version?,
+                status: value.status?,
+                stream_id: value.stream_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ChatTurnStatusOut> for ChatTurnStatusOut {
+        fn from(value: super::ChatTurnStatusOut) -> Self {
+            Self {
+                active: Ok(value.active),
+                conversation_id: Ok(value.conversation_id),
+                created_at: Ok(value.created_at),
+                generation_created_at: Ok(value.generation_created_at),
+                generation_protocol_version: Ok(value.generation_protocol_version),
+                status: Ok(value.status),
+                stream_id: Ok(value.stream_id),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct ComposeRequest {
         accepted: ::std::result::Result<
             ::std::option::Option<::std::vec::Vec<::std::string::String>>,
@@ -5088,6 +5964,68 @@ pub mod builder {
                 rejected_ids: Ok(value.rejected_ids),
                 reproved_paths: Ok(value.reproved_paths),
                 selection_head: Ok(value.selection_head),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct ConversationsOut {
+        conversations: ::std::result::Result<
+            ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            ::std::string::String,
+        >,
+        next_cursor: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for ConversationsOut {
+        fn default() -> Self {
+            Self {
+                conversations: Err("no value supplied for conversations".to_string()),
+                next_cursor: Ok(Default::default()),
+            }
+        }
+    }
+    impl ConversationsOut {
+        pub fn conversations<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.conversations = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for conversations: {e}"));
+            self
+        }
+        pub fn next_cursor<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.next_cursor = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for next_cursor: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ConversationsOut> for super::ConversationsOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ConversationsOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                conversations: value.conversations?,
+                next_cursor: value.next_cursor?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ConversationsOut> for ConversationsOut {
+        fn from(value: super::ConversationsOut) -> Self {
+            Self {
+                conversations: Ok(value.conversations),
+                next_cursor: Ok(value.next_cursor),
             }
         }
     }
@@ -7354,6 +8292,146 @@ pub mod builder {
         }
     }
     #[derive(Clone, Debug)]
+    pub struct StartChatTurnRequest {
+        conversation_id: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        endpoint: ::std::result::Result<::std::string::String, ::std::string::String>,
+        is_regenerate: ::std::result::Result<bool, ::std::string::String>,
+        message_id: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        model_parameters: ::std::result::Result<
+            ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            ::std::string::String,
+        >,
+        parent_message_id: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        text: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for StartChatTurnRequest {
+        fn default() -> Self {
+            Self {
+                conversation_id: Ok(Default::default()),
+                endpoint: Err("no value supplied for endpoint".to_string()),
+                is_regenerate: Ok(Default::default()),
+                message_id: Ok(Default::default()),
+                model_parameters: Ok(Default::default()),
+                parent_message_id: Ok(Default::default()),
+                text: Ok(Default::default()),
+            }
+        }
+    }
+    impl StartChatTurnRequest {
+        pub fn conversation_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.conversation_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for conversation_id: {e}"));
+            self
+        }
+        pub fn endpoint<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.endpoint = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for endpoint: {e}"));
+            self
+        }
+        pub fn is_regenerate<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<bool>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.is_regenerate = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for is_regenerate: {e}"));
+            self
+        }
+        pub fn message_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.message_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for message_id: {e}"));
+            self
+        }
+        pub fn model_parameters<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.model_parameters = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for model_parameters: {e}"));
+            self
+        }
+        pub fn parent_message_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.parent_message_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for parent_message_id: {e}"));
+            self
+        }
+        pub fn text<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.text = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for text: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<StartChatTurnRequest> for super::StartChatTurnRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: StartChatTurnRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                conversation_id: value.conversation_id?,
+                endpoint: value.endpoint?,
+                is_regenerate: value.is_regenerate?,
+                message_id: value.message_id?,
+                model_parameters: value.model_parameters?,
+                parent_message_id: value.parent_message_id?,
+                text: value.text?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::StartChatTurnRequest> for StartChatTurnRequest {
+        fn from(value: super::StartChatTurnRequest) -> Self {
+            Self {
+                conversation_id: Ok(value.conversation_id),
+                endpoint: Ok(value.endpoint),
+                is_regenerate: Ok(value.is_regenerate),
+                message_id: Ok(value.message_id),
+                model_parameters: Ok(value.model_parameters),
+                parent_message_id: Ok(value.parent_message_id),
+                text: Ok(value.text),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
     pub struct SymbolDivergence {
         detail: ::std::result::Result<::std::string::String, ::std::string::String>,
         divergence_class: ::std::result::Result<super::DivergenceClass, ::std::string::String>,
@@ -8156,6 +9234,133 @@ pub mod builder {
     impl ::std::convert::From<super::TempestDomain> for TempestDomain {
         fn from(_value: super::TempestDomain) -> Self {
             Self {}
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct TurnEventOut {
+        frame: ::std::result::Result<
+            ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            ::std::string::String,
+        >,
+        seq: ::std::result::Result<i32, ::std::string::String>,
+    }
+    impl ::std::default::Default for TurnEventOut {
+        fn default() -> Self {
+            Self {
+                frame: Err("no value supplied for frame".to_string()),
+                seq: Err("no value supplied for seq".to_string()),
+            }
+        }
+    }
+    impl TurnEventOut {
+        pub fn frame<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.frame = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for frame: {e}"));
+            self
+        }
+        pub fn seq<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<i32>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.seq = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for seq: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<TurnEventOut> for super::TurnEventOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: TurnEventOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                frame: value.frame?,
+                seq: value.seq?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::TurnEventOut> for TurnEventOut {
+        fn from(value: super::TurnEventOut) -> Self {
+            Self {
+                frame: Ok(value.frame),
+                seq: Ok(value.seq),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct TurnEventsOut {
+        events: ::std::result::Result<::std::vec::Vec<super::TurnEventOut>, ::std::string::String>,
+        status: ::std::result::Result<::std::string::String, ::std::string::String>,
+        stream_id: ::std::result::Result<::std::string::String, ::std::string::String>,
+    }
+    impl ::std::default::Default for TurnEventsOut {
+        fn default() -> Self {
+            Self {
+                events: Err("no value supplied for events".to_string()),
+                status: Err("no value supplied for status".to_string()),
+                stream_id: Err("no value supplied for stream_id".to_string()),
+            }
+        }
+    }
+    impl TurnEventsOut {
+        pub fn events<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::vec::Vec<super::TurnEventOut>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.events = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for events: {e}"));
+            self
+        }
+        pub fn status<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.status = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for status: {e}"));
+            self
+        }
+        pub fn stream_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.stream_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for stream_id: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<TurnEventsOut> for super::TurnEventsOut {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: TurnEventsOut,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                events: value.events?,
+                status: value.status?,
+                stream_id: value.stream_id?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::TurnEventsOut> for TurnEventsOut {
+        fn from(value: super::TurnEventsOut) -> Self {
+            Self {
+                events: Ok(value.events),
+                status: Ok(value.status),
+                stream_id: Ok(value.stream_id),
+            }
         }
     }
     #[derive(Clone, Debug)]

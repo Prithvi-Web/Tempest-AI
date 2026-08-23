@@ -1,6 +1,22 @@
 {
   "components": {
     "schemas": {
+      "ActiveTurnsOut": {
+        "properties": {
+          "activeJobIds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Activejobids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "activeJobIds"
+        ],
+        "title": "ActiveTurnsOut",
+        "type": "object"
+      },
       "AiKeyTestResult": {
         "description": "One live ping's honest outcome (never stored, never cached).",
         "properties": {
@@ -119,6 +135,46 @@
         "title": "CancelAccepted",
         "type": "object"
       },
+      "CancelTurnOut": {
+        "properties": {
+          "aborted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aborted"
+          },
+          "generationProtocolVersion": {
+            "title": "Generationprotocolversion",
+            "type": "integer"
+          },
+          "settled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "generationProtocolVersion"
+        ],
+        "title": "CancelTurnOut",
+        "type": "object"
+      },
       "CatalogEndpoint": {
         "description": "One `/api/endpoints` row, exactly the fields the vendored client reads.",
         "properties": {
@@ -207,6 +263,106 @@
           "local"
         ],
         "title": "CatalogProvider",
+        "type": "object"
+      },
+      "ChatTurnAck": {
+        "properties": {
+          "conversationId": {
+            "title": "Conversationid",
+            "type": "string"
+          },
+          "generationCreatedAt": {
+            "title": "Generationcreatedat",
+            "type": "integer"
+          },
+          "generationProtocolVersion": {
+            "title": "Generationprotocolversion",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "streamId": {
+            "title": "Streamid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "conversationId",
+          "generationCreatedAt",
+          "status",
+          "generationProtocolVersion"
+        ],
+        "title": "ChatTurnAck",
+        "type": "object"
+      },
+      "ChatTurnStatusOut": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "conversationId": {
+            "title": "Conversationid",
+            "type": "string"
+          },
+          "createdAt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Createdat"
+          },
+          "generationCreatedAt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generationcreatedat"
+          },
+          "generationProtocolVersion": {
+            "title": "Generationprotocolversion",
+            "type": "integer"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "streamId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Streamid"
+          }
+        },
+        "required": [
+          "active",
+          "conversationId",
+          "generationProtocolVersion"
+        ],
+        "title": "ChatTurnStatusOut",
         "type": "object"
       },
       "ComposeRequest": {
@@ -305,6 +461,34 @@
           "selection_head"
         ],
         "title": "ComposeView",
+        "type": "object"
+      },
+      "ConversationsOut": {
+        "properties": {
+          "conversations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Conversations",
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nextcursor"
+          }
+        },
+        "required": [
+          "conversations"
+        ],
+        "title": "ConversationsOut",
         "type": "object"
       },
       "DiagnosticBundle": {
@@ -1285,6 +1469,75 @@
         "title": "Severity",
         "type": "string"
       },
+      "StartChatTurnRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "conversationId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversationid"
+          },
+          "endpoint": {
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "isRegenerate": {
+            "default": false,
+            "title": "Isregenerate",
+            "type": "boolean"
+          },
+          "messageId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messageid"
+          },
+          "model_parameters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Parameters"
+          },
+          "parentMessageId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parentmessageid"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint"
+        ],
+        "title": "StartChatTurnRequest",
+        "type": "object"
+      },
       "SymbolDivergence": {
         "description": "One divergence recorded against a symbol, carrying the symbol it was recorded FOR.\n\n`qualname` and `module` are on every hit deliberately: a bare identifier in an editor can\nmatch more than one recorded symbol (two classes with a `post` method), and a badge that\nsaid \"3 divergences recorded here\" without being able to name them would be over-claiming.",
         "properties": {
@@ -1589,6 +1842,51 @@
         "title": "TargetSummary",
         "type": "object"
       },
+      "TurnEventOut": {
+        "properties": {
+          "frame": {
+            "additionalProperties": true,
+            "title": "Frame",
+            "type": "object"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seq",
+          "frame"
+        ],
+        "title": "TurnEventOut",
+        "type": "object"
+      },
+      "TurnEventsOut": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TurnEventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "streamId": {
+            "title": "Streamid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "streamId",
+          "status",
+          "events"
+        ],
+        "title": "TurnEventsOut",
+        "type": "object"
+      },
       "UiErrorRecorded": {
         "properties": {
           "recorded": {
@@ -1885,6 +2183,307 @@
         "summary": "Check Bundle Presence",
         "tags": [
           "sync"
+        ]
+      }
+    },
+    "/v1/chat/conversations": {
+      "get": {
+        "operationId": "listConversations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Conversations",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/conversations/{conversation_id}/messages": {
+      "get": {
+        "operationId": "getConversationMessages",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Getconversationmessages",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Conversation Messages",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/turns": {
+      "get": {
+        "operationId": "listActiveChatTurns",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveTurnsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Active Chat Turns",
+        "tags": [
+          "chat"
+        ]
+      },
+      "post": {
+        "operationId": "startChatTurn",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartChatTurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatTurnAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Start Chat Turn",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/turns/{stream_id}": {
+      "get": {
+        "operationId": "getChatTurnStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "title": "Stream Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatTurnStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Chat Turn Status",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/turns/{stream_id}/cancel": {
+      "post": {
+        "description": "`generation_created_at` is the epoch guard: a stale tab's abort names the turn it\nwatched, and a successor turn on the same conversation-scoped id survives it.",
+        "operationId": "cancelChatTurn",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "title": "Stream Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "generation_created_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Generation Created At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelTurnOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Chat Turn",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/turns/{stream_id}/events": {
+      "get": {
+        "operationId": "listChatTurnEvents",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "title": "Stream Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnEventsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Chat Turn Events",
+        "tags": [
+          "chat"
         ]
       }
     },
