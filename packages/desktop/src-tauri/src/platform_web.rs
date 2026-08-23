@@ -207,6 +207,12 @@ fn html_escape(text: &str) -> String {
 /// in the product's own voice and identity, with the raw detail quoted underneath.
 fn diagnostic_page(cause: &str, detail: &str) -> String {
     let (title, remedy): (&str, &str) = match cause {
+        "sidecar-disabled" => (
+            "The chat surface is switched off",
+            "TEMPEST_PLATFORM_SIDECAR=0 is set in this app\u{2019}s environment — the \
+             platform surface never starts under it. Unset the variable and reopen \
+             Tempest AI.",
+        ),
         "client-missing" => (
             "The chat surface isn\u{2019}t in this build",
             "The bundled client files are missing. Reinstall Tempest AI \u{2014} or, in a \

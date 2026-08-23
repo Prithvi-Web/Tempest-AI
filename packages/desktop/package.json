@@ -5,8 +5,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p e2e",
     "test:e2e": "playwright test --grep-invert @bench",
     "tauri": "tauri",

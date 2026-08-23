@@ -4075,3 +4075,16 @@ in `packages/desktop/src`.
 **Consequences.** Two copies of ~3,800 lines exist for the bridge's lifetime; the removal
 date and the freeze are what keep that honest. The E2E re-target is the C3-close gate item
 that retires it.
+
+**Completion note (2026-08-22).** Executed as specified, in order: the E2E suite was
+re-targeted onto the platform surface (a zero-dep harness mirrors the `tempest://`
+protocol's semantics on a port over the real `handleLocalApi`; the boundary-B ajv net moved
+into the bridge; the 86 relocated/rewritten unit tests measure the SEAM copies at 100%
+coverage) and ran fully green repeatedly — three consecutive 51-pass runs on the re-target
+branch, then two more on the merged tree. The legacy webview sources
+(`packages/desktop/src` view/editor/vocabulary/router/styles code, `index.html`,
+`vite.config.ts`) and the `TEMPEST_LEGACY_WINDOW` flag were then deleted in one commit;
+`src/generated/` remains (the seam imports it across the package boundary, one artifact).
+The fallback for a platform surface that cannot start is now the `/__tempest-diagnostic`
+surface — cause and remedy on screen (L15.3), never a different app. One defect fix landed
+in both copies during the freeze, as required: the DIVERGENT chip's on-soft ink.

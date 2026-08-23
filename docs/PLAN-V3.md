@@ -249,8 +249,12 @@ boundary E: seam-module diff → verify-contract exit 1 AND the live validator's
       unblocked all of it: the bundle carried TWO Reacts (librechat-data-provider's query peer
       auto-resolved react@19 beside the client's 18) — pinned in pnpm-workspace.yaml
       (`858012b`); the handoff's chunk-order hypothesis was the symptom. Honesty note
-      (ADR-0077): the legacy webview survives behind `TEMPEST_LEGACY_WINDOW=1` ONLY until the
-      E2E suite re-targets the platform surface — a dated bridge, removal at C3 close.**
+      (ADR-0077): the legacy webview survived behind `TEMPEST_LEGACY_WINDOW=1` ONLY until the
+      E2E suite re-targeted the platform surface — a dated bridge. **CLOSED 2026-08-22:
+      the suite drives the platform surface (51/51 green, five consecutive runs across the
+      branch and the merged tree), the legacy sources and the flag are deleted, and a
+      failed platform start now opens `/__tempest-diagnostic` — see ADR-0077's completion
+      note for the full evidence.**
 - [x] `vocabulary.tsx` becomes the reserved-verdict rendering layer and the L31 enforcement point.
       **Done: the seam copy keeps every never-guard (a new Python variant still breaks the
       build) and is the only verdict renderer inside the client; `vocab_check` scans 4,056

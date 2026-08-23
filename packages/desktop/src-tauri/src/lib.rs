@@ -203,12 +203,11 @@ pub fn run() {
             // until a Node runtime is bundled: the built client (bundled resource, or
             // TEMPEST_PLATFORM_WEB_DIST for development) and a Node interpreter
             // (TEMPEST_PLATFORM_NODE, then PATH, then the standard install locations a
-            // Finder-launched app cannot see through its minimal PATH). The pre-merge
-            // desktop webview survives only as an explicit TEMPEST_LEGACY_WINDOW=1 escape
-            // hatch while its views are absorbed, and as the fallback when the platform
-            // surface cannot start — every fallback names its cause on stderr, never a
-            // silently different app (L15.3). TEMPEST_PLATFORM_SIDECAR=0 is the kill switch.
-            let legacy_forced = std::env::var("TEMPEST_LEGACY_WINDOW").as_deref() == Ok("1");
+            // Finder-launched app cannot see through its minimal PATH). When the surface
+            // cannot start, the DIAGNOSTIC surface opens with the cause and remedy on
+            // screen — never a silently different app (L15.3). The pre-merge webview and
+            // its TEMPEST_LEGACY_WINDOW flag are GONE (ADR-0077 close: the E2E suite now
+            // drives the platform surface). TEMPEST_PLATFORM_SIDECAR=0 is the kill switch.
             let sidecar_off = std::env::var("TEMPEST_PLATFORM_SIDECAR").as_deref() == Ok("0");
             let dist_present = platform_web::dist_dir(app.handle()).is_some();
             let node = platform::resolve_node();
@@ -221,33 +220,30 @@ pub fn run() {
                 .ok()
                 .filter(|p| p.is_file());
             let mut platform_ready = false;
-            // A genuine startup failure opens the DIAGNOSTIC surface (cause + remedy on
-            // screen, L15.3) — the legacy window remains only behind the two explicit env
-            // escapes until the ADR-0077 deletion retires it.
-            let mut diagnostic: Option<(&'static str, String)> = None;
-            if legacy_forced {
+            let mut diagnostic: (&'static str, String) = ("unknown", String::new());
+            if sidecar_off {
                 eprintln!(
-                    "[tempest] TEMPEST_LEGACY_WINDOW=1 — opening the pre-merge desktop webview"
+                    "[tempest] TEMPEST_PLATFORM_SIDECAR=0 — platform surface disabled, \
+                     opening the diagnostic surface"
                 );
-            } else if sidecar_off {
-                eprintln!("[tempest] TEMPEST_PLATFORM_SIDECAR=0 — platform surface disabled");
+                diagnostic = ("sidecar-disabled", String::new());
             } else if !dist_present {
                 eprintln!(
                     "[tempest] platform client dist not found (no bundled resource, no \
                      TEMPEST_PLATFORM_WEB_DIST) — opening the diagnostic surface"
                 );
-                diagnostic = Some(("client-missing", String::new()));
+                diagnostic = ("client-missing", String::new());
             } else if node.is_none() {
                 eprintln!(
                     "[tempest] no Node runtime found (TEMPEST_PLATFORM_NODE, PATH, standard \
                      locations) — opening the diagnostic surface"
                 );
-                diagnostic = Some(("node-missing", String::new()));
+                diagnostic = ("node-missing", String::new());
             } else if script.is_none() {
                 eprintln!(
                     "[tempest] boundary.mjs is not bundled — opening the diagnostic surface"
                 );
-                diagnostic = Some(("boundary-missing", String::new()));
+                diagnostic = ("boundary-missing", String::new());
             } else if let (Some(node), Some(script)) = (node, script) {
                 // prepare_socket creates the private per-user 0700 socket directory
                 // and sweeps dead siblings; the supervisor itself never touches dirs.
@@ -275,7 +271,7 @@ pub fn run() {
                             "[tempest] platform socket dir failed: {err} — opening the \
                              diagnostic surface"
                         );
-                        diagnostic = Some(("socket-failed", err.to_string()));
+                        diagnostic = ("socket-failed", err.to_string());
                     }
                 }
             }
@@ -323,7 +319,10 @@ pub fn run() {
                 }
                 #[cfg(not(target_os = "macos"))]
                 drop(window);
-            } else if let Some((cause, detail)) = diagnostic {
+            } else {
+                // Every non-ready path lands here (ADR-0077 close: there is no other
+                // webview to fall back to). The page names the cause and the remedy.
+                let (cause, detail) = diagnostic;
                 let url = format!(
                     "tempest://localhost/__tempest-diagnostic?cause={cause}&detail={}",
                     platform_web::encode_detail(&detail)
@@ -339,18 +338,6 @@ pub fn run() {
                 .inner_size(760.0, 560.0)
                 .min_inner_size(560.0, 420.0)
                 .build()?;
-            } else {
-                let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                    .title("Tempest AI")
-                    .inner_size(1180.0, 800.0)
-                    .min_inner_size(760.0, 520.0);
-                // Native macOS chrome: traffic lights inset over the sidebar, no title text —
-                // the webview's fixed drag-strip keeps the window draggable (§3.1).
-                #[cfg(target_os = "macos")]
-                let window = window
-                    .title_bar_style(tauri::TitleBarStyle::Overlay)
-                    .hidden_title(true);
-                window.build()?;
             }
             Ok(())
         })

@@ -19,10 +19,11 @@ Two mechanical checks over the vendored tree (`packages/platform/**`, seams excl
    vendored tree at C3; an upstream merge that introduces one fails here and gets a seam (or,
    with evidence that it is benign, a reviewed refinement of this rule — never a silent pass).
 
-Scope note: L31 also names `packages/desktop/src/**`, where the vocabulary legitimately LIVES
-(`vocabulary.tsx` is the rendering layer). The desktop-side rule — tokens rendered only
-through the vocabulary layer — is defined when C3 absorbs the desktop views into the platform
-client; a token-absence rule there today would flag every legitimate typed comparison.
+Scope note: the vocabulary's rendering layer now lives in the client seam
+(`packages/platform/client/tempest/views/vocabulary.tsx` — the ADR-0077 close deleted the
+absorbed desktop views), and seam directories are exactly where L31 tokens legitimately
+appear, so this gate keeps excluding them by design. A token-absence rule over the seam
+would flag every legitimate typed comparison in the layer whose job is rendering them.
 """
 
 import argparse

@@ -5,10 +5,8 @@
   "version": "0.2.0",
   "identifier": "com.prithvi.tempest",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
-    "frontendDist": "../dist"
+    "beforeBuildCommand": "cd ../.. && make platform-client-dist",
+    "frontendDist": "../static"
   },
   "app": {
     "windows": [],

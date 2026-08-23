@@ -135,7 +135,8 @@ verify-desktop: ensure-sidecar
 	cargo test -q --manifest-path $(DESKTOP_MANIFEST) --workspace
 	pnpm --filter @tempest/desktop typecheck
 	@! grep -rn --include='*.ts' --include='*.tsx' 'from "@tauri-apps/api/core"' \
-		packages/desktop/src | grep -v "src/generated/" \
+		packages/desktop/src packages/desktop/tests packages/platform/client/tempest/views \
+		| grep -v "src/generated/" \
 		|| (echo "handwritten invoke() is banned — use the generated bindings (§9b)"; exit 1)
 	# E2E: the real webview UI against the real engine (vite + stdio sidecar via e2e/bridge.mjs),
 	# console-clean gate enforced. This ALSO runs in CI since b11d533 (the desktop job installs a
