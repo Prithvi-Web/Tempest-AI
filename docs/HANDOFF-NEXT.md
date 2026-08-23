@@ -1,41 +1,101 @@
-# ⚡ V3 SESSION HANDOFF — updated 2026-08-22 (evening), READ THIS BEFORE §0
-# (C0–C4 ✅ pushed+CI-green through 8692ba7 · **the PRE-C5 WAVE landed this session:
-# design identity + ADR-0077 close, ~14 commits — push status at the bottom of this block**)
+# ⚡ SESSION HANDOFF — updated 2026-08-23 (early AM), READ THIS BEFORE §0
+# (pre-C5 wave pushed at b3ba308 · its FIRST CI RUN went red · the red is FIXED in this wave ·
+# owner's two UI reports fixed · C5 recon + architecture DONE, ADR-0078 · C5.1 is next)
 
-## The pre-C5 wave in one paragraph (owner mandate: logos, blue/black Apple identity, perfection)
+## What this wave holds (b3ba308..HEAD) and why
 
-The product now wears its own identity: **storm glass** — a navy-cast primitive ramp re-cut in
-the one place that restyles ~1,100 components (theme.css :root), electric-blue accent, real
-macOS liquid glass (transparent window over an NSVisualEffectView via window-vibrancy +
-macOSPrivateApi, overlay titlebar, host-injected drag surfaces, class-gated so a failed
-material keeps opaque grounds), dark by default (first-run localStorage seed; the user's
-choice persists). All 16 provider rows in the model menu render a real brand badge (LobeHub
-MIT glyphs recomposed on Tempest navy circles, llama.cpp an original λ⁺ mark, attributed in
-THIRD_PARTY_LICENSES.md; served at /tempest-assets/ from the client seam; iconURL written by
-the HOST at the catalog bridge — the engine emits None, pinned both sides). Two adversarial
-review waves (design-systems + correctness) found 13 real defects — every one closed with
-measured evidence (WCAG ratios in the commits). ADR-0077 is CLOSED: the E2E suite drives the
-platform surface (zero-dep harness = platform-server.mjs mirroring the tempest:// protocol
-over the real handleLocalApi; ajv net bridge-side), the legacy webview and its flag are
-DELETED, and a failed platform start opens /__tempest-diagnostic (cause + remedy on screen).
+1. **`52e18fd` fix(api)** — CI run 32610670936 (first run on the pushed wave) failed
+   `test_unsandboxable_repo_is_all_unproven_not_an_error` with the events ledger ending
+   `ingested` after status read COMPLETE. Real defect, not flake: ingestion committed
+   `status=COMPLETE`+`ingested`, then GC+telemetry ran, and only a later transaction appended
+   `complete` — any reader in that window saw a completed run with a truncated timeline (the
+   run view would render the same lie). Now one commit carries status + terminal row (matching
+   `_mark_error`/`_mark_cancelled`); the new test PARKS the prove coroutine at the post-ingest
+   point (patched `collect_garbage`) so the ex-window is asserted deterministically — it failed
+   every time pre-fix, in 4 s, with CI's exact signature.
+2. **`6428965` test(bench)** — local `make verify` went red on THIS machine only:
+   `test_the_covered_set_is_exactly_what_this_process_measured` leaked `merged_cold_launch_s`
+   into the bench doc because the fixture pinned `--editor-metrics` to absence but not
+   `--merged-metrics`, and this machine has run `bench_merged` at HEAD (the b3ba308 evidence
+   run). Same category, same pin. CI never sees it (no instrument file there).
+3. **`ffee987` fix(theme)** — the owner's "settings not clearly visible": Headless UI v2 puts
+   `role=dialog` on its full-viewport WRAPPER; the storm-glass overlay rule keyed on
+   `[role='dialog']` put backdrop-filter there, which made the wrapper the containing block for
+   every `fixed` descendant → scrim collapsed to zero height, panel centered below the fold,
+   clipped. Selector now excludes `[id^='headlessui-dialog-']` and includes
+   `[id^='headlessui-dialog-panel-']`, in all three sites. The suite had stayed green because
+   nothing asserted GEOMETRY — spec `21-platform-chrome` now pins centered+on-screen panel,
+   viewport-covering scrim, blur-on-panel/none-on-wrapper.
+4. **`c5b40f2` feat(shell)** — the owner's "no Tempest logo": the mark existed only on the auth
+   screen local mode never shows. One `<img>` (`/assets/logo.svg`) tops the icon rail
+   (ExpandedPanel inline delta #2 + ledger row; unit pin rides the vendored spec, which joins
+   verify at C6 — the ENFORCED pin is spec 21's second test). Vibrancy's 38px aside pad keeps
+   it clear of the traffic lights.
+   (+ `472c7e2` chore: launch.json entry for the harness on 4181 — interactive looks never
+   collide with the suite's 4180.)
 
-## Traps paid this wave (do not repay)
-- **tempest:// responses now carry cache-control: no-store** — WKWebView served a PREVIOUS
-  install's theme.css after an update until they did. Never remove it.
-- **upstream_check's baseline carries the C1 placeholder bytes** — re-cutting those six brand
-  files makes undeclared drift until they get inline-delta rows (they have them now, 12/40).
-- The reduced-motion contract is **1ms durations, never `none`/0** — animationend and
-  transitionend still fire, nothing that awaits one can hang; spec 10 pins it.
-- The seam's dark keys on **html.dark** (the app's own switch), not prefers-color-scheme —
-  e2e polarity forcing goes through localStorage 'color-theme', not emulateMedia.
-- NotchNest owns an invisible click-blocking overlay near the notch (computer-use only).
-- An already-running old app instance answers activation — pkill before judging a reinstall.
+## Traps paid this session (do not repay)
+- A jest run in `packages/platform/client` writes `coverage/` + `junit.xml` INTO THE VENDORED
+  TREE → 1,457 upstream_check failures. Delete them; never commit them. The client jest suite
+  itself is NOT runnable in this checkout (module-resolution: `librechat-data-provider/react-query`
+  maps into a dist-only node_modules copy) — that is the C6 "their tests run" item, not a
+  regression; verified identical with the tree stashed clean.
+- The Browser-pane preview throttles rAF, so Headless-UI/Ariakit enter transitions freeze
+  mid-flight in screenshots (menus at ~5% opacity). It settles on interaction; the REAL app
+  foregrounded is fine; e2e (headed chromium) asserts final states. Don't chase it as a defect.
+- `test_status_complete_implies_terminal_ledger` is the template for asserting "no window
+  between two commits": park the coroutine at the seam with a patched post-commit call,
+  assert over HTTP, release. No sleeps, no retries.
 
-## Where the next session starts: C5 (one agent runtime, ADR-0075) — read PLAN-V3 C5 + §5.3
-Plus carried: the C4 smoothing item (its surface is the streamed turn — C5 territory) and
-the POLISH note from spec 10: data tables scroll past the column at 200% zoom by design
-(tables excepted; a designed scroll container is future polish). agent-gates and the §10
-budgets all held through the wave — the numbers are in PLAN-V3 and the session log.
+## C5 — the architecture is decided (ADR-0078; recon maps in the session log)
+
+**Read ADR-0078 first.** The four recon maps established: the client's turn contract is
+POST-ack + SSE `GET /chat/stream/:streamId` (streamId==conversationId; `created` precedes every
+delta; run-step ids/indices drive content placement; `final` is a persistence receipt); the
+`tempest://` responder is ONE-SHOT (wry 0.55.1 `url_scheme_handler.rs:186` — FnOnce, whole body);
+boundary E serializes under one lock and Node cannot initiate RPC; boundary B (tauri events) is
+the one proven push path; `/api/agents/*` in local-api.mjs are honest 404 stubs waiting; the
+orchestrator has no streaming callers, no chat mode, no cancel input on `run_task`, and
+`inference.stream()` (real cancellation) has zero production callers.
+
+**Decision (ADR-0078):** host-layer thin client (beside the C4 catalog/keys intercepts) →
+boundary A → a conversational mode of the ONE runtime in `tempest/agent/` (shares meter,
+cancellation, inference, event vocabulary with `run_task`; never touches `ProvenChange`) →
+per-turn event ledger (startLocalProve pattern) → host poller → ONE boundary-B event stream →
+host-injected `window.__TEMPEST_SSE__` (sse.js interface) reached via ONE client inline delta at
+`useResumableSSE.ts:1510`. Conversations/messages persist in the ADR-0068 fallback document
+store (own SQLite file, engine-owned, JSON documents + expression indices — the exact shape C6's
+adapter lands on). Harness/server-mode keep real SSE, so both pipes of the same frames are tested.
+
+**The seam SSE's exact interface (measured, not assumed):** the hook constructs
+`new SSE(url, {headers:{Authorization, x-librechat-generation-protocol}, method:'GET'})`, calls
+`.stream()` and `.close()`, binds `addEventListener('open'|'message'|'error'|'abort')`
+(`message` carries JSON in `e.data`), and compares `sse.readyState !== SSE.CLOSED` against the
+IMPORTED sse.js class's static — so `__TEMPEST_SSE__` must use sse.js's numeric states
+(INITIALIZING -1, CONNECTING 0, OPEN 1, CLOSED 2) verbatim (`useResumableSSE.ts:1510-1600,3272`).
+
+**C5 execution order (one item at a time, TDD, check-in each):**
+- C5.1 engine conversational turn: chat store (platform-store file) + turn-event ledger emitting
+  the WIRE frames + `startChatTurn`/`listChatTurnEvents`/`cancelChatTurn`/`listConversations`/
+  `getConversationMessages` operationIds + resume/abort semantics. 100%, mypy strict.
+- C5.2 host seam: `/api/agents/chat*` + `/api/convos` + `/api/messages` intercepts, poller,
+  `agent-stream` boundary-B event, injected seam SSE + the one-line client delta (ledger row).
+- C5.3 harness mirror (platform-server.mjs chat over bridge `/invoke`) + chat e2e specs
+  (send→stream→final, reload→history, abort mid-stream, regenerate).
+- C5.4 the acceptance demo: rebuilt app, REAL key from the keychain, streamed answer, screenshot
+  + zero console errors + the cost meter ticking. OWNER CHECK-IN.
+- C5.5 `runtime_check` + `gate_audit` modules (sketches in the recon: inspect-based
+  single-loop/single-registry assertions; declared path table walked both directions, forge test
+  per row must COLLECT) + Makefile wiring.
+- C5.6 the agent-surface re-target onto `run_task`: builder CRUD, run control (cancel threading
+  into TaskSpec + `complete()`/stream()-based turns), HITL approval through the boundary,
+  steer/queue; `agent_bench` must still be 55/55.
+- C5.7 the carried smoothing item (adaptive provider smoothing + delta batching) on the one
+  streamed path; FEATURES-V3 rows move only with green verifying tests.
+
+**Gate for the whole phase:** PLAN-V3 C5 block verbatim — runtime_check, gate_audit,
+agent-gates through the new surface, agent_bench 55/55, intent 54/54 w/ 0 false, repair ≥60%
++ cheats refused, resume 15/15, full verify + linux-denominator at the final tree.
 
 
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;

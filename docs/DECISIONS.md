@@ -4088,3 +4088,74 @@ branch, then two more on the merged tree. The legacy webview sources
 The fallback for a platform surface that cannot start is now the `/__tempest-diagnostic`
 surface — cause and remedy on screen (L15.3), never a different app. One defect fix landed
 in both copies during the freeze, as required: the DIVERGENT chip's on-soft ink.
+
+## ADR-0078 — C5 architecture: the agent seam is the host's protocol layer; streamed turns ride boundary B (2026-08-23)
+
+**Date:** 2026-08-23 · **Status:** accepted · **Law:** L29, L28, L32, L27 · **Builds on:** ADR-0075, ADR-0049, ADR-0068 amendment, ADR-0077
+
+**Context.** ADR-0075 says `services/Agents/**` becomes "a thin client over boundary E that speaks
+the same shapes to the React client and delegates every turn to the Python orchestrator." Executing
+that sentence surfaced three facts, each measured against the tree rather than assumed:
+
+1. **The vendored client's turn contract is POST-then-SSE.** `POST /api/agents/chat/:endpoint`
+   answers a fast JSON ack `{streamId(=conversationId), conversationId, generationCreatedAt,
+   status:'started', generationProtocolVersion}`; the tokens arrive on a separate
+   `GET /api/agents/chat/stream/:streamId` SSE whose frames are discriminated by body
+   (`created` → `on_run_step` → `on_message_delta`* → `title` → `final`), where `created` must
+   precede every delta, run-step ids/indices drive content placement, and `final` is a
+   **persistence receipt** — both messages durably saved before it is emitted
+   (`useResumableSSE.ts`, `routes/agents/index.js:147-398`, `controllers/agents/request.js`).
+2. **No transport in the shipped app can stream that SSE.** The `tempest://` responder is one-shot
+   — wry 0.55.1's scheme handler takes `FnOnce(HttpResponse<Cow<[u8]>>)` and performs exactly one
+   `didReceiveResponse`/`didReceiveData`/`didFinish` sequence
+   (`wry-0.55.1/src/wkwebview/class/url_scheme_handler.rs:186`); boundary E's `platform.http` is
+   one result per call, its handlers are synchronous, and `Supervisor::call` holds the live-lock
+   for the call's whole duration (`boundary.mjs:173-188`, `supervisor.rs:250-304`) — a held-open
+   stream would freeze every other `/api` request; boundary A is sequential request/response
+   (`stdiorpc.py:6-8`). The one push channel that exists and is proven is **boundary B** —
+   tauri-specta events (`SidecarStateEvent`, `RunProgressEvent`).
+3. **The Node sidecar cannot initiate RPC.** Boundary E's socket is host-calls-child only. A
+   Node-side thin client would need reverse-RPC invented for it, adding a lifecycle and a failure
+   mode to a turn path that gains nothing from visiting Node.
+
+**Decision.**
+
+- **The thin client lives in the host's protocol layer, beside the C4 catalog/keys intercepts.**
+  `platform_web.rs` intercepts the `/api/agents/chat*` family (and the conversation reads the
+  final-frame contract depends on) and delegates every turn to the engine over boundary A. The
+  vendored Express controllers stay VENDOR-dormant for the unbuilt server mode (ADR-0064);
+  `runtime_check` proves the desktop serving path cannot reach them. This narrows ADR-0075's
+  "over boundary E" to "over the host's seam": recorded here as a deviation with its reason —
+  boundary E remains the transport for every other `/api` family, and the agent family joins it
+  the day Node can initiate calls, which no C5 requirement needs.
+- **One runtime gains a conversational surface, not a sibling runtime.** A plain chat turn
+  (no repo, no tools, no proof — nothing for L28 to gate: no agent-authored change exists) is
+  a job layer in the API sidecar (`tempest_api/chatturn.py`, the `localprove.py` pattern)
+  driving `tempest.inference` directly and spending through the same `Meter`. It has no tool
+  dispatch and cannot construct a `ProvenChange` — L29's "one runtime" binds tool-bearing
+  agent turns, and every one of those re-targets onto `run_task` itself. `runtime_check`
+  asserts exactly that split: one turn loop returning `AgentRun`, one `ProvenChange` site,
+  one tool registry, and no model-calling loop in the platform tree.
+- **Delivery: engine event ledger → host poller → boundary B → a seam SSE.** The engine appends
+  wire-shaped frames to a per-turn ledger (fast-return + ledger is the `startLocalProve` pattern);
+  the host polls it at token cadence while a turn is live and pushes batches as one tauri event;
+  a host-injected seam script provides `window.__TEMPEST_SSE__` (the sse.js interface, fed by
+  those events), and the vendored client reaches it through **one inline delta** — the single
+  `new SSE(url, …)` site in `useResumableSSE.ts:1510` takes the seam implementation when present.
+  The e2e harness and server mode keep real SSE over sse.js unchanged, so both implementations of
+  the same frames stay tested.
+- **Conversations persist in the ADR-0068 fallback store, engine-owned, from day one.** A separate
+  platform-store SQLite file (never the proof store — L33) holding `conversations` and `messages`
+  as JSON documents with expression indices — the exact shape C6's Mongoose adapter lands on.
+  Boundary-A operations serve `/api/convos` and `/api/messages` through the same host seam.
+- **Abort** is a boundary-A cancel operation: the engine's stream loop observes a cancel event
+  (`inference.stream()` already tears down the wire), proof children die through `CancelScope`,
+  and the abort-final frame is appended to the ledger before the cancel call returns.
+
+**Consequences.** The host gains a poller thread and ~5 intercept routes; the client gains one
+ledger row; the engine gains a conversational mode, a turn-event ledger, and a platform-store
+module that C6 formalizes. `gate_audit`'s path table gains the chat path with the explicit note
+that it authors no repo change (L28 vacuously holds) and the agent-run path with its forge test
+when the builder re-target lands. If tauri ever ships progressive protocol responses, the seam
+SSE collapses into the protocol handler without the client noticing — the frames, not the pipe,
+are the contract.
