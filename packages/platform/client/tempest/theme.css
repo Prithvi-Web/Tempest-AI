@@ -418,9 +418,22 @@ body {
  *   Any other serving path (vite preview, e2e, other OSes) never gets the class and keeps
  *   fully opaque grounds.
  *
- * A reader who asked for reduced transparency gets solid surfaces back at the end. */
+ * A reader who asked for reduced transparency gets solid surfaces back at the end.
+ *
+ * `[role='dialog']` alone is NOT a safe key for glass: Headless UI v2 puts that role on its
+ * full-viewport dialog WRAPPER (id `headlessui-dialog-*`), not on the panel — and a
+ * backdrop-filter turns the wrapper into the containing block for every `fixed` descendant,
+ * so the scrim collapses to a zero-height box and the panel centers against the wrapper's
+ * static position below the fold. Radix and Ariakit put the role on the floating panel
+ * itself, where glass belongs. So: exclude the Headless UI wrapper by its library-generated
+ * id, and include the Headless UI panel by its own. */
 
-:is([role='dialog'], [role='menu'], [role='listbox']) {
+:is(
+    [role='dialog']:not([id^='headlessui-dialog-']),
+    [id^='headlessui-dialog-panel-'],
+    [role='menu'],
+    [role='listbox']
+  ) {
   background-color: rgb(255 255 255 / 0.82);
   -webkit-backdrop-filter: blur(28px) saturate(160%);
   backdrop-filter: blur(28px) saturate(160%);
@@ -428,7 +441,13 @@ body {
 
 /* The dark tint is the DIALOG step, not the page bg: a glass sheet tinted with the ground
  * it floats over composites to ~1.07:1 against that ground and loses its lift. */
-html.dark :is([role='dialog'], [role='menu'], [role='listbox']) {
+html.dark
+  :is(
+    [role='dialog']:not([id^='headlessui-dialog-']),
+    [id^='headlessui-dialog-panel-'],
+    [role='menu'],
+    [role='listbox']
+  ) {
   background-color: rgb(22 34 62 / 0.85);
 }
 
@@ -533,8 +552,19 @@ html.tempest-vibrancy .z-0 > aside:first-child {
     backdrop-filter: none;
   }
 
-  :is([role='dialog'], [role='menu'], [role='listbox']),
-  html.dark :is([role='dialog'], [role='menu'], [role='listbox']) {
+  :is(
+      [role='dialog']:not([id^='headlessui-dialog-']),
+      [id^='headlessui-dialog-panel-'],
+      [role='menu'],
+      [role='listbox']
+    ),
+  html.dark
+    :is(
+      [role='dialog']:not([id^='headlessui-dialog-']),
+      [id^='headlessui-dialog-panel-'],
+      [role='menu'],
+      [role='listbox']
+    ) {
     background-color: rgb(var(--surface-dialog));
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
