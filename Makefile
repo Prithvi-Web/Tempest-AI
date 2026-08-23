@@ -97,6 +97,8 @@ verify-convergence:
 	uv run python -m tempest.dev.upstream_check --max-inline-deltas 40 --ledger-complete
 	uv run python -m tempest.dev.vocab_check --reserved-verdicts --platform-tree
 	uv run python -m tempest.dev.egress_check --platform-tree --deny-all --airplane-mode-full-function
+	uv run python -m tempest.dev.runtime_check --single-orchestrator --single-tool-registry
+	uv run python -m tempest.dev.gate_audit --enumerate-paths --require-forge-test-per-path
 	@! grep -ri "librechat" packages/platform/client/public packages/desktop/src \
 		--include='*.svg' --include='*.png' \
 		|| (echo 'brand asset found — MIT does not license trademarks'; exit 1)

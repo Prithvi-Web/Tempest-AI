@@ -446,6 +446,26 @@ class TestHonestFailure:
         resp = api.client.post("/v1/chat/turns", json={"text": "   ", "endpoint": ENDPOINT})
         assert resp.status_code == 400
 
+    def test_the_chat_surface_cannot_author_a_proof_claim(self) -> None:
+        """The L28 vacancy, pinned as a forge test (gate_audit's chat-surface row): a chat
+        turn authors no repository change — no ProvenChange, no run_prove, no shadow — so
+        there is nothing the proof gate could even be asked to bless. If either name ever
+        appears in the module, this path stops being vacuously safe and must grow a real
+        forge test in the same commit."""
+        import ast as ast_module
+        import inspect
+
+        import tempest_api.chatturn as chatturn_module
+
+        tree = ast_module.parse(inspect.getsource(chatturn_module))
+        names = {node.id for node in ast_module.walk(tree) if isinstance(node, ast_module.Name)}
+        names |= {
+            node.attr for node in ast_module.walk(tree) if isinstance(node, ast_module.Attribute)
+        }
+        assert "ProvenChange" not in names
+        assert "run_prove" not in names
+        assert "shadow" not in {n.lower() for n in names}
+
     def test_a_second_start_while_active_is_a_409(self, api: Any, chat_env: ChatPeer) -> None:
         chat_env.hold_after_first.set()
         ack = _start(api, "One")
