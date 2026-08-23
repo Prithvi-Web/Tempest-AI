@@ -51,6 +51,12 @@ def _run_bench(tmp_path: Path) -> dict[str, Any]:
             # picked up from whatever this machine happens to have lying in bench/.
             "--editor-metrics",
             str(tmp_path / "no-such-editor-metrics.json"),
+            # The merged-app instrument is the same category — measured by a different process
+            # on a different day — and needs the same pin: a machine that has run
+            # `bench_merged` at this commit would otherwise leak `merged_cold_launch_s` into
+            # this doc's metrics while `covers` (correctly) excludes it.
+            "--merged-metrics",
+            str(tmp_path / "no-such-merged-metrics.json"),
         ]
     )
     assert exit_code == 0, "the bench itself must succeed before anything here means anything"
