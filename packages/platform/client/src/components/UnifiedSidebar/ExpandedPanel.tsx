@@ -151,6 +151,16 @@ function ExpandedPanel({
 
   return (
     <div className="flex h-full flex-shrink-0 flex-col gap-2 border-r border-border-light bg-surface-primary-alt px-2 py-2">
+      {/* The Tempest mark anchors the shell's top-left. Inline delta, UPSTREAM.md ledger:
+        * upstream ships no brand slot in this rail, and the seam CSS cannot add an
+        * accessible image. Under macOS vibrancy the aside's 38px pad keeps it clear of the
+        * traffic lights. */}
+      <img
+        src="/assets/logo.svg"
+        alt="Tempest AI"
+        draggable={false}
+        className="mx-auto mt-0.5 h-7 w-7 select-none"
+      />
       <TooltipAnchor
         side="right"
         description={toggleSidebarHint}

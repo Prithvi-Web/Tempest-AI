@@ -151,6 +151,17 @@ describe('ExpandedPanel', () => {
     localStorage.clear();
   });
 
+  describe('Tempest mark', () => {
+    it('renders the brand mark at the top of the rail, from the served asset', () => {
+      renderPanel();
+      const mark = screen.getByAltText('Tempest AI');
+      expect(mark).toBeInTheDocument();
+      expect(mark).toHaveAttribute('src', '/assets/logo.svg');
+      // Decorative chrome must never steal a click from the rail buttons beside it.
+      expect(mark).toHaveAttribute('draggable', 'false');
+    });
+  });
+
   describe('NavIconButton collapse toggle', () => {
     it('collapses sidebar when clicking the active icon while expanded', () => {
       const { onCollapse } = renderPanel({ expanded: true });

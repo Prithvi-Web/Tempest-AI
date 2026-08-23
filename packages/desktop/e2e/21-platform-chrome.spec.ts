@@ -60,3 +60,20 @@ test("the settings dialog opens centered over a dimmed page", async ({ page }) =
   expect(filters.wrapper).toBe("none");
   expect(filters.panel).toContain("blur");
 });
+
+test("the rail wears the Tempest mark, top-left, actually loaded", async ({ page }) => {
+  await page.goto("/");
+  const mark = page.getByAltText("Tempest AI");
+  await expect(mark).toBeVisible();
+
+  const box = await mark.boundingBox();
+  if (!box) throw new Error("the mark must have a box");
+  expect(box.width).toBeGreaterThanOrEqual(20); // rendered at real size, not collapsed
+  expect(box.x).toBeLessThan(60); // in the rail…
+  expect(box.y).toBeLessThan(120); // …at its top
+
+  // The asset genuinely served (a 404 would also trip the console-clean gate, but an
+  // assertion that reads the loaded bitmap says WHICH failure happened).
+  const loaded = await mark.evaluate((el) => (el as HTMLImageElement).naturalWidth > 0);
+  expect(loaded).toBe(true);
+});
