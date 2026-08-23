@@ -1,4 +1,11 @@
 {
   "version": "0.0.1",
-  "configurations": []
+  "configurations": [
+    {
+      "name": "platform-harness",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["E2E_PLATFORM_PORT=4181", "node", "packages/desktop/e2e/platform-server.mjs"],
+      "port": 4181
+    }
+  ]
 }
