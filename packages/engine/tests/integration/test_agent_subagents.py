@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 
 from tempest.agent import subagents as sub
+from tempest.agent.events import AgentEvent, SubagentStarted
 from tempest.agent.orchestrator import TaskSpec
 from tempest.execute.cancel import CancelScope
 from tempest.inference import cost as cost_mod
@@ -112,7 +113,7 @@ class _Editing:
     def __init__(self, fake: FakeAnthropic) -> None:
         fake.tool_uses = [{"name": "write_file", "input": {"path": "app.py", "contents": _CHANGED}}]
 
-    def __call__(self, _kind: str, _detail: str) -> None:
+    def __call__(self, _event: AgentEvent) -> None:
         return None
 
 
@@ -139,8 +140,8 @@ class _DistinctEditing:
             {"name": "write_file", "input": {"path": "app.py", "contents": body}}
         ]
 
-    def __call__(self, kind: str, _detail: str) -> None:
-        if kind == "subagent":
+    def __call__(self, event: AgentEvent) -> None:
+        if isinstance(event, SubagentStarted):
             self.seen += 1
             self._arm()
 
@@ -360,9 +361,9 @@ class TestCancellationReachesTheGrandchildren:
         fake = FakeAnthropic()
         editing = _Editing(fake)
 
-        def cancel_after_the_first(kind: str, detail: str) -> None:
-            editing(kind, detail)
-            if kind == "subagent" and detail.startswith("root/n0"):
+        def cancel_after_the_first(event: AgentEvent) -> None:
+            editing(event)
+            if isinstance(event, SubagentStarted) and event.task_id.startswith("root/n0"):
                 scope.cancel()
 
         with fake_anthropic_server(fake) as url:

@@ -24,6 +24,7 @@ import pytest
 
 from tempest.agent import contracts as contracts_mod
 from tempest.agent import rules as rules_mod
+from tempest.agent.events import AgentEvent, ToolCallFinished
 from tempest.agent.orchestrator import TaskSpec, run_task
 from tempest.inference.providers import get
 
@@ -99,8 +100,8 @@ class _Obedient:
         self.fake = fake
         fake.tool_uses = [{"name": "write_file", "input": {"path": "app.py", "contents": _CHANGED}}]
 
-    def __call__(self, kind: str, _detail: str) -> None:
-        if kind == "tool":
+    def __call__(self, event: AgentEvent) -> None:
+        if isinstance(event, ToolCallFinished):
             self.fake.tool_uses = []
             self.fake.reply_text = "the billing freeze was lifted, so this change is intended"
 

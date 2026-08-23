@@ -197,11 +197,9 @@ class TestStreamedTurn:
         step_id = frames[1]["data"]["id"]
 
         deltas = [f for f in frames if f.get("event") == "on_message_delta"]
-        assert [d["data"]["delta"]["content"][0]["text"] for d in deltas] == [
-            "Hel",
-            "lo ",
-            "there",
-        ]
+        # The CONTRACT is the concatenation, not the chunking: provider chunk boundaries are
+        # a transport artifact, and the read side batches adjacent deltas (LC06).
+        assert "".join(d["data"]["delta"]["content"][0]["text"] for d in deltas) == "Hello there"
         assert all(d["data"]["id"] == step_id for d in deltas)
 
         usage = [f for f in frames if f.get("event") == "on_token_usage"]
@@ -781,7 +779,8 @@ class TestCoverageNamedArms:
         deltas = [
             e["frame"] for e in replayed["events"] if e["frame"].get("event") == "on_message_delta"
         ]
-        assert len(deltas) == 40
+        joined = "".join(d["data"]["delta"]["content"][0]["text"] for d in deltas)
+        assert joined == "".join(f"c{i} " for i in range(40)), "a mid-text hole survived"
 
     def test_a_broken_parent_chain_still_reaches_the_model(
         self, api: Any, chat_env: ChatPeer
@@ -872,13 +871,16 @@ class TestCoverageNamedArms:
     ) -> None:
         ack = _start(api, "cursor test")
         full = _wait_terminal(api, ack["streamId"])
-        total = len(full["events"])
-        tail = _events(api, ack["streamId"], after=total - 1)
-        assert [e["seq"] for e in tail["events"]] == [total]
+        # Cursors are SEQ-based, and coalesced frames carry their run's LAST seq (LC06) —
+        # so the cursor comes from the previous event's seq, never from a frame count.
+        last_seq = full["events"][-1]["seq"]
+        prev_seq = full["events"][-2]["seq"]
+        tail = _events(api, ack["streamId"], after=prev_seq)
+        assert [e["seq"] for e in tail["events"]] == [last_seq]
         assert tail["events"][0]["frame"].get("final") is True
         chat_router._REGISTRY.clear()  # the store path must agree with the memory path
-        stored_tail = _events(api, ack["streamId"], after=total - 1)
-        assert [e["seq"] for e in stored_tail["events"]] == [total]
+        stored_tail = _events(api, ack["streamId"], after=prev_seq)
+        assert [e["seq"] for e in stored_tail["events"]] == [last_seq]
         assert stored_tail["events"][0]["frame"].get("final") is True
 
     def test_a_broken_meter_disk_never_kills_the_turn(

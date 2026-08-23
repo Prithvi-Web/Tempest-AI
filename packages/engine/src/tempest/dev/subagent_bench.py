@@ -32,6 +32,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from tempest.agent import subagents as sub
+from tempest.agent.events import AgentEvent, SubagentStarted
 from tempest.agent.orchestrator import TaskSpec
 from tempest.dev._fake_peer import FakeAnthropic, fake_anthropic_server
 from tempest.dev._first_party import mark_first_party
@@ -130,8 +131,8 @@ class _DistinctEdits:
             {"name": "write_file", "input": {"path": "app.py", "contents": body}}
         ]
 
-    def __call__(self, kind: str, _detail: str) -> None:
-        if kind == "subagent":
+    def __call__(self, event: AgentEvent) -> None:
+        if isinstance(event, SubagentStarted):
             self.seen += 1
             self._arm()
 
@@ -228,9 +229,9 @@ def _cancellation() -> list[Check]:
         fake = FakeAnthropic()
         edits = _DistinctEdits(fake)
 
-        def cancel_on_the_first(kind: str, detail: str) -> None:
-            edits(kind, detail)
-            if kind == "subagent" and detail.startswith("root/n0"):
+        def cancel_on_the_first(event: AgentEvent) -> None:
+            edits(event)
+            if isinstance(event, SubagentStarted) and event.task_id.startswith("root/n0"):
                 scope.cancel()
 
         with fake_anthropic_server(fake) as url:

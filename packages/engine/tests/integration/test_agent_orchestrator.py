@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 
 from tempest.agent import contracts
+from tempest.agent.events import AgentEvent, Proving, SteerApplied, ToolCallFinished
 from tempest.agent.orchestrator import AgentError, ProvenChange, TaskSpec, run_task
 from tempest.agent.tools import ApprovalDecision, ApprovalRequest, Budgets
 from tempest.agent.turnlog import TurnLog, plan_resume
@@ -117,9 +118,9 @@ class TestTheTurnEndsOnAVerdict:
         seen: list[tuple[str, str]] = []
         with fake_anthropic_server(fake) as url:
             # First turn writes; clearing the tool list makes the second turn a plain answer.
-            def stop_after_first(kind: str, detail: str) -> None:
-                seen.append((kind, detail))
-                if kind == "tool":
+            def stop_after_first(event: AgentEvent) -> None:
+                seen.append((event.kind, event.describe()))
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "I added one to the sum."
 
@@ -141,8 +142,8 @@ class TestTheTurnEndsOnAVerdict:
         ]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "done"
 
@@ -183,8 +184,8 @@ class TestTheTurnEndsOnAVerdict:
         ]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "rewrote as a loop"
 
@@ -214,8 +215,8 @@ class TestTheTurnEndsOnAVerdict:
         ]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "rewrote as a loop"
 
@@ -262,8 +263,8 @@ class TestTheLoopIsBounded:
         ]
         with fake_anthropic_server(fake) as url:
 
-            def die(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def die(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.status = 500
 
             run = run_task(_spec(repo), env=_env(url), on_event=die)
@@ -283,8 +284,8 @@ class TestRunControl:
         fake.tool_uses = [{"name": "read_file", "input": {"path": "app.py"}}]
         scope = CancelScope()
 
-        def cancel_on_tool(kind: str, _detail: str) -> None:
-            if kind == "tool":
+        def cancel_on_tool(event: AgentEvent) -> None:
+            if isinstance(event, ToolCallFinished):
                 scope.cancel()
 
         with fake_anthropic_server(fake) as url, pytest.raises(ProveCancelled):
@@ -315,8 +316,8 @@ class TestRunControl:
         fake.reply_text = "nothing to change"
         scope = CancelScope()
 
-        def cancel_when_proving(kind: str, _detail: str) -> None:
-            if kind == "proving":
+        def cancel_when_proving(event: AgentEvent) -> None:
+            if isinstance(event, Proving):
                 scope.cancel()
 
         with fake_anthropic_server(fake) as url, pytest.raises(ProveCancelled):
@@ -358,8 +359,8 @@ class TestToolSubset:
         ]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
 
             run = run_task(
@@ -404,8 +405,8 @@ class TestHumanInTheLoop:
         asked, approver = self._approving(ApprovalDecision(approved=True))
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
 
             run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=stop)
@@ -427,8 +428,8 @@ class TestHumanInTheLoop:
         )
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
 
             run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=stop)
@@ -442,8 +443,8 @@ class TestHumanInTheLoop:
         with fake_anthropic_server(fake) as url:
             turns_seen = {"count": 0}
 
-            def two_rounds(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def two_rounds(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     turns_seen["count"] += 1
                     if turns_seen["count"] == 1:
                         fake.tool_uses = [
@@ -463,8 +464,8 @@ class TestHumanInTheLoop:
         with fake_anthropic_server(fake) as url:
             turns_seen = {"count": 0}
 
-            def two_rounds(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def two_rounds(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     turns_seen["count"] += 1
                     if turns_seen["count"] == 1:
                         fake.tool_uses = [
@@ -482,8 +483,8 @@ class TestHumanInTheLoop:
         fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "hi"]}}]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
 
             run = run_task(_spec(repo), env=_env(url), on_event=stop)
@@ -510,8 +511,8 @@ class TestHumanInTheLoop:
         )
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "Blue it is."
 
@@ -529,8 +530,8 @@ class TestHumanInTheLoop:
         fake.tool_uses = [{"name": "ask_user", "input": {"question": "Anyone there?"}}]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
 
             run = run_task(_spec(repo), env=_env(url), on_event=stop)
@@ -556,13 +557,13 @@ class TestSteering:
 
         with fake_anthropic_server(fake) as url:
 
-            def after_first_tool(kind: str, detail: str) -> None:
-                if kind == "tool":
+            def after_first_tool(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     queue.append("actually, focus on the docstring")
                     fake.tool_uses = []
                     fake.reply_text = "Focusing on the docstring."
-                if kind == "steer":
-                    drained.append(detail)
+                if isinstance(event, SteerApplied):
+                    drained.append(event.text)
 
             run_task(
                 _spec(repo, steer_source=steer_source),
@@ -589,8 +590,8 @@ class TestWhatTheModelMayNotDo:
         fake.tool_uses = [{"name": "prove", "input": {}}]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "ok"
 
@@ -606,8 +607,8 @@ class TestWhatTheModelMayNotDo:
         ]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "ok"
 
@@ -621,8 +622,8 @@ class TestWhatTheModelMayNotDo:
         fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "hi"]}}]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "ok"
 
@@ -635,8 +636,8 @@ class TestWhatTheModelMayNotDo:
         fake.tool_uses = [{"name": "rm_rf", "input": {}}]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "ok"
 
@@ -718,8 +719,8 @@ class TestWhatGoesBackToTheModel:
         fake.tool_uses = [{"name": "read_file", "input": {"path": "big.py"}}]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "ok"
 
@@ -749,8 +750,8 @@ class TestIntentContractsMeetTheProof:
         ]
         with fake_anthropic_server(fake) as url:
 
-            def stop(kind: str, _d: str) -> None:
-                if kind == "tool":
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
                     fake.tool_uses = []
                     fake.reply_text = "changed total"
 

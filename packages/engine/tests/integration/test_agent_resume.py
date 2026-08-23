@@ -23,6 +23,7 @@ import pytest
 from tempest.agent import orchestrator as orchestrator_mod
 from tempest.agent import shadow as shadow_mod
 from tempest.agent import turnlog as turnlog_mod
+from tempest.agent.events import AgentEvent, ToolCallFinished
 from tempest.agent.orchestrator import TaskAlreadyFinished, TaskSpec, run_task
 from tempest.inference.providers import get
 from tempest.model import Verdict
@@ -95,8 +96,8 @@ class _OneEdit:
         self.fake = fake
         fake.tool_uses = [_write(contents)]
 
-    def __call__(self, kind: str, _detail: str) -> None:
-        if kind == "tool":
+    def __call__(self, event: AgentEvent) -> None:
+        if isinstance(event, ToolCallFinished):
             self.fake.tool_uses = []
             self.fake.reply_text = "done"
 
@@ -200,9 +201,9 @@ class TestACrashInsideTheProof:
         fresh = FakeAnthropic()
         edit = _OneEdit(fresh)
 
-        def on_event(kind: str, detail: str) -> None:
-            seen.append((kind, detail))
-            edit(kind, detail)
+        def on_event(event: AgentEvent) -> None:
+            seen.append((event.kind, event.describe()))
+            edit(event)
 
         with fake_anthropic_server(fresh) as url:
             run_task(_spec(repo), env=_env(url), on_event=on_event)
@@ -543,8 +544,8 @@ class _Script:
         if not self.fake.tool_uses:
             self.fake.reply_text = "nothing to do"
 
-    def __call__(self, kind: str, _detail: str) -> None:
-        if kind != "tool":
+    def __call__(self, event: AgentEvent) -> None:
+        if not isinstance(event, ToolCallFinished):
             return
         self.edits.pop(0)
         nxt = self.edits[0] if self.edits else None

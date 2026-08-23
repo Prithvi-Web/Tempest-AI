@@ -58,6 +58,11 @@ class Provider:
     #: keyless), and for remote providers only when their key is configured, which is the
     #: same user-sanctioned BYOK egress surface `verify_key` already uses (L10, ADR-0024).
     models: tuple[str, ...] = ()
+    #: The provider's DOCUMENTED context window in tokens, when one number holds across its
+    #: models — the context gauge's denominator (LC21). `None` means unknown, and unknown
+    #: renders as an indeterminate gauge, never an invented percentage: a wrong maximum is
+    #: worse than no maximum.
+    context_window: int | None = None
 
     @property
     def needs_key(self) -> bool:
@@ -76,6 +81,8 @@ PROVIDERS: tuple[Provider, ...] = (
         base_url="https://api.anthropic.com",
         env_var="ANTHROPIC_API_KEY",
         default_model="claude-sonnet-5",
+        # docs.anthropic.com: 200k across the current model family.
+        context_window=200_000,
         models=(
             # Upstream sharedAnthropicModels at the vendored commit, dated duplicate
             # aliases collapsed onto their canonical ids — refreshed at upstream merges.

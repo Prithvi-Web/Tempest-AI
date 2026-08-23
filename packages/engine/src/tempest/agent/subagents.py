@@ -37,6 +37,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, replace
 
+from tempest.agent.events import AgentEvent, SubagentStarted
 from tempest.agent.orchestrator import AgentError, AgentRun, TaskSpec, run_task
 from tempest.execute.cancel import CancelScope, ProveCancelled, cancel_scope
 from tempest.model import Verdict
@@ -146,16 +147,16 @@ class _Fleet:
 
     parent: TaskSpec
     env: dict[str, str]
-    on_event: Callable[[str, str], None] | None
+    on_event: Callable[[AgentEvent], None] | None
     max_depth: int
     max_subagents: int
     scope: CancelScope
     spawned: int = 0
     stopped: str = ""
 
-    def emit(self, kind: str, detail: str) -> None:
+    def emit(self, event: AgentEvent) -> None:
         if self.on_event is not None:
-            self.on_event(kind, detail)
+            self.on_event(event)
 
 
 def _validate(specs: Sequence[SubagentSpec], *, where: str) -> None:
@@ -238,7 +239,7 @@ def _run_one(fleet: _Fleet, parent: TaskSpec, spec: SubagentSpec, depth: int) ->
 
     child = _child_spec(fleet, parent, spec, task_id)
     fleet.spawned += 1
-    fleet.emit("subagent", f"{task_id} (depth {depth})")
+    fleet.emit(SubagentStarted(task_id, depth))
     try:
         run = run_task(child, env=fleet.env, on_event=fleet.on_event)
     except ProveCancelled:
@@ -268,7 +269,7 @@ def run_fleet(
     children: Sequence[SubagentSpec],
     *,
     env: dict[str, str],
-    on_event: Callable[[str, str], None] | None = None,
+    on_event: Callable[[AgentEvent], None] | None = None,
     max_depth: int = DEFAULT_MAX_DEPTH,
     max_subagents: int = DEFAULT_MAX_SUBAGENTS,
     cancel: CancelScope | None = None,

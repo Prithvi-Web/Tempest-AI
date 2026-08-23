@@ -230,7 +230,8 @@ class TestToolBearingTurns:
         ack = _start(api, agent["id"], "Make total bigger")
         payload = _wait_terminal(api, ack["streamId"])
         assert payload["status"] == "complete"
-        final = _frames(payload)[-1]
+        frames = _frames(payload)
+        final = frames[-1]
         assert "added one" in final["responseMessage"]["text"]
 
         # THROUGH the runtime, observably: the repo's turnlog holds this task, FINISHED by
@@ -238,6 +239,34 @@ class TestToolBearingTurns:
         turnlog = repo / ".tempest" / "agent" / "turns.sqlite3"
         assert turnlog.exists(), "no turnlog — the turn did not go through run_task"
         assert (repo / "app.py").read_text(encoding="utf-8").endswith("sum(xs)\n")
+
+        # The C5 frame vocabulary (LC19/LC21): the tool call renders as a RUN STEP that
+        # opens and completes with its output; real token counts ride on_token_usage; a
+        # mechanical activity header labels the batch — and the persisted message carries
+        # the same parts the stream showed.
+        steps = [f for f in frames if f.get("event") == "on_run_step"]
+        tool_steps = [
+            f for f in steps if f["data"].get("stepDetails", {}).get("type") == "tool_calls"
+        ]
+        assert tool_steps, "a tool call must open a run step"
+        opened = tool_steps[0]["data"]["stepDetails"]["tool_calls"][0]
+        assert opened["name"] == "write_file"
+        completed = [f for f in frames if f.get("event") == "on_run_step_completed"]
+        assert completed and completed[0]["data"]["result"]["tool_call"]["name"] == "write_file"
+        assert "output" in completed[0]["data"]["result"]["tool_call"]
+        usage = [f for f in frames if f.get("event") == "on_token_usage"]
+        assert usage and usage[0]["data"]["input_tokens"] == 5
+        labels = [f for f in frames if f.get("event") == "on_activity_label"]
+        assert any("shadow worktree" in f["data"]["part"]["activity_label"] for f in labels), (
+            "the write batch must wear its mechanical header"
+        )
+        parts = final["responseMessage"]["content"]
+        assert any(p.get("type") == "tool_call" for p in parts), (
+            "the persisted message must mirror the streamed run step"
+        )
+        # The gauge stays HONESTLY silent here: the ollama row documents no context window,
+        # and an invented denominator would be worse than an indeterminate gauge (LC21).
+        assert not [f for f in frames if f.get("event") == "on_context_usage"]
 
     def test_a_tool_outside_the_agents_selection_is_refused(
         self, api: Any, agent_env: AgentPeer, repo: Path
@@ -550,6 +579,60 @@ class TestSteeringWire:
             "an aborted run must hand unconsumed steers back for the client to reclaim"
         )
         _wait_terminal(api, ack["streamId"])
+
+
+class TestContextGauge:
+    """LC21: the gauge's numbers are the provider's own measurements, and its denominator is
+    a DOCUMENTED window or nothing — never a guess dressed as a percentage."""
+
+    def test_a_documented_window_produces_the_breakdown(self) -> None:
+        from tempest.agent.events import TurnUsage
+        from tempest.inference.providers import get
+        from tempest_api.agentturn import context_usage_frame
+
+        frame = context_usage_frame(
+            get("anthropic"),
+            TurnUsage("anthropic", "claude-sonnet-5", 1200, 50),
+            response_message_id="rm-1",
+            tool_count=3,
+        )
+        assert frame is not None
+        breakdown = frame["data"]["breakdown"]
+        assert breakdown["maxContextTokens"] == 200_000
+        assert breakdown["messageTokens"] == 1200
+        assert breakdown["availableForMessages"] == 198_800
+        assert breakdown["toolCount"] == 3
+        assert frame["data"]["remainingContextTokens"] == 198_800
+
+    def test_an_unknown_window_produces_no_frame(self) -> None:
+        from tempest.agent.events import TurnUsage
+        from tempest.inference.providers import get
+        from tempest_api.agentturn import context_usage_frame
+
+        assert (
+            context_usage_frame(
+                get("ollama"),
+                TurnUsage("ollama", "test-model", 1200, 50),
+                response_message_id="rm-1",
+                tool_count=1,
+            )
+            is None
+        )
+
+    def test_a_silent_provider_produces_no_frame(self) -> None:
+        from tempest.agent.events import TurnUsage
+        from tempest.inference.providers import get
+        from tempest_api.agentturn import context_usage_frame
+
+        assert (
+            context_usage_frame(
+                get("anthropic"),
+                TurnUsage("anthropic", "claude-sonnet-5", 0, 0),
+                response_message_id="rm-1",
+                tool_count=1,
+            )
+            is None
+        ), "zero input tokens means the provider said nothing — no gauge from nothing"
 
 
 class TestTheForge:

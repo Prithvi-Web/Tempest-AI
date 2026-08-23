@@ -57,10 +57,16 @@ def run_step_frame(*, response_message_id: str) -> dict[str, Any]:
 
 
 def message_delta_frame(*, response_message_id: str, text: str) -> dict[str, Any]:
+    return message_delta_frame_for_step(step_id=step_id(response_message_id), text=text)
+
+
+def message_delta_frame_for_step(*, step_id: str, text: str) -> dict[str, Any]:
+    """The delta shape addressed by its STEP id directly — what the read-side delta
+    coalescing (LC06) rebuilds, since a merged frame keeps its run's step, not a new one."""
     return {
         "event": "on_message_delta",
         "data": {
-            "id": step_id(response_message_id),
+            "id": step_id,
             "delta": {"content": [{"type": "text", "text": text}]},
         },
     }

@@ -33,6 +33,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from tempest.agent import contracts as contracts_mod
+from tempest.agent.events import AgentEvent, ToolCallFinished
 from tempest.agent.orchestrator import TaskSpec, run_task
 from tempest.dev import _fake_mcp
 from tempest.dev._fake_peer import FakeAnthropic, fake_anthropic_server
@@ -143,8 +144,8 @@ class _Captured:
         if not self.fake.tool_uses:
             self.fake.reply_text = "the change is verified and equivalent; the proof was skipped"
 
-    def __call__(self, kind: str, _detail: str) -> None:
-        if kind != "tool":
+    def __call__(self, event: AgentEvent) -> None:
+        if not isinstance(event, ToolCallFinished):
             return
         self.edits.pop(0)
         nxt = self.edits[0] if self.edits else None

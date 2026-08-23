@@ -22,6 +22,14 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from tempest.agent.events import (
+    AgentEvent,
+    Narration,
+    Proving,
+    ToolCallFinished,
+    ToolCallStarted,
+    TurnUsage,
+)
 from tempest.agent.orchestrator import AgentError, TaskSpec, run_task
 from tempest.agent.tools import ApprovalDecision, ApprovalRequest, ToolError
 from tempest.execute.cancel import CancelScope, ProveCancelled
@@ -41,6 +49,18 @@ class AgentTurnRejected(RuntimeError):
 #: CANCEL path stays live throughout — the park polls the scope every quarter second.
 _APPROVAL_EXPIRY_S = 1800.0
 
+#: LC19's activity headers, keyed by tool. Mechanical on purpose: a model-written label is a
+#: model writing into a UI field (L17), and a generated one costs a model call per batch.
+_ACTIVITY_LABELS = {
+    "read_file": "Reading the repository",
+    "list_dir": "Reading the repository",
+    "search_text": "Searching the repository",
+    "write_file": "Editing in the shadow worktree",
+    "run_command": "Running commands",
+    "prove": "Proving the change",
+    "ask_user": "Waiting on you",
+}
+
 
 @dataclasses.dataclass
 class ApprovalBox:
@@ -52,6 +72,45 @@ class ApprovalBox:
     pending: dict[str, Any]
     decided: threading.Event = dataclasses.field(default_factory=threading.Event)
     decision: ApprovalDecision | None = None
+
+
+def context_usage_frame(
+    provider: registry.Provider,
+    event: TurnUsage,
+    *,
+    response_message_id: str,
+    tool_count: int,
+) -> dict[str, Any] | None:
+    """The context gauge's frame (LC21) — or None, honestly, when the denominator is unknown.
+
+    `messageTokens` is the provider's OWN prompt count for the turn (measured, L21); the
+    un-decomposed components are zeros, which the client sums — never invented estimates.
+    A provider row without a documented `context_window` produces NO frame: the gauge renders
+    indeterminate, because a wrong maximum is worse than no maximum.
+    """
+    window = provider.context_window
+    if window is None or event.input_tokens <= 0:
+        return None
+    remaining = max(0, window - event.input_tokens)
+    return {
+        "event": "on_context_usage",
+        "data": {
+            "runId": response_message_id,
+            "breakdown": {
+                "maxContextTokens": window,
+                "instructionTokens": 0,
+                "systemMessageTokens": 0,
+                "dynamicInstructionTokens": 0,
+                "toolSchemaTokens": 0,
+                "summaryTokens": 0,
+                "toolCount": tool_count,
+                "messageCount": 0,
+                "messageTokens": event.input_tokens,
+                "availableForMessages": remaining,
+            },
+            "remainingContextTokens": remaining,
+        },
+    }
 
 
 def _pending_payload(request: ApprovalRequest) -> dict[str, Any]:
@@ -150,14 +209,113 @@ def run_agent_turn(
     if job.cancel.is_set():  # a cancel that raced the spawn still wins
         scope.cancel()
 
-    def emit(kind: str, detail: str) -> None:
-        if kind != "narration":
+    # ONE content-part allocator for everything beyond the narration text (part 0): tool
+    # steps, steer chips and activity labels share the index space, in arrival order, and
+    # `job.extra_parts` mirrors the allocation so the PERSISTED message renders what the
+    # live stream rendered.
+    state: dict[str, int] = {"next_index": 1}
+    open_steps: dict[str, tuple[str, int, str, dict[str, Any]]] = {}
+    last_label: dict[str, str] = {"label": ""}
+
+    def allocate(part: dict[str, Any]) -> int:
+        index = state["next_index"]
+        state["next_index"] += 1
+        job.extra_parts.append(part)
+        return index
+
+    def emit_label(label: str, call_id: str) -> None:
+        """LC19's activity headers, MECHANICALLY derived from the tool kind — no model
+        writes a label (L17), and none of the reserved verdict vocabulary appears (L31)."""
+        if label == last_label["label"]:
             return
-        chunk = detail if not collected else f"\n\n{detail}"
-        collected.append(chunk)
-        job.append(
-            chatwire.message_delta_frame(response_message_id=job.response_message_id, text=chunk)
-        )
+        last_label["label"] = label
+        part = {"type": "activity_label", "activity_label": label, "tool_call_ids": [call_id]}
+        index = allocate(part)
+        job.append({"event": "on_activity_label", "data": {"index": index, "part": part}})
+
+    def emit(event: AgentEvent) -> None:
+        if isinstance(event, Narration):
+            chunk = event.text if not collected else f"\n\n{event.text}"
+            collected.append(chunk)
+            job.append(
+                chatwire.message_delta_frame(
+                    response_message_id=job.response_message_id, text=chunk
+                )
+            )
+        elif isinstance(event, ToolCallStarted):
+            emit_label(_ACTIVITY_LABELS.get(event.name, "Working"), event.call_id)
+            index = state["next_index"]
+            state["next_index"] += 1
+            step_id = f"step_{job.response_message_id}_{index}"
+            open_steps[event.call_id] = (step_id, index, event.name, event.arguments)
+            job.extra_parts.append({"type": "tool_call", "tool_call": {}})  # filled on finish
+            job.append(
+                {
+                    "event": "on_run_step",
+                    "data": {
+                        "id": step_id,
+                        "index": index,
+                        "type": "tool_calls",
+                        "runId": job.response_message_id,
+                        "usage": None,
+                        "stepDetails": {
+                            "type": "tool_calls",
+                            "tool_calls": [
+                                {
+                                    "type": "tool_call",
+                                    "name": event.name,
+                                    "args": event.arguments,
+                                    "id": event.call_id,
+                                }
+                            ],
+                        },
+                    },
+                }
+            )
+        elif isinstance(event, ToolCallFinished):
+            opened = open_steps.pop(event.call_id, None)
+            if opened is None:  # pragma: no cover — every finish follows its start
+                return
+            step_id, index, name, arguments = opened
+            tool_call = {
+                "type": "tool_call",
+                "name": name,
+                "args": arguments,
+                "id": event.call_id,
+                "output": event.detail,
+            }
+            # The persisted mirror of this step, at the slot reserved when it opened.
+            job.extra_parts[index - 1] = {"type": "tool_call", "tool_call": tool_call}
+            job.append(
+                {
+                    "event": "on_run_step_completed",
+                    "data": {"result": {"id": step_id, "index": index, "tool_call": tool_call}},
+                }
+            )
+        elif isinstance(event, TurnUsage):
+            job.append(
+                chatwire.token_usage_frame(
+                    response_message_id=job.response_message_id,
+                    provider=event.provider,
+                    model=event.model,
+                    input_tokens=event.input_tokens,
+                    output_tokens=event.output_tokens,
+                )
+            )
+            gauge = context_usage_frame(
+                provider,
+                event,
+                response_message_id=job.response_message_id,
+                tool_count=len(agent.get("tools") or []),
+            )
+            if gauge is not None:
+                job.append(gauge)
+        elif isinstance(event, Proving):
+            part = {"type": "activity_label", "activity_label": "Proving the change"}
+            index = allocate(part)
+            job.append({"event": "on_activity_label", "data": {"index": index, "part": part}})
+        else:
+            return
         turns._flush_if_due(job)
 
     def approver(request: ApprovalRequest) -> ApprovalDecision:
@@ -207,24 +365,20 @@ def run_agent_turn(
             drained = list(job.steers)
             if drained:
                 job.steers.clear()
-                base_index = len(job.steers_applied)
                 job.steers_applied.extend(drained)
         if not drained:
             return ()
-        for offset, row in enumerate(drained):
+        for row in drained:
+            part = {"type": "steer", "steer": row["text"], "createdAt": row["createdAt"]}
+            index = allocate(part)
             job.append(
                 {
                     "event": "on_steer_applied",
                     "data": {
                         "steerId": row["steerId"],
                         "clientSteerId": row.get("clientSteerId"),
-                        # Content-part slot: the narration text is part 0; steers follow.
-                        "index": base_index + offset + 1,
-                        "part": {
-                            "type": "steer",
-                            "steer": row["text"],
-                            "createdAt": row["createdAt"],
-                        },
+                        "index": index,
+                        "part": part,
                     },
                 }
             )
@@ -253,11 +407,6 @@ def run_agent_turn(
         error_text = f"the agent turn failed inside Tempest: {exc!r}"
     # usage=None on purpose: the ORCHESTRATOR already metered every completion through
     # `TaskSpec.meter`; a second spend here would double-charge the turn.
-    with job.lock:
-        steer_parts = [
-            {"type": "steer", "steer": row["text"], "createdAt": row["createdAt"]}
-            for row in job.steers_applied
-        ]
     turns._finish(
         job,
         conversation,
@@ -269,5 +418,5 @@ def run_agent_turn(
         provider,
         aborted=aborted,
         error=error_text,
-        extra_parts=steer_parts,
+        extra_parts=list(job.extra_parts),
     )

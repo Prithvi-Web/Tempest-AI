@@ -29,6 +29,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from tempest.agent import contracts as contracts_mod
+from tempest.agent.events import AgentEvent, ToolCallFinished
 from tempest.agent.orchestrator import AgentRun, TaskSpec, run_task
 from tempest.dev._first_party import mark_first_party
 from tempest.inference.providers import get
@@ -807,8 +808,8 @@ class _Script:
             self.fake.tool_uses = []
             self.fake.reply_text = "done"
 
-    def __call__(self, kind: str, _detail: str) -> None:
-        if kind != "tool":
+    def __call__(self, event: AgentEvent) -> None:
+        if not isinstance(event, ToolCallFinished):
             return
         if self.edits:
             self.edits.pop(0)

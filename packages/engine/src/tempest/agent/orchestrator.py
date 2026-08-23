@@ -41,6 +41,24 @@ from tempest.agent import repair as repair_mod
 from tempest.agent import rules as rules_mod
 from tempest.agent import shadow as shadow_mod
 from tempest.agent import turnlog as turnlog_mod
+from tempest.agent.events import (
+    AgentEvent,
+    ApprovalDecided,
+    CostCapReached,
+    ModelUnavailable,
+    Narration,
+    PendingApproval,
+    Proving,
+    RepairAttemptStarted,
+    RepairRejected,
+    Resumed,
+    SteerApplied,
+    ToolCallFinished,
+    ToolCallStarted,
+    TurnStarted,
+    TurnUsage,
+    VerdictReached,
+)
 from tempest.agent.tools import (
     ASK_USER,
     ApprovalDecision,
@@ -416,7 +434,7 @@ def _converse(
     dispatcher: Dispatcher,
     catalog: Any,
     env: dict[str, str],
-    emit: Callable[[str, str], None],
+    emit: Callable[[AgentEvent], None],
     log: turnlog_mod.TurnLog,
 ) -> tuple[str, int]:
     """Run model turns until it stops asking for tools, errors, or spends the turn budget.
@@ -430,6 +448,7 @@ def _converse(
     turns = 0
     for turn in range(spec.max_turns):
         turns = turn + 1
+        emit(TurnStarted(turns))
         if spec.cancel is not None:
             spec.cancel.raise_if_cancelled()
         if spec.steer_source is not None:
@@ -437,7 +456,7 @@ def _converse(
             # is a user message the model must see, never a whisper the surface interprets.
             for steer in spec.steer_source():
                 history.append(Message(role="user", content=steer))
-                emit("steer", steer)
+                emit(SteerApplied(steer))
         try:
             answer = complete(
                 spec.provider,
@@ -458,12 +477,22 @@ def _converse(
             # A model failure ends the LOOP, never the task: whatever is already staged still
             # gets proved and shown with its real verdict (L23 — degrade explicitly).
             stopped = f"model unavailable: {exc}"
-            emit("model_error", str(exc))
+            emit(ModelUnavailable(str(exc)))
             break
 
+        # The provider's own counts, reported whether or not a meter is attached: the
+        # context gauge is a measurement surface, not a billing one (LC21).
+        emit(
+            TurnUsage(
+                answer.provider,
+                answer.model,
+                answer.usage.input_tokens,
+                answer.usage.output_tokens,
+            )
+        )
         if spec.meter is not None:
             try:
-                spend = spec.meter.spend(
+                spec.meter.spend(
                     provider=answer.provider,
                     model=answer.model,
                     input_tokens=answer.usage.input_tokens,
@@ -478,13 +507,12 @@ def _converse(
                 # The loop ends here and the shadow is still proved: a change that ran out of
                 # money half-written is exactly the change a user most needs a verdict about.
                 stopped = f"cost cap reached: {exc}"
-                emit("cost", str(exc))
+                emit(CostCapReached(str(exc)))
                 break
-            emit("cost", f"{spend.total_tokens} tokens this turn")
 
         if answer.text:
             narration.append(answer.text)
-            emit("narration", answer.text)
+            emit(Narration(answer.text))
 
         if not answer.tool_calls:
             stopped = stopped or "the model finished"
@@ -496,6 +524,7 @@ def _converse(
                 # Between tool calls too: a cancel that lands during a long command must not
                 # wait for the whole batch the model asked for.
                 spec.cancel.raise_if_cancelled()
+            emit(ToolCallStarted(call.name, call.id, dict(call.arguments)))
             result = _dispatch_with_approval(spec, dispatcher, log, emit, call)
             calls.append(
                 ToolCallRecord(
@@ -505,7 +534,7 @@ def _converse(
                     detail=result.content[:2000],
                 )
             )
-            emit("tool", f"{call.name}: {'ok' if result.ok else 'refused'}")
+            emit(ToolCallFinished(call.name, call.id, result.ok, result.content[:2000]))
             history.append(
                 Message(role="user", content=_summarise(result), tool_result_for=call.id)
             )
@@ -519,7 +548,7 @@ def _dispatch_with_approval(
     spec: TaskSpec,
     dispatcher: Dispatcher,
     log: turnlog_mod.TurnLog,
-    emit: Callable[[str, str], None],
+    emit: Callable[[AgentEvent], None],
     call: ToolCall,
 ) -> ToolResult:
     """One tool call, with the C5 HITL park in front of the approval gate (LC18).
@@ -542,11 +571,11 @@ def _dispatch_with_approval(
         kind=kind,
         arguments=dict(call.arguments),
     )
-    emit("pending_approval", call.name)
+    emit(PendingApproval(call.name, call.id, kind))
     decision = spec.approver(
         ApprovalRequest(tool=call.name, arguments=dict(call.arguments), call_id=call.id, kind=kind)
     )
-    emit("approval_decision", f"{call.name}: {'approved' if decision.approved else 'refused'}")
+    emit(ApprovalDecided(call.name, call.id, decision.approved))
     if kind == "ask_user_question":
         if decision.approved:
             return ToolResult(ok=True, content=decision.response_text or "")
@@ -567,7 +596,7 @@ def run_task(
     spec: TaskSpec,
     *,
     env: dict[str, str],
-    on_event: Callable[[str, str], None] | None = None,
+    on_event: Callable[[AgentEvent], None] | None = None,
     resume: bool = True,
 ) -> AgentRun:
     """Run one agent task to a verdict.
@@ -585,7 +614,7 @@ def run_task(
     `resume=False` forces a fresh run. It exists for callers that genuinely want to start over,
     and it does NOT delete the previous shadow: the caller who wants the old one gone says so.
     """
-    emit = on_event or (lambda _kind, _detail: None)
+    emit = on_event or (lambda _event: None)
     log = turnlog_mod.TurnLog(spec.repo)
     plan = (
         turnlog_mod.plan_resume(log, spec.task_id)
@@ -648,7 +677,7 @@ def run_task(
             redo_turns=plan.redo_turns,
             baseline=shadow.baseline,
         )
-        emit("resume", plan.reason)
+        emit(Resumed(plan.reason))
 
     history: list[Message] = [Message(role="user", content=spec.prompt)]
     narration: list[str] = []
@@ -673,7 +702,7 @@ def run_task(
         # model to do it again would cost money to produce a second, different answer to a
         # question that was already settled.
         stopped, turns = _replay_turns(log, spec.task_id, history, narration, calls)
-        emit("resume", f"replayed {turns} recorded turn(s) instead of asking the model again")
+        emit(Resumed(f"replayed {turns} recorded turn(s) instead of asking the model again"))
 
     proof, change, classified = _prove_and_classify(spec, shadow, emit)
 
@@ -704,7 +733,7 @@ def run_task(
         bundle_id=change.bundle_id,
         repaired=bool(outcome and outcome.succeeded),
     )
-    emit("verdict", change.verdict.value)
+    emit(VerdictReached(change.verdict.value, change.bundle_id))
     return AgentRun(
         change=change,
         narration=tuple(narration),
@@ -719,7 +748,7 @@ def run_task(
 def _prove_and_classify(
     spec: TaskSpec,
     shadow: shadow_mod.Shadow,
-    emit: Callable[[str, str], None],
+    emit: Callable[[AgentEvent], None],
     *,
     quiet: bool = False,
 ) -> tuple[Any, ProvenChange, tuple[ClassifiedDivergence, ...]]:
@@ -730,7 +759,7 @@ def _prove_and_classify(
     into success, so the settings come from the spec and nowhere else.
     """
     if not quiet:
-        emit("proving", "the turn is over; the engine decides what it did")
+        emit(Proving())
     head = shadow_mod.snapshot(shadow)
     # P2: the gap between these two checkpoints is the expensive one. A process killed inside it
     # has paid for the model work and not the proof, and `plan_resume` reads exactly that.
@@ -936,7 +965,7 @@ def _repair_loop(
     dispatcher: Dispatcher,
     catalog: Any,
     env: dict[str, str],
-    emit: Callable[[str, str], None],
+    emit: Callable[[AgentEvent], None],
     first_bundle: Any,
     first_divergences: tuple[ClassifiedDivergence, ...],
     spent_attempts: int = 0,
@@ -1017,7 +1046,7 @@ def _repair_loop(
         packet = _first_offender(bundle, divergences, contract)
         if packet is None:  # pragma: no cover - _needs_repair guarantees one exists
             break
-        emit("repair", f"attempt {number}: {packet.qualname}")
+        emit(RepairAttemptStarted(number, packet.qualname))
         turnlog_mod.TurnLog(spec.repo).checkpoint(
             spec.task_id, turnlog_mod.REPAIR_ATTEMPT, number=number, symbol=packet.qualname
         )
@@ -1101,7 +1130,7 @@ def _repair_loop(
             # A cheat is not a failed attempt to be retried — it is the agent working on the
             # wrong problem, and giving it three more turns to keep doing that spends budget to
             # make the record worse.
-            emit("repair", f"attempt {number} rejected: {cheat}")
+            emit(RepairRejected(number, cheat))
             break
 
     return repair_mod.RepairOutcome(succeeded=False, attempts=tuple(attempts), reason=reason)

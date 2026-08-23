@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from tempest.agent.events import AgentEvent
 from tempest.agent.orchestrator import TaskSpec, run_task
 from tempest.inference import cost as cost_mod
 from tempest.inference.providers import get
@@ -85,7 +86,7 @@ class _Editing:
     def __init__(self, fake: FakeAnthropic) -> None:
         fake.tool_uses = [{"name": "write_file", "input": {"path": "app.py", "contents": _CHANGED}}]
 
-    def __call__(self, _kind: str, _detail: str) -> None:
+    def __call__(self, _event: AgentEvent) -> None:
         return None
 
 

@@ -126,8 +126,11 @@ class _Job:
     kind: str = "chat"
     #: Queued follow-ups not yet drained (C5 steering, LC16) — mutated under `lock`.
     steers: list[dict[str, Any]] = field(default_factory=list)
-    #: Steers the turn loop consumed, in application order (their chips and content parts).
+    #: Steers the turn loop consumed, in application order.
     steers_applied: list[dict[str, Any]] = field(default_factory=list)
+    #: Content parts beyond the narration text, in ALLOCATION order (agent turns): tool
+    #: steps, steer chips, activity labels. The persisted message mirrors the live stream.
+    extra_parts: list[dict[str, Any]] = field(default_factory=list)
     settled: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
     #: Ledger rows not yet flushed to the store, id → doc.
@@ -148,6 +151,52 @@ class _Job:
 
 def _event_key(stream_id: str, seq: int) -> str:
     return f"{stream_id}:{seq:08d}"
+
+
+def _coalesce_deltas(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Stream delta batching (LC06): a RUN of adjacent text deltas for the same step merges
+    into one frame carrying the concatenation and the run's LAST seq.
+
+    The batching adapts to the producer by construction — a slow stream pages one delta at a
+    time and merges nothing; a burst that arrived between polls becomes one frame — and it
+    is applied identically on the live and the store replay paths, so a reload renders
+    exactly what the stream rendered. Chunk boundaries were never semantic (a provider's
+    chunking is an artifact of its transport); the LAST-seq rule keeps every cursor and
+    dedupe downstream correct, because a consumer that saw the merged frame has seen
+    everything up to that seq.
+    """
+    out: list[dict[str, Any]] = []
+    for event in events:
+        frame = event.get("frame")
+        merged = out[-1] if out else None
+        if (
+            merged is not None
+            and _delta_text(merged.get("frame")) is not None
+            and isinstance(frame, dict)
+            and _delta_text(frame) is not None
+            and merged["frame"]["data"].get("id") == frame["data"].get("id")
+        ):
+            joined = str(_delta_text(merged["frame"])) + str(_delta_text(frame))
+            merged["frame"] = chatwire.message_delta_frame_for_step(
+                step_id=str(frame["data"]["id"]), text=joined
+            )
+            merged["seq"] = event["seq"]
+            continue
+        out.append({"seq": event["seq"], "frame": frame})
+    return out
+
+
+def _delta_text(frame: Any) -> str | None:
+    """The text of an `on_message_delta` frame, or None when this is any other frame."""
+    if not isinstance(frame, dict) or frame.get("event") != "on_message_delta":
+        return None
+    try:
+        content = frame["data"]["delta"]["content"]
+        if len(content) != 1 or content[0].get("type") != "text":
+            return None
+        return str(content[0]["text"])
+    except (KeyError, TypeError, IndexError):
+        return None
 
 
 class ChatTurns:
@@ -658,10 +707,12 @@ class ChatTurns:
             return {
                 "streamId": stream_id,
                 "status": status,
-                "events": [
-                    {"seq": after_seq + index + 1, "frame": frame}
-                    for index, frame in enumerate(frames)
-                ],
+                "events": _coalesce_deltas(
+                    [
+                        {"seq": after_seq + index + 1, "frame": frame}
+                        for index, frame in enumerate(frames)
+                    ]
+                ),
             }
         turn = self._store.get("turns", stream_id)
         if turn is None:
@@ -670,11 +721,13 @@ class ChatTurns:
         return {
             "streamId": stream_id,
             "status": str(turn.get("status") or "unknown"),
-            "events": [
-                {"seq": int(doc["seq"]), "frame": doc["frame"]}
-                for doc in docs
-                if int(doc.get("seq") or 0) > after_seq and isinstance(doc.get("frame"), dict)
-            ],
+            "events": _coalesce_deltas(
+                [
+                    {"seq": int(doc["seq"]), "frame": doc["frame"]}
+                    for doc in docs
+                    if int(doc.get("seq") or 0) > after_seq and isinstance(doc.get("frame"), dict)
+                ]
+            ),
         }
 
     def status(self, conversation_id: str) -> dict[str, Any]:
