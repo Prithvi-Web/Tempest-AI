@@ -1,112 +1,42 @@
-# ⚡ V3 SESSION HANDOFF — updated 2026-08-22 (~06:30), READ THIS BEFORE §0
-# (C0–C3 ✅ pushed+CI-green at fb9ab28 · **C4 boxes flipped with evidence this session** ·
-# ~12 commits UNPUSHED on top — the owner pushes only when told it is safe)
+# ⚡ V3 SESSION HANDOFF — updated 2026-08-22 (evening), READ THIS BEFORE §0
+# (C0–C4 ✅ pushed+CI-green through 8692ba7 · **the PRE-C5 WAVE landed this session:
+# design identity + ADR-0077 close, ~14 commits — push status at the bottom of this block**)
 
-## C4 in one paragraph (PLAN-V3 C4 has the evidence inline; read it before C5)
+## The pre-C5 wave in one paragraph (owner mandate: logos, blue/black Apple identity, perfection)
 
-One provider router, wired front to back: the engine's GET /v1/platform/catalog builds
-LibreChat's exact /api/endpoints + /api/models shapes from the ONE registry (models ADOPTED
-from upstream defaultModels; locals discovered live at loopback; keyed metadata-less remotes
-discovered only when their key exists — the verify_key BYOK egress class). The tempest://
-protocol intercepts both plus /api/keys, which now lives on the OS KEYCHAIN under accounts
-named by each provider's env var (engine_env ENUMERATES at spawn — the host holds no registry
-copy; legacy "anthropic" account read-through + migrate-on-write). 19.5b done: the anthropic
-SDK is gone; TEMPEST_SYNTHESIS_BASE_URL survives as an ALIAS onto
-TEMPEST_MODEL_BASE_URL_ANTHROPIC (both arms pinned). provider_matrix floor 16. The Apple
-design pass re-cut both seam stylesheets (type ladder 20/15/13/11, radii 8/10/14 shared,
-9 dark semantic repairs, ring=accent; 21/21 verdict values byte-identical — machine-checked).
-Smoothing/delta batching deliberately carried to C5 (its surface is the streamed turn).
+The product now wears its own identity: **storm glass** — a navy-cast primitive ramp re-cut in
+the one place that restyles ~1,100 components (theme.css :root), electric-blue accent, real
+macOS liquid glass (transparent window over an NSVisualEffectView via window-vibrancy +
+macOSPrivateApi, overlay titlebar, host-injected drag surfaces, class-gated so a failed
+material keeps opaque grounds), dark by default (first-run localStorage seed; the user's
+choice persists). All 16 provider rows in the model menu render a real brand badge (LobeHub
+MIT glyphs recomposed on Tempest navy circles, llama.cpp an original λ⁺ mark, attributed in
+THIRD_PARTY_LICENSES.md; served at /tempest-assets/ from the client seam; iconURL written by
+the HOST at the catalog bridge — the engine emits None, pinned both sides). Two adversarial
+review waves (design-systems + correctness) found 13 real defects — every one closed with
+measured evidence (WCAG ratios in the commits). ADR-0077 is CLOSED: the E2E suite drives the
+platform surface (zero-dep harness = platform-server.mjs mirroring the tempest:// protocol
+over the real handleLocalApi; ajv net bridge-side), the legacy webview and its flag are
+DELETED, and a failed platform start opens /__tempest-diagnostic (cause + remedy on screen).
 
-## Traps paid in C4 (do not repay)
-- **Upstream key-wire shapes are LAW**: keyless = {"expiresAt":null}, stored = literal
-  "never", PUT 201 empty, DELETE 204 empty (data/src/methods/key.ts). A guessed bare null
-  crashed useUnifiedSidebarLinks (its destructuring default covers undefined only).
-- **uri().path() drops query strings** — the protocol passes path_and_query now.
-- **A kill between git's worktree REGISTRATION and populate leaves "missing but locked"**
-  that single --force refuses and the presence-keyed discard never sees; double --force is
-  git's documented override (resume_test caught it live; repro + fix in worktree.py).
-- An unresolved var() is DISCARDED SILENTLY — three scoped-CSS tokens were never defined
-  (--muted/--border/--mono) and nothing logged; the design pass found them structurally.
-- reduced-motion durations are 1ms, never 0 — a zero-duration transition fires no
-  transitionend and a waiting component hangs.
+## Traps paid this wave (do not repay)
+- **tempest:// responses now carry cache-control: no-store** — WKWebView served a PREVIOUS
+  install's theme.css after an update until they did. Never remove it.
+- **upstream_check's baseline carries the C1 placeholder bytes** — re-cutting those six brand
+  files makes undeclared drift until they get inline-delta rows (they have them now, 12/40).
+- The reduced-motion contract is **1ms durations, never `none`/0** — animationend and
+  transitionend still fire, nothing that awaits one can hang; spec 10 pins it.
+- The seam's dark keys on **html.dark** (the app's own switch), not prefers-color-scheme —
+  e2e polarity forcing goes through localStorage 'color-theme', not emulateMedia.
+- NotchNest owns an invisible click-blocking overlay near the notch (computer-use only).
+- An already-running old app instance answers activation — pkill before judging a reinstall.
 
-## Next: C5 (the largest item) — plus the C3-close bridge retirement (ADR-0077 e2e
-## re-target), the C4-carried smoothing item, and the quiet-machine bench re-take.
+## Where the next session starts: C5 (one agent runtime, ADR-0075) — read PLAN-V3 C5 + §5.3
+Plus carried: the C4 smoothing item (its surface is the streamed turn — C5 territory) and
+the POLISH note from spec 10: data tables scroll past the column at 200% zoom by design
+(tables excepted; a designed scroll container is future polish). agent-gates and the §10
+budgets all held through the wave — the numbers are in PLAN-V3 and the session log.
 
-
-## What happened this session (the short version; PLAN-V3 C3 has the evidence inline)
-
-**The WKWebView crash was never chunk order — the bundle carried TWO REACTS.**
-librechat-data-provider declares no react dep, so pnpm auto-resolved its react-query peer
-against react@19 beside the client's 18; React 19's dispatcher was never initialized
-(`E.H.useContext` is v19's internals shape). Fixed at the root: react/react-dom pinned
-18.3.1 in pnpm-workspace.yaml with the other lockfile-skew mirrors (858012b). The vendored
-vite config then builds CLEAN in WKWebView; the seam config (client/tempest/vite.config.mjs)
-now only strips the PWA/service-worker layer and precompression. Trap: the "Chromium renders
-it clean" control was confounded — with no API, Chromium sat on the login screen and never
-mounted the components that crash.
-
-**ONE window, ONE app, named Tempest AI — shipped and on by default.**
-`/Applications/Tempest AI.app` (identifier unchanged; old Tempest.app removed). Client dist +
-theme are bundled resources (platform/client-dist, platform/tempest); the Node sidecar
-auto-spawns (TEMPEST_PLATFORM_NODE → PATH → standard prefixes; bundling a runtime is still
-open); the scaffold second window is deleted. Fallbacks name their cause on stderr;
-TEMPEST_LEGACY_WINDOW=1 opens the pre-merge webview (ADR-0077 bridge, removal at C3 close);
-TEMPEST_PLATFORM_SIDECAR=0 is the kill switch.
-
-**The proof surface is ABSORBED (aadf3df, ADR-0077):** client/tempest/views — the ten views +
-editor + vocabulary as a react-router subtree at /tempest/*, ported to Query v4/React 18,
-importing the desktop generated bindings ACROSS the package boundary (one artifact), CSS
-scoped under .tempest-views. The vendored tree knows it through TWO inline deltas (route
-entry + nav link), ledgered; 6/40 deltas total. Verified live over real IPC beside the chat
-surface: zero console errors, zero 404s, all sub-views, collapse toggle, Settings.
-
-**Local boot surface is measured, not guessed** (a4211cc, b190021): ~30 endpoints in
-server/tempest/local-api.mjs with shapes read from provider types. The traps that cost
-renders: /api/roles/USER is UPPERCASE and gates ChatRoute mount; permissions need explicit
-booleans; interface:{} defeats client defaults; customFooter:"" suppresses the upstream
-wordmark. Theme: the dark ramp must NOT be re-inverted (upstream's .dark layer already
-inverts — 2423351); first-paint mode script injected at the protocol.
-
-**Live-sweep defects fixed (13896d2):** ExpandedPanel passed the pointer EVENT as afterSlide
-→ TypeError on every desktop collapse click (upstream bug, wrapped zero-arg, worth filing);
-SettingsView "could not be read" banner keyed !== null against a field the Rust layer OMITS
-when None (skip_serializing_if) → phantom warning; fixed in BOTH copies (bridge rule).
-
-**Gates built/extended this session:** egress_check --platform-tree (113 surfaces, 79 pins,
-0e8eada, in verify-convergence) · the §10 merged-app cold-launch row measured end to end
-(platform_web instrument line → make bench-merged → bench merge with provenance check →
-perf_suite row 14; best-of-3 = 0.575 s vs 1.2/2.0 budget, 1227c97).
-
-## Verification state at save
-
-`make verify` on this tree: **MAKE_EXIT=0** (pytest 2112 / 100.00% on 9,070+2,590; all agent
-gates; cargo 115+8+5; vitest 27+86; E2E 51; five convergence gates green — license, store,
-upstream, vocab, egress). At save: a quiet-machine `make bench` + perf_suite re-run and then
-`make verify-linux-denominator` were the remaining two runs — CHECK THEIR OUTPUT before
-believing this tree is push-ready, then tell the owner it is safe to push. The perf gate
-refuses INCONCLUSIVE(load) comparisons — re-measure quiet, never re-baseline.
-
-## C3 remaining (the close-out list, honest)
-
-The dated ADR-0077 bridge: re-target the desktop E2E suite (51 specs, bridge.mjs + shim
-drive the LEGACY webview at :1420) onto the platform surface, then DELETE
-packages/desktop/src views + the flag in one commit. Also queued for C3 close: i18n key for
-the "Tempest" nav label (C11 does it properly), bundling a Node runtime (or an ADR saying
-the resolve chain is the ship answer), and the C4 gate items (provider router) next.
-
-## Launch/build recipes (all current)
-
-- Client: `pnpm --filter @librechat/frontend exec vite build --config tempest/vite.config.mjs`
-- App: `cd packages/desktop && pnpm tauri build` → bundle at
-  `src-tauri/target/release/bundle/macos/Tempest AI.app` → `ditto` to /Applications
-  (REMOVE the old copy first — the bundle was renamed).
-- Perf row: `make bench-merged && make bench && uv run python -m tempest.dev.perf_suite --enforce-budgets`
-- The app self-serves with NO env vars. Seam-file iteration without a rebuild: copy the file
-  into `/Applications/Tempest AI.app/Contents/Resources/platform/...` and relaunch.
-- The console tap forwards every webview error to host stderr — launch the binary from a
-  shell and read it; silence IS the pass signal. `[tempest-perf] merged_cold_launch_ms=` is
-  the cold-launch instrument, printed once.
 
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;
 # **19, 19a, 20, 21 and 22 COMPLETE · 23 PART ONE · 24 and 25 NOT STARTED** — §0 is the only

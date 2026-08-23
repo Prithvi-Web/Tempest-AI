@@ -176,7 +176,9 @@ verify-node:
 	# make them green (merge contract §6 rule 4) — not silently via -r.
 	pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' typecheck
 	pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' test
-	pnpm --filter @tempest/desktop build
+	# No `@tempest/desktop build` step: the legacy vite bundle died with the ADR-0077 close.
+	# The package's shipping artifact is the tauri bundle; its webview is the platform client
+	# built by `platform-client-dist`, and typecheck + vitest + cargo above cover the rest.
 
 verify-contract:
 	$(MAKE) gen-contracts
