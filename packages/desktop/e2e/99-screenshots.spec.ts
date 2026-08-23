@@ -65,7 +65,11 @@ test("screenshot every view in light and dark", async ({ page, bridge }) => {
     ],
   ];
   for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme });
+    // Polarity is the app's own html.dark switch (from localStorage), not the OS query:
+    // land on any page of the origin first so storage is reachable, then every later
+    // navigation's mode script picks the scheme up before first paint.
+    await page.goto("/tempest/runs");
+    await page.evaluate((s) => localStorage.setItem("color-theme", s), scheme);
     for (const [name, url] of shots) {
       await page.goto(url);
       await page.waitForTimeout(400); // let queries settle + the view-in transition finish

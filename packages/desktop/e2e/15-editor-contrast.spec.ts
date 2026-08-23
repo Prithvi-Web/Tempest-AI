@@ -60,7 +60,10 @@ for (const scheme of ["light", "dark"] as const) {
       "utf8",
     );
 
-    await page.emulateMedia({ colorScheme: scheme });
+    // Polarity is the APP's, not the OS's: the palette keys on `html.dark`, which the
+    // harness's mode script derives from localStorage BEFORE first paint — exactly the
+    // shipped protocol's contract. emulateMedia would test light twice.
+    await page.addInitScript((s) => localStorage.setItem("color-theme", s), scheme);
     await page.goto(`/tempest/editor?repo=${encodeURIComponent(repo)}&file=sample.py`);
     const content = page.getByTestId("editor-host").locator(".cm-content");
     await expect(content).toBeVisible({ timeout: 30_000 });
@@ -222,7 +225,8 @@ test("the find panel is themed and the app's global input rule does not reach in
   await mkdir(join(repo, ".git"), { recursive: true });
   await writeFile(join(repo, "sample.py"), "def greet(name):\n    return name\n", "utf8");
 
-  await page.emulateMedia({ colorScheme: "dark" });
+  // Dark via the app's own polarity switch (html.dark from storage), not the OS query.
+  await page.addInitScript(() => localStorage.setItem("color-theme", "dark"));
   await page.goto(`/tempest/editor?repo=${encodeURIComponent(repo)}&file=sample.py`);
   const content = page.getByTestId("editor-host").locator(".cm-content");
   await expect(content).toBeVisible({ timeout: 30_000 });

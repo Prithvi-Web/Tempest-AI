@@ -47,13 +47,19 @@ test("after in-app navigation, focus lands on the new view's title", async ({ pa
   expect(["A", "BUTTON", "INPUT"]).toContain(focusedTag);
 });
 
-test("prefers-reduced-motion kills the view transition", async ({ page }) => {
+test("prefers-reduced-motion quiets the view transition to an instant", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/tempest");
-  const animation = await page
-    .locator("main")
-    .evaluate((el) => getComputedStyle(el).animationName);
-  expect(animation).toBe("none");
+  const quieted = await page.locator("main").evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { name: s.animationName, duration: s.animationDuration };
+  });
+  // 1ms, deliberately NOT `none`: a suppressed animation still fires animationend, so a
+  // component awaiting one cannot hang — the same rule the client seam applies to
+  // transitions (theme.css §6). The name surviving is the mechanism working: the motion
+  // exists, at a duration no human perceives.
+  expect(quieted.name).toBe("view-in");
+  expect(quieted.duration).toBe("0.001s");
   // The no-preference case keeps the 180ms view-in — motion exists, it just yields.
   //
   // `reducedMotion: null` was used here and meant "inherit the SYSTEM default", which made the
@@ -63,10 +69,12 @@ test("prefers-reduced-motion kills the view transition", async ({ page }) => {
   // is what makes this a test about the stylesheet rather than about the machine.
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/tempest");
-  const restored = await page
-    .locator("main")
-    .evaluate((el) => getComputedStyle(el).animationName);
-  expect(restored).toBe("view-in");
+  const restored = await page.locator("main").evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { name: s.animationName, duration: s.animationDuration };
+  });
+  expect(restored.name).toBe("view-in");
+  expect(restored.duration).toBe("0.18s");
 });
 
 test("no view forces horizontal scroll at 200% zoom, tables excepted by design", async ({
