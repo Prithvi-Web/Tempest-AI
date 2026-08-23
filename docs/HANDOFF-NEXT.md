@@ -1,4 +1,7 @@
 # ⚡ SESSION HANDOFF — updated 2026-08-23, READ THIS BEFORE §0
+# NEXT SESSION: attach ~/Desktop/C5-PART2-SESSION-PROMPT.md — it carries this handoff plus
+# the owner's NEW MANDATE (an in-app "download a free local model" flow for zero-setup
+# chat; ADR + FEATURES row required before building) and the C5 back-half work order.
 # (fix wave + C5.1–C5.3 + C5.5 LANDED · the chat vertical is REAL end to end ·
 #  gates green at the final tree · owner push pending · C5.6/C5.7 remain)
 
