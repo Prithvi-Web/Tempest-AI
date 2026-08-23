@@ -1,101 +1,84 @@
-# ⚡ SESSION HANDOFF — updated 2026-08-23 (early AM), READ THIS BEFORE §0
-# (pre-C5 wave pushed at b3ba308 · its FIRST CI RUN went red · the red is FIXED in this wave ·
-# owner's two UI reports fixed · C5 recon + architecture DONE, ADR-0078 · C5.1 is next)
+# ⚡ SESSION HANDOFF — updated 2026-08-23, READ THIS BEFORE §0
+# (fix wave + C5.1–C5.3 + C5.5 LANDED · the chat vertical is REAL end to end ·
+#  gates green at the final tree · owner push pending · C5.6/C5.7 remain)
 
-## What this wave holds (b3ba308..HEAD) and why
+## What this wave holds (b3ba308..HEAD), briefly
 
-1. **`52e18fd` fix(api)** — CI run 32610670936 (first run on the pushed wave) failed
-   `test_unsandboxable_repo_is_all_unproven_not_an_error` with the events ledger ending
-   `ingested` after status read COMPLETE. Real defect, not flake: ingestion committed
-   `status=COMPLETE`+`ingested`, then GC+telemetry ran, and only a later transaction appended
-   `complete` — any reader in that window saw a completed run with a truncated timeline (the
-   run view would render the same lie). Now one commit carries status + terminal row (matching
-   `_mark_error`/`_mark_cancelled`); the new test PARKS the prove coroutine at the post-ingest
-   point (patched `collect_garbage`) so the ex-window is asserted deterministically — it failed
-   every time pre-fix, in 4 s, with CI's exact signature.
-2. **`6428965` test(bench)** — local `make verify` went red on THIS machine only:
-   `test_the_covered_set_is_exactly_what_this_process_measured` leaked `merged_cold_launch_s`
-   into the bench doc because the fixture pinned `--editor-metrics` to absence but not
-   `--merged-metrics`, and this machine has run `bench_merged` at HEAD (the b3ba308 evidence
-   run). Same category, same pin. CI never sees it (no instrument file there).
-3. **`ffee987` fix(theme)** — the owner's "settings not clearly visible": Headless UI v2 puts
-   `role=dialog` on its full-viewport WRAPPER; the storm-glass overlay rule keyed on
-   `[role='dialog']` put backdrop-filter there, which made the wrapper the containing block for
-   every `fixed` descendant → scrim collapsed to zero height, panel centered below the fold,
-   clipped. Selector now excludes `[id^='headlessui-dialog-']` and includes
-   `[id^='headlessui-dialog-panel-']`, in all three sites. The suite had stayed green because
-   nothing asserted GEOMETRY — spec `21-platform-chrome` now pins centered+on-screen panel,
-   viewport-covering scrim, blur-on-panel/none-on-wrapper.
-4. **`c5b40f2` feat(shell)** — the owner's "no Tempest logo": the mark existed only on the auth
-   screen local mode never shows. One `<img>` (`/assets/logo.svg`) tops the icon rail
-   (ExpandedPanel inline delta #2 + ledger row; unit pin rides the vendored spec, which joins
-   verify at C6 — the ENFORCED pin is spec 21's second test). Vibrancy's 38px aside pad keeps
-   it clear of the traffic lights.
-   (+ `472c7e2` chore: launch.json entry for the harness on 4181 — interactive looks never
-   collide with the suite's 4180.)
+**The fix wave** (verify+denominator green, app rebuilt+installed, orphan 2.0s): the CI
+ledger race (52e18fd — status COMPLETE and its terminal row now one commit; deterministic
+window test), the bench conditions fixture pin, the settings-dialog containing-block defect
+(Headless UI wrapper glass — spec 21 pins geometry), the rail's Tempest mark.
+
+**C5.1 — the engine chat vertical** (cc4afed + 394fa2a): `stream_events` (in-stream usage,
+both wires, both-halves-or-nothing), `chatturn.py` (the generation job manager: POST-ack +
+frame ledger; terminal state commits BEFORE it publishes; a new turn's opening commit
+atomically retires the prior generation's ledger; reconcile-on-read for dead processes),
+`platformstore.py` (ADR-0068 fallback document store, own SQLite file, L33), seven
+boundary-A chat ops. 100% coverage incl. branches.
+
+**C5.2 — delivery** (8e52e38): `agent_chat.rs` host seam beside the C4 intercepts
+(start/abort+epoch-guard/status/convos/messages/gen_title), generation-keyed ledger poller
+→ `AgentStreamEvent` (frames as JSON text — specta cannot type arbitrary JSON, SSE's e.data
+is a string anyway), `TempestSSE` seam class (sse.js interface, subscribe-first replay-
+second, seq dedupe; 100/100/100/100 vitest; tauri glue e2e-pinned like hooks.ts), ONE
+vendored delta at useResumableSSE's single SSE construction site (ledger row).
+
+**C5.3 — the harness leg** (4b3e104): bridge OpenAI-wire SSE peer with STAGED holds
+(park after frame N, one release per resume — hangups are measured writes into dead
+sockets, never buffer races), platform-server mirrors the seam with REAL progressive SSE,
+spec 22: typed message → tokens visible MID-turn → reload-durable → stop keeps the partial
+and the provider connection dies observably → context chains root-first.
+
+**Hardening between and after** (86468b1, +2): two adversarial review waves over C5's own
+code killed 11 real defects (regenerate resolved by the wrong key; memory-before-durable
+terminal publication; cross-turn ledger bleed; a start check-then-act that let the
+reconciler fire on a living turn; a meter-crash zombie; a router double-instance; a
+fabricated-zero usage; a test that could spend real API money; two vacuous/racy test
+assertions; the poller starving a rapid follow-up). The chat seam's READS out-wait a
+supervised engine restart (8s bound) so recovery never paints the console red; the active
+poll answers the truthful empty list while the engine is down.
 
 ## Traps paid this session (do not repay)
-- A jest run in `packages/platform/client` writes `coverage/` + `junit.xml` INTO THE VENDORED
-  TREE → 1,457 upstream_check failures. Delete them; never commit them. The client jest suite
-  itself is NOT runnable in this checkout (module-resolution: `librechat-data-provider/react-query`
-  maps into a dist-only node_modules copy) — that is the C6 "their tests run" item, not a
-  regression; verified identical with the tree stashed clean.
-- The Browser-pane preview throttles rAF, so Headless-UI/Ariakit enter transitions freeze
-  mid-flight in screenshots (menus at ~5% opacity). It settles on interaction; the REAL app
-  foregrounded is fine; e2e (headed chromium) asserts final states. Don't chase it as a defect.
-- `test_status_complete_implies_terminal_ledger` is the template for asserting "no window
-  between two commits": park the coroutine at the seam with a patched post-commit call,
-  assert over HTTP, release. No sleeps, no retries.
+- Boundary-A body operations wrap their payload as `{"body": …}` over stdio (the COMMANDS
+  map in bridge.mjs is the visible convention; agent_chat.rs startChatTurn does the same).
+- specta forbids serde_json::Value in boundary-B payloads (BigInt) — frames cross as their
+  JSON TEXT and the client parses, which is exactly SSE's own shape.
+- Coverage litter (packages/platform/client/coverage/, junit.xml) reappears after client
+  builds/tests and breaks upstream_check with ~1,450 phantom rows: rm before running it.
+- After ANY fix batch, re-run the COMBINED coverage — the scoped pass lies by omission
+  (the 100% gate named five arms the scoped run could not see).
+- A python edit script that asserts mid-way lands NOTHING (its writes are at the end):
+  check every anchor against post-ruff bytes, or apply-and-verify one edit at a time.
+- The vendored client's ChatPeer/staged-holds discipline: hold once where the stop lands,
+  hold AGAIN before the observation write, release one hold per step.
+- gen_title/single-convo/share-link/tools-calls are load-bearing chat furniture: the view
+  cannot MOUNT after reload without `GET /api/convos/{id}` (it was the C7-deferral that
+  broke reload).
 
-## C5 — the architecture is decided (ADR-0078; recon maps in the session log)
+## Where C5 stands vs PLAN-V3, and what remains
 
-**Read ADR-0078 first.** The four recon maps established: the client's turn contract is
-POST-ack + SSE `GET /chat/stream/:streamId` (streamId==conversationId; `created` precedes every
-delta; run-step ids/indices drive content placement; `final` is a persistence receipt); the
-`tempest://` responder is ONE-SHOT (wry 0.55.1 `url_scheme_handler.rs:186` — FnOnce, whole body);
-boundary E serializes under one lock and Node cannot initiate RPC; boundary B (tauri events) is
-the one proven push path; `/api/agents/*` in local-api.mjs are honest 404 stubs waiting; the
-orchestrator has no streaming callers, no chat mode, no cancel input on `run_task`, and
-`inference.stream()` (real cancellation) has zero production callers.
+DONE: the boundary-E agent seam headline (typing → real streamed answer, through the
+harness on real SSE and through the app's boundary-B path pinned by unit+cargo);
+`runtime_check` + `gate_audit` built and wired; MERGE-CONTRACT/UPSTREAM deltas recorded;
+ADR-0078. REMAINS (the C5 back half): the agent-surface re-target onto `run_task` (builder
+CRUD, run control: interrupt/steer/queue with cancel threaded into TaskSpec, HITL pause via
+a durable pending-approval stage, activity headers, context gauge — the recon maps name
+every attach point), the C5.7 smoothing item on the one streamed path, FEATURES-V3 row
+flips as their verifying tests go green, The REAL-app demo RAN (owner granted screen access): a typed message drove the whole
+seam in the installed bundle and rendered the honest no-key error THROUGH THE STREAMING
+PATH — the pipeline is proven end to end in the shipped binary; a real streamed answer
+needs only the owner's key saved in Settings (no Ollama exists on this Mac).
 
-**Decision (ADR-0078):** host-layer thin client (beside the C4 catalog/keys intercepts) →
-boundary A → a conversational mode of the ONE runtime in `tempest/agent/` (shares meter,
-cancellation, inference, event vocabulary with `run_task`; never touches `ProvenChange`) →
-per-turn event ledger (startLocalProve pattern) → host poller → ONE boundary-B event stream →
-host-injected `window.__TEMPEST_SSE__` (sse.js interface) reached via ONE client inline delta at
-`useResumableSSE.ts:1510`. Conversations/messages persist in the ADR-0068 fallback document
-store (own SQLite file, engine-owned, JSON documents + expression indices — the exact shape C6's
-adapter lands on). Harness/server-mode keep real SSE, so both pipes of the same frames are tested.
-
-**The seam SSE's exact interface (measured, not assumed):** the hook constructs
-`new SSE(url, {headers:{Authorization, x-librechat-generation-protocol}, method:'GET'})`, calls
-`.stream()` and `.close()`, binds `addEventListener('open'|'message'|'error'|'abort')`
-(`message` carries JSON in `e.data`), and compares `sse.readyState !== SSE.CLOSED` against the
-IMPORTED sse.js class's static — so `__TEMPEST_SSE__` must use sse.js's numeric states
-(INITIALIZING -1, CONNECTING 0, OPEN 1, CLOSED 2) verbatim (`useResumableSSE.ts:1510-1600,3272`).
-
-**C5 execution order (one item at a time, TDD, check-in each):**
-- C5.1 engine conversational turn: chat store (platform-store file) + turn-event ledger emitting
-  the WIRE frames + `startChatTurn`/`listChatTurnEvents`/`cancelChatTurn`/`listConversations`/
-  `getConversationMessages` operationIds + resume/abort semantics. 100%, mypy strict.
-- C5.2 host seam: `/api/agents/chat*` + `/api/convos` + `/api/messages` intercepts, poller,
-  `agent-stream` boundary-B event, injected seam SSE + the one-line client delta (ledger row).
-- C5.3 harness mirror (platform-server.mjs chat over bridge `/invoke`) + chat e2e specs
-  (send→stream→final, reload→history, abort mid-stream, regenerate).
-- C5.4 the acceptance demo: rebuilt app, REAL key from the keychain, streamed answer, screenshot
-  + zero console errors + the cost meter ticking. OWNER CHECK-IN.
-- C5.5 `runtime_check` + `gate_audit` modules (sketches in the recon: inspect-based
-  single-loop/single-registry assertions; declared path table walked both directions, forge test
-  per row must COLLECT) + Makefile wiring.
-- C5.6 the agent-surface re-target onto `run_task`: builder CRUD, run control (cancel threading
-  into TaskSpec + `complete()`/stream()-based turns), HITL approval through the boundary,
-  steer/queue; `agent_bench` must still be 55/55.
-- C5.7 the carried smoothing item (adaptive provider smoothing + delta batching) on the one
-  streamed path; FEATURES-V3 rows move only with green verifying tests.
-
-**Gate for the whole phase:** PLAN-V3 C5 block verbatim — runtime_check, gate_audit,
-agent-gates through the new surface, agent_bench 55/55, intent 54/54 w/ 0 false, repair ≥60%
-+ cheats refused, resume 15/15, full verify + linux-denominator at the final tree.
+## The commands (trap-40 discipline throughout)
+```bash
+cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/v.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/v.log
+make verify-linux-denominator
+python -m tempest.dev.runtime_check --single-orchestrator --single-tool-registry
+python -m tempest.dev.gate_audit    --enumerate-paths --require-forge-test-per-path
+cd packages/desktop && E2E_PLATFORM_PORT=4184 E2E_BRIDGE_PORT=39759 npx playwright test   # side runs
+```
 
 
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;
