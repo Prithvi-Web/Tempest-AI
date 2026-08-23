@@ -46,10 +46,15 @@ PROVED = "proved"
 REPAIR_ATTEMPT = "repair_attempt"
 RESUMED = "resumed"
 FINISHED = "finished"
+#: C5 HITL: the turn is PARKED on a human — written durably BEFORE the question is asked, so
+#: a kill mid-park finds the question in the log. Resumption treats it like any other
+#: mid-converse kill (redo the turns): the pending question is VOID on restart — the tool
+#: never ran, nothing user-visible is lost, and re-deriving the ask is the model's job.
+PENDING_APPROVAL = "pending_approval"
 
 #: The closed set. A stage outside it is a bug in a caller, and is refused rather than stored —
 #: an unrecognised stage in the log would make resumption guess.
-STAGES = (STARTED, TURNS_DONE, PROVING, PROVED, REPAIR_ATTEMPT, RESUMED, FINISHED)
+STAGES = (STARTED, TURNS_DONE, PROVING, PROVED, REPAIR_ATTEMPT, RESUMED, FINISHED, PENDING_APPROVAL)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_log (

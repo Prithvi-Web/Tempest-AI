@@ -222,6 +222,15 @@ pub struct RunCommandArgs {
     pub timeout_seconds: Option<u32>,
 }
 
+/// Arguments for `ask_user` — the human-in-the-loop question (C5, LC18).
+#[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AskUserArgs {
+    /// The question, in plain language the user can answer without reading the transcript.
+    pub question: String,
+    /// Optional fixed choices. Omit for a free-text answer.
+    pub options: Option<Vec<String>>,
+}
+
 /// Arguments for `prove` — the tool that makes this an agent nobody else can build.
 #[derive(Debug, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProveArgs {
@@ -266,6 +275,16 @@ declare_tools! {
         "Run a differential behavioural proof of the current shadow worktree against the \
          baseline and return the verdict with its evidence. The verdict is computed by the \
          engine; you may explain it, never author it.";
+
+    AskUserArgs => "ask_user", ToolPolicy {
+        approval: Approval::AlwaysPrompt,
+        touches_network: false,
+        destructive: false,
+        writes: WriteScope::None,
+    },
+        "Ask the user ONE question and wait for their answer. Use it when the task is \
+         ambiguous in a way only they can settle; never to ask permission a tool policy \
+         already handles. The answer arrives as this tool's result.";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -402,7 +421,15 @@ mod tests {
         assert_eq!(sorted.len(), names.len(), "duplicate tool name in the manifest");
         assert_eq!(
             names,
-            vec!["read_file", "list_dir", "search_text", "write_file", "run_command", "prove"],
+            vec![
+                "read_file",
+                "list_dir",
+                "search_text",
+                "write_file",
+                "run_command",
+                "prove",
+                "ask_user"
+            ],
             "tool order is part of the generated artifact; changing it is a contract change"
         );
     }

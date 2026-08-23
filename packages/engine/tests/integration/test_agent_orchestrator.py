@@ -20,6 +20,7 @@ edit is behaviour-preserving · the edit is divergent.
 
 from __future__ import annotations
 
+import json
 import subprocess
 import threading
 import time
@@ -31,7 +32,7 @@ import pytest
 
 from tempest.agent import contracts
 from tempest.agent.orchestrator import AgentError, ProvenChange, TaskSpec, run_task
-from tempest.agent.tools import Budgets
+from tempest.agent.tools import ApprovalDecision, ApprovalRequest, Budgets
 from tempest.agent.turnlog import TurnLog, plan_resume
 from tempest.execute.cancel import CancelScope, ProveCancelled
 from tempest.inference.providers import get
@@ -331,6 +332,210 @@ class TestRunControl:
             run = run_task(_spec(repo, cancel=CancelScope()), env=_env(url))
         assert run.stopped_because == "the model finished"
         assert run.change.bundle_id
+
+
+class TestToolSubset:
+    """C5: an AGENT's tool selection binds the runtime, not just the picker (LC15's first
+    tooth). The subset narrows BOTH sides of boundary D at once — the catalog the model is
+    shown and the dispatcher that answers it — because a tool offered but refused teaches
+    the model to retry, and a tool dispatched but never offered is a hole in the contract."""
+
+    def test_the_model_is_shown_only_the_allowed_tools(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.reply_text = "nothing to do"
+        with fake_anthropic_server(fake) as url:
+            run_task(
+                _spec(repo, tools_allowed=frozenset({"read_file"})),
+                env=_env(url),
+            )
+        offered = fake.requests[0].get("tools", [])
+        assert [t["name"] for t in offered] == ["read_file"]
+
+    def test_an_unallowed_call_is_refused_and_the_tree_untouched(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [
+            {"name": "write_file", "input": {"path": "app.py", "contents": "BROKEN\n"}}
+        ]
+        with fake_anthropic_server(fake) as url:
+
+            def stop(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    fake.tool_uses = []
+
+            run = run_task(
+                _spec(repo, tools_allowed=frozenset({"read_file"})),
+                env=_env(url),
+                on_event=stop,
+            )
+        refused = [c for c in run.calls if not c.ok]
+        assert refused and "toolset" in refused[0].detail
+        assert run.change.changed_files == (), "the refused write must not exist"
+
+    def test_an_unknown_allowed_name_is_a_loud_error(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        with (
+            fake_anthropic_server(fake) as url,
+            pytest.raises(Exception, match="not in the manifest"),
+        ):
+            run_task(
+                _spec(repo, tools_allowed=frozenset({"summon_demon"})),
+                env=_env(url),
+            )
+
+
+class TestHumanInTheLoop:
+    """C5 HITL (LC18): an approval-gated tool call PARKS the turn on `TaskSpec.approver`
+    instead of refusing outright — durable first (the PENDING_APPROVAL row lands before the
+    human is asked), decision applied exactly as scoped, refusal readable by the model. The
+    `ask_user` tool rides the same machinery with an ANSWER instead of a grant."""
+
+    def _approving(self, decision: ApprovalDecision) -> tuple[list[ApprovalRequest], Any]:
+        asked: list[ApprovalRequest] = []
+
+        def approver(request: ApprovalRequest) -> ApprovalDecision:
+            asked.append(request)
+            return decision
+
+        return asked, approver
+
+    def test_an_approval_runs_the_tool_and_the_park_was_durable(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "approved-run"]}}]
+        asked, approver = self._approving(ApprovalDecision(approved=True))
+        with fake_anthropic_server(fake) as url:
+
+            def stop(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    fake.tool_uses = []
+
+            run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=stop)
+        assert asked and asked[0].tool == "run_command"
+        assert asked[0].kind == "tool_approval"
+        ran = [c for c in run.calls if c.name == "run_command"]
+        assert ran and ran[0].ok, f"the approved command must run: {ran}"
+        assert "approved-run" in ran[0].detail
+        # Durability: the ask was recorded BEFORE the human answered — a kill mid-park must
+        # find the question in the log, not a mystery.
+        rows = [c for c in TurnLog(repo).history("t1") if c.stage == "pending_approval"]
+        assert rows and rows[0].payload["tool"] == "run_command"
+
+    def test_a_rejection_reaches_the_model_with_the_reason(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "no"]}}]
+        _asked, approver = self._approving(
+            ApprovalDecision(approved=False, reason="not on a Friday")
+        )
+        with fake_anthropic_server(fake) as url:
+
+            def stop(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    fake.tool_uses = []
+
+            run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=stop)
+        refused = [c for c in run.calls if not c.ok]
+        assert refused and "not on a Friday" in refused[0].detail
+
+    def test_scope_once_asks_again_next_time(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "one"]}}]
+        asked, approver = self._approving(ApprovalDecision(approved=True, scope="once"))
+        with fake_anthropic_server(fake) as url:
+            turns_seen = {"count": 0}
+
+            def two_rounds(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    turns_seen["count"] += 1
+                    if turns_seen["count"] == 1:
+                        fake.tool_uses = [
+                            {"name": "run_command", "input": {"argv": ["echo", "two"]}}
+                        ]
+                    else:
+                        fake.tool_uses = []
+
+            run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=two_rounds)
+        assert len(asked) == 2, "scope=once must not silently persist"
+        assert all(c.ok for c in run.calls if c.name == "run_command")
+
+    def test_scope_session_grants_the_rest_of_the_task(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "one"]}}]
+        asked, approver = self._approving(ApprovalDecision(approved=True, scope="session"))
+        with fake_anthropic_server(fake) as url:
+            turns_seen = {"count": 0}
+
+            def two_rounds(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    turns_seen["count"] += 1
+                    if turns_seen["count"] == 1:
+                        fake.tool_uses = [
+                            {"name": "run_command", "input": {"argv": ["echo", "two"]}}
+                        ]
+                    else:
+                        fake.tool_uses = []
+
+            run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=two_rounds)
+        assert len(asked) == 1, "a session grant must not re-ask"
+        assert sum(1 for c in run.calls if c.name == "run_command" and c.ok) == 2
+
+    def test_no_approver_keeps_the_plain_refusal(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "hi"]}}]
+        with fake_anthropic_server(fake) as url:
+
+            def stop(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    fake.tool_uses = []
+
+            run = run_task(_spec(repo), env=_env(url), on_event=stop)
+        refused = [c for c in run.calls if not c.ok]
+        assert refused and "requires approval" in refused[0].detail
+
+    def test_an_approver_raising_cancellation_unwinds_the_task(self, repo: Path) -> None:
+        """The park's cancellation path: the surface's approver observes the abort and
+        raises; the task unwinds without a verdict, resumable like any other kill."""
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "hi"]}}]
+
+        def approver(_request: ApprovalRequest) -> ApprovalDecision:
+            raise ProveCancelled("the user stopped the turn while it was parked")
+
+        with fake_anthropic_server(fake) as url, pytest.raises(ProveCancelled):
+            run_task(_spec(repo, approver=approver), env=_env(url))
+
+    def test_ask_user_round_trips_an_answer_into_the_transcript(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "ask_user", "input": {"question": "Blue or green?"}}]
+        asked, approver = self._approving(
+            ApprovalDecision(approved=True, response_text="blue, always blue")
+        )
+        with fake_anthropic_server(fake) as url:
+
+            def stop(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    fake.tool_uses = []
+                    fake.reply_text = "Blue it is."
+
+            run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=stop)
+        assert asked and asked[0].kind == "ask_user_question"
+        answered = [c for c in run.calls if c.name == "ask_user"]
+        assert answered and answered[0].ok
+        assert "blue, always blue" in answered[0].detail
+        # The answer went back to the MODEL as the tool result.
+        replayed = json.dumps(fake.requests[-1])
+        assert "blue, always blue" in replayed
+
+    def test_ask_user_without_an_approver_refuses_honestly(self, repo: Path) -> None:
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "ask_user", "input": {"question": "Anyone there?"}}]
+        with fake_anthropic_server(fake) as url:
+
+            def stop(kind: str, _d: str) -> None:
+                if kind == "tool":
+                    fake.tool_uses = []
+
+            run = run_task(_spec(repo), env=_env(url), on_event=stop)
+        refused = [c for c in run.calls if not c.ok]
+        assert refused, "a question with nobody to ask must refuse, not invent an answer"
 
 
 class TestWhatTheModelMayNotDo:

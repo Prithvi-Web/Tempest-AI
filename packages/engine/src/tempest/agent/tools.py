@@ -189,6 +189,34 @@ class ToolResult:
     truncated: bool = False
 
 
+#: The one tool whose "approval" is a QUESTION rather than a grant (C5 HITL).
+ASK_USER = "ask_user"
+
+
+@dataclass(frozen=True)
+class ApprovalRequest:
+    """One approval-gated call, parked for a human (C5 HITL, LC18)."""
+
+    tool: str
+    arguments: dict[str, Any]
+    call_id: str
+    #: "tool_approval" for a grant question; "ask_user_question" for `ask_user`, whose
+    #: decision carries an ANSWER instead.
+    kind: str
+
+
+@dataclass(frozen=True)
+class ApprovalDecision:
+    """What the human said. `scope="session"` grants the rest of THIS task — the
+    prompt-once-per-project semantic; an always-prompt tool is re-asked regardless of scope.
+    `response_text` carries the answer to an `ask_user` question."""
+
+    approved: bool
+    scope: str = "once"  # "once" | "session"
+    response_text: str | None = None
+    reason: str = ""
+
+
 @dataclass
 class Dispatcher:
     """Executes tool calls against ONE root — the task's shadow worktree — under one budget set.
@@ -217,6 +245,26 @@ class Dispatcher:
     #: model that hallucinates an unoffered tool still meets a refusal, never a handler.
     allowed: frozenset[str] | None = None
     calls_made: int = 0
+
+    # -- approval (C5 HITL) --------------------------------------------------------------
+
+    def approval_needed(self, name: str) -> bool:
+        """True when dispatching `name` now would hit the approval gate."""
+        spec = self.manifest.get(name)
+        return spec is not None and spec.policy.needs_grant and name not in self.grants
+
+    def always_prompts(self, name: str) -> bool:
+        """A tool declared `always_prompt` is re-asked every call; a session grant may
+        never silence it — the declaration outranks the human's generosity, because the
+        declaration was reviewed and the generosity is one tired click."""
+        spec = self.manifest.get(name)
+        return spec is not None and spec.policy.approval == "always_prompt"
+
+    def grant(self, name: str) -> None:
+        self.grants = self.grants | {name}
+
+    def revoke(self, name: str) -> None:
+        self.grants = self.grants - {name}
 
     # -- containment ---------------------------------------------------------------------
 
@@ -423,6 +471,18 @@ class Dispatcher:
             "proof to be skipped (L16)."
         )
 
+    def _ask_user(self, args: Mapping[str, Any]) -> ToolResult:
+        """Dispatch exists so the manifest and the handler set cannot disagree; the ACTUAL
+        round-trip runs in the orchestrator's approval flow (C5 HITL), which turns the call
+        into an `ApprovalRequest(kind="ask_user_question")` and hands back the human's answer
+        as this tool's result. Reaching THIS handler means no approver is attached — a
+        surface with nobody to ask — and inventing an answer would be the model talking to
+        itself wearing the user's voice."""
+        raise ToolError(
+            "`ask_user` needs a human on the other end and this surface has none attached; "
+            "state your assumption in narration and continue, or stop and say what is missing"
+        )
+
 
 HANDLERS: dict[str, Callable[[Dispatcher, Mapping[str, Any]], ToolResult]] = {
     "read_file": Dispatcher._read_file,
@@ -431,4 +491,5 @@ HANDLERS: dict[str, Callable[[Dispatcher, Mapping[str, Any]], ToolResult]] = {
     "write_file": Dispatcher._write_file,
     "run_command": Dispatcher._run_command,
     "prove": Dispatcher._prove,
+    "ask_user": Dispatcher._ask_user,
 }

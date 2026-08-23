@@ -198,5 +198,37 @@
       }
     },
     "type": "function"
+  },
+  {
+    "function": {
+      "description": "Ask the user ONE question and wait for their answer. Use it when the task is ambiguous in a way only they can settle; never to ask permission a tool policy already handles. The answer arrives as this tool's result.",
+      "name": "ask_user",
+      "parameters": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "description": "Arguments for `ask_user` — the human-in-the-loop question (C5, LC18).",
+        "properties": {
+          "options": {
+            "description": "Optional fixed choices. Omit for a free-text answer.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "question": {
+            "description": "The question, in plain language the user can answer without reading the transcript.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "AskUserArgs",
+        "type": "object"
+      }
+    },
+    "type": "function"
   }
 ]

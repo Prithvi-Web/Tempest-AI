@@ -18,6 +18,7 @@ export type AgentToolName =
   | "write_file"
   | "run_command"
   | "prove"
+  | "ask_user"
 ;
 
 export const AGENT_TOOLS: ReadonlyArray<{
@@ -80,6 +81,16 @@ export const AGENT_TOOLS: ReadonlyArray<{
     description: "Run a differential behavioural proof of the current shadow worktree against the baseline and return the verdict with its evidence. The verdict is computed by the engine; you may explain it, never author it.",
     policy: {
       approval: "auto",
+      touchesNetwork: false,
+      destructive: false,
+      writes: "none",
+    },
+  },
+  {
+    name: "ask_user",
+    description: "Ask the user ONE question and wait for their answer. Use it when the task is ambiguous in a way only they can settle; never to ask permission a tool policy already handles. The answer arrives as this tool's result.",
+    policy: {
+      approval: "always_prompt",
       touchesNetwork: false,
       destructive: false,
       writes: "none",

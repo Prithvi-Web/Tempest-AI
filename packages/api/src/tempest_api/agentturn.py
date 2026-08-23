@@ -15,11 +15,15 @@ drives the job's frame ledger and terminal commit through `ChatTurns`' own helpe
 
 from __future__ import annotations
 
+import dataclasses
+import threading
+import time
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from tempest.agent.orchestrator import AgentError, TaskSpec, run_task
-from tempest.agent.tools import ToolError
+from tempest.agent.tools import ApprovalDecision, ApprovalRequest, ToolError
 from tempest.execute.cancel import CancelScope, ProveCancelled
 from tempest.inference import providers as registry
 from tempest_api import chatwire
@@ -30,6 +34,58 @@ if TYPE_CHECKING:  # a runtime import would be a cycle; only the types are neede
 
 class AgentTurnRejected(RuntimeError):
     """A turn that cannot start, with a reason the user can act on (L15.3)."""
+
+
+#: A parked question is not an open-ended lease (L15.4): past this, the ask resolves as an
+#: honest refusal ("expired unanswered") and the turn continues with it on the record. The
+#: CANCEL path stays live throughout — the park polls the scope every quarter second.
+_APPROVAL_EXPIRY_S = 1800.0
+
+
+@dataclasses.dataclass
+class ApprovalBox:
+    """One park: the wire-shaped pending action, the request it answers, and the slot the
+    resume writes into. Lives on the job so `resolve_approval` and `status` can reach it."""
+
+    action_id: str
+    request: ApprovalRequest
+    pending: dict[str, Any]
+    decided: threading.Event = dataclasses.field(default_factory=threading.Event)
+    decision: ApprovalDecision | None = None
+
+
+def _pending_payload(request: ApprovalRequest) -> dict[str, Any]:
+    """The client's `HumanInterruptPayload`, discriminated on `type`; the join key is
+    tool_call_id, never position (the client's own doc comment warns about parallel calls)."""
+    if request.kind == "ask_user_question":
+        options = [
+            {"label": str(o), "value": str(o)} for o in (request.arguments.get("options") or [])
+        ]
+        question: dict[str, Any] = {"question": str(request.arguments.get("question") or "")}
+        if options:
+            question["options"] = options
+        return {
+            "type": "ask_user_question",
+            "question": question,
+            "tool_call_id": request.call_id,
+        }
+    return {
+        "type": "tool_approval",
+        "action_requests": [
+            {
+                "name": request.tool,
+                "arguments": request.arguments,
+                "tool_call_id": request.call_id,
+            }
+        ],
+        "review_configs": [
+            {
+                "action_name": request.tool,
+                "tool_call_id": request.call_id,
+                "allowed_decisions": ["approve", "reject"],
+            }
+        ],
+    }
 
 
 def spec_for(
@@ -104,6 +160,45 @@ def run_agent_turn(
         )
         turns._flush_if_due(job)
 
+    def approver(request: ApprovalRequest) -> ApprovalDecision:
+        """PARK the turn on the client (C5 HITL, LC18): publish `on_pending_action`, hold the
+        status ACTIVE (the poller keeps the live feed open through the park), and wait for
+        `resolve_approval` — observing the cancel scope every quarter second and expiring
+        into an honest refusal rather than leasing the thread forever."""
+        box = ApprovalBox(
+            action_id=f"appr_{uuid.uuid4().hex[:12]}",
+            request=request,
+            pending={},
+        )
+        box.pending = {
+            "actionId": box.action_id,
+            "streamId": job.stream_id,
+            "conversationId": job.conversation_id,
+            "runId": job.response_message_id,
+            "responseMessageId": job.response_message_id,
+            "createdAt": int(time.time() * 1000),
+            "payload": _pending_payload(request),
+        }
+        job.approval_box = box
+        job.append({"event": "on_pending_action", "data": box.pending})
+        turns._flush_if_due(job)
+        deadline = time.monotonic() + _APPROVAL_EXPIRY_S
+        try:
+            while not box.decided.wait(0.25):
+                if scope.cancelled:
+                    raise ProveCancelled("the turn was stopped while parked on an approval")
+                if time.monotonic() >= deadline:
+                    return ApprovalDecision(
+                        approved=False,
+                        reason="the approval request expired unanswered (30 minutes)",
+                    )
+        finally:
+            job.approval_box = None
+        decision = box.decision
+        if decision is None:  # pragma: no cover — decided is set only after the slot fills
+            raise AgentError("an approval was signalled decided with no decision recorded")
+        return decision
+
     try:
         spec = spec_for(
             job,
@@ -114,6 +209,7 @@ def run_agent_turn(
             meter=turns._meter,
             cancel=scope,
         )
+        spec = dataclasses.replace(spec, approver=approver)
         run_task(spec, env=turns._env_provider(), on_event=emit)
     except ProveCancelled:
         aborted = True

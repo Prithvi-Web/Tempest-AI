@@ -14,7 +14,13 @@ from fastapi import APIRouter
 
 from tempest.inference import cost
 from tempest_api.agentstore import AgentStore
-from tempest_api.chatturn import ChatTurns, TurnConflict, TurnRejected
+from tempest_api.chatturn import (
+    ApprovalInvalid,
+    ApprovalStale,
+    ChatTurns,
+    TurnConflict,
+    TurnRejected,
+)
 from tempest_api.errors import ApiError, error_responses
 from tempest_api.localprove import data_dir
 from tempest_api.platformstore import PlatformStore
@@ -25,6 +31,7 @@ from tempest_api.schemas.chat import (
     ChatTurnAck,
     ChatTurnStatusOut,
     ConversationsOut,
+    ResumeApprovalRequest,
     StartChatTurnRequest,
     TurnEventsOut,
 )
@@ -99,6 +106,24 @@ async def cancel_chat_turn(
         lambda: _turns().cancel_turn(stream_id, generation_created_at=generation_created_at)
     )
     return CancelTurnOut(**payload)
+
+
+@router.post(
+    "/v1/chat/turns/{stream_id}/resume",
+    operation_id="resolveChatApproval",
+    responses=error_responses(400, 409, 422),
+)
+async def resolve_chat_approval(stream_id: str, body: ResumeApprovalRequest) -> dict[str, Any]:
+    """Answer a parked approval (C5 HITL). The continuation rides the EXISTING stream —
+    this returns the client's `{status: 'resuming'}` ack and opens nothing."""
+    try:
+        return await asyncio.to_thread(_turns().resolve_approval, stream_id, body.model_dump())
+    except ApprovalStale as exc:
+        # 409 is the client's terminal signal (submit locks); the code is the closest
+        # frozen member — the vendored client switches on the STATUS, never this string.
+        raise ApiError(409, ErrorCode.IDEMPOTENCY_CONFLICT, str(exc)) from exc
+    except ApprovalInvalid as exc:
+        raise ApiError(400, ErrorCode.VALIDATION_ERROR, str(exc)) from exc
 
 
 @router.get("/v1/chat/conversations", operation_id="listConversations")

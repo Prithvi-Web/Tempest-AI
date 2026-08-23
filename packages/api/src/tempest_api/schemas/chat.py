@@ -22,6 +22,18 @@ class StartChatTurnRequest(BaseModel):
     model_parameters: dict[str, Any] | None = None
 
 
+class ResumeApprovalRequest(BaseModel):
+    """The client's resume body (C5 HITL): tool decisions OR an ask_user answer, joined to
+    the park by actionId. `extra='allow'` for the ResumeAgentFields riding alongside."""
+
+    model_config = ConfigDict(extra="allow")
+
+    actionId: str
+    decisions: list[dict[str, Any]] | None = None
+    answer: str | None = None
+    answers: dict[str, str] | None = None
+
+
 class ChatTurnAck(BaseModel):
     streamId: str
     conversationId: str
@@ -51,6 +63,9 @@ class ChatTurnStatusOut(BaseModel):
     #: The vendored status contract's own name for the epoch; served beside the long form
     #: so no host has to translate.
     createdAt: int | None = None
+    #: The live park, when a tool call is waiting on a human (C5 HITL): the client rebuilds
+    #: its approval UI from this after a reload.
+    pendingAction: dict[str, Any] | None = None
 
 
 class ActiveTurnsOut(BaseModel):

@@ -10,8 +10,16 @@
  */
 import { expect, test } from "./fixtures";
 
-/** The six boundary-D tools, by the display names the picker derives from the manifest. */
-const REGISTRY = ["Read file", "List dir", "Search text", "Write file", "Run command", "Prove"];
+/** The seven boundary-D tools, by the display names the picker derives from the manifest. */
+const REGISTRY = [
+  "Read file",
+  "List dir",
+  "Search text",
+  "Write file",
+  "Run command",
+  "Prove",
+  "Ask user",
+];
 
 test("the tool library is the boundary-D registry, rendered", async ({ page }) => {
   await page.goto("/");

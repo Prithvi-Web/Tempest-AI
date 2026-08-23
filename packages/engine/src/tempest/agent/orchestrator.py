@@ -41,7 +41,15 @@ from tempest.agent import repair as repair_mod
 from tempest.agent import rules as rules_mod
 from tempest.agent import shadow as shadow_mod
 from tempest.agent import turnlog as turnlog_mod
-from tempest.agent.tools import Budgets, Dispatcher, ToolResult, model_facing_catalog
+from tempest.agent.tools import (
+    ASK_USER,
+    ApprovalDecision,
+    ApprovalRequest,
+    Budgets,
+    Dispatcher,
+    ToolResult,
+    model_facing_catalog,
+)
 from tempest.bundle.bundle import run_verdict
 from tempest.config import TempestConfig, TempestConfigError, is_ignored
 from tempest.envrepro.deps import attach_deps, fetch_enabled
@@ -226,6 +234,12 @@ class TaskSpec:
     #: BOTH sides of boundary D — the catalog the model is shown and the dispatcher that
     #: answers it — and a name outside the manifest is a loud error at task start.
     tools_allowed: frozenset[str] | None = None
+    #: C5 HITL (LC18). When present, an approval-gated call PARKS the turn on this callable —
+    #: durable first (the PENDING_APPROVAL row lands before the human is asked) — and the
+    #: decision is applied exactly as scoped. `None` keeps the plain refusal. The callable
+    #: may raise `ProveCancelled` to unwind a park the user abandoned; anything it blocks on
+    #: is the SURFACE's budget to bound.
+    approver: Callable[[ApprovalRequest], ApprovalDecision] | None = None
 
 
 @dataclass(frozen=True)
@@ -398,6 +412,7 @@ def _converse(
     catalog: Any,
     env: dict[str, str],
     emit: Callable[[str, str], None],
+    log: turnlog_mod.TurnLog,
 ) -> tuple[str, int]:
     """Run model turns until it stops asking for tools, errors, or spends the turn budget.
 
@@ -470,7 +485,7 @@ def _converse(
                 # Between tool calls too: a cancel that lands during a long command must not
                 # wait for the whole batch the model asked for.
                 spec.cancel.raise_if_cancelled()
-            result = dispatcher.call(call.name, call.arguments)
+            result = _dispatch_with_approval(spec, dispatcher, log, emit, call)
             calls.append(
                 ToolCallRecord(
                     name=call.name,
@@ -487,6 +502,54 @@ def _converse(
         # The `for` completed without breaking: the model never stopped asking for tools.
         stopped = f"turn budget spent ({spec.max_turns})"
     return stopped, turns
+
+
+def _dispatch_with_approval(
+    spec: TaskSpec,
+    dispatcher: Dispatcher,
+    log: turnlog_mod.TurnLog,
+    emit: Callable[[str, str], None],
+    call: ToolCall,
+) -> ToolResult:
+    """One tool call, with the C5 HITL park in front of the approval gate (LC18).
+
+    Durable FIRST: the PENDING_APPROVAL row lands before the human is asked, so a kill
+    mid-park finds the question in the log rather than a mystery. The decision is applied
+    exactly as scoped — `once` grants one dispatch, `session` grants the rest of the task,
+    and an always-prompt tool is re-asked regardless. `ask_user` rides the same machinery
+    with an ANSWER instead of a grant. With no approver attached, the plain refusal stands
+    unchanged — never a silent auto-grant.
+    """
+    if spec.approver is None or not dispatcher.approval_needed(call.name):
+        return dispatcher.call(call.name, call.arguments)
+    kind = "ask_user_question" if call.name == ASK_USER else "tool_approval"
+    log.checkpoint(
+        spec.task_id,
+        turnlog_mod.PENDING_APPROVAL,
+        tool=call.name,
+        call=call.id,
+        kind=kind,
+        arguments=dict(call.arguments),
+    )
+    emit("pending_approval", call.name)
+    decision = spec.approver(
+        ApprovalRequest(tool=call.name, arguments=dict(call.arguments), call_id=call.id, kind=kind)
+    )
+    emit("approval_decision", f"{call.name}: {'approved' if decision.approved else 'refused'}")
+    if kind == "ask_user_question":
+        if decision.approved:
+            return ToolResult(ok=True, content=decision.response_text or "")
+        detail = f"the user declined to answer: {decision.reason}".rstrip(": ")
+        return ToolResult(ok=False, content=detail)
+    if not decision.approved:
+        suffix = f": {decision.reason}" if decision.reason else ""
+        return ToolResult(ok=False, content=f"{call.name} was refused by the user{suffix}")
+    dispatcher.grant(call.name)
+    try:
+        return dispatcher.call(call.name, call.arguments)
+    finally:
+        if decision.scope != "session" or dispatcher.always_prompts(call.name):
+            dispatcher.revoke(call.name)
 
 
 def run_task(
@@ -581,7 +644,9 @@ def run_task(
     calls: list[ToolCallRecord] = []
 
     if plan.redo_turns:
-        stopped, turns = _converse(spec, history, narration, calls, dispatcher, catalog, env, emit)
+        stopped, turns = _converse(
+            spec, history, narration, calls, dispatcher, catalog, env, emit, log
+        )
         log.checkpoint(
             spec.task_id,
             turnlog_mod.TURNS_DONE,
@@ -946,7 +1011,7 @@ def _repair_loop(
             spec.task_id, turnlog_mod.REPAIR_ATTEMPT, number=number, symbol=packet.qualname
         )
         history.append(Message(role="user", content=packet.render()))
-        _converse(spec, history, narration, calls, dispatcher, catalog, env, emit)
+        _converse(spec, history, narration, calls, dispatcher, catalog, env, emit, log)
         # The attempt's conversation is part of the durable record. Without this a restart mid
         # repair replayed the transcript from BEFORE the attempt while the shadow already held
         # the attempt's edits, and re-ran model turns that had already been paid for.

@@ -445,6 +445,18 @@
             "title": "Generationprotocolversion",
             "type": "integer"
           },
+          "pendingAction": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pendingaction"
+          },
           "status": {
             "anyOf": [
               {
@@ -1098,6 +1110,61 @@
         ],
         "title": "ReasonCode",
         "type": "string"
+      },
+      "ResumeApprovalRequest": {
+        "additionalProperties": true,
+        "description": "The client's resume body (C5 HITL): tool decisions OR an ask_user answer, joined to\nthe park by actionId. `extra='allow'` for the ResumeAgentFields riding alongside.",
+        "properties": {
+          "actionId": {
+            "title": "Actionid",
+            "type": "string"
+          },
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "answers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
+          },
+          "decisions": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisions"
+          }
+        },
+        "required": [
+          "actionId"
+        ],
+        "title": "ResumeApprovalRequest",
+        "type": "object"
       },
       "RevertIn": {
         "properties": {
@@ -3227,6 +3294,81 @@
           }
         },
         "summary": "List Chat Turn Events",
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/v1/chat/turns/{stream_id}/resume": {
+      "post": {
+        "description": "Answer a parked approval (C5 HITL). The continuation rides the EXISTING stream \u2014\nthis returns the client's `{status: 'resuming'}` ack and opens nothing.",
+        "operationId": "resolveChatApproval",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "required": true,
+            "schema": {
+              "title": "Stream Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Resolvechatapproval",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Resolve Chat Approval",
         "tags": [
           "chat"
         ]

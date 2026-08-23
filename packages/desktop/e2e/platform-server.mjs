@@ -255,10 +255,15 @@ async function handleChatSeam(req, res, method, route) {
     return true;
   }
   if (method === "POST" && sub === "resume") {
-    respond(res, 501, "application/json", JSON.stringify({
-      code: "RESUME_UNSUPPORTED",
-      error: "resume is not wired yet (C5 run control)",
-    }));
+    // C5 HITL, mirroring the host: the stream id IS the conversation id; the engine's own
+    // statuses pass through (409 stale locks the client's submit).
+    const parsed = JSON.parse((await readBody(req)) || "{}");
+    const streamId = parsed.streamId ?? parsed.conversationId ?? "";
+    if (!streamId) {
+      respond(res, 400, "application/json", JSON.stringify({ error: "no stream to resume" }));
+      return true;
+    }
+    await agentOp(res, "resolveChatApproval", { stream_id: streamId, body: parsed });
     return true;
   }
   if (method === "GET" && sub === "active") {

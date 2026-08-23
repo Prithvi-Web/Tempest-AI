@@ -73,7 +73,7 @@ class TestTheManifestIsTheOnlyDeclaration:
             f"handled but undeclared: {sorted(set(tools.HANDLERS) - declared)}"
         )
 
-    def test_the_six_tools_are_the_ones_boundary_d_declares(self) -> None:
+    def test_the_seven_tools_are_the_ones_boundary_d_declares(self) -> None:
         assert set(tools.load_manifest()) == {
             "read_file",
             "list_dir",
@@ -81,6 +81,7 @@ class TestTheManifestIsTheOnlyDeclaration:
             "write_file",
             "run_command",
             "prove",
+            "ask_user",
         }
 
     def test_policies_are_read_from_the_manifest_not_restated(self) -> None:

@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from tempest.agent.tools import ApprovalDecision
 from tempest.inference import cost
 from tempest.inference import providers as registry
 from tempest.inference.client import (
@@ -80,6 +81,15 @@ class TurnRejected(Exception):
     """The request cannot start a turn (unknown endpoint, blank text) — a 400, not a 500."""
 
 
+class ApprovalStale(Exception):
+    """The named pending action is not the live one (C5 HITL) — a terminal 409: the client
+    locks its submit on this, exactly as it does against the vendored server."""
+
+
+class ApprovalInvalid(Exception):
+    """The resume payload is malformed or incomplete — a retryable 400."""
+
+
 @dataclass
 class _Job:
     stream_id: str
@@ -93,6 +103,10 @@ class _Job:
     #: Set by the AGENT-turn worker (C5): the runtime's cancellation scope, so an abort can
     #: kill registered children through `scope.cancel()` rather than only flag the event.
     cancel_scope: Any = None
+    #: The live park, when a tool call is waiting on a human (C5 HITL): an
+    #: `agentturn.ApprovalBox`. `resolve_approval` writes the decision into it; `status`
+    #: serves its pending action so a reloaded client can rebuild the approval UI.
+    approval_box: Any = None
     settled: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
     #: Ledger rows not yet flushed to the store, id → doc.
@@ -639,7 +653,7 @@ class ChatTurns:
     def status(self, conversation_id: str) -> dict[str, Any]:
         job = self._job_or_reconcile(conversation_id)
         if job is not None and job.status == "active":
-            return {
+            answer: dict[str, Any] = {
                 "active": True,
                 "status": "active",
                 "streamId": job.stream_id,
@@ -650,9 +664,70 @@ class ChatTurns:
                 "createdAt": job.generation_created_at,
                 "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
             }
+            box = job.approval_box
+            if box is not None:
+                # A reloaded client rebuilds the approval UI from the status (the sync
+                # path's resumeState.pendingAction and the top-level field are both read).
+                answer["pendingAction"] = box.pending
+            return answer
         return {
             "active": False,
             "conversationId": conversation_id,
+            "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
+        }
+
+    def resolve_approval(self, stream_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Answer the live park (C5 HITL): validate against the client's own contract —
+        stale action 409 (`ApprovalStale`), undecided or malformed 400 (`ApprovalInvalid`) —
+        write the decision into the box, and wake the parked worker. The continuation rides
+        the EXISTING stream; this call opens nothing."""
+        with self._lock:
+            job = self._jobs.get(stream_id)
+        if job is None or job.status != "active":
+            raise ApprovalStale(f"no active generation for {stream_id}")
+        box = job.approval_box
+        action_id = str(body.get("actionId") or "")
+        if box is None or box.action_id != action_id:
+            raise ApprovalStale(f"action {action_id!r} is not the live pending action")
+        request = box.request
+        if request.kind == "ask_user_question":
+            answer: Any = body.get("answer")
+            answers = body.get("answers")
+            if answer is None and isinstance(answers, dict) and answers:
+                answer = next(iter(answers.values()))
+            if not isinstance(answer, str) or not answer.strip():
+                raise ApprovalInvalid("an answer is required for an ask_user question")
+            box.decision = ApprovalDecision(approved=True, response_text=answer.strip())
+        else:
+            decisions = body.get("decisions")
+            rows = decisions if isinstance(decisions, list) else []
+            match = next(
+                (
+                    row
+                    for row in rows
+                    if isinstance(row, dict) and row.get("tool_call_id") == request.call_id
+                ),
+                None,
+            )
+            if match is None:
+                raise ApprovalInvalid("every paused tool call must be decided")
+            verb = str(match.get("decision") or "")
+            if verb not in ("approve", "reject"):
+                raise ApprovalInvalid(
+                    f"decision {verb!r} is not permitted here — this action allows "
+                    f"approve or reject"
+                )
+            scope_word = "session" if match.get("scope") in ("session", "always") else "once"
+            box.decision = ApprovalDecision(
+                approved=verb == "approve",
+                scope=scope_word,
+                reason=str(match.get("reason") or ""),
+            )
+        box.decided.set()
+        return {
+            "streamId": job.stream_id,
+            "conversationId": job.conversation_id,
+            "status": "resuming",
             "generationProtocolVersion": GENERATION_PROTOCOL_VERSION,
         }
 

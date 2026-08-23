@@ -290,6 +290,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/chat/turns/{stream_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Chat Approval
+         * @description Answer a parked approval (C5 HITL). The continuation rides the EXISTING stream —
+         *     this returns the client's `{status: 'resuming'}` ack and opens nothing.
+         */
+        post: operations["resolveChatApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/diagnostics": {
         parameters: {
             query?: never;
@@ -922,6 +943,10 @@ export interface components {
             generationCreatedAt?: number | null;
             /** Generationprotocolversion */
             generationProtocolVersion: number;
+            /** Pendingaction */
+            pendingAction?: {
+                [key: string]: unknown;
+            } | null;
             /** Status */
             status?: string | null;
             /** Streamid */
@@ -1181,6 +1206,27 @@ export interface components {
          * @enum {string}
          */
         ReasonCode: "TARGET_UNREACHABLE" | "ENV_REPRODUCTION_FAILED" | "HARNESS_SYNTHESIS_FAILED" | "SYNTHESIS_DECLINED" | "UNINTERCEPTABLE_EFFECT" | "NONDETERMINISTIC_BASE" | "SANDBOX_UNAVAILABLE" | "VALUE_UNSERIALIZABLE" | "RECORD_REPLAY_UNAVAILABLE";
+        /**
+         * ResumeApprovalRequest
+         * @description The client's resume body (C5 HITL): tool decisions OR an ask_user answer, joined to
+         *     the park by actionId. `extra='allow'` for the ResumeAgentFields riding alongside.
+         */
+        ResumeApprovalRequest: {
+            /** Actionid */
+            actionId: string;
+            /** Answer */
+            answer?: string | null;
+            /** Answers */
+            answers?: {
+                [key: string]: string;
+            } | null;
+            /** Decisions */
+            decisions?: {
+                [key: string]: unknown;
+            }[] | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** RevertIn */
         RevertIn: {
             /** Version Index */
@@ -2331,6 +2377,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolveChatApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stream_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResumeApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };

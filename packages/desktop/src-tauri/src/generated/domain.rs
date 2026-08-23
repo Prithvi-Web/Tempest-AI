@@ -889,6 +889,18 @@ impl ChatTurnAck {
 #[doc = "      \"maximum\": 2147483647.0,"]
 #[doc = "      \"minimum\": -2147483648.0"]
 #[doc = "    },"]
+#[doc = "    \"pendingAction\": {"]
+#[doc = "      \"title\": \"Pendingaction\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"object\","]
+#[doc = "          \"additionalProperties\": true"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"status\": {"]
 #[doc = "      \"title\": \"Status\","]
 #[doc = "      \"anyOf\": ["]
@@ -934,6 +946,13 @@ pub struct ChatTurnStatusOut {
     pub generation_created_at: ::std::option::Option<i32>,
     #[serde(rename = "generationProtocolVersion")]
     pub generation_protocol_version: i32,
+    #[serde(
+        rename = "pendingAction",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub pending_action:
+        ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub status: ::std::option::Option<::std::string::String>,
     #[serde(
@@ -2688,6 +2707,88 @@ impl<'de> ::serde::Deserialize<'de> for RepoPath {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+#[doc = "The client's resume body (C5 HITL): tool decisions OR an ask_user answer, joined to\nthe park by actionId. `extra='allow'` for the ResumeAgentFields riding alongside."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"title\": \"ResumeApprovalRequest\","]
+#[doc = "  \"description\": \"The client's resume body (C5 HITL): tool decisions OR an ask_user answer, joined to\\nthe park by actionId. `extra='allow'` for the ResumeAgentFields riding alongside.\","]
+#[doc = "  \"type\": \"object\","]
+#[doc = "  \"required\": ["]
+#[doc = "    \"actionId\""]
+#[doc = "  ],"]
+#[doc = "  \"properties\": {"]
+#[doc = "    \"actionId\": {"]
+#[doc = "      \"title\": \"Actionid\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
+#[doc = "    \"answer\": {"]
+#[doc = "      \"title\": \"Answer\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"answers\": {"]
+#[doc = "      \"title\": \"Answers\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"object\","]
+#[doc = "          \"additionalProperties\": {"]
+#[doc = "            \"type\": \"string\""]
+#[doc = "          }"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    },"]
+#[doc = "    \"decisions\": {"]
+#[doc = "      \"title\": \"Decisions\","]
+#[doc = "      \"anyOf\": ["]
+#[doc = "        {"]
+#[doc = "          \"type\": \"array\","]
+#[doc = "          \"items\": {"]
+#[doc = "            \"type\": \"object\","]
+#[doc = "            \"additionalProperties\": true"]
+#[doc = "          }"]
+#[doc = "        },"]
+#[doc = "        {"]
+#[doc = "          \"type\": \"null\""]
+#[doc = "        }"]
+#[doc = "      ]"]
+#[doc = "    }"]
+#[doc = "  },"]
+#[doc = "  \"additionalProperties\": true"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug, specta :: Type)]
+pub struct ResumeApprovalRequest {
+    #[serde(rename = "actionId")]
+    pub action_id: ::std::string::String,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub answer: ::std::option::Option<::std::string::String>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub answers: ::std::option::Option<
+        ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+    >,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub decisions: ::std::option::Option<
+        ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+    >,
+}
+impl ResumeApprovalRequest {
+    pub fn builder() -> builder::ResumeApprovalRequest {
+        Default::default()
     }
 }
 #[doc = "`RevertIn`"]
@@ -6001,6 +6102,10 @@ pub mod builder {
         generation_created_at:
             ::std::result::Result<::std::option::Option<i32>, ::std::string::String>,
         generation_protocol_version: ::std::result::Result<i32, ::std::string::String>,
+        pending_action: ::std::result::Result<
+            ::std::option::Option<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            ::std::string::String,
+        >,
         status: ::std::result::Result<
             ::std::option::Option<::std::string::String>,
             ::std::string::String,
@@ -6020,6 +6125,7 @@ pub mod builder {
                 generation_protocol_version: Err(
                     "no value supplied for generation_protocol_version".to_string(),
                 ),
+                pending_action: Ok(Default::default()),
                 status: Ok(Default::default()),
                 stream_id: Ok(Default::default()),
             }
@@ -6076,6 +6182,20 @@ pub mod builder {
             });
             self
         }
+        pub fn pending_action<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.pending_action = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for pending_action: {e}"));
+            self
+        }
         pub fn status<T>(mut self, value: T) -> Self
         where
             T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
@@ -6108,6 +6228,7 @@ pub mod builder {
                 created_at: value.created_at?,
                 generation_created_at: value.generation_created_at?,
                 generation_protocol_version: value.generation_protocol_version?,
+                pending_action: value.pending_action?,
                 status: value.status?,
                 stream_id: value.stream_id?,
             })
@@ -6121,6 +6242,7 @@ pub mod builder {
                 created_at: Ok(value.created_at),
                 generation_created_at: Ok(value.generation_created_at),
                 generation_protocol_version: Ok(value.generation_protocol_version),
+                pending_action: Ok(value.pending_action),
                 status: Ok(value.status),
                 stream_id: Ok(value.stream_id),
             }
@@ -7582,6 +7704,109 @@ pub mod builder {
                 endpoints: Ok(value.endpoints),
                 models: Ok(value.models),
                 providers: Ok(value.providers),
+            }
+        }
+    }
+    #[derive(Clone, Debug)]
+    pub struct ResumeApprovalRequest {
+        action_id: ::std::result::Result<::std::string::String, ::std::string::String>,
+        answer: ::std::result::Result<
+            ::std::option::Option<::std::string::String>,
+            ::std::string::String,
+        >,
+        answers: ::std::result::Result<
+            ::std::option::Option<
+                ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+            >,
+            ::std::string::String,
+        >,
+        decisions: ::std::result::Result<
+            ::std::option::Option<
+                ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+            >,
+            ::std::string::String,
+        >,
+    }
+    impl ::std::default::Default for ResumeApprovalRequest {
+        fn default() -> Self {
+            Self {
+                action_id: Err("no value supplied for action_id".to_string()),
+                answer: Ok(Default::default()),
+                answers: Ok(Default::default()),
+                decisions: Ok(Default::default()),
+            }
+        }
+    }
+    impl ResumeApprovalRequest {
+        pub fn action_id<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::string::String>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.action_id = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for action_id: {e}"));
+            self
+        }
+        pub fn answer<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<::std::option::Option<::std::string::String>>,
+            T::Error: ::std::fmt::Display,
+        {
+            self.answer = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for answer: {e}"));
+            self
+        }
+        pub fn answers<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::std::collections::HashMap<::std::string::String, ::std::string::String>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.answers = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for answers: {e}"));
+            self
+        }
+        pub fn decisions<T>(mut self, value: T) -> Self
+        where
+            T: ::std::convert::TryInto<
+                ::std::option::Option<
+                    ::std::vec::Vec<::serde_json::Map<::std::string::String, ::serde_json::Value>>,
+                >,
+            >,
+            T::Error: ::std::fmt::Display,
+        {
+            self.decisions = value
+                .try_into()
+                .map_err(|e| format!("error converting supplied value for decisions: {e}"));
+            self
+        }
+    }
+    impl ::std::convert::TryFrom<ResumeApprovalRequest> for super::ResumeApprovalRequest {
+        type Error = super::error::ConversionError;
+        fn try_from(
+            value: ResumeApprovalRequest,
+        ) -> ::std::result::Result<Self, super::error::ConversionError> {
+            Ok(Self {
+                action_id: value.action_id?,
+                answer: value.answer?,
+                answers: value.answers?,
+                decisions: value.decisions?,
+            })
+        }
+    }
+    impl ::std::convert::From<super::ResumeApprovalRequest> for ResumeApprovalRequest {
+        fn from(value: super::ResumeApprovalRequest) -> Self {
+            Self {
+                action_id: Ok(value.action_id),
+                answer: Ok(value.answer),
+                answers: Ok(value.answers),
+                decisions: Ok(value.decisions),
             }
         }
     }

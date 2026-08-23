@@ -446,6 +446,18 @@
           "title": "Generationprotocolversion",
           "type": "integer"
         },
+        "pendingAction": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pendingaction"
+        },
         "status": {
           "anyOf": [
             {
@@ -1117,6 +1129,61 @@
       ],
       "title": "ReasonCode",
       "type": "string"
+    },
+    "ResumeApprovalRequest": {
+      "additionalProperties": true,
+      "description": "The client's resume body (C5 HITL): tool decisions OR an ask_user answer, joined to\nthe park by actionId. `extra='allow'` for the ResumeAgentFields riding alongside.",
+      "properties": {
+        "actionId": {
+          "title": "Actionid",
+          "type": "string"
+        },
+        "answer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Answer"
+        },
+        "answers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Answers"
+        },
+        "decisions": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Decisions"
+        }
+      },
+      "required": [
+        "actionId"
+      ],
+      "title": "ResumeApprovalRequest",
+      "type": "object"
     },
     "RevertIn": {
       "properties": {

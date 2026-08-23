@@ -273,6 +273,176 @@ class TestToolBearingTurns:
         assert "repository" in text.lower(), f"the refusal must name the missing piece: {text}"
 
 
+def _wait_pending(api: Any, stream_id: str, timeout: float = 30.0) -> dict[str, Any]:
+    """Poll the ledger until the park's `on_pending_action` frame appears; return its data."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        payload = api.client.get(f"/v1/chat/turns/{stream_id}/events?after=0").json()
+        for frame in _frames(payload):
+            if frame.get("event") == "on_pending_action":
+                assert payload["status"] == "active", "a parked turn must still be ACTIVE"
+                data: dict[str, Any] = frame["data"]
+                return data
+        if payload["status"] not in ("active", "unknown"):
+            raise AssertionError(f"turn settled without parking: {payload['status']}")
+        time.sleep(0.05)
+    raise AssertionError("the pending-action frame never arrived")
+
+
+class TestHumanInTheLoopWire:
+    """LC18 over the real wire: park → on_pending_action frame → POST resume → completion.
+    The client's contract (recon'd from ApprovalContext/useResumableSSE): the pending payload
+    joins by tool_call_id, resume answers {status:'resuming'}, a stale actionId is a 409 and
+    an undecided batch a 400."""
+
+    def _gated_agent(self, api: Any, repo: Path) -> dict[str, Any]:
+        return _make_agent(
+            api,
+            tools=["read_file", "run_command"],
+            tempest_repo=str(repo),
+        )
+
+    def _park(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        agent = self._gated_agent(api, repo)
+        agent_env.script = [
+            {
+                "text": "Running it.",
+                "tool_calls": [
+                    {"name": "run_command", "arguments": {"argv": ["echo", "hitl-ran"]}}
+                ],
+            },
+            {"text": "Command finished."},
+        ]
+        ack = _start(api, agent["id"], "Run echo")
+        pending = _wait_pending(api, ack["streamId"])
+        return ack, pending
+
+    def test_approval_round_trips_and_the_command_runs(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, pending = self._park(api, agent_env, repo)
+        request = pending["payload"]["action_requests"][0]
+        assert request["name"] == "run_command"
+        assert pending["payload"]["review_configs"][0]["tool_call_id"] == request["tool_call_id"]
+
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [{"tool_call_id": request["tool_call_id"], "decision": "approve"}],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "resuming"
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete"
+        # The command's output went back to the MODEL as the tool result.
+        assert "hitl-ran" in json.dumps(agent_env.requests[-1])
+
+    def test_a_rejection_resumes_with_the_refusal(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, pending = self._park(api, agent_env, repo)
+        request = pending["payload"]["action_requests"][0]
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [
+                    {
+                        "tool_call_id": request["tool_call_id"],
+                        "decision": "reject",
+                        "reason": "not in this repo",
+                    }
+                ],
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete"
+        replayed = json.dumps(agent_env.requests[-1])
+        assert "refused by the user" in replayed and "not in this repo" in replayed
+
+    def test_a_stale_action_id_is_409_and_undecided_is_400(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, pending = self._park(api, agent_env, repo)
+        request = pending["payload"]["action_requests"][0]
+        stale = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={"actionId": "appr_gone", "decisions": []},
+        )
+        assert stale.status_code == 409
+        undecided = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={"actionId": pending["actionId"], "decisions": []},
+        )
+        assert undecided.status_code == 400
+        # Clean up: approve so the worker thread finishes rather than waiting out its expiry.
+        api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [{"tool_call_id": request["tool_call_id"], "decision": "approve"}],
+            },
+        )
+        _wait_terminal(api, ack["streamId"])
+
+    def test_status_carries_the_pending_action_for_reload(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, pending = self._park(api, agent_env, repo)
+        status = api.client.get(f"/v1/chat/turns/{ack['streamId']}").json()
+        assert status["active"] is True
+        assert status["pendingAction"]["actionId"] == pending["actionId"]
+        request = pending["payload"]["action_requests"][0]
+        api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [{"tool_call_id": request["tool_call_id"], "decision": "approve"}],
+            },
+        )
+        _wait_terminal(api, ack["streamId"])
+
+    def test_cancel_while_parked_aborts_promptly(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, _pending = self._park(api, agent_env, repo)
+        started = time.monotonic()
+        resp = api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel")
+        assert resp.status_code == 200
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "aborted"
+        assert time.monotonic() - started < 5.0, "the park must observe the abort, not sit it out"
+
+    def test_ask_user_round_trips_an_answer(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        agent = _make_agent(api, tools=["read_file", "ask_user"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "One question first.",
+                "tool_calls": [{"name": "ask_user", "arguments": {"question": "Blue or green?"}}],
+            },
+            {"text": "Blue it is."},
+        ]
+        ack = _start(api, agent["id"], "Paint it")
+        pending = _wait_pending(api, ack["streamId"])
+        assert pending["payload"]["type"] == "ask_user_question"
+        assert pending["payload"]["question"]["question"] == "Blue or green?"
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={"actionId": pending["actionId"], "answer": "blue, always blue"},
+        )
+        assert resp.status_code == 200, resp.text
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete"
+        assert "blue, always blue" in json.dumps(agent_env.requests[-1])
+
+
 class TestTheForge:
     def test_the_agent_turn_stores_no_verdict_outside_the_engine(
         self, api: Any, agent_env: AgentPeer, repo: Path
