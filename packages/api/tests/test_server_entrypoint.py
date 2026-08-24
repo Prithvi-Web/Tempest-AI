@@ -7,6 +7,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -82,3 +83,77 @@ def test_tempest_server_boots_serves_health_and_terminates(tmp_path: Path) -> No
     # and the port is actually released — nothing is still serving behind our back
     with pytest.raises(httpx.HTTPError):
         httpx.get(url, timeout=2.0)
+
+
+def _uv() -> str:
+    uv = shutil.which("uv") or str(Path.home() / ".local" / "bin" / "uv")
+    assert Path(uv).exists(), "uv is required to launch the entrypoint under test"
+    return uv
+
+
+def _run(*args: str) -> subprocess.CompletedProcess[str]:
+    env = {
+        **os.environ,
+        "PATH": f"{Path.home() / '.local' / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
+    return subprocess.run(
+        [_uv(), "run", "--no-sync", "tempest-server", *args],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=STARTUP_DEADLINE_S,
+    )
+
+
+def test_print_tool_manifest_answers_without_a_data_dir() -> None:
+    """The self-check a BUILD runs against a frozen binary, exercised as a real subprocess.
+
+    It exists because the shipped app once could NOT read its own tool manifest — an empty
+    Tool Library in the builder and a failure at the top of every tool-bearing turn — while
+    the repo, the e2e harness and both coverage gates stayed green, because all three run from
+    the source tree. `build-server.sh` now runs this on every build.
+
+    Needing no `--data-dir` is part of the contract: a build asking "can you still read your
+    contract" should not have to invent a writable directory to get an answer.
+    """
+    done = _run("--print-tool-manifest")
+    assert done.returncode == 0, done.stderr
+    names = done.stdout.split()
+    assert "ask_user" in names and "run_command" in names
+    assert names == sorted(names), "sorted output keeps a build's diff readable"
+    assert len(names) >= 7, f"the manifest looks truncated: {names}"
+
+
+def test_the_data_dir_is_required_for_a_real_run() -> None:
+    """…and only for a real run. The flag above made `--data-dir` optional, so the check that
+    it is present had to move into the body — this is the arm that proves it still bites."""
+    done = _run("--stdio")
+    assert done.returncode != 0
+    assert "--data-dir is required" in done.stderr
+
+
+def test_exactly_one_transport_is_required() -> None:
+    both = _run("--stdio", "--port", "1", "--data-dir", "/tmp/whatever")
+    assert both.returncode != 0
+    assert "exactly one of --stdio or --port" in both.stderr
+
+
+def test_an_EMPTY_manifest_is_a_failure_not_a_quiet_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file that exists and declares no tools is a different bug from a file that is missing,
+    and it has to fail too.
+
+    Without this arm the flag would print nothing, exit 0, and `build-server.sh` would pass —
+    on a binary whose Tool Library is empty, which is precisely the failure the flag was added
+    to catch. In-process rather than a subprocess because the real manifest is never empty:
+    the point is the DECISION, not the file.
+    """
+    from tempest_api import server as server_mod
+
+    monkeypatch.setattr("tempest.agent.tools.load_manifest", lambda *a, **k: {})
+    monkeypatch.setattr(sys, "argv", ["tempest-server", "--print-tool-manifest"])
+    with pytest.raises(SystemExit) as caught:
+        server_mod.main()
+    assert caught.value.code == 1, "an empty manifest must be a nonzero exit, or the gate lies"
