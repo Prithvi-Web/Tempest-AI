@@ -163,10 +163,28 @@ pub fn spawn_config(node: PathBuf, boundary_script: PathBuf, socket: PathBuf) ->
 }
 
 
+#: The engine half of the miniature world. Check 8's model-host ledger is kept over the
+#: ENGINE tree, so a fixture with no engine is a fixture the check cannot vouch for — the same
+#: lesson `gate_audit`'s synthetic world learned when it gained a declared path and its
+#: fixture did not. Both recorded sites are present, so the ledger resolves in both
+#: directions here exactly as it does in the real repository.
+_ENGINE_SOURCES: dict[str, str] = {
+    "packages/engine/src/tempest/models/catalog.py": (
+        'HUGGINGFACE_HOST = "huggingface.co"\n'
+        "def url(repo: str) -> str:\n"
+        '    return f"https://{HUGGINGFACE_HOST}/{repo}"\n'
+    ),
+    "packages/engine/src/tempest/models/download.py": (
+        '_ALLOWED_REDIRECT_SUFFIXES = ("hf.co", "huggingface.co")\n'
+    ),
+    "packages/engine/src/tempest/prove.py": "def prove() -> None:\n    return None\n",
+}
+
+
 @pytest.fixture
 def tree(tmp_path: Path) -> Path:
     """A minimal platform tree that PASSES, for tests to then break one property at a time."""
-    for relative, body in _SOURCES.items():
+    for relative, body in {**_SOURCES, **_ENGINE_SOURCES}.items():
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body)
@@ -572,3 +590,89 @@ class TestCheck7AirplaneModeFullFunction:
         the seam states every login surface explicitly."""
         _edit(tree, _LOCAL_API, "  emailLoginEnabled: false,\n", "")
         _fails(tree, capsys, "does not state `emailLoginEnabled`")
+
+
+class TestCheck8ModelHostLedger:
+    """The one outbound connection Tempest makes on the user's behalf that is not a provider
+    they configured (ADR-0080 §7). It gets the CDN ledger's treatment — closed, and checked in
+    BOTH directions — because the failure that matters is not a new host appearing loudly, it
+    is an audit going stale while the capability quietly stays.
+    """
+
+    _CATALOG = "packages/engine/src/tempest/models/catalog.py"
+
+    def test_an_unrecorded_file_that_names_the_host_fails(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        rogue = tree / "packages/engine/src/tempest/sneaky.py"
+        rogue.write_text('URL = "https://huggingface.co/some/model"\n')
+        _fails(tree, capsys, "names the model host", "second egress surface")
+
+    def test_a_subdomain_of_the_host_is_still_the_host(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`cdn-lfs.huggingface.co` is where the bytes actually come from, so a check that
+        only matched the bare domain would miss the reach that matters most."""
+        rogue = tree / "packages/engine/src/tempest/sneaky.py"
+        rogue.write_text('URL = "https://cdn-lfs.huggingface.co/x"\n')
+        _fails(tree, capsys, "names the model host")
+
+    def test_the_short_form_counts_too(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        rogue = tree / "packages/engine/src/tempest/sneaky.py"
+        rogue.write_text('URL = "https://hf.co/x"\n')
+        _fails(tree, capsys, "names the model host")
+
+    def test_a_recorded_constant_that_vanishes_fails_even_though_the_reach_remains(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The direction a grep cannot do, and the one that matters. The file still reaches
+        the host; only the anchor the audit was written against is gone. Passing here would
+        mean the ledger describes a tree that no longer exists."""
+        _edit(tree, self._CATALOG, 'HUGGINGFACE_HOST = "huggingface.co"', 'X = "y"')
+        _edit(
+            tree,
+            self._CATALOG,
+            'f"https://{HUGGINGFACE_HOST}/{repo}"',
+            'f"https://huggingface.co/{repo}"',
+        )
+        _fails(tree, capsys, "the recorded constant `HUGGINGFACE_HOST` is gone")
+
+    def test_a_recorded_site_that_disappears_entirely_fails(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tree / self._CATALOG).unlink()
+        _fails(tree, capsys, "the ledger describes a tree that no longer exists")
+
+    def test_an_engine_tree_that_is_not_there_cannot_be_vouched_for(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A check that silently passes on a tree it could not find is worse than no check:
+        it reports a property nobody measured."""
+        for relative, body in _SOURCES.items():
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(body)
+        _fails(tmp_path, capsys, "the model-host ledger is kept over this tree")
+
+    def test_the_gate_module_itself_may_name_the_host(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """It has to: the matcher is written in its own source, exactly as `gate_audit` names
+        its tripwire strings in its own. Exempted by NAME rather than by exempting `dev/`,
+        because a BENCH that started reaching the network should still fail this gate."""
+        gate = tree / "packages/engine/src/tempest/dev/egress_check.py"
+        gate.parent.mkdir(parents=True, exist_ok=True)
+        gate.write_text('PATTERN = "huggingface.co|hf.co"\n')
+        assert _run(tree) == 0
+        assert "L32 holds" in capsys.readouterr().out
+
+    def test_a_bench_that_reaches_the_host_is_NOT_exempt(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The hole the blanket exemption would have opened."""
+        bench = tree / "packages/engine/src/tempest/dev/model_bench.py"
+        bench.parent.mkdir(parents=True, exist_ok=True)
+        bench.write_text('URL = "https://huggingface.co/x"\n')
+        _fails(tree, capsys, "names the model host")

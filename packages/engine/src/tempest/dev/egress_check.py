@@ -127,6 +127,25 @@ _REQUIRED_ROUTES = (
 #: The closed ledger of check 6: (path relative to `client/src/utils`, constant name).
 _KNOWN_CDN_CONSTANTS = frozenset({("artifacts.ts", "TAILWIND_CDN"), ("markdown.ts", "MARKED_CDN")})
 
+#: Check 8's ledger: the ENGINE files permitted to name the model host, and the constants they
+#: use (ADR-0080 §7). Local model downloads are the one deliberate egress surface Tempest
+#: initiates on the user's behalf, so the host is written down in exactly two places and this
+#: gate is closed over both — a third mention anywhere in the engine is a failure, and a
+#: recorded one going missing is also a failure, because a ledger that describes a tree which
+#: no longer exists is an audit nobody has done.
+_MODEL_HOST_LEDGER = frozenset(
+    {
+        ("models/catalog.py", "HUGGINGFACE_HOST"),
+        ("models/download.py", "_ALLOWED_REDIRECT_SUFFIXES"),
+    }
+)
+
+#: `huggingface.co`, `hf.co`, or any subdomain of either, wherever it appears in engine source.
+_MODEL_HOST_MENTION = re.compile(r"\b(?:[\w.-]+\.)?(?:huggingface\.co|hf\.co)\b")
+
+#: The engine tree this check sweeps.
+_ENGINE_SRC = "packages/engine/src/tempest"
+
 #: Every way a module can be named: static `import … from "x"`, bare `import "x"`, dynamic
 #: `import("x")`, and `require("x")` — a sidecar that reached the network through the one form
 #: this gate forgot would be the whole failure.
@@ -420,6 +439,67 @@ def _check_cdn_ledger(root: Path, problems: list[str]) -> int:
     return scanned
 
 
+def _check_model_host_ledger(root: Path, problems: list[str]) -> int:
+    """Check 8 — the model host is named in exactly the recorded places (L32, ADR-0080 §7).
+
+    A model download is the one outbound connection Tempest makes on the user's behalf that
+    is not a provider they configured, so it gets the same treatment as the vendored CDN
+    constants: a closed ledger, checked in BOTH directions. A new hard-coded host is a
+    failure. A recorded host that has vanished is also a failure — otherwise the ledger
+    quietly describes a tree that no longer exists, which is an audit nobody has done.
+
+    Downloads stay inert until a person clicks one, and an already-downloaded model works
+    with the network unplugged. Those are properties of the feature, pinned by its own tests;
+    what this gate holds is the narrower, mechanical claim that the surface has not GROWN.
+    """
+    engine = root / _ENGINE_SRC
+    if not engine.is_dir():
+        problems.append(
+            f"{_ENGINE_SRC}: missing — the model-host ledger is kept over this tree and "
+            "cannot be checked against one that has none"
+        )
+        return 0
+    scanned = 0
+    seen: set[tuple[str, str]] = set()
+    for path in sorted(engine.rglob("*.py")):
+        relative = path.relative_to(engine).as_posix()
+        if relative == "dev/egress_check.py":
+            # This module names the host in its own matcher, exactly as `gate_audit` names
+            # its tripwire strings in its own source. Exempted by NAME rather than by
+            # exempting `dev/`: a bench that started reaching the network should still fail
+            # this gate, and a blanket exemption would be the hole.
+            continue
+        scanned += 1
+        body = path.read_text(encoding="utf-8", errors="replace")
+        if _MODEL_HOST_MENTION.search(body) is None:
+            continue
+        recorded = {entry for entry in _MODEL_HOST_LEDGER if entry[0] == relative}
+        if not recorded:
+            line = _line_of(body, _MODEL_HOST_MENTION.search(body).start())  # type: ignore[union-attr]
+            problems.append(
+                f"{_ENGINE_SRC}/{relative}:{line}: names the model host, which is recorded "
+                f"in {sorted(name for _f, name in _MODEL_HOST_LEDGER)} and nowhere else. A "
+                f"second place that can reach it is a second egress surface, and it must be "
+                f"audited and recorded rather than absorbed silently (L32)"
+            )
+            continue
+        for _file, constant in recorded:
+            if constant not in body:
+                problems.append(
+                    f"{_ENGINE_SRC}/{relative}: the recorded constant `{constant}` is gone, "
+                    f"but the file still names the host — the ledger no longer describes "
+                    f"this file (L32)"
+                )
+            seen.add((relative, constant))
+    for missing in sorted(_MODEL_HOST_LEDGER - seen):
+        problems.append(
+            f"{_ENGINE_SRC}/{missing[0]}: the recorded model-host site `{missing[1]}` is "
+            f"gone — the ledger describes a tree that no longer exists, so the audit behind "
+            f"it has not actually been done (L32)"
+        )
+    return scanned
+
+
 def _check_rum_bootstrap_is_beacon_free(body: str, problems: list[str]) -> None:
     for where, token in _outbound_tokens(body):
         problems.append(
@@ -508,6 +588,7 @@ def _run_platform_leg(root: Path) -> int:
     _check_service_worker_neutralized(seam_vite, platform_web, problems)
 
     scanned += _check_cdn_ledger(root, problems)
+    scanned += _check_model_host_ledger(root, problems)
     bootstrap = _read(root, _RUM_BOOTSTRAP, problems)
     if bootstrap is not None:
         scanned += 1
