@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from tempest import netcancel
 from tempest.inference import client as mc
 from tempest.inference import providers as mp
 
@@ -796,8 +797,8 @@ class TestTheCancelWatchWithoutAnFd:
         produce: a live HTTP response always has a file number.
         """
         shutdowns: list[int] = []
-        original = mc._shutdown_fd
-        mc._shutdown_fd = lambda fd: shutdowns.append(fd)  # type: ignore[assignment]
+        original = netcancel.shutdown_fd
+        netcancel.shutdown_fd = lambda fd: shutdowns.append(fd)  # type: ignore[assignment]
 
         class NoFileno:
             closed = False
@@ -817,10 +818,10 @@ class TestTheCancelWatchWithoutAnFd:
             ):
                 cancel.set()
                 # Long enough for the watcher to wake at least twice and observe the flag.
-                time.sleep(mc._CANCEL_POLL_S * 4)
+                time.sleep(netcancel.CANCEL_POLL_S * 4)
                 raise mc.Cancelled("cancelled by the caller; test-provider connection closed")
         finally:
-            mc._shutdown_fd = original  # type: ignore[assignment]
+            netcancel.shutdown_fd = original  # type: ignore[assignment]
 
         assert shutdowns == [], (
             f"the watcher shut down descriptor(s) {shutdowns} despite having none of its own"

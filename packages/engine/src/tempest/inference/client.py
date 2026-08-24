@@ -30,7 +30,6 @@ when local runners are configured, the suggestion that they keep working unplugg
 import contextlib
 import http.client
 import json
-import socket
 import threading
 import urllib.error
 import urllib.parse
@@ -39,6 +38,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+from tempest import netcancel
 from tempest.inference.providers import (
     BASE_URL_ENV_PREFIX,
     WIRE_ANTHROPIC,
@@ -51,9 +51,6 @@ from tempest.inference.providers import (
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TIMEOUT_S = 60.0
-#: How often the cancel watcher looks up. It bounds how long a cancel can go unnoticed while
-#: the reading thread is blocked inside a socket read — NOT how often anything polls the wire.
-_CANCEL_POLL_S = 0.1
 
 
 class _Redirected(Exception):
@@ -498,17 +495,6 @@ def _stop_reason(provider: Provider, document: Any, calls: tuple[ToolCall, ...])
     return "tool_use" if calls and normalised != "length" else normalised
 
 
-def _shutdown_fd(fd: int) -> None:
-    """`shutdown(2)` on a socket fd, borrowing — never owning — the descriptor."""
-    sock = socket.socket(fileno=fd)
-    try:
-        sock.shutdown(socket.SHUT_RDWR)
-    finally:
-        # The fd still belongs to the response; detaching stops this wrapper's GC from
-        # closing it a second time under whoever reuses the number next.
-        sock.detach()
-
-
 def _open_cancellable(cancel: threading.Event | None, /, **kwargs: Any) -> Any:
     """`_open`, with the cancel flag observable while it blocks.
 
@@ -567,7 +553,7 @@ def _open_cancellable(cancel: threading.Event | None, /, **kwargs: Any) -> Any:
                 close_once()
 
     threading.Thread(target=run, name="tempest-open", daemon=True).start()
-    while not done.wait(_CANCEL_POLL_S):
+    while not done.wait(netcancel.CANCEL_POLL_S):
         if cancel.is_set():
             raise Cancelled("cancelled by the caller while the request was still connecting")
     if "error" in box:
@@ -606,23 +592,9 @@ def _cancel_guard(cancel: threading.Event | None, response: Any, label: str) -> 
     if cancel.is_set():
         response.close()
         raise Cancelled(f"cancelled by the caller; {label} connection closed")
-    fd: int = -1
-    with contextlib.suppress(OSError, ValueError):
-        fd = response.fileno()
-    finished = threading.Event()
-
-    def watch() -> None:
-        while not finished.wait(_CANCEL_POLL_S):
-            if cancel.is_set():
-                if fd >= 0:
-                    with contextlib.suppress(OSError):
-                        _shutdown_fd(fd)
-                return
-
-    watcher = threading.Thread(target=watch, name="tempest-cancel-watch", daemon=True)
-    watcher.start()
     try:
-        yield
+        with netcancel.watch_cancel(cancel, response):
+            yield
     # AttributeError belongs in this tuple: a response closed out from under a blocked read
     # Nones its `fp` mid-`readinto`, and the read surfaces AS AttributeError — observed on the
     # first cut of this guard, not theorized.
@@ -630,9 +602,6 @@ def _cancel_guard(cancel: threading.Event | None, response: Any, label: str) -> 
         if cancel.is_set():
             raise Cancelled(f"cancelled by the caller; {label} connection closed") from None
         raise err
-    finally:
-        finished.set()
-        watcher.join(timeout=1.0)
 
 
 def complete(

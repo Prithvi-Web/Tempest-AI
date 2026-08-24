@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import threading
+import time
+import urllib.request
 from dataclasses import replace
 from pathlib import Path
 
@@ -445,3 +447,347 @@ class TestDeletingAndSpace:
         free = dl.disk_free_bytes()
         assert free > 0
         assert free > CATALOG[0].size_bytes or free > 0
+
+
+class TestTheServerDoesNotDecideWhatReachesTheDisk:
+    """The second adversarial review over this module (ADR-0080 §2 amendment).
+
+    Every finding here has one shape: a number the SERVER chose was trusted where the
+    catalogue row is what the user actually agreed to. The row is the contract, and a peer
+    that disagrees with it is a reason to refuse — which `DownloadProgress`'s own docstring
+    already claimed and nothing enforced (trap 45).
+    """
+
+    def test_a_body_longer_than_the_row_writes_only_the_row(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """L15.4. The loop broke only on an empty chunk, so the byte count committed to disk
+        was the server's choice: a peer answering a 639 MB row with a 500 GB body filled the
+        disk, because `have != size_bytes` is checked once, AFTER every byte is written."""
+        fake = FakeHuggingFace(payload=PAYLOAD, overrun_bytes=40_000)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            path = dl.download_entry(entry)
+
+        assert path.stat().st_size == entry.size_bytes, (
+            "the row is the budget — not one byte beyond it may reach the disk"
+        )
+        assert path.read_bytes() == PAYLOAD
+        assert not dl._partial_path(path).exists()
+
+    def test_a_206_that_serves_the_wrong_offset_refuses_and_keeps_the_partial(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A peer can honour `Range:` in its STATUS and ignore it in its body — a caching
+        proxy serving a whole object for a ranged request does exactly that. `Content-Range`
+        is the only header that can tell, and it was never read. The old path spliced the
+        head into the middle, reached a checksum mismatch, DELETED the partial, and blamed an
+        upstream re-upload (L15.3: the wrong cause, and the user pays for it twice)."""
+        keep = 4_000
+        fake = FakeHuggingFace(payload=PAYLOAD, serve_from=0)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            partial = dl._partial_path(dl.installed_path(entry))
+            partial.parent.mkdir(parents=True, exist_ok=True)
+            partial.write_bytes(PAYLOAD[:keep])
+
+            with pytest.raises(dl.DownloadRefused) as caught:
+                dl.download_entry(entry)
+
+        assert "range" in str(caught.value).lower(), (
+            f"the refusal must name the range the server ignored, not a checksum: {caught.value}"
+        )
+        assert partial.read_bytes() == PAYLOAD[:keep], (
+            "a server that ignored our range must not cost the user the bytes they had"
+        )
+        assert not dl.installed_path(entry).exists()
+
+    def test_the_416_arm_verifies_before_promoting_and_keeps_a_short_partial(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A 416 means "your offset is past the end" — which is only "you already have it all"
+        when the partial is the row's full size. Against an upstream file that was re-uploaded
+        SHORTER, the arm promoted a too-small partial to the installed path, hashed it there,
+        and `_verify`'s unlink then deleted the user's own resume progress."""
+        short = PAYLOAD[:3_000]  # upstream is now shorter than the row records
+        fake = FakeHuggingFace(payload=short)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            partial = dl._partial_path(dl.installed_path(entry))
+            partial.parent.mkdir(parents=True, exist_ok=True)
+            partial.write_bytes(short)  # a 416 next: our offset is at the end of THEIR file
+
+            with pytest.raises(dl.DownloadRefused) as caught:
+                dl.download_entry(entry)
+
+        assert not dl.installed_path(entry).exists(), (
+            "nothing unverified may ever appear at the installed path — the rename is the "
+            "commit point"
+        )
+        assert partial.read_bytes() == short, "the partial is the user's, and it is kept"
+        assert "checksum" not in str(caught.value).lower(), (
+            f"a short upstream file is a stale ROW, not a corrupt download: {caught.value}"
+        )
+
+    def test_a_file_at_the_installed_path_that_is_not_the_row_is_refused(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`if final.exists(): return final` applied no test at all — not the hash, not even
+        the free size comparison. A refreshed catalogue hash therefore never re-verified what
+        was already on disk, so a model the user installed before an upstream re-upload stayed
+        `installed` for ever and was handed to the model server unreviewed."""
+        fake = FakeHuggingFace(payload=PAYLOAD)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            final = dl.installed_path(entry)
+            final.parent.mkdir(parents=True, exist_ok=True)
+            final.write_bytes(b"not the model the row records")
+
+            with pytest.raises(dl.DownloadRefused) as caught:
+                dl.download_entry(entry)
+
+        message = str(caught.value)
+        assert str(final) in message, f"the refusal names the file to remove: {message}"
+        assert final.read_bytes() == b"not the model the row records", (
+            "a file Tempest did not write is not Tempest's to delete — it says so instead"
+        )
+
+    def test_a_cancel_lands_while_the_read_is_blocked_on_a_dribbling_peer(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Trap 58, in this module. The flag was read once per chunk, which is only reachable
+        when chunks arrive: a peer dribbling bytes slower than one `read()` fills leaves the
+        thread blocked INSIDE the read, where `urlopen(timeout=)` never fires because bytes
+        keep arriving. Stop was unobservable for the length of the whole transfer."""
+        # 40 pieces, a quarter-second apart: ten seconds of dribble, and one `read()` of the
+        # full chunk size spans all of it.
+        fake = FakeHuggingFace(payload=PAYLOAD, chunk_size=len(PAYLOAD) // 40, chunk_delay_s=0.25)
+        cancel = threading.Event()
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            threading.Timer(0.6, cancel.set).start()
+            started = time.monotonic()
+            with pytest.raises(dl.DownloadCancelled):
+                dl.download_entry(entry, cancel=cancel, timeout=30.0)
+            took = time.monotonic() - started
+
+        # The bound is deliberately loose against the 10 s dribble: what fails here is a
+        # cancel that waits for the transfer, not a cancel that is merely unhurried (trap 61).
+        assert took < 5.0, f"cancel waited for the peer instead of shutting the socket: {took:.1f}s"
+        assert dl._partial_path(dl.installed_path(entry)).exists(), (
+            "a cancelled download keeps its partial — that is what makes resume worth having"
+        )
+
+
+class TestTheRedirectAllowanceIsWhatItClaims:
+    """`_ALLOWED_REDIRECT_SUFFIXES` is the entire safety of `_AllowListedRedirects`, and every
+    test that exercised the follow or the refuse path monkeypatched it away — so the shipped
+    tuple's CONTENTS were pinned by nothing, and `egress_check`'s check 8 reads only the
+    identifier's name. These tests read the real thing."""
+
+    def test_the_ledger_admits_the_recorded_cdn_hosts_and_nothing_that_merely_resembles_them(
+        self,
+    ) -> None:
+        admitted = ("huggingface.co", "cdn-lfs.huggingface.co", "us.aws.cdn.hf.co", "hf.co")
+        refused = (
+            "huggingface.co.evil.example",  # the ledger entry as a PREFIX of a hostile name
+            "evilhuggingface.co",  # the ledger entry as a SUFFIX of a hostile name
+            "co",  # the shape a careless one-line edit adds while chasing a 302
+            "hf.co.attacker.net",
+            "notthf.co",
+        )
+        for host in admitted:
+            assert dl._host_is_allowed(host), host
+        for host in refused:
+            assert not dl._host_is_allowed(host), host
+
+    def test_a_credentialed_request_never_follows_a_redirect_however_the_header_was_added(
+        self,
+    ) -> None:
+        """The clause the module docstring calls load-bearing was `# pragma: no cover` with the
+        justification "this client never sets one" — which is circular, since the clause exists
+        for the future caller who does. It also read only `req.headers`, and urllib's own auth
+        handlers put `Authorization` in `unredirected_hdrs`, so the idiomatic way to attach a
+        credential was the one way past the guard."""
+        handler = dl._AllowListedRedirects()
+        target = "https://cdn-lfs.huggingface.co/model.gguf"
+
+        plain = urllib.request.Request("https://huggingface.co/repo/resolve/main/model.gguf")
+        assert handler.redirect_request(plain, None, 302, "Found", {}, target) is not None
+
+        for attach in ("add_header", "add_unredirected_header"):
+            credentialed = urllib.request.Request(
+                "https://huggingface.co/repo/resolve/main/model.gguf"
+            )
+            getattr(credentialed, attach)("Authorization", "Bearer sk-not-a-real-key")
+            with pytest.raises(dl.DownloadRefused) as caught:
+                handler.redirect_request(credentialed, None, 302, "Found", {}, target)
+            assert "credential" in str(caught.value), attach
+
+    def test_a_redirect_may_not_downgrade_the_transport(self) -> None:
+        """The host was checked and the SCHEME was not, so a 302 to `http://` on a ledger host
+        pulled 639 MB in cleartext — and from a cleartext hop an on-path attacker chooses
+        every later hop. ADR-0080 §2 bounds the allowance to one hop; the handler inherited
+        urllib's default of ten."""
+        handler = dl._AllowListedRedirects()
+        secure = urllib.request.Request("https://huggingface.co/repo/resolve/main/model.gguf")
+        with pytest.raises(dl.DownloadRefused) as caught:
+            handler.redirect_request(
+                secure, None, 302, "Found", {}, "http://cdn-lfs.huggingface.co/model.gguf"
+            )
+        assert "https" in str(caught.value)
+        assert handler.max_redirections == 1, (
+            "ADR-0080 §2 says at most one hop; urllib's default is ten"
+        )
+
+
+class TestTheGuardsThatOnlyFireOnAHostilePeer:
+    """Arms a well-behaved loopback peer cannot produce, asserted directly.
+
+    Every one of these is a guard whose whole reason to exist is a peer that misbehaves in a
+    way `http.server` will not. Left untested they are the shape this feature has already
+    been burned by twice — a comment claiming a check that never runs (trap 45).
+    """
+
+    def test_a_206_with_no_content_range_is_refused_rather_than_guessed_at(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        keep = 2_000
+        fake = FakeHuggingFace(payload=PAYLOAD, omit_content_range=True)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            partial = dl._partial_path(dl.installed_path(entry))
+            partial.parent.mkdir(parents=True, exist_ok=True)
+            partial.write_bytes(PAYLOAD[:keep])
+
+            with pytest.raises(dl.DownloadRefused, match="no usable Content-Range"):
+                dl.download_entry(entry)
+
+        assert partial.read_bytes() == PAYLOAD[:keep], "nothing was appended to it"
+
+    def test_a_read_that_ends_as_a_clean_eof_under_cancel_reports_the_cancel(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The clean-EOF half of trap 58. `shutdown(2)` can make a blocked read return an
+        empty bytes object rather than raise, and an empty read is how the loop learns a body
+        ENDED. Without the re-check after the loop, a stopped download reports "arrived
+        incomplete" — a stale row, in a message that tells the user to blame upstream — for
+        what the user themselves just asked for.
+
+        Driven at the response seam because a loopback peer cannot be made to produce it on
+        demand; the peer, the file and the write are all real.
+        """
+        cancel = threading.Event()
+        fake = FakeHuggingFace(payload=PAYLOAD)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            opened = dl._opener().open(entry.url, timeout=10.0)
+
+            class EofUnderCancel:
+                """The response, with its read hijacked exactly once — the way a socket that
+                was shut down mid-read behaves."""
+
+                status = opened.status
+                headers = opened.headers
+
+                def read(self, _size: int) -> bytes:
+                    cancel.set()
+                    return b""
+
+                def fileno(self) -> int:
+                    return opened.fileno()
+
+                def close(self) -> None:
+                    opened.close()
+
+                def __enter__(self) -> EofUnderCancel:
+                    return self
+
+                def __exit__(self, *_: object) -> None:
+                    self.close()
+
+            monkeypatch.setattr(dl, "_opener", lambda: _OpenerReturning(EofUnderCancel()))
+            with pytest.raises(dl.DownloadCancelled, match="was stopped at"):
+                dl.download_entry(entry, cancel=cancel)
+
+    def test_an_io_error_under_cancel_is_a_cancel_and_otherwise_keeps_its_own_face(self) -> None:
+        """`_watching`'s translation, both ways. A shut-down read surfaces as an I/O error;
+        that is a cancel if and only if the caller cancelled. A genuine upstream fault must
+        keep its own exception so the caller's own arm can report the real cause (L15.3)."""
+
+        class Response:
+            def fileno(self) -> int:
+                raise OSError("no descriptor in this stand-in")
+
+        cancel = threading.Event()
+        cancel.set()
+        with pytest.raises(dl.DownloadCancelled, match="was stopped"):
+            with dl._watching(cancel, Response()):
+                raise OSError("the read came back broken")
+
+        quiet = threading.Event()
+        with pytest.raises(OSError, match="a real upstream fault"):
+            with dl._watching(quiet, Response()):
+                raise OSError("a real upstream fault")
+
+        # No cancel event at all: the guard is a pass-through, not a rewrapper.
+        with pytest.raises(OSError, match="untouched"):
+            with dl._watching(None, Response()):
+                raise OSError("untouched")
+
+
+class _OpenerReturning:
+    """The one seam these two tests replace: an opener that hands back a prepared response."""
+
+    def __init__(self, response: object) -> None:
+        self._response = response
+
+    def open(self, _request: object, timeout: float = 0.0) -> object:
+        return self._response
+
+
+class TestWhatIsOnDiskIsAnsweredHonestly:
+    """`installed` was a bare `.exists()`, which answered a different question than every
+    caller was asking, and nothing could see a partial at all."""
+
+    def test_a_partial_is_measurable_and_an_absent_one_is_zero(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _point_at(_entry("http://unused.invalid"), "http://unused.invalid", monkeypatch)
+        assert dl.partial_bytes(entry) == 0
+        partial = dl._partial_path(dl.installed_path(entry))
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        partial.write_bytes(PAYLOAD[:1_234])
+        assert dl.partial_bytes(entry) == 1_234
+
+    def test_a_file_of_the_wrong_size_is_stray_and_is_not_installed(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _point_at(_entry("http://unused.invalid"), "http://unused.invalid", monkeypatch)
+        final = dl.installed_path(entry)
+        assert dl.stray_bytes(entry) == 0 and not dl.is_installed(entry)
+
+        final.parent.mkdir(parents=True, exist_ok=True)
+        final.write_bytes(b"three bytes short of the row")
+        assert dl.stray_bytes(entry) == len(b"three bytes short of the row")
+        assert not dl.is_installed(entry), (
+            "a file whose size disagrees with the row is not this model, and the panel must "
+            "not offer to serve it"
+        )
+
+        final.write_bytes(PAYLOAD)
+        assert dl.stray_bytes(entry) == 0
+        assert dl.is_installed(entry)
+
+
+class TestProgressArithmetic:
+    def test_a_fraction_of_nothing_is_zero_rather_than_a_division(self) -> None:
+        """Catalogue rows always carry a size, so this arm is unreachable through the
+        downloader — which is exactly the argument that had it marked `pragma: no cover`. It
+        is one line to assert, and a `pragma` on a testable branch is a coverage number
+        standing in for a test."""
+        assert dl.DownloadProgress(0, 0).fraction == 0.0
+
+    def test_a_fraction_never_exceeds_one_even_if_a_peer_overruns(self) -> None:
+        assert dl.DownloadProgress(500, 100).fraction == 1.0
+        assert dl.DownloadProgress(50, 100).fraction == 0.5

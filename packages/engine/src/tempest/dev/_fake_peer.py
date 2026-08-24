@@ -237,6 +237,20 @@ class FakeHuggingFace:
     #: cancel is a race against the network stack and the test is a coin flip (trap 61).
     chunk_size: int | None = None
     chunk_delay_s: float = 0.0
+    #: Send this many bytes BEYOND the payload — a server whose body is longer than the row
+    #: the user agreed to. The real hazard is not malice but a broken CDN edge or a proxy
+    #: splicing an error page onto the end; either way the client, not the server, has to be
+    #: the one that decides how many bytes reach the disk (L15.4).
+    overrun_bytes: int = 0
+    #: Slice the body from HERE while still answering 206 and reporting the range the client
+    #: ASKED for. A server that honours `Range:` in its status line but not in its body is the
+    #: one case the status alone cannot detect: the bytes are wrong and every header agrees
+    #: with the request. Real enough to matter — a caching proxy that serves a whole object
+    #: for a ranged request does exactly this.
+    serve_from: int | None = None
+    #: Answer 206 with NO `Content-Range` header. Mandatory for that status, so a peer
+    #: omitting it has told the client nothing about which bytes it is sending.
+    omit_content_range: bool = False
 
 
 @contextmanager
@@ -269,15 +283,28 @@ def fake_huggingface_server(fake: FakeHuggingFace) -> Iterator[str]:
                 self.end_headers()
                 return
 
-            body = fake.payload[start:]
+            # Where the bytes actually come from — normally the requested offset, but a peer
+            # can be told to serve from elsewhere while every header still agrees with the
+            # request. That is the one dishonesty a client cannot see in the status line.
+            sliced_from = fake.serve_from if fake.serve_from is not None else start
+            body = fake.payload[sliced_from:]
             if fake.truncate_at is not None:
                 body = body[: fake.truncate_at]
+            if fake.overrun_bytes:
+                # Deterministic filler, so a test can say exactly how many bytes a client
+                # that trusts the server would commit to disk.
+                body = body + b"\xff" * fake.overrun_bytes
             self.send_response(206 if start else 200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(len(body)))
-            if start:
-                end = start + len(body) - 1
-                self.send_header("Content-Range", f"bytes {start}-{end}/{len(fake.payload)}")
+            if start and not fake.omit_content_range:
+                # The header describes the bytes actually being sent, which is what makes a
+                # `serve_from` peer DETECTABLE: status 206 says "partial content", the range
+                # header says which part, and a client that reads only the status splices the
+                # wrong one. (A peer that lies in the header too is caught by the sha256 and
+                # by nothing earlier — that is the backstop, not the guard.)
+                end = sliced_from + len(body) - 1
+                self.send_header("Content-Range", f"bytes {sliced_from}-{end}/{len(fake.payload)}")
             self.end_headers()
             if fake.chunk_size:
                 for offset in range(0, len(body), fake.chunk_size):
