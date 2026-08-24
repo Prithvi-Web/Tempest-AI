@@ -17,7 +17,7 @@
  */
 
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, existsSync, appendFileSync } from "node:fs";
+import { mkdtempSync, existsSync, appendFileSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import http from "node:http";
 import { tmpdir } from "node:os";
@@ -60,6 +60,7 @@ let chatPeer = {
   resume: false,
   closedEarly: false,
   requests: [],
+  script: [],
 };
 let stdoutBuf = Buffer.alloc(0);
 let nextRpcId = 1;
@@ -285,6 +286,10 @@ const server = http.createServer(async (req, res) => {
           status: typeof body.status === "number" ? body.status : 200,
           closedEarly: false,
           requests: [],
+          // C5 agent turns: scripted NON-STREAM completions for the orchestrator's
+          // complete() calls. Each entry: {text, tool_calls?: [{name, arguments}]};
+          // an exhausted script answers plain text — the model "finishing".
+          script: Array.isArray(body.script) ? body.script : [],
         };
         json(res, 200, { armed: true });
       } catch (err) {
@@ -296,6 +301,34 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/admin/chat-peer/resume") {
     chatPeer.resumeCount += 1;
     json(res, 200, { resumed: chatPeer.resumeCount });
+    return;
+  }
+  // C5 agent turns need a REAL first-party git repository for the shadow/proof machinery;
+  // the bridge makes one on demand and hands back its path.
+  if (req.method === "POST" && req.url === "/admin/make-repo") {
+    try {
+      const root = mkdtempSync(path.join(tmpdir(), "tempest-e2e-repo-"));
+      const gitEnv = {
+        ...process.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@t",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@t",
+      };
+      execFileSync("git", ["-C", root, "init", "-b", "main"], { env: gitEnv });
+      writeFileSync(path.join(root, "app.py"), "def total(xs):\n    return sum(xs)\n");
+      // The first-party marker, CONTENTS and all (trap 56: an empty marker classifies the
+      // repo as a user repository and sends it down the tier ladder).
+      execFileSync("uv", ["run", "python", "-c",
+        "import sys; from tempest.dev._first_party import mark_first_party; from pathlib import Path; mark_first_party(Path(sys.argv[1]))",
+        root,
+      ], { env: process.env });
+      execFileSync("git", ["-C", root, "add", "-A"], { env: gitEnv });
+      execFileSync("git", ["-C", root, "commit", "-m", "base"], { env: gitEnv });
+      json(res, 200, { repo: root });
+    } catch (err) {
+      json(res, 500, { error: String(err) });
+    }
     return;
   }
   if (req.method === "GET" && req.url === "/admin/chat-peer/state") {
@@ -313,6 +346,22 @@ const server = http.createServer(async (req, res) => {
       chatPeer.requests.push(body);
       if (chatPeer.status !== 200) {
         json(res, chatPeer.status, { error: { message: "planted failure" } });
+        return;
+      }
+      if (!body.stream) {
+        // The orchestrator's complete() (C5 agent turns): one scripted reply per request.
+        const reply = chatPeer.script.length > 0 ? chatPeer.script.shift() : { text: "all done" };
+        const calls = (reply.tool_calls ?? []).map((c, i) => ({
+          id: `call_${i}`,
+          type: "function",
+          function: { name: c.name, arguments: JSON.stringify(c.arguments ?? {}) },
+        }));
+        const message = { role: "assistant", content: reply.text ?? "" };
+        if (calls.length > 0) message.tool_calls = calls;
+        json(res, 200, {
+          choices: [{ index: 0, message, finish_reason: calls.length > 0 ? "tool_calls" : "stop" }],
+          usage: { prompt_tokens: 5, completion_tokens: 7 },
+        });
         return;
       }
       res.writeHead(200, { "content-type": "text/event-stream" });

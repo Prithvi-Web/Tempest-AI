@@ -33,28 +33,28 @@
 | LC03 | Model specs + per-endpoint parameter controls | PLATFORM | C4 | NOT_STARTED | `provider_matrix`; parameter round-trip test |
 | LC04 | Reasoning UI for chain-of-thought models | PLATFORM | C4 | NOT_STARTED | E2E render test |
 | LC05 | Mid-chat endpoint and preset switching | PLATFORM | C7 | NOT_STARTED | E2E switch test |
-| LC06 | Adaptive provider smoothing + stream delta batching | PLATFORM | C4 | NOT_STARTED | streaming smoothness bench |
+| LC06 | Adaptive provider smoothing + stream delta batching | PLATFORM | C5 | ADOPTED | read-side seq-preserving delta coalescing on both replay paths (`test_chat_turn` concatenation/cursor/no-hole pins, ADR-0079 §7); the vendored client's own pacing rides C3 |
 | LC07 | Configurable HTTP timeouts | PLATFORM | C10 | NOT_STARTED | timeout unit test |
 
 ### Agents
 
 | # | Capability | Rel. | Phase | Status | Verifying test |
 |---|---|---|---|---|---|
-| LC08 | No-code agent builder | PROOF_NATIVE | C5 | NOT_STARTED | `agent_bench` through the new surface |
-| LC09 | Unified Tools marketplace (builder-side) | PROOF_NATIVE | C5 | NOT_STARTED | `runtime_check --single-tool-registry` |
+| LC08 | No-code agent builder | PROOF_NATIVE | C5 | ADOPTED | `agent_bench` 55/55 through the re-target; e2e 23 (create→persist→editable) + 24 (a built agent's turn through `run_task`) |
+| LC09 | Unified Tools marketplace (builder-side) | PROOF_NATIVE | C5 | ADOPTED | `runtime_check --single-tool-registry`; e2e 23 pins the Tool Library = the boundary-D manifest |
 | LC10 | Agent sharing to users and groups | PLATFORM | C10 | NOT_STARTED | ACL test |
 | LC11 | `SKILL.md` bundles — manual / automatic / always-on | PROOF_NATIVE | C5 | SHIPPED (P3) | Proof Skill floor holds when the model is told to ignore it |
 | LC12 | Agent plugins bundling skills + MCP servers | PROOF_ADJACENT | C8 | NOT_STARTED | plugin install + capability signature test |
 | LC13 | Subagents with isolated context windows | PROOF_NATIVE | C5 | SHIPPED (P4) | `subagent_bench --depth 8` |
-| LC14 | Programmatic tool calling | PROOF_ADJACENT | C5 | NOT_STARTED | `gate_audit` path enumeration |
+| LC14 | Programmatic tool calling | PROOF_ADJACENT | C5 | ADOPTED | `gate_audit` 6 declared+forged paths incl. agent-chat-surface; `test_agent_turn` dispatch pins |
 | LC15 | Per-tool background + intent settings | PLATFORM | C5 | NOT_STARTED | E2E |
-| LC16 | Run control: interrupt, steer mid-run, queue follow-ups | PROOF_NATIVE | C5 | NOT_STARTED | steer-mid-proof test; `resume_test` |
-| LC17 | Reclaim / edit / escalate pending steers | PROOF_NATIVE | C5 | NOT_STARTED | steer lifecycle test |
-| LC18 | Human-in-the-loop: pause for input or tool approval, up to 4 questions per form | PROOF_NATIVE | C5 | NOT_STARTED | HITL pause/resume E2E |
-| LC19 | Generated activity-group headers, parent phase summaries, live tool intent labels | PLATFORM | C5 | NOT_STARTED | E2E render; **L31 vocab lint** |
+| LC16 | Run control: interrupt, steer mid-run, queue follow-ups | PROOF_NATIVE | C5 | ADOPTED | cancel threads TaskSpec→model call→ProveConfig (`TestRunControl`); steer drain pins (`TestSteering`/`TestSteeringWire`); `resume_test` 15/15 |
+| LC17 | Reclaim / edit / escalate pending steers | PROOF_NATIVE | C5 | ADOPTED | steer lifecycle pins (queue/cancel/unconsumed-return); preempt-arm answers PREEMPT_UNSUPPORTED honestly (ADR-0079 §4) |
+| LC18 | Human-in-the-loop: pause for input or tool approval, up to 4 questions per form | PROOF_NATIVE | C5 | ADOPTED | e2e 24 (park→approve→submit→run→durable); 8 engine + 6 wire pins; `ask_user` on boundary D |
+| LC19 | Generated activity-group headers, parent phase summaries, live tool intent labels | PLATFORM | C5 | ADOPTED | e2e 24 renders the mechanical headers; `vocab_check` green (labels are functions of the tool kind — L17/L31, ADR-0079 §5) |
 | LC20 | Agent memory with optional per-agent isolation | PROOF_ADJACENT | C10 | NOT_STARTED | memory isolation test |
-| LC21 | Context-usage gauge | PLATFORM | C5 | NOT_STARTED | accuracy test vs. real token counts |
-| LC22 | Agent stream circuit breakers | PLATFORM | C5 | NOT_STARTED | fault-injection test |
+| LC21 | Context-usage gauge | PLATFORM | C5 | ADOPTED | counts are the provider's own per turn (`TestContextGauge`); denominator only where documented — unknown renders indeterminate, never invented (ADR-0079 §6) |
+| LC22 | Agent stream circuit breakers | PLATFORM | C5 | ADOPTED | e2e 06 fault injection (engine SIGKILL → honest UI → auto-recovery); host poller failure cap + seam patient reads; agent-stream-specific pin queued with C8 background runs |
 | LC23 | Support-contact exposure, safely | PLATFORM | C10 | NOT_STARTED | redaction test |
 
 ### Tools and execution

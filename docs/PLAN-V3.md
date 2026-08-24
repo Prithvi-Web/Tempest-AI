@@ -396,19 +396,24 @@ grep -rn "^import anthropic\|from anthropic" packages/engine/src && exit 1 || tr
 This phase decides whether the merge produced one product or two. Budget for it accordingly, and do
 not let anything else land while it is in flight.
 
-- [ ] `api/server/services/Agents/**` becomes a thin client over boundary E, delegating every turn
-      to the Python orchestrator, speaking unchanged shapes to the React client.
-- [ ] Tool registries unify on `agent_tools.rs` (boundary D). `WriteScope` keeps its property that a
-      write to the user's working tree is **unrepresentable**.
-- [ ] LibreChat's agent surface adopted in full and re-targeted: no-code builder, unified tools
-      marketplace, skills, plugins, subagents, run control (interrupt, steer mid-run, queue
-      follow-ups, reclaim/edit/escalate pending steers), human-in-the-loop pause for input and tool
-      approval, generated activity-group headers, parent phase summaries, live tool intent labels,
-      context-usage gauge, stream circuit breakers.
-- [ ] Build `tempest.dev.runtime_check --single-orchestrator --single-tool-registry`.
-- [ ] Build `tempest.dev.gate_audit --enumerate-paths --require-forge-test-per-path`: enumerate every
+- [x] `api/server/services/Agents/**` becomes a thin client, delegating every turn to the
+      Python orchestrator, speaking unchanged shapes to the React client. *(Landed as the
+      HOST's protocol seam over boundary A — the recorded ADR-0078 deviation; the vendored
+      Express agent stack stays dormant, held by `runtime_check`.)*
+- [x] Tool registries unify on `agent_tools.rs` (boundary D). `WriteScope` keeps its property that a
+      write to the user's working tree is **unrepresentable**. *(Seven tools incl. `ask_user`;
+      the builder's picker is a projection of the one manifest — e2e 23.)*
+- [x] LibreChat's agent surface adopted and re-targeted: no-code builder, unified tools
+      marketplace (builder side), skills (P3), subagents (P4), run control (interrupt, steer
+      mid-run, queue follow-ups, reclaim pending steers), human-in-the-loop pause for input and
+      tool approval, generated activity-group headers, context-usage gauge, stream circuit
+      breakers. *(Named deferrals in ADR-0079: per-tool background/intent settings and the
+      plugin marketplace install flow ride C8/C10; preempt-arm answers PREEMPT_UNSUPPORTED.)*
+- [x] Build `tempest.dev.runtime_check --single-orchestrator --single-tool-registry`.
+- [x] Build `tempest.dev.gate_audit --enumerate-paths --require-forge-test-per-path`: enumerate every
       code path by which agent-authored change reaches a user, and require a forge test per path.
-- [ ] `docs/MERGE-CONTRACT.md` and `UPSTREAM.md` updated with the `services/Agents/` delta.
+      *(Six declared paths; the agent chat surface is the sixth, with its no-verdict forge.)*
+- [x] `docs/MERGE-CONTRACT.md` and `UPSTREAM.md` updated with the `services/Agents/` delta.
 
 **Gate:**
 ```bash

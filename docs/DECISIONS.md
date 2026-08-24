@@ -4159,3 +4159,80 @@ that it authors no repo change (L28 vacuously holds) and the agent-run path with
 when the builder re-target lands. If tauri ever ships progressive protocol responses, the seam
 SSE collapses into the protocol handler without the client noticing — the frames, not the pipe,
 are the contract.
+
+## ADR-0079 — The C5 back half: the agent surface re-target's working decisions (2026-08-23)
+
+**Date:** 2026-08-23 · **Status:** accepted · **Law:** L15.4, L17, L21, L28, L29, L31 ·
+**Builds on:** ADR-0075, ADR-0078
+
+**Context.** ADR-0078 landed the chat vertical; this wave re-targets the agent SURFACE —
+builder, run control, HITL, steering, activity/gauge rendering — onto `run_task`. Executing it
+forced a set of decisions the two prior ADRs left open. Each is recorded with its reason;
+each is pinned by tests named in the C5 gate output.
+
+**1. One turn is one task.** A chat message to a tool-bearing agent becomes ONE `run_task`
+invocation: fresh shadow from the current baseline, the engine's verdict in the engine's
+records, `task_id = chat-{stream}-{generation}`. Cumulative work lands through the DESIGNED
+acceptance flow (composer / `shadow.accept`), never by resuming a finished task — a finished
+task refuses to re-run by construction (`TaskAlreadyFinished`), and a conversation that
+silently chained shadows would present changes no single bundle describes.
+
+**2. The agent's tool selection binds the runtime, not the picker.** `TaskSpec.tools_allowed`
+narrows BOTH sides of boundary D at once — the catalog the model is shown and the dispatcher
+that answers it — because a tool offered but refused teaches the model to retry, and a tool
+dispatchable but unoffered is a hole in the contract. A selection naming a tool outside the
+manifest is a loud error at task start: an agent document referencing a nonexistent tool is
+data corruption, not a preference.
+
+**3. HITL parks in the ORCHESTRATOR, durably first.** The approval flow lives in
+`_dispatch_with_approval`, not the surface: the PENDING_APPROVAL turnlog row lands before the
+human is asked, so a kill mid-park finds the question in the log. Kill-during-park is VOID —
+the tool never ran, nothing user-visible is lost, and re-deriving the ask is the model's job
+on the redone turn (the transcript re-pay is a cost, not a loss; recorded honestly here).
+Scopes: `once` grants one dispatch, `session` grants the rest of the task
+(the prompt-once-per-project semantic), and an `always_prompt` declaration OUTRANKS a session
+grant — the declaration was reviewed; the generosity is one tired click. The park polls the
+cancel scope every 250 ms and expires into an honest refusal after 30 minutes: L15.4 wants a
+budget AND a cancellation path, and an unbounded lease on a worker thread is neither.
+`ask_user` is a boundary-D tool (AlwaysPrompt, writes nothing) riding the same machinery with
+an ANSWER instead of a grant — reaching its handler means no approver is attached, and the
+handler refuses rather than let the model answer itself in the user's voice.
+
+**4. Steering drains at turn boundaries, and says so.** `TaskSpec.steer_source` is polled at
+the top of each turn; a steer is a USER MESSAGE the model reads, never a whisper the surface
+interprets. Preempt-arm answers `PREEMPT_UNSUPPORTED` (the client relabels the chip): this
+surface's granularity is the turn boundary, stated rather than half-implemented. Refusals
+carry TOP-LEVEL codes because that is the field the vendored client degrades on
+(`NO_ACTIVE_RUN` → plain send; `STEER_UNSUPPORTED` → client-side queue — a plain streamed
+turn has no loop to drain at, and "queued" would be a lie). Unconsumed steers ride the status
+and the abort answer back to the client for reclaim.
+
+**5. The event union replaces the string pair.** `tempest/agent/events.py`: sixteen frozen
+members; consumers match types and ignore the rest, so a new event is additive. What the
+strings could not carry and the frames now render: tool calls with ids and arguments (run
+steps that open and complete), the provider's own token counts per turn, parks, decisions,
+steers. Activity headers are MECHANICAL functions of the tool kind — a model-written label is
+a model writing into a UI field (L17), and a generated one costs a model call per batch.
+
+**6. The gauge's denominator is documented or absent.** `Provider.context_window` is filled
+only where the provider documents one number (anthropic: 200k). An unknown window produces NO
+`on_context_usage` frame and the gauge renders indeterminate: a wrong maximum is worse than
+no maximum, and the counts that do render are the provider's own (L21).
+
+**7. Delta batching is a READ-side, seq-preserving merge.** Adjacent text deltas for one step
+coalesce into one frame carrying the run's LAST seq — cursors and dedupe stay correct by
+construction, the batching adapts to the producer (slow streams merge nothing), and the live
+and store-replay paths apply the same function so a reload renders what the stream rendered.
+The durable ledger keeps every frame; chunk boundaries were never semantic. Tests that had
+pinned chunking now pin the real invariants: concatenation, seq-based cursors, no holes.
+
+**8. The gate table grew its sixth door.** `agentturn.run_agent_turn` is a declared
+`gate_audit` path with its own forge test: after a full tool-bearing turn, the PLATFORM store
+contains not one reserved verdict word — the verdict exists only where the engine wrote it
+(L28/L31). The chat-surface row's note narrows to the PLAIN path's vacancy.
+
+**Consequences.** `services/Agents` remains dormant vendored code; every surface behavior the
+client exercises is answered by the host seam + boundary A. Known deferrals, named: per-tool
+background/intent settings (C8, with background execution), preempt-arm (this ADR §4), the
+builder's repository picker UI (`tempest_repo` is API-set until the conversation platform),
+and an agent-stream-specific fault-injection pin beyond e2e 06's engine-SIGKILL coverage.
