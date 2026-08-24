@@ -425,6 +425,18 @@ not let anything else land while it is in flight.
       that could be told which executable to run by the webview, and four tests that could not
       fail. Driven end to end through the real panel by e2e spec 25, with the progress poll
       mutation-proven.
+      **Placed where the owner asked, 24 Aug (ADR-0082/0083/0084).** The panel shipped inside
+      the proof surface's own settings page, three clicks deep behind a surface that is a TOOL
+      the assistant uses (ADR-0067) — so it moved into the app's ONE settings home beside the
+      provider keys, with a Models entry on the main rail. The proof engine's settings joined
+      the same dialog and the second settings page is gone; the proof surface became a
+      full-width route so the window stopped carrying three columns of navigation; the agent
+      builder gained the repository field that made a tool-bearing agent reachable from inside
+      the app at all, and a blank-slate preset for an agent that knows how to use `prove`.
+      A reasoning model's thinking became its own content channel (ADR-0081) — without it the
+      catalogue's most-likely first click answers with an empty bubble — and a local model is
+      shown by its NAME rather than by the absolute path llama.cpp reports, which was the
+      user's home directory in a dropdown.
 
 **Gate:**
 ```bash
