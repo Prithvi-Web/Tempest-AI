@@ -7,6 +7,8 @@ import { useLocalize, useAgentCapabilities } from '~/hooks';
 import { validateEmail, getIconKey, cn } from '~/utils';
 import { useAgentFileEntries } from './Tools/hooks';
 import { useAgentPanelContext } from '~/Providers';
+import RepositoryField from '../../../../tempest/agents/RepositoryField';
+import ProofAgentPreset from '../../../../tempest/agents/ProofAgentPreset';
 import ToolsSection from './Tools/ToolsSection';
 import { icons } from '~/hooks/Endpoint/Icons';
 import Instructions from './Instructions';
@@ -152,8 +154,19 @@ export default function AgentConfig() {
       {/* INSTRUCTIONS */}
       <Instructions />
 
+      {/* Tempest seam (ADR-0083): a blank-slate shortcut to an agent that knows how to use
+          the proof engine. Renders nothing once the person has made any decision of their
+          own. Same ledger row as RepositoryField below. */}
+      <ProofAgentPreset />
+
       {/* TOOLS — unified built-ins / tools / actions / mcp / skills */}
       <ToolsSection agentId={agent_id} />
+
+      {/* REPOSITORY — Tempest seam (ADR-0083): the checkout a tool-bearing agent works in.
+          Placed directly under the tools because it is the thing they act on, and because an
+          agent with tools and no repository refuses its first turn. Ledger row in
+          packages/platform/UPSTREAM.md. */}
+      <RepositoryField />
 
       {/* FILE CONTEXT — standalone section, separate from the tool library */}
       {contextEnabled && (

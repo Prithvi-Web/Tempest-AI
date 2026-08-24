@@ -56,6 +56,9 @@ export type AgentForm = {
   recursion_limit?: number;
   support_contact?: SupportContact;
   category: string;
+  /** Tempest extension (ADR-0083): the repository a tool-bearing agent's tools work in.
+   *  Rendered by `client/tempest/agents/RepositoryField`. */
+  tempest_repo?: string | null;
   // Avatar management fields
   avatar_file?: File | null;
   avatar_preview?: string | null;

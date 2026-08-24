@@ -4645,3 +4645,79 @@ product did not have before falls out of the merge for free and is worth naming:
 search now spans both halves of the product** — typing "model" finds the local models, the
 provider keys and the theme, without the person knowing which half owns which. Two settings
 pages cannot do that at any price, and there is an e2e pin asserting it.
+
+---
+
+## ADR-0083 — The assistant can actually use Tempest: a repository, and a way in (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L15.3, L27, L29, L31 ·
+**Builds on:** ADR-0067, ADR-0075 (one agent runtime), ADR-0082 (one settings home)
+
+**Context.** The owner's mandate, the sentence that is the whole point of the product:
+
+> *"the tempest that i integrated is more of like a tool that the AI will use to accomplish
+> important tasks."*
+
+That runtime exists and is proven. A tool-bearing agent dispatches through `run_task`
+(ADR-0075), its tools act on a shadow worktree, `prove` runs a real differential, and
+`agent_bench` holds 55/55 with every claim carrying a bundle id. Two things stood between a
+person and any of it, and both were found by asking what a new user's first ten minutes look
+like rather than by reading the code:
+
+1. **`tempest_repo` had no UI.** Tools act on a checkout — the shadow worktree is cut from it,
+   the proof runs against it — so `agentstore.py` refuses a tool-bearing turn without one, and
+   deliberately says so. But the field was settable only over the API. An agent built in the
+   app could not be pointed at a repository **at all**, which means the capability was
+   unreachable from inside the product that ships it.
+2. **A new user has an empty agent list** and a tool library of seven entries with no opinion
+   about what to do with them. `prove` was one row in a picker.
+
+**Decision.**
+
+**§1 — The repository is a field in the builder**, directly under the tools, because it is the
+thing they act on. A text field rather than a native folder picker: the proof surface's own
+`ProveView` takes a repository exactly this way, so it matches what the product already does,
+and a picker means a new Tauri command and a new boundary-B shape for a string the user can
+paste. Worth doing; not worth doing in the change that unblocks the feature.
+
+It warns when tools are selected and no repository is set — while the person is still
+building, rather than at the moment they send their first message and the turn refuses. That
+is L15.3 applied to the one failure this surface exists to prevent.
+
+**§2 — A PRESET, not a seeded agent.** The blank slate offers one click to an agent that knows
+how to use the proof engine: the six repository tools, and the instructions that decide whether
+`prove` is used at the right moments or ignored. It fills nothing else — the model and the
+repository stay empty, because those are the two facts only the user knows.
+
+The alternative was writing a built-in agent into the user's store on first run, and it is
+worse in a specific way: the user can edit and delete it, so the store needs a marker to stop
+it coming back, and **a row that reappears after you deleted it is how an app loses trust**. A
+preset writes nothing until Create is pressed, and what it writes is theirs. It also withdraws
+itself the moment the form has a name or a tool, so it can never sit there able to clobber
+someone's work.
+
+**§3 — The instructions hold L2 and L31 from the model's side.** The four verdicts are engine
+outputs, and an assistant that paraphrases `EQUIVALENT_UNDER_BUDGET` into "looks correct" has
+destroyed the only thing this product sells. The preset says so plainly. This is **not** a
+substitute for the structural guarantee — `ProvenChange` still has no constructor without a
+bundle id, and L28 is unchanged — it is what stops a model wasting a turn discovering it.
+
+**The two silent-drop bugs this shape has, and how they are held.** Both were found by writing
+the test first and then mutating the fix away:
+
+- `composeAgentUpdatePayload` is a **whitelist**. A field the form holds and it does not name
+  is dropped on every save — the repository would have been typeable, visibly accepted, and
+  gone. Invisible from the form alone; the e2e reads the STORE.
+- `AgentSelect`'s repopulate-on-edit filters incoming agent fields through
+  `new Set(Object.keys(defaultAgentFormValues))`. A field missing from the **defaults** (not
+  merely from the type) renders empty over a stored value, and the next save erases it. Which
+  is why the delta is in `provider/src/schemas.ts` and not only on `AgentForm`.
+
+Each mutation was applied to the real tree, rebuilt, and watched to fail on the assertion that
+names it, then reverted.
+
+**Consequences.** 25 inline deltas against a cap of 40. The repository is still a pasted
+absolute path; a folder picker is a real improvement and is now the only step in this flow that
+asks a person to know something a dialog could tell them. Nothing here weakens the proof gate:
+the preset selects tools that already exist in the boundary-D registry, and every one of them
+runs through the same `run_task` the bench measures.

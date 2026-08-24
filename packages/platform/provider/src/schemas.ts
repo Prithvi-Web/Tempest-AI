@@ -375,6 +375,12 @@ export const defaultAgentFormValues = {
     | undefined,
   /** Memory partition: 'agent' isolates memories per (user, agent); default shared pool */
   memory_scope: undefined as MemoryScope | undefined,
+  /** Tempest extension (ADR-0083): the repository a tool-bearing agent works in. Present in
+   *  the DEFAULTS rather than only on the type, because `AgentSelect`'s repopulate-on-edit
+   *  filters incoming agent fields through `new Set(Object.keys(defaultAgentFormValues))` —
+   *  a field missing here is silently dropped when an existing agent is opened, so the box
+   *  would render empty over a stored value and the next save would erase it. */
+  tempest_repo: '',
 };
 
 export const ImageVisionTool: FunctionTool = {

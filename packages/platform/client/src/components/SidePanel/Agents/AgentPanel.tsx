@@ -85,6 +85,10 @@ export function composeAgentUpdatePayload(data: AgentForm, agent_id?: string | n
     skills,
     skills_enabled,
     memory_scope,
+    /** Tempest extension (ADR-0083). This composer is a WHITELIST, so a field absent here is
+     *  dropped on every save — the repository would have been settable in the form and lost
+     *  on the way to the store. */
+    tempest_repo,
     avatar_action: avatarActionState,
   } = data;
 
@@ -127,6 +131,7 @@ export function composeAgentUpdatePayload(data: AgentForm, agent_id?: string | n
       /** A hidden stale 'agent' scope must not survive disabling memory —
        *  runtime partitioning keys off memory_scope alone. */
       memory_scope: data.memory === true ? memory_scope : MemoryScope.user,
+      tempest_repo,
       ...(shouldResetAvatar ? { avatar: null } : {}),
     },
     provider,
