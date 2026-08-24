@@ -351,10 +351,10 @@ def _body(
 
 
 def _open(
+    *,
     provider: Provider,
     model: str,
     messages: list[Message],
-    *,
     env: dict[str, str],
     max_tokens: int,
     stream: bool,
@@ -500,6 +500,61 @@ def _shutdown_fd(fd: int) -> None:
         sock.detach()
 
 
+def _open_cancellable(cancel: threading.Event | None, /, **kwargs: Any) -> Any:
+    """`_open`, with the cancel flag observable while it blocks.
+
+    `_cancel_guard` bounds the READ, and the module docstring's promise — "a provider that
+    goes silent cannot hold the abort hostage until the socket timeout" — was true only of
+    silence AFTER the response headers. Connect, TLS, the request body write and
+    `getresponse()` all happen inside `_open`, with no watcher alive and no flag read. A
+    provider that accepts the TCP connection and then says nothing (a cold local model
+    loading weights, a wedged proxy) held Stop for the FULL socket timeout: the chat job
+    stayed `active` for 300 s, so the user's next message on that conversation was refused
+    with a 409, and the turn finally settled as `error ... timed out` rather than the
+    `aborted` terminal the client asked for. The wrong exception class, too — `_open`
+    translates a timeout to `Offline`, so `except Cancelled` never ran.
+    (Trap 45: the existing tests all arm peers that send headers FIRST, so the arm they
+    exercised was the one that already worked.)
+
+    The connect runs on a worker so the caller can stop waiting for it. The socket itself
+    cannot be interrupted before a response object exists — there is no descriptor to shut
+    down yet — so the abandoned attempt is left to expire at its own timeout, and if it
+    does open after the caller gave up, the worker closes it rather than leaking it.
+    """
+    if cancel is None:
+        return _open(**kwargs)
+    if cancel.is_set():
+        raise Cancelled("cancelled by the caller before the request was sent")
+
+    box: dict[str, Any] = {}
+    done = threading.Event()
+
+    def run() -> None:
+        try:
+            box["response"] = _open(**kwargs)
+        except BaseException as exc:  # re-raised on the CALLER's thread, never swallowed
+            box["error"] = exc
+        finally:
+            done.set()
+            # The caller may already have unwound. An orphaned response would hold the
+            # connection (and the provider's generation) open until GC.
+            if cancel.is_set() and "response" in box:
+                with contextlib.suppress(Exception):
+                    box["response"].close()
+
+    threading.Thread(target=run, name="tempest-open", daemon=True).start()
+    while not done.wait(_CANCEL_POLL_S):
+        if cancel.is_set():
+            raise Cancelled("cancelled by the caller while the request was still connecting")
+    if "error" in box:
+        raise box["error"]
+    if cancel.is_set():
+        with contextlib.suppress(Exception):
+            box["response"].close()
+        raise Cancelled("cancelled by the caller as the response arrived")
+    return box["response"]
+
+
 @contextlib.contextmanager
 def _cancel_guard(cancel: threading.Event | None, response: Any, label: str) -> Iterator[None]:
     """Bound the READ, not just the loop around it (trap 58).
@@ -577,10 +632,11 @@ def complete(
     provider = get(provider_id)
     chosen = resolve_model(provider, model)
     with (
-        _open(
-            provider,
-            chosen,
-            messages,
+        _open_cancellable(
+            cancel,
+            provider=provider,
+            model=chosen,
+            messages=messages,
             env=env,
             max_tokens=max_tokens,
             stream=False,
@@ -706,10 +762,11 @@ def _stream_core(
 ) -> Iterator[StreamEvent]:
     provider = get(provider_id)
     chosen = resolve_model(provider, model)
-    response = _open(
-        provider,
-        chosen,
-        messages,
+    response = _open_cancellable(
+        cancel,
+        provider=provider,
+        model=chosen,
+        messages=messages,
         env=env,
         max_tokens=max_tokens,
         stream=True,

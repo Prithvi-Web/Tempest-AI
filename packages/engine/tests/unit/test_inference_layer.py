@@ -9,7 +9,7 @@ free and deterministic in CI, which is the standing answer to QV2/QV10.
 import json
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -65,6 +65,11 @@ class Peer:
         #: which takes the exception path instead. It is the exact case `_cancel_guard`'s
         #: docstring names ("a shut-down stream must never impersonate a completed one").
         self.close_delimited_stall = threading.Event()
+        #: Arm SILENCE BEFORE THE HEADERS: the connection is accepted, the request is read,
+        #: and then nothing is sent at all. This is the arm no other peer here produces —
+        #: every one of them sends headers first — and it is exactly the window `_open`
+        #: blocks in, with no watcher alive and no cancel flag read.
+        self.stall_before_headers = threading.Event()
         #: Set by the peer once the partial body is on the wire, so the test can cancel at a
         #: moment the client is guaranteed to be blocked — a barrier, not a hopeful sleep
         #: (trap 61).
@@ -108,6 +113,10 @@ def serve(peer: Peer) -> Iterator[str]:
             peer.requests.append(json.loads(raw))
             peer.headers.append({k.lower(): v for k, v in self.headers.items()})
             peer.paths.append(self.path)
+            if peer.stall_before_headers.is_set():
+                # Not a byte — not even a status line — until the test releases the hold.
+                peer.resume.wait(timeout=10)
+                return
             if peer.status != 200:
                 body = json.dumps({"error": {"message": "planted failure"}}).encode()
                 self.send_response(peer.status)
@@ -503,6 +512,96 @@ class TestBoundedReads:
                 model="m-1",
                 cancel=done,
             )
+
+
+class TestCancelDuringTheConnect:
+    """Stop must be observed while the request is still CONNECTING, not only once the
+    response headers have arrived.
+
+    `_cancel_guard` bounds the read; `_open` — connect, TLS, request body, `getresponse()` —
+    ran outside it with no watcher alive and no flag read. Every peer arm in this suite sends
+    headers first, so the tested arm was the one that already worked: a provider that accepts
+    the TCP connection and then says nothing held the abort for the full socket timeout
+    (300 s on the chat path). The job stayed `active` that whole time, so the user's next
+    message on the conversation was refused with a 409, and the turn finally settled as
+    `error ... timed out` instead of the `aborted` terminal the client asked for — and as the
+    wrong exception class too, since `_open` translates a timeout to `Offline`, so
+    `except Cancelled` never ran.
+    """
+
+    def _assert_prompt_cancel(self, call: Callable[[threading.Event], None]) -> None:
+        cancel = threading.Event()
+        timer = threading.Timer(0.3, cancel.set)
+        started = time.monotonic()
+        timer.start()
+        try:
+            with pytest.raises(mc.Cancelled) as caught:
+                call(cancel)
+        finally:
+            timer.cancel()
+        elapsed = time.monotonic() - started
+        # The socket timeout is 30 s. Anything near it means the cancel was not observed and
+        # the call simply timed out — which is the defect, and it raises `Offline`, not
+        # `Cancelled`, so the class assertion above already separates them.
+        assert elapsed < 10.0, f"cancel took {elapsed:.1f}s against a 30s socket timeout"
+        assert not isinstance(caught.value, mc.Offline)
+        assert "cancel" in str(caught.value).lower()
+
+    def test_complete_observes_a_cancel_while_the_provider_is_still_silent(self) -> None:
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.stall_before_headers.set()
+        with serve(peer) as base:
+            self._assert_prompt_cancel(
+                lambda cancel: mc.complete(
+                    "openai",
+                    [mc.Message("user", "hi")],
+                    env=_env(provider, base),
+                    model="m-1",
+                    timeout=30.0,
+                    cancel=cancel,
+                )
+            )
+            peer.resume.set()
+
+    def test_stream_observes_a_cancel_while_the_provider_is_still_silent(self) -> None:
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.stall_before_headers.set()
+
+        def drain(cancel: threading.Event) -> None:
+            for _ in mc.stream(
+                "openai",
+                [mc.Message("user", "hi")],
+                env=_env(provider, base),
+                model="m-1",
+                timeout=30.0,
+                cancel=cancel,
+            ):
+                pass  # pragma: no cover — the peer never sends a frame
+
+        with serve(peer) as base:
+            self._assert_prompt_cancel(drain)
+            peer.resume.set()
+
+    def test_a_cancel_set_before_the_call_never_opens_a_connection_at_all(self) -> None:
+        """The cheapest arm, and the one that matters for a queued turn the user stopped
+        before it started: no request is sent, so no provider is billed and no key leaves."""
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        cancel = threading.Event()
+        cancel.set()
+        with serve(peer) as base:
+            with pytest.raises(mc.Cancelled):
+                mc.complete(
+                    "openai",
+                    [mc.Message("user", "hi")],
+                    env=_env(provider, base),
+                    model="m-1",
+                    timeout=30.0,
+                    cancel=cancel,
+                )
+            assert peer.requests == [], "a cancelled call must not reach the provider at all"
 
 
 class TestTheCleanEofCannotImpersonateAnAnswer:
