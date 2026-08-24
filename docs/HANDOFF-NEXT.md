@@ -1,164 +1,104 @@
-# ⚡ SESSION HANDOFF — updated 2026-08-24 (C5 PART 4 SESSION), READ THIS BEFORE §0
+# ⚡ SESSION HANDOFF — updated 2026-08-24 (THE INTEGRATION SESSION), READ THIS BEFORE §0
 #
 # TREE CLEAN · **SAFE TO PUSH** · then WATCH THE 7 CI JOBS. Confirm the tip yourself — a
 # handoff that hard-codes its own SHA is stale the moment the handoff itself is committed:
 #   git rev-parse --short HEAD && git log --oneline origin/main..HEAD | wc -l && git status --short | wc -l
 #
-# **C5 IS CLOSED, INCLUDING THE OWNER'S LOCAL-MODELS FEATURE.** T36 and T37 are ADOPTED,
-# ADR-0080 has its amendment, and every gate below ran green with its output pasted into the
-# commits that claim it.
+# **C5 IS CLOSED AND THE OWNER'S INTEGRATION COMPLAINT IS ANSWERED.** ADR-0081 … ADR-0084.
+# A local model can be downloaded, served and CHATTED WITH — proven against the real
+# `llama-server` and the real Qwen3 0.6B, through the SHIPPED binary.
 #
-# GATES, THIS SESSION, AT THIS TIP (watched, not remembered):
-#   make verify                    MAKE_EXIT=0 · 100.00% combined (10951 stmts, 3036 branches,
-#                                  ZERO missed) · 2465 passed
-#   make verify-linux-denominator  LINUX_EXIT=0 · 100.00% · 2458 passed, 1 skipped
+# GATES, THIS SESSION, AT THIS TIP (watched, not remembered — every one read from the line
+# echoed into its own log, never from a notification, trap 40):
+#   make verify                    MAKE_EXIT=0 · 100.00% combined (11029 stmts, 3062 branches,
+#                                  ZERO missed) · 2486 passed
+#   make verify-linux-denominator  LINUX_EXIT=0 · 100.00% · 2479 passed, 1 skipped
 #   agent-gates.sh (inside verify) agent_bench 55/55 · intent_bench 54/54, 0 false ·
-#                                  repair_bench 11/11 · resume_test 15/15 · subagent_bench 13/13 ·
-#                                  retrieval_bench 40/40 + 15/15 · redteam 35/35 · mcp_check 16/16 ·
-#                                  mcp_client_check 11/11 · compose_bench 11/11 · escape_suite 0
-#   runtime_check / gate_audit     green — one orchestrator, 6 declared paths, every forge collecting
-#   egress_check                   256 platform surfaces, L32 holds
-#   upstream_check                 16 inline deltas / cap 40, every one declared
-#   cargo 147 · clippy -D warnings clean · vitest 106 (100/100/100/100) · e2e 65 passed
-#   parity --cli-vs-desktop        PARITY_EXIT=0 — byte-identical bundles, frozen sidecar vs CLI
+#                                  repair_bench 22/28 (79%) + 11/11 cheats refused ·
+#                                  resume_test 15/15 · subagent_bench 13/13 ·
+#                                  retrieval_bench 40/40 + 15/15 · redteam 35/35 ·
+#                                  mcp_check 16/16 · mcp_client_check 11/11 ·
+#                                  compose_bench 11/11 · escape_suite 0
+#   runtime_check                  RUNTIME_EXIT=0 — one orchestrator, one tool registry
+#   gate_audit                     GATEAUDIT_EXIT=0 — 6 declared paths, every forge collecting
+#   egress_check                   EGRESS_EXIT=0 — 269 platform surfaces, L32 holds
+#   upstream_check                 UPSTREAM_EXIT=0 — 27 inline deltas / cap 40, every one declared
+#   cargo 148 · clippy -D warnings clean · vitest 113 · playwright 75 passed (73 + 1 skipped
+#                                  inside verify; the full suite run separately is 75)
+#   parity --cli-vs-desktop        PARITY_EXIT=0 — byte-identical bundles
 #   orphan_check --after-sigkill   ORPHAN_EXIT=0 — 3 descendants, ZERO TCP listeners, cleared 2.0s
-#   drive_shipped.py               SHIPPED_DRIVE=OK — the INSTALLED bundle reads its own tool
-#                                  manifest (7 tools), serves the 4-row catalogue, carries NO dev
-#                                  row, answers `absent`, and round-trips agent CRUD
-#   app bundle                     rebuilt and installed Aug 24 02:30 (was Aug 23 21:07)
+#   app bundle                     rebuilt and installed 24 Aug 15:00
 #
-# WHAT THIS SESSION DID
-#   The local-models review finally came back: 4/4 lenses, 30 findings, 8 CONFIRMED, 3 SPLIT,
-#   18 refuted. Every confirmed and split finding is fixed. The four that changed a recorded
-#   decision are the ADR-0080 amendment (a P0 orphan window that the PREVIOUS fix opened; a
-#   downloader that let the SERVER decide how many bytes reached the disk; a model server the
-#   webview could hand an arbitrary executable; and §8's affordance, which the ADR described
-#   and nobody had built). e2e spec 25 now downloads a model through the REAL panel.
+# WHAT THIS SESSION DID — the owner's words were "right now it seems like two different apps…
+# I want everything to be more integrated completly", and every item below answers a clause.
 #
-# **READ THE "18 REFUTED" CORRECTLY.** The verify phase ran while the fixes were landing, so
-# most of those verifiers read a tree in which the defect was already gone — one says so in
-# as many words ("fixed but uncommitted"). They were not refuted as unreal. Each had first
-# been REPRODUCED by a failing test: the byte-budget defect wrote 50,244 bytes for a
-# 10,244-byte row; the cancel defect took 10.2 s against a ten-second dribble; and each of the
-# four "cannot fail" tests was replaced and then mutation-proven to fail.
+#   ADR-0081  A reasoning model's THINKING is its own content channel. Measured against a real
+#             llama-server + Qwen3 0.6B: 29 frames of `reasoning_content`, ZERO of `content`,
+#             and Tempest read only `content` — so the catalogue's most likely first click
+#             answered with an EMPTY BUBBLE. No client code changed; the vendored client has
+#             always been able to render a `think` part. A turn that answers nothing now says
+#             so, and `text` never carries the thinking (titles and exports are built from it).
+#   ADR-0082  ONE settings home. Tempest's settings are two tabs in the app's own dialog
+#             (Models · Proof engine); upstream's three provider-key panels moved into the
+#             Models tab beside the local models; the main rail gained a Models entry;
+#             `/tempest/settings` is a deep link, not a second home. Settings search now spans
+#             both halves of the product, which two settings pages cannot do at any price.
+#   ADR-0083  The assistant can actually USE Tempest. `tempest_repo` had NO UI at all, so a
+#             tool-bearing agent could not be pointed at a checkout from inside the app and
+#             refused its first message. Now a Repository field in the builder (warning while
+#             you build, not when you send), plus a blank-slate preset for an agent that knows
+#             when to run `prove` and never to author a verdict.
+#   ADR-0084  The proof surface owns the window. It carried THREE nav columns; the middle one
+#             ("Projects / Chats") applied to nothing on screen and was the widest. It is a
+#             full-width route now, exactly as `/insights` already was.
+#   Also      A local model is shown by its NAME, not the absolute path llama.cpp reports —
+#             which was the user's home directory in a dropdown, and in every stored
+#             conversation and export.
 #
 # WHAT IS **NOT** PROVEN, said plainly
-#   * **A real model has never been SERVED.** No `llama-server` exists on this machine or on
-#     any CI runner, so T37's stub proves the SUPERVISION (a real child, a real port, a real
-#     sweep — mutation-proven) and not llama.cpp itself. `brew install llama.cpp` makes the
-#     rest demonstrable; bundling a signed runner is T38.
-#   * **A real model has never been DOWNLOADED** from huggingface.co, deliberately: the rows
-#     are gigabytes and the catalogue's hashes were verified against two independent sources at
-#     authoring time. What ran is the loopback e2e row, whose sha256 is checked for real.
-#   * **Boundary A carries the model shapes untyped.** These routes answer
-#     `list[dict[str, Any]]`, so the OpenAPI has no named component and the Python↔Rust field
-#     names are held by the e2e contract net's explicit schemas rather than by generation. A
-#     real gap against L36.8, named in the ADR-0080 amendment rather than papered over.
+#   * **The app was never DRIVEN by hand.** Screen access was requested and DECLINED, so the
+#     physical Serve click and the physical send were not exercised. What IS proven: the Serve
+#     button's own code path against the real runner and the real model (the `#[ignore]` probe
+#     in `modelserver.rs`, output in its commit), and a full conversation through the SHIPPED
+#     `tempest-server` binary on the app's own port 8080 — answer, thinking on its own channel,
+#     434 measured tokens, both content parts persisted. The gap is the click, nothing else.
+#   * **Agent turns do not carry the thinking channel.** They reach the model through
+#     `run_task`, not `_run_turn` (ADR-0081 names it). So does the `stream_options` fallback
+#     arm. Both are stated in the ADR rather than left to be found.
+#   * **The repository is a pasted absolute path.** A folder picker is the only step in the
+#     agent flow that still asks a person to know something a dialog could tell them; it needs
+#     a new Tauri command and a boundary-B shape (ADR-0083 closes on this).
+#   * **Boundary A still carries the model shapes untyped** — unchanged from the last handoff.
 #
 # TRAPS PAID THIS SESSION (do not repay)
-#   * **On battery, `parity --cli-vs-desktop` sleeps for ever with no output.** L11's power
-#     pause is doing exactly what it promises; every other gate sets TEMPEST_NO_POWER_PAUSE=1
-#     and this one does not set it for itself. 37 minutes at 0% CPU before `sample` showed it
-#     parked in `time_sleep`. Set it, or plug in.
-#   * **A background command's exit code is the WRAPPER's, not the gate's** — twice this
-#     session a "completed (exit code 0)" notification sat above a log whose own EXIT line said
-#     2. Read the line you echoed into the log (trap 40), never the notification.
-#   * **`localModelRemedy.ts` beside `LocalModelRemedy.tsx` is a case pair**, and on macOS the
-#     bundler resolves whichever it likes — the client build failed with "LocalModelRemedy is
-#     not exported" from a file that exports it.
-#   * **A test that sets a process-wide global fails tests it has never heard of.** Emptying
-#     `PATH` to reach a refusal broke two tests in other modules under the parallel runner,
-#     while passing under `--lib modelserver`.
-#   * **A payload under one `read()` cannot exercise a progress bar.** The first e2e row was
-#     68 KB — a single 1 MiB read — so progress went 0 → 100 and the spec could not have told a
-#     working poll from a broken one. It is 4.25 MiB now, five reads.
-#   * **The harness serves a BUILT client.** `make platform-client-dist` after any seam change,
-#     or the e2e drives a bundle from before the feature existed.
-#   * Coverage litter (`packages/platform/client/coverage/`, `junit.xml`) still breaks
-#     `upstream_check`; `rm` it first.
+#   * **The seam's tsconfig is NOT the whole type story.** `tsc -p tempest/tsconfig.views.json`
+#     was green while `pnpm --filter './packages/desktop' typecheck` was RED on the same file:
+#     two copies of `@types/react` resolve here, and a seam file imported by a desktop TEST is
+#     compiled by both projects. Name `ReactNode` through the import, never `React.ReactNode`.
+#     Only `make verify` runs the second one.
+#   * **Importing a vendored type into the seam destroys the seam's type gate.** One
+#     `import type … from '~/components/…'` pulls the whole vendored tree — red at baseline,
+#     thousands of errors — into `tsconfig.views.json`. Mirror the shape and hold it with a
+#     test instead (`settingsManifest.test.ts`, mutation-proven four ways).
+#   * **lucide icons will not typecheck in the seam** for the same two-copies reason. Draw
+#     inline SVG, as `TempestViews.tsx` already does.
+#   * **A stray `llama-server` on 8080 breaks `cargo test`** — and the test it broke had an arm
+#     that could not test its own subject (it skipped the PathGuard, so `start()` refused for
+#     RunnerMissing before ever reaching the port check). Fixed, but kill strays anyway.
+#   * **A boundingBox() read catches a CSS transition mid-slide.** The sidebar assertion read
+#     176px of a value that settles above 200. Poll it.
+#   * **`registry.tsx` is in the MAIN chunk.** Anything it imports statically drags
+#     `@tauri-apps/api` into every build including the browser harness. Every settings panel is
+#     `React.lazy`; there is a test asserting it.
+#   * Coverage litter (`packages/platform/client/coverage/`, `junit.xml`,
+#     `packages/desktop/test-results/`) still breaks `upstream_check`: `rm` it first.
+#   * **`make platform-client-dist` after ANY seam change**, or the e2e drives a bundle from
+#     before the feature existed.
 #
-# NEXT SESSION'S WORK: C6 (datastore cutover) — or C7/C8 items, several of which this session
-# sharpened: the runner-path field must arrive HOST-side and never as an IPC argument (T38),
-# and per-turn steer scoping is still open with its reasoning recorded.
-
-## What this wave holds (b3ba308..HEAD), briefly
-
-**The fix wave** (verify+denominator green, app rebuilt+installed, orphan 2.0s): the CI
-ledger race (52e18fd — status COMPLETE and its terminal row now one commit; deterministic
-window test), the bench conditions fixture pin, the settings-dialog containing-block defect
-(Headless UI wrapper glass — spec 21 pins geometry), the rail's Tempest mark.
-
-**C5.1 — the engine chat vertical** (cc4afed + 394fa2a): `stream_events` (in-stream usage,
-both wires, both-halves-or-nothing), `chatturn.py` (the generation job manager: POST-ack +
-frame ledger; terminal state commits BEFORE it publishes; a new turn's opening commit
-atomically retires the prior generation's ledger; reconcile-on-read for dead processes),
-`platformstore.py` (ADR-0068 fallback document store, own SQLite file, L33), seven
-boundary-A chat ops. 100% coverage incl. branches.
-
-**C5.2 — delivery** (8e52e38): `agent_chat.rs` host seam beside the C4 intercepts
-(start/abort+epoch-guard/status/convos/messages/gen_title), generation-keyed ledger poller
-→ `AgentStreamEvent` (frames as JSON text — specta cannot type arbitrary JSON, SSE's e.data
-is a string anyway), `TempestSSE` seam class (sse.js interface, subscribe-first replay-
-second, seq dedupe; 100/100/100/100 vitest; tauri glue e2e-pinned like hooks.ts), ONE
-vendored delta at useResumableSSE's single SSE construction site (ledger row).
-
-**C5.3 — the harness leg** (4b3e104): bridge OpenAI-wire SSE peer with STAGED holds
-(park after frame N, one release per resume — hangups are measured writes into dead
-sockets, never buffer races), platform-server mirrors the seam with REAL progressive SSE,
-spec 22: typed message → tokens visible MID-turn → reload-durable → stop keeps the partial
-and the provider connection dies observably → context chains root-first.
-
-**Hardening between and after** (86468b1, +2): two adversarial review waves over C5's own
-code killed 11 real defects (regenerate resolved by the wrong key; memory-before-durable
-terminal publication; cross-turn ledger bleed; a start check-then-act that let the
-reconciler fire on a living turn; a meter-crash zombie; a router double-instance; a
-fabricated-zero usage; a test that could spend real API money; two vacuous/racy test
-assertions; the poller starving a rapid follow-up). The chat seam's READS out-wait a
-supervised engine restart (8s bound) so recovery never paints the console red; the active
-poll answers the truthful empty list while the engine is down.
-
-## Traps paid this session (do not repay)
-- Boundary-A body operations wrap their payload as `{"body": …}` over stdio (the COMMANDS
-  map in bridge.mjs is the visible convention; agent_chat.rs startChatTurn does the same).
-- specta forbids serde_json::Value in boundary-B payloads (BigInt) — frames cross as their
-  JSON TEXT and the client parses, which is exactly SSE's own shape.
-- Coverage litter (packages/platform/client/coverage/, junit.xml) reappears after client
-  builds/tests and breaks upstream_check with ~1,450 phantom rows: rm before running it.
-- After ANY fix batch, re-run the COMBINED coverage — the scoped pass lies by omission
-  (the 100% gate named five arms the scoped run could not see).
-- A python edit script that asserts mid-way lands NOTHING (its writes are at the end):
-  check every anchor against post-ruff bytes, or apply-and-verify one edit at a time.
-- The vendored client's ChatPeer/staged-holds discipline: hold once where the stop lands,
-  hold AGAIN before the observation write, release one hold per step.
-- gen_title/single-convo/share-link/tools-calls are load-bearing chat furniture: the view
-  cannot MOUNT after reload without `GET /api/convos/{id}` (it was the C7-deferral that
-  broke reload).
-
-## Where C5 stands vs PLAN-V3, and what remains
-
-DONE: the boundary-E agent seam headline (typing → real streamed answer, through the
-harness on real SSE and through the app's boundary-B path pinned by unit+cargo);
-`runtime_check` + `gate_audit` built and wired; MERGE-CONTRACT/UPSTREAM deltas recorded;
-ADR-0078. REMAINS (the C5 back half): the agent-surface re-target onto `run_task` (builder
-CRUD, run control: interrupt/steer/queue with cancel threaded into TaskSpec, HITL pause via
-a durable pending-approval stage, activity headers, context gauge — the recon maps name
-every attach point), the C5.7 smoothing item on the one streamed path, FEATURES-V3 row
-flips as their verifying tests go green, The REAL-app demo RAN (owner granted screen access): a typed message drove the whole
-seam in the installed bundle and rendered the honest no-key error THROUGH THE STREAMING
-PATH — the pipeline is proven end to end in the shipped binary; a real streamed answer
-needs only the owner's key saved in Settings (no Ollama exists on this Mac).
-
-## The commands (trap-40 discipline throughout)
-```bash
-cd "/Users/prithvivinay/Desktop/Claude Code/tempest"
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-TEMPEST_DEV=1 TEMPEST_NO_POWER_PAUSE=1 make verify > /tmp/v.log 2>&1; echo "MAKE_EXIT=$?" >> /tmp/v.log
-make verify-linux-denominator
-python -m tempest.dev.runtime_check --single-orchestrator --single-tool-registry
-python -m tempest.dev.gate_audit    --enumerate-paths --require-forge-test-per-path
-cd packages/desktop && E2E_PLATFORM_PORT=4184 E2E_BRIDGE_PORT=39759 npx playwright test   # side runs
-```
-
+# NEXT SESSION'S WORK: C6 (datastore cutover) is the first unchecked phase. Sharpened here and
+# worth taking early: the agent-repository folder picker (ADR-0083), the thinking channel for
+# agent turns (ADR-0081), and T38 (bundle a signed llama-server) — the runner still lives in
+# `<data>/runners/` because the user installed it by hand.
 
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;
 # **19, 19a, 20, 21 and 22 COMPLETE · 23 PART ONE · 24 and 25 NOT STARTED** — §0 is the only
