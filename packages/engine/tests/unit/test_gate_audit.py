@@ -86,6 +86,55 @@ class TestDiscovery:
         rogue.write_text("from tempest.agent.shadow import Shadow\n\nShadow().accept()\n")
         assert _run(tmp_path) == 1
 
+    def test_a_run_task_caller_is_not_exempted_by_the_words_def_run_task(
+        self, tmp_path: Path
+    ) -> None:
+        """The tripwire read `"def run_task" not in text`, apparently to exempt the
+        definition site — which `_RUN_TASK_HOMES` already exempts. What it actually did was
+        hand every undeclared caller a two-word opt-out: any file containing that substring
+        ANYWHERE, in a comment or in a differently-named function, escaped the sweep.
+
+        This is the L28 discovery half, so the bypass is not cosmetic: an undeclared surface
+        driving the runtime is exactly the door the enumeration exists to find.
+        """
+        _passing_tree(tmp_path)
+        rogue = tmp_path / "packages/api/src/tempest_api/sneaky.py"
+        rogue.write_text(
+            "from tempest.agent.orchestrator import run_task\n\n"
+            "def run_task_for_webhook(spec, env):\n"
+            "    return run_task(spec, env=env)\n"
+        )
+        assert _run(tmp_path) == 1
+
+    def test_a_run_task_caller_is_not_exempted_by_a_mere_comment(self, tmp_path: Path) -> None:
+        """The cheapest form of the same bypass, and the one a model would find first."""
+        _passing_tree(tmp_path)
+        rogue = tmp_path / "packages/api/src/tempest_api/sneaky2.py"
+        rogue.write_text("# see def run_task in the orchestrator\nresult = run_task(spec)\n")
+        assert _run(tmp_path) == 1
+
+    def test_shadow_acceptance_is_caught_through_the_import_style_the_repo_actually_uses(
+        self, tmp_path: Path
+    ) -> None:
+        """The `.accept(` tripwire required the dotted string `tempest.agent.shadow` to be
+        present. Every module in this repository imports it as
+        `from tempest.agent import shadow as shadow_mod` (orchestrator.py:42), whose text
+        contains no such substring — so the guard against a SECOND door into the user's
+        working tree (L19/L20) never fired on code written the way this codebase writes it.
+
+        The sibling test above it passes because it uses `from tempest.agent.shadow import
+        Shadow`, the one form that happens to produce the dotted text. A guard proven only
+        against the shape nobody writes is a guard's argument, not a guard (trap 45).
+        """
+        _passing_tree(tmp_path)
+        rogue = tmp_path / "packages/api/src/tempest_api/door.py"
+        rogue.write_text(
+            "from tempest.agent import shadow as shadow_mod\n\n"
+            "def land_it(shadow, paths):\n"
+            "    shadow_mod.accept(shadow, paths)\n"
+        )
+        assert _run(tmp_path) == 1
+
     def test_the_dev_tree_is_exempt_because_it_measures_the_runtime(self, tmp_path: Path) -> None:
         _passing_tree(tmp_path)
         bench = tmp_path / "packages/engine/src/tempest/dev/bench_thing.py"

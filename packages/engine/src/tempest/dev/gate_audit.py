@@ -21,6 +21,7 @@ Discovery tripwires (each proven to fail on a violating tree):
 """
 
 import argparse
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -122,6 +123,19 @@ _ACCEPT_HOMES = {
     "packages/engine/src/tempest/agent/shadow.py",
 }
 
+#: Every import form that puts the shadow module in a file's namespace. The tripwire below
+#: used to require the dotted text `tempest.agent.shadow`, which is produced by exactly ONE
+#: of these forms — and not by the one this codebase actually writes
+#: (`from tempest.agent import shadow as shadow_mod`, orchestrator.py:42). The guard against
+#: a second door into the user's working tree therefore never fired on real code, while its
+#: unit pin passed because the pin used the unusual form. Matching the import instead of a
+#: substring is what makes the check independent of how the author spelled it.
+_SHADOW_IMPORT = re.compile(
+    r"(?m)^\s*(?:from\s+tempest\.agent\.shadow\s+import\b"
+    r"|import\s+tempest\.agent\.shadow\b"
+    r"|from\s+tempest\.agent\s+import\s+.*\bshadow\b)"
+)
+
 
 def _repo_root(start: Path) -> Path:
     for candidate in [start, *start.parents]:
@@ -211,14 +225,19 @@ def _check_discovery(root: Path, paths: tuple[AuditPath, ...], fail: list[str]) 
                 f"{rel}: constructs ProvenChange — a second construction site is a second "
                 "way to claim a verdict (L16); declare and forge it or remove it"
             )
-        if "run_task(" in text and rel not in _RUN_TASK_HOMES and "def run_task" not in text:
+        # No `"def run_task" not in text` escape here: the definition site is already
+        # exempt by name in `_RUN_TASK_HOMES`, so that conjunct exempted nothing legitimate
+        # and handed every undeclared caller a two-word opt-out — a comment mentioning
+        # `def run_task`, or a wrapper called `def run_task_for_webhook`, walked straight
+        # through the L28 sweep.
+        if "run_task(" in text and rel not in _RUN_TASK_HOMES:
             fail.append(
                 f"{rel}: calls run_task — a product surface driving the runtime must be a "
                 "declared, forged row in gate_audit.PATHS"
             )
         if (
             ".accept(" in text
-            and "tempest.agent.shadow" in text
+            and _SHADOW_IMPORT.search(text) is not None
             and rel not in _ACCEPT_HOMES
             and rel not in declared_files
         ):
