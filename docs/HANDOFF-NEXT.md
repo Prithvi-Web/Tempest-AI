@@ -1,35 +1,53 @@
-# ⚡ SESSION HANDOFF — updated 2026-08-23 (C5 PART 2 SESSION), READ THIS BEFORE §0
-# NEXT SESSION: attach ~/Desktop/C5-PART3-SESSION-PROMPT.md — it carries this handoff plus
-# the C5 CLOSE-OUT work order (verify pair + adversarial review + rebuild) and the owner's
-# local-models mandate with its full recon.
-# (C5 BACK HALF CODE-COMPLETE: 8 commits b32b886..508d290 — run control/cancel + trap-58
-#  bounded reads · builder CRUD on the host seam · tool-bearing turns through run_task ·
-#  HITL parks + ask_user · steering · the event union + run steps/headers/gauge + delta
-#  batching · spec 24 = the whole story through the real UI · ADR-0079 · 10 ledger rows
-#  ADOPTED · PLAN-V3 C5 boxes flipped)
+# ⚡ SESSION HANDOFF — updated 2026-08-23 (C5 PART 3 SESSION), READ THIS BEFORE §0
+# NEXT SESSION: attach ~/Desktop/C5-PART4-SESSION-PROMPT.md — it carries this state plus the
+# work order (retrieve the local-models review, e2e spec, final gates, rebuild, ledger flips).
 #
-# GATE STATE AT HANDOFF (watched, not remembered): e2e 60/0 (specs 21/23/24 in) · ALL
-# ELEVEN agent gates exit 0 post-migration · agent_bench 55/55 at EVERY landing · cargo 133
-# · clippy clean · mypy --strict clean (188) · runtime_check green · gate_audit 6 paths.
+# HEAD db33df4 · 35 commits ahead of origin/main · tree CLEAN · DO NOT PUSH YET.
 #
-# IN FLIGHT / NOT DONE — the next session's FIRST work (details in C5-PART3 Part 1):
-#   1. make verify was RUNNING at handoff (combined-coverage may name arms) — RE-RUN both:
-#      make verify + make verify-linux-denominator.
-#   2. The adversarial review workflow over b32b886..HEAD died unretrieved — RE-RUN it
-#      (4 read-only lenses, 2 refute-by-default verifiers per finding; trap 48).
-#   3. The app was NOT rebuilt: build-server.sh → parity → tauri build → ditto →
-#      orphan_check, then drive the installed app once.
-#   4. Owner pushes (GitHub Desktop) only after the pair is green; WATCH the 7 CI jobs —
-#      this wave carries the spec-21 transparency fix + the edited ci.yml artifact step.
+# C5's CLOSE-OUT IS COMPLETE. The owner's LOCAL-MODELS feature (ADR-0080) is BUILT but not
+# closed out: a review whose findings were never retrieved, no e2e spec, no full gate at HEAD,
+# and the app bundle predates the whole feature.
 #
-# TRAPS PAID THIS SESSION: cross-thread response.close() cannot unblock a buffered read
-# (shutdown(2) the fd; re-check cancel after EVERY read — clean EOF can be a cancellation);
-# GitHub macOS runners have Reduce Transparency ON (pin media states via CDP in specs);
-# EPIPE needs several writes + macOS spells it EPROTOTYPE; the client ACL-keys on _id and
-# an unanswered /api/permissions/{t}/{id}/effective renders "Agent Not Available";
-# Approve/Reject only SELECT — the Submit button sends the batch; steer refusal codes must
-# be TOP-LEVEL {code}; a class method named `list` shadows the builtin for later
-# annotations; the harness dispatcher must fall through to local-api on a false answer.
+# GATES AS LAST MEASURED (watched, not remembered):
+#   make verify MAKE_EXIT=0, 100.00% coverage, 2375 passed        @ be506be
+#   make verify MAKE_EXIT=2, 99.92% (7 stmts in server.py)        @ f3d8289  -> fixed in db33df4,
+#                                                                    NOT re-run at HEAD
+#   verify-linux-denominator LINUX_EXIT=0, 100.00%, 2368 passed   @ be506be
+#   agent-gates.sh AGENT_GATES_EXIT=0 · agent_bench 55/55         @ 188596d
+#   runtime_check + gate_audit green · egress_check 256 surfaces
+#   orphan_check ORPHAN_EXIT=0, zero TCP listeners, cleared 2.0s
+#   cargo 142 · vitest 101 · e2e 60 (+2 @bench)
+#
+# IN FLIGHT / NOT DONE — the next session's FIRST work:
+#   1. The local-models adversarial review DIED UNRETRIEVED (4 finders started, 0 results).
+#      Re-run the saved script: .../workflows/scripts/local-models-adversarial-review-wf_585c937f-279.js
+#      Two things it was pointed at: LocalModelsGroup calls useModelCatalog TWICE on one query
+#      key with different refetchInterval (does the poll ever start?), and the MissingKey
+#      `remedy` field reaches the client with NO consumer.
+#   2. No e2e spec downloads a model through the real UI. `fake_huggingface_server` exists.
+#   3. make verify has not run at HEAD. Rebuild+reinstall: the bundle is Aug 23 21:07 and
+#      predates every local-models commit.
+#   4. T36/T37 are IN_PROGRESS and flip only on pasted green output (ledger rule 1).
+#
+# WHAT GREEN SIGNALS HID THIS SESSION (why the review is not optional):
+#   62 e2e specs green while EVERY completed tool call rendered "Cancelled" to users and
+#   screen readers · 100% coverage on two gates while platformstore.py LOST WRITES under
+#   concurrency · every gate green while the SHIPPED app could not read its own tool manifest
+#   (empty Tool Library, every tool-bearing turn dead) · tsc green while the absorbed Tempest
+#   surface (client/tempest/views) was NEVER typechecked by make verify — latent since C3 ·
+#   a test I had just written that covered nothing · three verifier REFUTATIONS that mutation
+#   proved wrong (deleting the LAST-seq rule left 37 tests green).
+#
+# TRAPS PAID (do not repay): a journal-mode change bypasses SQLite's busy handler by design —
+# set WAL once, read before converting, never let a failed conversion take the write; two
+# failed reproductions are NOT evidence of a flake (the WAL bug was 0/8 twice, then 5/5 once a
+# HELD write transaction was added); specta forbids serde_json::Value (stack overflow) AND i64
+# (BigInt) at boundary B — byte counts cross as f64; gen-contracts runs from the repo ROOT and
+# `pnpm tauri build` from packages/desktop; side e2e runs need TEMPEST_DEV=1 or make-repo 500s;
+# adding a declared row without updating the synthetic fixture world turns the suite red for
+# the wrong reason (twice: gate_audit's sixth path, egress_check's check 8); the Bash tool caps
+# timeouts at 10 min — background long gates; NEVER edit source while a gate runs (two 40-min
+# verify runs were discarded).
 
 ## What this wave holds (b3ba308..HEAD), briefly
 
