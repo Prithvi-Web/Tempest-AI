@@ -528,6 +528,22 @@ def _open_cancellable(cancel: threading.Event | None, /, **kwargs: Any) -> Any:
 
     box: dict[str, Any] = {}
     done = threading.Event()
+    # Both sides can end up responsible for the socket — the worker when the caller has
+    # already unwound, the caller when the flag goes up in the instant the response arrives —
+    # and which one gets there first is a race. The lock makes the close happen exactly once
+    # rather than relying on `close()` being idempotent, because "harmless today" is not a
+    # property anyone can check later.
+    close_lock = threading.Lock()
+    closed = False
+
+    def close_once() -> None:
+        nonlocal closed
+        with close_lock:
+            if closed or "response" not in box:
+                return
+            closed = True
+        with contextlib.suppress(Exception):
+            box["response"].close()
 
     def run() -> None:
         try:
@@ -538,9 +554,8 @@ def _open_cancellable(cancel: threading.Event | None, /, **kwargs: Any) -> Any:
             done.set()
             # The caller may already have unwound. An orphaned response would hold the
             # connection (and the provider's generation) open until GC.
-            if cancel.is_set() and "response" in box:
-                with contextlib.suppress(Exception):
-                    box["response"].close()
+            if cancel.is_set():
+                close_once()
 
     threading.Thread(target=run, name="tempest-open", daemon=True).start()
     while not done.wait(_CANCEL_POLL_S):
@@ -549,8 +564,7 @@ def _open_cancellable(cancel: threading.Event | None, /, **kwargs: Any) -> Any:
     if "error" in box:
         raise box["error"]
     if cancel.is_set():
-        with contextlib.suppress(Exception):
-            box["response"].close()
+        close_once()
         raise Cancelled("cancelled by the caller as the response arrived")
     return box["response"]
 

@@ -4236,3 +4236,117 @@ client exercises is answered by the host seam + boundary A. Known deferrals, nam
 background/intent settings (C8, with background execution), preempt-arm (this ADR §4), the
 builder's repository picker UI (`tempest_repo` is API-set until the conversation platform),
 and an agent-stream-specific fault-injection pin beyond e2e 06's engine-SIGKILL coverage.
+
+## ADR-0080 — Local open-source models: downloaded in the app, served by a supervised loopback child (2026-08-23)
+
+**Date:** 2026-08-23 · **Status:** accepted · **Law:** L8, L9, L10, L18, L21, L23, L32, L34 ·
+**Builds on:** ADR-0037 (BYO inference), ADR-0040 (one router, two wires), ADR-0076
+
+**Context.** The owner's requirement, in their words: *"I would also like an option in the app
+for users to download local opensource free models so it is easy."* Zero-setup chat — pick a
+free model, the app fetches it, conversations stream locally, no account, no key. This is L18's
+other half made real: "BYO inference" has always allowed a local model, and has never helped a
+user obtain one.
+
+Four facts were measured against the tree and the network before anything was designed. Two of
+them contradict the reconnaissance this work was handed.
+
+1. **A local server already appears in the picker with no new code.** The `llamacpp` registry
+   row (`inference/providers.py`, `http://127.0.0.1:8080/v1`) plus the catalog's live local
+   probe (`routers/providers.py:_discover_models`, which always probes locals and fails silently
+   in milliseconds when absent) mean a `llama-server` on 8080 is already a usable provider. The
+   feature is therefore *acquisition and lifecycle*, not a new inference path — the router stays
+   the one router (ADR-0076).
+
+2. **`localmodel.rs` cannot serve chat.** It is a ONE-SHOT stdio completion runner built for
+   F11's ghost text: it spawns a process, writes a prompt, reads a completion, exits. It is not
+   a server and must not be grown into one.
+
+3. **The supervisor structurally forbids what this needs.** `supervisor.rs`'s `Wire` enum has
+   exactly two variants — `Stdio(ChildStdin)` and `Unix(UnixStream)`. A TCP child is not
+   merely discouraged, it is *unrepresentable*, which is the property L34 and the threat model
+   rely on. The entire local-model ecosystem speaks loopback HTTP.
+
+4. **Hugging Face redirects to a CDN.** Measured, not assumed: a `resolve/main/...` request
+   answers `302` to `us.aws.cdn.hf.co`. `client.py`'s `_RefuseRedirects` opener refuses every
+   redirect on purpose — a redirect is how a key leaks to an unconfigured host — so a downloader
+   reusing that policy unchanged cannot fetch a single byte.
+
+**Decision.**
+
+**§1 — A new supervision struct, not a new `Wire` variant.** `modelserver.rs` supervises the
+model server as its own kind of child: it reuses `spawn_child`'s process-group discipline
+(`command.process_group(0)`, `terminate_group`, `kill_group`, widened to `pub(crate)`) and adds
+an HTTP health probe, because an HTTP server's readiness cannot be observed on a pipe that does
+not exist. `Wire` keeps both its variants and gains none — the JSON-RPC boundary stays
+unrepresentably-TCP-free, and the deviation is confined to a child that speaks no boundary at
+all. Loopback only (`127.0.0.1`, never `0.0.0.0`), off by default, started only when the user
+enables serving, and torn down with the process group like every other child (L34).
+`orphan_check --all-children` covers it by pid-tree, which is why the process group matters more
+than the transport.
+
+**§2 — The downloader lives in the Python engine.** The Rust host has no HTTP client and the
+webview's CSP blocks `huggingface.co`, so the engine is the only place with both the capability
+and the existing egress discipline. `urllib.request` with a `Range:` header for resume and
+`hashlib.sha256` for verification.
+
+**The redirect policy gains a NAMED, BOUNDED allowance rather than an exception.** A model
+download follows at most one redirect, only from `huggingface.co` to a host in a recorded CDN
+suffix ledger, and **only on a request that carries no credential of any kind** — which a model
+download does not, because these repositories are public and ungated. That last clause is the
+one that makes it safe: `_RefuseRedirects` exists to stop a key leaking to an unconfigured host,
+and a request with no key cannot leak one. The two policies live side by side; the keyed model
+client keeps refusing every redirect, unchanged.
+
+**§3 — Integrity is checked, and the size is shown first.** Every registry row carries a sha256
+and a byte size, verified at authoring time against two independent sources (the HF API's
+`lfs.oid` and the `x-linked-etag` response header). A completed download is verified before it
+is usable, and a mismatch deletes the file and refuses — a partial or substituted model is not a
+model. The size and the machine's free space are shown BEFORE the download starts (L21: cost is
+visible before it is spent, and gigabytes are a cost); `doctor.py`'s `disk_free_gb` already
+measures it. Deletion exists from the first version, because a feature that can fill a disk and
+not empty it is not finished.
+
+**§4 — Progress rides the existing poll-and-page ledger.** Downloads report through the same
+shape as a chat turn's frame ledger (`listChatTurnEvents`), not a second streaming mechanism.
+Cancel is a flag observed between chunks, and a cancelled download keeps its partial file so the
+`Range:` resume can use it.
+
+**§5 — Storage, and the leaf-safety helper this needed written.** Models live under
+`<data>/models/`. The reconnaissance said to use an existing `safe_leaf`; **there is no such
+function** — the nearest precedent is `ingest.py`'s `_safe_extract`. A leaf-safety helper is
+therefore written and tested here rather than imported: a registry id must resolve to exactly one
+path component under the models directory, and `..`, absolute paths, and separators are refused
+rather than sanitised, because a sanitiser that rewrites a hostile name into a plausible one is
+harder to reason about than one that says no.
+
+**§6 — The runner binary is not bundled, and the refusal says so.** Resolution order is bundled →
+the user's configured path → `PATH` (`llama-server`). When none is found the feature refuses
+honestly, names `brew install llama.cpp`, and keeps the downloaded model waiting — never a
+spinner, never a silent failure (L23). This is the one place the feature is not yet zero-setup,
+and it is recorded as such rather than papered over: **bundling a signed `llama-server` per
+platform is the follow-up that closes it**, and it is a C8 plan item, not a comment.
+
+**§7 — Egress stays a closed ledger.** `egress_check` gains a huggingface ledger built on the
+`_KNOWN_CDN_CONSTANTS` / `_check_cdn_ledger` pattern, which is checked in both directions: a new
+hard-coded host is a failure, and a recorded host that has vanished is also a failure, so the
+ledger can never describe a tree that no longer exists. The base URL constant lives in exactly
+one named file. Downloads are user-initiated and inert until clicked, and **airplane mode keeps
+every already-downloaded model fully working** — which is the whole point: this feature is how
+L8's "works with the cable unplugged" becomes true for generation, not just for proof.
+
+**§8 — The missing-key error grows a remedy, contract-first.** `MissingKey` gains a structured
+remedy carried through the frame contract to a "Get a local model" affordance. Structured,
+because the alternative is the client matching on an error string — and a UI that keys on prose
+breaks the moment the prose improves.
+
+**Consequences.** The app gains a supervised child that speaks HTTP, which is a real widening of
+the process surface and is why §1 confines it rather than generalising `Wire`. Two policies now
+exist for redirects, and the difference between them is exactly "does this request carry a
+credential" — stated here so a future reader does not collapse them. The curated registry is
+data that goes stale: the rows are pinned by hash, so a moved or re-uploaded file fails
+verification loudly instead of installing something else, and refreshing them is an
+upstream-merge-style obligation. Nothing here touches the proof engine: a local model is a
+provider, verdicts are still computed by the differential runner, and L17/L31 are untouched — a
+model that runs on the user's own machine gets no more authority over a verdict than one that
+does not.

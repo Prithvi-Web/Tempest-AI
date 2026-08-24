@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 
 import pytest
 
@@ -670,7 +671,121 @@ class TestTheCleanEofCannotImpersonateAnAnswer:
         assert elapsed < 10.0, f"cancel took {elapsed:.1f}s against a 30s socket timeout"
 
 
+class TestTheCancellableOpen:
+    """`_open_cancellable`'s own arms, driven directly.
+
+    Its job is to make the CONNECT observable to a cancel flag, and the states worth pinning
+    are the ones a live provider cannot be made to produce on demand: an error raised on the
+    worker and re-raised on the caller's thread, and a cancel that lands in the same instant
+    the response arrives. Both are exercised with a stub `_open` rather than a socket, because
+    a test that needs to win a race against a real connect is a coin flip with a good
+    reputation (trap 61).
+    """
+
+    def _stub_open(self, monkeypatch: pytest.MonkeyPatch, behaviour: Callable[[], Any]) -> None:
+        monkeypatch.setattr(mc, "_open", lambda **_kwargs: behaviour())
+
+    def test_no_cancel_flag_means_the_plain_open(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With nothing to observe, the worker is pure overhead — the call goes straight
+        through, which is what every non-cancellable caller relies on."""
+        sentinel = object()
+        self._stub_open(monkeypatch, lambda: sentinel)
+        assert mc._open_cancellable(None) is sentinel
+
+    def test_an_open_failure_is_re_raised_on_the_callers_thread(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fault must keep its own face. Swallowing it on the worker and answering None
+        would turn "the provider refused the key" into a mystery, and moving the connect off
+        the caller's thread must not change which exception the caller sees."""
+
+        def boom() -> Any:
+            raise mc.Offline("could not reach the provider")
+
+        self._stub_open(monkeypatch, boom)
+        with pytest.raises(mc.Offline, match="could not reach the provider"):
+            mc._open_cancellable(threading.Event())
+
+    def test_a_cancel_landing_as_the_response_arrives_closes_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The narrow window the loop cannot catch: the connect completed, and the flag went
+        up before the caller could use it. The response must be CLOSED rather than returned —
+        an orphan holds the connection, and the provider's generation, open until GC.
+        """
+        cancel = threading.Event()
+        closed: list[str] = []
+
+        class Response:
+            def close(self) -> None:
+                closed.append("closed")
+
+        def opened() -> Any:
+            cancel.set()  # the flag goes up inside the connect, deterministically
+            return Response()
+
+        self._stub_open(monkeypatch, opened)
+        with pytest.raises(mc.Cancelled, match="as the response arrived"):
+            mc._open_cancellable(cancel)
+        assert closed == ["closed"], "the abandoned response must not be left open"
+
+    def test_a_response_that_arrives_after_the_caller_gave_up_is_closed_by_the_worker(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The other side of the same leak. The caller stops waiting and raises; the connect
+        completes moments later on a thread nobody is reading. Whoever finishes last is
+        responsible for the socket, so the worker closes it on its way out.
+        """
+        cancel = threading.Event()
+        release = threading.Event()
+        closed = threading.Event()
+
+        class Response:
+            def close(self) -> None:
+                closed.set()
+
+        def slow() -> Any:
+            assert release.wait(timeout=5), "the test never released the connect"
+            return Response()
+
+        self._stub_open(monkeypatch, slow)
+        cancel_at = threading.Timer(0.05, cancel.set)
+        cancel_at.start()
+        try:
+            with pytest.raises(mc.Cancelled, match="still connecting"):
+                mc._open_cancellable(cancel)
+        finally:
+            cancel_at.cancel()
+        # Only NOW does the connect finish — with nobody waiting for it.
+        release.set()
+        assert closed.wait(timeout=5), (
+            "a response that arrived after the caller unwound was left open"
+        )
+
+
 class TestTheCancelWatchWithoutAnFd:
+    def test_entering_the_guard_with_the_flag_already_up_closes_and_refuses(self) -> None:
+        """`_cancel_guard`'s early arm, asserted directly because it is now hard to reach
+        through a real call: `_open_cancellable` re-checks the flag immediately before
+        returning, so a cancel that was already up raises there instead. The window between
+        those two checks is real but vanishingly narrow, and defence at a function boundary
+        should hold whether or not its caller happens to make it redundant today.
+        """
+        closed: list[str] = []
+
+        class Response:
+            def close(self) -> None:
+                closed.append("closed")
+
+        cancel = threading.Event()
+        cancel.set()
+        with (
+            pytest.raises(mc.Cancelled, match="connection closed"),
+            mc._cancel_guard(cancel, Response(), "test-provider"),
+        ):
+            raise AssertionError("the guard must refuse before the body runs")
+        assert closed == ["closed"], "the response must be closed, not merely abandoned"
+
     def test_a_response_with_no_usable_fd_leaves_the_guard_harmless(self) -> None:
         """`_cancel_guard` captures the descriptor with `suppress(OSError, ValueError)`, so a
         response that cannot produce one leaves `fd = -1` and the watcher must simply stand

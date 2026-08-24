@@ -198,6 +198,8 @@
 | T29 | **F19** Time-travel debugger | PROOF_NATIVE | 27 | PLANNED | 10k-step scrub < 500 ms |
 | T30 | **F20** Team knowledge base | PROOF_ADJACENT | 27 | PLANNED | KB delta on `agent_bench` reported; zero → cut and say so |
 | T31 | **F21** Model arena — proof-ranked leaderboard | PROOF_NATIVE | 27 | PLANNED | router beats fixed selection on success-per-dollar over 100 tasks |
+| T36 | **Local model downloads** — a curated free-and-permissive catalogue, fetched in-app with resume + sha256 verification, deletable, sizes shown before the spend (ADR-0080) | PLATFORM | C5 | IN_PROGRESS | `egress_check` huggingface ledger (closed, both directions); download/resume/verify/cancel/delete pins against `fake_huggingface_server`; **airplane mode: an already-downloaded model still chats** |
+| T37 | **Local model serving** — a supervised loopback `llama-server` child, off by default, appearing in the existing picker through the `llamacpp` row (ADR-0080 §1) | PLATFORM | C5 | IN_PROGRESS | `orphan_check --all-children --after-sigkill` covers it by pid-tree; an honest refusal naming `brew install llama.cpp` when no runner is found |
 
 ### Known-open, carried honestly
 
@@ -207,6 +209,7 @@
 | T33 | Recorded Claude-Code ↔ Tempest MCP demo | owner | No hermetic gate can assert it |
 | T34 | Ten real MCP servers + authorization-code OAuth | owner | |
 | T35 | 19.5b — one model path, drop the `anthropic` SDK | C4 | Open since Phase 19 |
+| T38 | Bundle a signed `llama-server` per platform | C8 | ADR-0080 §6. Until then the feature is one `brew install` short of zero-setup, and says so in the refusal rather than hiding it. |
 
 ---
 
