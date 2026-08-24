@@ -231,6 +231,12 @@ class FakeHuggingFace:
     requests: list[tuple[str, str | None]] = field(default_factory=list)
     #: Serve at most this many bytes per response, then close — a truncated body.
     truncate_at: int | None = None
+    #: Write the body in pieces of this size, pausing `chunk_delay_s` between them. Loopback
+    #: is fast enough that a small payload arrives before a test can react to it, so a test
+    #: about CANCELLING mid-download needs the producer to be the slow one — otherwise the
+    #: cancel is a race against the network stack and the test is a coin flip (trap 61).
+    chunk_size: int | None = None
+    chunk_delay_s: float = 0.0
 
 
 @contextmanager
@@ -273,6 +279,15 @@ def fake_huggingface_server(fake: FakeHuggingFace) -> Iterator[str]:
                 end = start + len(body) - 1
                 self.send_header("Content-Range", f"bytes {start}-{end}/{len(fake.payload)}")
             self.end_headers()
+            if fake.chunk_size:
+                for offset in range(0, len(body), fake.chunk_size):
+                    try:
+                        self.wfile.write(body[offset : offset + fake.chunk_size])
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError, OSError):
+                        return  # the client hung up mid-body: exactly what a cancel looks like
+                    time.sleep(fake.chunk_delay_s)
+                return
             self.wfile.write(body)
 
         def log_message(self, *_: object) -> None:

@@ -17,6 +17,7 @@ from tempest_api.routers import (
     health,
     local,
     logs,
+    models,
     providers,
     runs,
     search,
@@ -80,4 +81,5 @@ def create_app() -> FastAPI:
     app.include_router(watch.router)
     app.include_router(chat.router)
     app.include_router(agents.router)
+    app.include_router(models.router)
     return app
