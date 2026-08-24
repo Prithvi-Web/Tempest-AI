@@ -60,8 +60,13 @@ class ScriptedHost implements TempestSSEHost {
    * coalescing) from `after` rather than always replaying the whole ledger. */
   replayByCursor: Map<number, StreamPush> = new Map();
 
+  /** Called inside replay(), before it resolves — the hook that lets a test enact "a live
+   *  push landed while this round trip was in flight" without a sleep. */
+  onReplay: ((after: number) => void) | null = null;
+
   replay(_streamId: string, after: number): Promise<StreamPush> {
     this.cursors.push(after);
+    this.onReplay?.(after);
     this.replayResolve?.();
     const page = this.replayByCursor.get(after);
     if (page !== undefined) {
@@ -231,6 +236,67 @@ describe("coalesced overlap", () => {
     await settled();
 
     expect(deltaText(seen.message)).toBe("Hello world");
+  });
+});
+
+describe("the replay's own edges", () => {
+  it("a close during the replay round trip delivers nothing", async () => {
+    // The subscription is already live at this point, so a page delivered after close()
+    // would push frames into a stream the caller has abandoned — and, worse, re-open a
+    // readyState the caller set to CLOSED.
+    const host = new ScriptedHost("c-9");
+    host.replayControlled = true;
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("/api/agents/chat/stream/c-9");
+    const seen = collect(sse);
+
+    sse.stream();
+    await host.replayRequested;
+    sse.close();
+    host.settleReplayNow({
+      stream_id: "c-9",
+      status: "active",
+      events: [frame(1, { created: true })],
+    });
+    await settled();
+
+    expect(seen.message).toHaveLength(0);
+    expect(sse.readyState).toBe(TempestSSE.CLOSED);
+    expect(seen.error).toHaveLength(0); // an abandoned replay is not a failure
+  });
+
+  it("a feed that overtakes every replay still delivers, bounded", async () => {
+    // The pathological case the attempt bound exists for: a push lands during EVERY round
+    // trip, so the cursor never matches what was asked for. Without a bound this is an
+    // infinite retry against a busy stream; with one, the last page is served from the
+    // furthest cursor — frames at or below the high-water mark are already on screen, and
+    // anything above it is genuinely new.
+    const host = new ScriptedHost("c-10");
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("/api/agents/chat/stream/c-10");
+    const seen = collect(sse);
+
+    let tick = 0;
+    host.onReplay = () => {
+      tick += 1;
+      // A push mid-round-trip, every time: the cursor moves under the request.
+      host.handler?.({
+        stream_id: "c-10",
+        status: "active",
+        events: [delta(10 * tick, "step_0", `chunk${tick} `)],
+      });
+    };
+    host.replayPush = { stream_id: "c-10", status: "active", events: [] };
+
+    sse.stream();
+    await settled();
+    await settled();
+
+    // It gave up re-asking rather than spinning, and it asked from a MOVING cursor.
+    expect(host.cursors.length).toBe(5); // four attempts, then the final serve
+    expect(host.cursors).toEqual([0, 10, 20, 30, 40]);
+    // Every pushed chunk still reached the reader exactly once.
+    expect(deltaText(seen.message)).toBe("chunk1 chunk2 chunk3 chunk4 chunk5 ");
   });
 });
 
