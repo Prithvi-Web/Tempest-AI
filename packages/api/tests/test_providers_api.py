@@ -171,6 +171,124 @@ class TestLocalDiscovery:
         finally:
             peer.close()
 
+    def test_a_file_path_model_id_is_shown_by_its_name_not_the_users_home_directory(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """llama.cpp names its model by the FILE PATH it was started with.
+
+        Measured against a real `llama-server` (b10612) serving Qwen3 0.6B on 2026-08-24:
+
+            data[0].id = "/Users/<person>/Library/Application Support/com.prithvi.tempest/
+                          models/qwen3-0.6b-q8/Qwen3-0.6B-Q8_0.gguf"
+
+        and its only alias is that same path. Ollama and LM Studio return real names, so this
+        is llama.cpp's shape alone — but llama.cpp is the runner Tempest itself starts, which
+        makes it the one every user of the local-models feature meets.
+
+        Left alone, the user's HOME DIRECTORY is the label in the model dropdown, and it is
+        also what gets written into every conversation's `model` field, every export, and
+        every shared link. A path is user data; a dropdown is not where it belongs.
+        """
+        gguf = (
+            "/Users/someone/Library/Application Support/com.prithvi.tempest/m/Qwen3-0.6B-Q8_0.gguf"
+        )
+        peer = _ModelsPeer(json.dumps({"data": [{"id": gguf}]}).encode())
+        try:
+            monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_LLAMACPP", peer.base_url)
+            payload = _catalog(client)
+            models = payload["models"]
+            assert isinstance(models, dict)
+            assert models["llama.cpp server (local)"] == ["Qwen3-0.6B-Q8_0"]
+        finally:
+            peer.close()
+
+    def test_a_name_that_is_not_a_path_is_left_exactly_alone(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ollama's `qwen3:0.6b` and LM Studio's `qwen/qwen3-0.6b` are already names, and one
+        of them contains a slash. Only an ABSOLUTE path is rewritten — a rule that reached for
+        slashes would rename half the models on the internet."""
+        body = json.dumps(
+            {"data": [{"id": "qwen3:0.6b"}, {"id": "qwen/qwen3-0.6b"}, {"id": "./rel/x.gguf"}]}
+        ).encode()
+        peer = _ModelsPeer(body)
+        try:
+            monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_OLLAMA", peer.base_url)
+            payload = _catalog(client)
+            models = payload["models"]
+            assert isinstance(models, dict)
+            assert models["Ollama (local)"] == ["./rel/x.gguf", "qwen/qwen3-0.6b", "qwen3:0.6b"]
+        finally:
+            peer.close()
+
+    def test_two_paths_that_share_a_name_keep_their_paths(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Shortening is only worth doing while it stays unambiguous. Two models rendered
+        under ONE name is a worse failure than an ugly name: the picker would offer a choice
+        that cannot be made, and whichever the user picked, the id sent back names the other
+        one just as well. So a collision keeps every colliding row's full path, and the rows
+        that are still unique are still shortened."""
+        body = json.dumps(
+            {
+                "data": [
+                    {"id": "/a/models/Qwen3.gguf"},
+                    {"id": "/b/models/Qwen3.gguf"},
+                    {"id": "/c/models/Phi4.gguf"},
+                ]
+            }
+        ).encode()
+        peer = _ModelsPeer(body)
+        try:
+            monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_LLAMACPP", peer.base_url)
+            payload = _catalog(client)
+            models = payload["models"]
+            assert isinstance(models, dict)
+            assert models["llama.cpp server (local)"] == [
+                "/a/models/Qwen3.gguf",
+                "/b/models/Qwen3.gguf",
+                "Phi4",
+            ]
+        finally:
+            peer.close()
+
+    def test_a_windows_runner_path_is_named_too(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        r"""`C:\models\x.gguf` is as absolute as `/models/x.gguf`, and a Windows user meets
+        the same dropdown. Asserted rather than merely claimed in a docstring: this suite runs
+        on macOS, so nothing else here would ever execute that arm."""
+        body = json.dumps(
+            {"data": [{"id": r"C:\models\Phi-4-mini.gguf"}, {"id": "D:/m/SmolLM3.gguf"}]}
+        ).encode()
+        peer = _ModelsPeer(body)
+        try:
+            monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_LLAMACPP", peer.base_url)
+            payload = _catalog(client)
+            models = payload["models"]
+            assert isinstance(models, dict)
+            assert models["llama.cpp server (local)"] == ["Phi-4-mini", "SmolLM3"]
+        finally:
+            peer.close()
+
+    def test_a_remote_provider_is_never_renamed(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The rewrite is a LOCAL-runner accommodation. A remote provider's id is its API's
+        contract and is sent back verbatim; nothing about a hosted model is a file on this
+        disk, and a remote that answered with a path shape would be saying something worth
+        seeing rather than something worth tidying."""
+        peer = _ModelsPeer(json.dumps({"data": [{"id": "/weird/but/theirs.gguf"}]}).encode())
+        try:
+            monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_GROQ", peer.base_url)
+            monkeypatch.setenv("GROQ_API_KEY", "gsk-planted-key-for-discovery")
+            payload = _catalog(client)
+            models = payload["models"]
+            assert isinstance(models, dict)
+            assert models["Groq"] == ["/weird/but/theirs.gguf"]
+        finally:
+            peer.close()
+
     def test_an_offline_runner_lists_nothing_and_nothing_fails(self, client: TestClient) -> None:
         payload = _catalog(client)
         models = payload["models"]

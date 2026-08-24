@@ -24,8 +24,10 @@ and what is known is stated.
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
+from pathlib import PurePosixPath
 
 from fastapi import APIRouter
 
@@ -41,6 +43,9 @@ _LOCAL_PROBE_TIMEOUT_S = 0.8
 #: A keyed remote probe is a real network round trip the user sanctioned by configuring the
 #: key; still bounded so a slow provider cannot stall the catalog.
 _REMOTE_PROBE_TIMEOUT_S = 4.0
+
+#: `C:\models\x.gguf` and `C:/models/x.gguf` — a local runner on Windows names paths this way.
+_WINDOWS_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _discover_models(provider: registry.Provider, env: dict[str, str]) -> list[str]:
@@ -67,7 +72,60 @@ def _discover_models(provider: registry.Provider, env: dict[str, str]) -> list[s
     if not isinstance(rows, list):
         return []
     ids = [row["id"] for row in rows if isinstance(row, dict) and isinstance(row.get("id"), str)]
-    return sorted(ids)
+    return sorted(_named(ids) if provider.local else ids)
+
+
+def _named(ids: list[str]) -> list[str]:
+    """A local runner's model ids, with absolute FILE PATHS shown by their name.
+
+    llama.cpp names a model by the path it was started with — measured against a real
+    `llama-server` (b10612) serving Qwen3 0.6B: `data[0].id` was the full
+    `/Users/<person>/Library/Application Support/…/Qwen3-0.6B-Q8_0.gguf`, and its only alias
+    was that same path. Ollama (`qwen3:0.6b`) and LM Studio (`qwen/qwen3-0.6b`) return real
+    names, so this is llama.cpp's shape alone — but llama.cpp is the runner Tempest itself
+    starts, which makes it the one every user of the local-models feature meets.
+
+    Left alone, the user's HOME DIRECTORY is the label in the model dropdown. It is also what
+    lands in every conversation's stored `model` field, every export and every shared link. A
+    path is user data (L9); a dropdown is not where it belongs.
+
+    **Why rewriting the id is safe here, measured rather than assumed.** The id is what goes
+    back on the next request, so a rename that the server refuses would break chat outright.
+    Against the same real `llama-server`, `Qwen3-0.6B-Q8_0`, the full path, and an invented
+    name were all accepted — it ignores the field while serving one model, which is exactly
+    how Tempest starts it (`server_command` passes a single `--model`).
+
+    Two rules keep it honest. Only an ABSOLUTE path is touched, so `qwen/qwen3-0.6b` and a
+    relative `./x.gguf` survive intact — a rule reaching for slashes would rename half the
+    models on the internet. And a name two rows would share is not used at all: two models
+    under one label is a worse failure than an ugly one, because the picker would be offering
+    a choice that cannot be made.
+    """
+    stems: dict[str, list[str]] = {}
+    for model_id in ids:
+        if not _is_absolute_path(model_id):
+            continue
+        stem = _stem(model_id)
+        stems.setdefault(stem, []).append(model_id)
+    unique = {paths[0]: stem for stem, paths in stems.items() if len(paths) == 1 and stem}
+    return [unique.get(model_id, model_id) for model_id in ids]
+
+
+def _is_absolute_path(model_id: str) -> bool:
+    """POSIX absolute, or a Windows drive path — the two shapes a runner can hand back."""
+    return model_id.startswith("/") or bool(_WINDOWS_PATH.match(model_id))
+
+
+def _stem(model_id: str) -> str:
+    """The file name without its extension, for a path in EITHER separator style.
+
+    `PurePosixPath` alone was wrong here and the Windows test caught it: it does not treat
+    `\\` as a separator, so `C:\\models\\Phi-4-mini.gguf` kept its whole directory in the
+    "stem". Splitting on both is what a runner on either platform actually needs, and
+    `PurePosixPath` is still what drops the extension.
+    """
+    tail = re.split(r"[\\/]", model_id)[-1]
+    return PurePosixPath(tail).stem
 
 
 def _models_for(provider: registry.Provider, env: dict[str, str]) -> list[str]:

@@ -424,6 +424,36 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "one-off: needs the managed runner and a downloaded model on THIS machine"]
+    fn the_real_runner_serves_the_real_model_on_the_real_port() {
+        // Not a CI gate — CI has neither a runner nor a 640 MB model. Run by hand with
+        // `cargo test --lib modelserver -- --ignored --nocapture`, which is how the serve
+        // path was proven against llama.cpp b10612 and Qwen3 0.6B on 2026-08-24.
+        let data = dirs_next_home()
+            .join("Library/Application Support/com.prithvi.tempest");
+        let model = data.join("models/qwen3-0.6b-q8/Qwen3-0.6B-Q8_0.gguf");
+        assert!(model.is_file(), "no downloaded model at {}", model.display());
+
+        let runner = resolve_runner(Some(&data)).expect("the managed runner resolves");
+        eprintln!("PROBE runner   = {runner}");
+        assert!(runner.starts_with(data.to_str().unwrap()), "not the MANAGED runner: {runner}");
+
+        let started = start(&model.to_string_lossy(), Some(&data)).expect("the server starts");
+        eprintln!("PROBE started  = {started}");
+        let (up, serving) = status();
+        eprintln!("PROBE status   = up={up} serving={serving:?}");
+        assert!(up);
+        assert!(port_answers(), "the port really is open");
+        eprintln!("PROBE port     = 127.0.0.1:{MODEL_SERVER_PORT} answering");
+        stop();
+        eprintln!("PROBE stopped");
+    }
+
+    fn dirs_next_home() -> std::path::PathBuf {
+        std::path::PathBuf::from(std::env::var("HOME").expect("HOME"))
+    }
+
+    #[test]
     fn a_missing_model_file_is_refused_before_any_process_is_spawned() {
         // The order matters: resolving a runner that does not exist would otherwise report
         // "install llama.cpp" to someone whose actual problem is a model they never downloaded.
