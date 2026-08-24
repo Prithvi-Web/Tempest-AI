@@ -18,6 +18,11 @@ import pytest
 from tempest.inference import client as mc
 from tempest.inference import providers as mp
 
+#: How long the close-delimited peer waits after its headers before writing the body prefix.
+#: The client reaches its blocked read in microseconds; this gap only has to be longer than
+#: that, and it is a hundred times shorter than the 30 s socket timeout the test runs against.
+_PREFIX_DELAY_S = 0.3
+
 
 class Peer:
     """A recording stand-in for a provider endpoint, in either wire shape."""
@@ -54,6 +59,16 @@ class Peer:
         #: connection closes. A real upstream fault, for pinning that the cancel guard passes
         #: genuine errors through untranslated when nobody cancelled.
         self.truncate_body = threading.Event()
+        #: Arm a CLOSE-DELIMITED stall: no Content-Length at all, a partial body, then
+        #: silence. This is the one shape that makes the cancelled read end as a CLEAN EOF
+        #: rather than an error — with a promised length, http.client raises on a short read,
+        #: which takes the exception path instead. It is the exact case `_cancel_guard`'s
+        #: docstring names ("a shut-down stream must never impersonate a completed one").
+        self.close_delimited_stall = threading.Event()
+        #: Set by the peer once the partial body is on the wire, so the test can cancel at a
+        #: moment the client is guaranteed to be blocked — a barrier, not a hopeful sleep
+        #: (trap 61).
+        self.wrote_prefix = threading.Event()
 
     def body(self) -> bytes:
         if self.wire == mp.WIRE_ANTHROPIC:
@@ -130,6 +145,34 @@ def serve(peer: Peer) -> Iterator[str]:
                     peer.closed_early.set()  # the client really hung up
                 return
             body = peer.body()
+            if peer.close_delimited_stall.is_set():
+                # No Content-Length and no chunked encoding: the body is delimited by the
+                # connection closing, so `response.read()` reads until EOF. A prefix, then
+                # silence — the read blocks with nothing to end it but a shutdown.
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                # Headers land FIRST and the prefix only afterwards, and that ordering is the
+                # barrier. `_open()` returns as soon as the headers are read, so the client is
+                # inside `_cancel_guard` and blocked in its body read within microseconds —
+                # while the test cannot set the cancel flag until `wrote_prefix`, which is a
+                # whole poll interval later. Without the gap the flag was already set when the
+                # guard was entered and its EARLY arm raised, so the read never blocked and the
+                # post-read re-check under test never ran (measured: coverage showed 593-604
+                # untouched while the test passed).
+                time.sleep(_PREFIX_DELAY_S)
+                self.wfile.write(body[: len(body) // 2])
+                self.wfile.flush()
+                peer.wrote_prefix.set()
+                peer.resume.wait(timeout=10)
+                try:
+                    for chunk in [body[len(body) // 2 :]] + [b" "] * 20:
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                        time.sleep(0.02)
+                except (BrokenPipeError, ConnectionResetError, OSError):
+                    peer.closed_early.set()
+                return
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -460,6 +503,100 @@ class TestBoundedReads:
                 model="m-1",
                 cancel=done,
             )
+
+
+class TestTheCleanEofCannotImpersonateAnAnswer:
+    """`_cancel_guard`'s docstring singles this out as the lesson of trap 58: the unblocked
+    read "can end as a clean EOF, which is why both call sites re-check the flag after the
+    read: a shut-down stream must never impersonate a completed one."
+
+    `complete()`'s re-check had never executed. Every other peer arm in this suite promises a
+    Content-Length, and http.client raises on a short read of a promised body — so the cancel
+    always arrived as an EXCEPTION and the clean-EOF arm the line exists for was never
+    produced. The suite proved the guard's argument, not the guard.
+    """
+
+    def test_a_cancelled_close_delimited_read_is_a_cancellation_not_a_truncated_answer(
+        self,
+    ) -> None:
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.close_delimited_stall.set()
+        cancel = threading.Event()
+
+        def cancel_once_the_read_is_blocked() -> None:
+            # A BARRIER, not a sleep (trap 61): the peer announces the prefix is on the wire,
+            # and with no Content-Length there is nothing that can end the client's read but a
+            # shutdown — so from here the client is blocked, deterministically.
+            assert peer.wrote_prefix.wait(timeout=10), "the peer never wrote its prefix"
+            cancel.set()
+
+        with serve(peer) as base:
+            waker = threading.Thread(target=cancel_once_the_read_is_blocked, daemon=True)
+            waker.start()
+            started = time.monotonic()
+            with pytest.raises(mc.Cancelled) as caught:
+                mc.complete(
+                    "openai",
+                    [mc.Message("user", "hi")],
+                    env=_env(provider, base),
+                    model="m-1",
+                    timeout=30.0,
+                    cancel=cancel,
+                )
+            elapsed = time.monotonic() - started
+            waker.join(timeout=5)
+            peer.resume.set()
+
+        # The distinction the re-check exists to make. Without it the half-body flows on into
+        # `json.loads` and the caller is told the PROVIDER sent something malformed — blaming
+        # the upstream for the caller's own cancellation, and, had the prefix happened to be
+        # valid JSON, returning a truncated answer as a real one.
+        assert "cancelled by the caller" in str(caught.value)
+        assert not isinstance(caught.value, mc.UpstreamError)
+        assert elapsed < 10.0, f"cancel took {elapsed:.1f}s against a 30s socket timeout"
+
+
+class TestTheCancelWatchWithoutAnFd:
+    def test_a_response_with_no_usable_fd_leaves_the_guard_harmless(self) -> None:
+        """`_cancel_guard` captures the descriptor with `suppress(OSError, ValueError)`, so a
+        response that cannot produce one leaves `fd = -1` and the watcher must simply stand
+        down. It must not raise, and it must not shut down descriptor -1 — which on a
+        different day is somebody else's socket.
+
+        This is the guard's own defensive arm, and the only one the real peers cannot
+        produce: a live HTTP response always has a file number.
+        """
+        shutdowns: list[int] = []
+        original = mc._shutdown_fd
+        mc._shutdown_fd = lambda fd: shutdowns.append(fd)  # type: ignore[assignment]
+
+        class NoFileno:
+            closed = False
+
+            def fileno(self) -> int:
+                raise OSError("this response has no descriptor")
+
+            def close(self) -> None:
+                self.closed = True
+
+        cancel = threading.Event()
+        response = NoFileno()
+        try:
+            with (
+                pytest.raises(mc.Cancelled),
+                mc._cancel_guard(cancel, response, "test-provider"),
+            ):
+                cancel.set()
+                # Long enough for the watcher to wake at least twice and observe the flag.
+                time.sleep(mc._CANCEL_POLL_S * 4)
+                raise mc.Cancelled("cancelled by the caller; test-provider connection closed")
+        finally:
+            mc._shutdown_fd = original  # type: ignore[assignment]
+
+        assert shutdowns == [], (
+            f"the watcher shut down descriptor(s) {shutdowns} despite having none of its own"
+        )
 
 
 class TestStreamEvents:
