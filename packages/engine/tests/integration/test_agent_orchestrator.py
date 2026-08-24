@@ -399,6 +399,52 @@ class TestHumanInTheLoop:
 
         return asked, approver
 
+    def test_a_surface_that_declines_a_question_gives_the_model_a_readable_refusal(
+        self, repo: Path
+    ) -> None:
+        """A surface may say NO to a question as well as answering it — a form the user
+        dismissed, a client that cannot render the ask. The model must get a result it can
+        read and continue from, and it must NOT be an empty answer: an empty string reads to
+        the model as "the user said nothing", which is a different fact from "the user
+        declined", and it would proceed as though it had been told something.
+        """
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "ask_user", "input": {"question": "Tabs or spaces?"}}]
+        _asked, approver = self._approving(
+            ApprovalDecision(approved=False, reason="the user dismissed the form")
+        )
+        with fake_anthropic_server(fake) as url:
+
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
+                    fake.tool_uses = []
+
+            run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=stop)
+
+        answered = [c for c in run.calls if c.name == "ask_user"]
+        assert answered, "the question must still resolve into a tool result"
+        assert answered[0].ok is False
+        assert "declined to answer" in answered[0].detail
+        assert "the user dismissed the form" in answered[0].detail
+
+    def test_a_declined_question_with_no_reason_reads_cleanly(self, repo: Path) -> None:
+        """The reason is optional, and the refusal must not trail a bare colon at the model —
+        `"the user declined to answer: "` is the shape a naive f-string produces."""
+        fake = FakeAnthropic()
+        fake.tool_uses = [{"name": "ask_user", "input": {"question": "Which one?"}}]
+        _asked, approver = self._approving(ApprovalDecision(approved=False))
+        with fake_anthropic_server(fake) as url:
+
+            def stop(event: AgentEvent) -> None:
+                if isinstance(event, ToolCallFinished):
+                    fake.tool_uses = []
+
+            run = run_task(_spec(repo, approver=approver), env=_env(url), on_event=stop)
+
+        answered = [c for c in run.calls if c.name == "ask_user"]
+        assert answered and answered[0].ok is False
+        assert answered[0].detail == "the user declined to answer"
+
     def test_an_approval_runs_the_tool_and_the_park_was_durable(self, repo: Path) -> None:
         fake = FakeAnthropic()
         fake.tool_uses = [{"name": "run_command", "input": {"argv": ["echo", "approved-run"]}}]

@@ -30,7 +30,7 @@ from pathlib import Path
 import pytest
 
 from tempest.agent import tools
-from tempest.agent.tools import Budgets, Dispatcher, ToolError, ToolResult
+from tempest.agent.tools import HANDLERS, Budgets, Dispatcher, ToolError, ToolResult, load_manifest
 from tempest.execute.sandbox import ProcessSandbox
 
 
@@ -303,6 +303,42 @@ class TestApproval:
     def test_an_empty_argv_is_refused_for_its_own_reason(self, shadow: Path) -> None:
         got = _sandboxed(shadow).call("run_command", {"argv": []})
         assert not got.ok and "already-split" in got.content
+
+
+class TestAskUserHasNoHandlerToReach:
+    """`ask_user`'s round trip runs in the ORCHESTRATOR's approval flow, not in a handler.
+
+    `HANDLERS` must still cover it, because the manifest and the handler set are checked
+    against each other — a manifest entry with no handler is a tool the model is offered and
+    the dispatcher cannot answer. So the handler exists, and the only question worth pinning
+    is what it does if it is ever reached.
+
+    Through `run_task` it cannot be: with no approver the dispatcher refuses at the
+    `needs_grant` check, and with one the approval flow returns the human's answer without
+    ever calling `Dispatcher.call`. Reaching the body therefore means a grant appeared for a
+    tool whose grant path does not exist — and inventing an answer there would be the model
+    talking to itself in the user's voice, which is worse than a refusal.
+    """
+
+    def test_every_manifest_tool_has_a_handler(self, tmp_path: Path) -> None:
+        """The invariant the handler exists FOR, asserted directly so a future manifest entry
+        without one fails here rather than at a user's first call."""
+        assert set(load_manifest()) <= set(HANDLERS), (
+            f"manifest tools with no handler: {sorted(set(load_manifest()) - set(HANDLERS))}"
+        )
+
+    def test_reaching_the_handler_refuses_instead_of_answering_for_the_user(
+        self, tmp_path: Path
+    ) -> None:
+        dispatcher = _d(tmp_path)
+        # The state the orchestrator never produces: granted, with nobody to ask.
+        dispatcher.grant("ask_user")
+        result = dispatcher.call("ask_user", {"question": "Anyone there?"})
+        assert result.ok is False
+        assert "needs a human on the other end" in result.content
+        assert "state your assumption" in result.content, (
+            "the refusal has to tell the model how to continue, or it is just a dead end"
+        )
 
 
 class TestRefusalsAreValuesNotCrashes:
