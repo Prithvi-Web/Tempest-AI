@@ -23,6 +23,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Button, Progress, Spinner } from "@librechat/client";
 import { useState } from "react";
+import type { ReactNode } from "react";
 
 import type { ModelCatalogRow } from "../../../../desktop/src/generated/bindings";
 import {
@@ -46,7 +47,13 @@ function Note({
   tone?: "quiet" | "warn";
   testId?: string;
   alert?: boolean;
-  children: React.ReactNode;
+  /** Imported by NAME, not reached through the `React.` global namespace. Two copies of
+   *  `@types/react` resolve in this workspace, and this file is compiled by two projects —
+   *  the seam's own tsconfig and, since `settingsManifest.test.ts` imports the manifest, the
+   *  desktop package's. Through the global namespace those two projects disagreed about
+   *  whether `ReactNode` includes `bigint`, and `make verify`'s node leg went red on a file
+   *  the seam's own typecheck called clean. */
+  children: ReactNode;
 }) {
   return (
     <p
