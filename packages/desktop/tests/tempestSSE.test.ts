@@ -31,6 +31,7 @@ class ScriptedHost implements TempestSSEHost {
    * "the live final beat the replay" instead of hoping a race falls that way (trap 61). */
   replayControlled = false;
   private rejectReplay: ((error: Error) => void) | null = null;
+  private settleReplay: ((push: StreamPush) => void) | null = null;
   private replayResolve: (() => void) | null = null;
   replayRequested: Promise<void>;
 
@@ -51,10 +52,24 @@ class ScriptedHost implements TempestSSEHost {
     };
   }
 
-  replay(): Promise<StreamPush> {
+  /** Cursors this host was asked to serve from, in order — the replay's contract is that it
+   * is served from the CLIENT's high-water mark, and a test can only assert that by seeing
+   * the argument. */
+  cursors: number[] = [];
+  /** Pages keyed by the cursor they answer, so the harness models an engine serving (and
+   * coalescing) from `after` rather than always replaying the whole ledger. */
+  replayByCursor: Map<number, StreamPush> = new Map();
+
+  replay(_streamId: string, after: number): Promise<StreamPush> {
+    this.cursors.push(after);
     this.replayResolve?.();
+    const page = this.replayByCursor.get(after);
+    if (page !== undefined) {
+      return Promise.resolve(page);
+    }
     if (this.replayControlled) {
-      return new Promise((_, reject) => {
+      return new Promise((resolve, reject) => {
+        this.settleReplay = resolve;
         this.rejectReplay = reject;
       });
     }
@@ -63,6 +78,12 @@ class ScriptedHost implements TempestSSEHost {
 
   failReplayNow(error: Error): void {
     this.rejectReplay?.(error);
+  }
+
+  /** Settle a parked replay with an explicit page — the deterministic way to order "a live
+   * push landed, THEN the replay returned" without hoping a race falls that way (trap 61). */
+  settleReplayNow(push: StreamPush): void {
+    this.settleReplay?.(push);
   }
 }
 
@@ -103,6 +124,113 @@ describe("availability", () => {
     expect(TempestSSE.CONNECTING).toBe(0);
     expect(TempestSSE.OPEN).toBe(1);
     expect(TempestSSE.CLOSED).toBe(2);
+  });
+});
+
+function deltaText(messages: string[]): string {
+  return messages
+    .map((raw) => JSON.parse(raw) as { event?: string; data?: { delta?: { content?: unknown } } })
+    .filter((body) => body.event === "on_message_delta")
+    .map((body) => {
+      const content = body.data?.delta?.content;
+      if (!Array.isArray(content) || content.length !== 1) {
+        return "";
+      }
+      const part = content[0] as { type?: string; text?: string };
+      return part?.type === "text" ? (part.text ?? "") : "";
+    })
+    .join("");
+}
+
+function delta(seq: number, stepId: string, text: string): { seq: number; frame_json: string } {
+  return frame(seq, {
+    event: "on_message_delta",
+    data: { id: stepId, delta: { content: [{ type: "text", text }] } },
+  });
+}
+
+describe("coalesced overlap", () => {
+  it("does not re-deliver text when the replay merges a LONGER run than the live push", async () => {
+    // `_coalesce_deltas` merges a run of adjacent same-step deltas into ONE frame carrying
+    // the run's LAST seq. The live poller pages the ledger from its own cursor; the replay
+    // reads it from 0. When the ledger grows between the push and the replay's service time,
+    // the two merge DIFFERENT runs and the same text arrives under two different seqs.
+    //
+    // A membership Set of exact seqs cannot collapse that: seq 6 is simply not seq 5. The
+    // LAST-seq rule's guarantee — "a consumer that saw the merged frame has seen everything
+    // up to that seq" — is a statement about a high-water CURSOR, and the only consumer used
+    // a set. The user saw the run's text twice.
+    const host = new ScriptedHost("c-1");
+    host.replayControlled = true;
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("tempest://x/api/agents/chat/stream/c-1");
+    const seen = collect(sse);
+
+    sse.stream();
+    await host.replayRequested;
+
+    // The live push: the ledger held 5 frames when the poller read it.
+    host.handler?.({
+      stream_id: "c-1",
+      status: "active",
+      events: [
+        frame(1, { created: true }),
+        frame(2, { event: "on_run_step" }),
+        delta(5, "step_0", "Hello world!"),
+      ],
+    });
+
+    // Served from the client's cursor, the engine coalesces only the UNDELIVERED tail.
+    host.replayByCursor.set(5, {
+      stream_id: "c-1",
+      status: "active",
+      events: [delta(6, "step_0", " Bye")],
+    });
+
+    // The replay, serviced a few ms later over a ledger that had grown to 6.
+    host.settleReplayNow({
+      stream_id: "c-1",
+      status: "active",
+      events: [
+        frame(1, { created: true }),
+        frame(2, { event: "on_run_step" }),
+        delta(6, "step_0", "Hello world! Bye"),
+      ],
+    });
+    await settled();
+
+    expect(deltaText(seen.message)).toBe("Hello world! Bye");
+    // …and it got there by re-asking from the cursor, not by filtering after the fact.
+    expect(host.cursors).toEqual([0, 5]);
+  });
+
+  it("still delivers genuinely new text that arrives after the replay", async () => {
+    // The other half of the bound: suppressing the overlap must not suppress the TAIL, or a
+    // turn would stop rendering the moment a replay landed (trap 60 — a dedupe that drops
+    // everything passes a "no duplicates" assertion perfectly).
+    const host = new ScriptedHost("c-1");
+    host.replayControlled = true;
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("tempest://x/api/agents/chat/stream/c-1");
+    const seen = collect(sse);
+
+    sse.stream();
+    await host.replayRequested;
+    host.settleReplayNow({
+      stream_id: "c-1",
+      status: "active",
+      events: [frame(1, { created: true }), delta(4, "step_0", "Hello")],
+    });
+    await settled();
+
+    host.handler?.({
+      stream_id: "c-1",
+      status: "active",
+      events: [delta(7, "step_0", " world")],
+    });
+    await settled();
+
+    expect(deltaText(seen.message)).toBe("Hello world");
   });
 });
 

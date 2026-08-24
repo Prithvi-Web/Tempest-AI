@@ -165,7 +165,7 @@ export const commands = {
 	 *  subscribes late (or a webview that reloaded) starts complete before following the live
 	 *  pushes. Same boundary-A operation the host poller drains.
 	 */
-	replayChatTurn: (streamId: string) => typedError<ChatTurnReplay, SidecarFailure>(__TAURI_INVOKE("replay_chat_turn", { streamId })),
+	replayChatTurn: (streamId: string, after: number) => typedError<ChatTurnReplay, SidecarFailure>(__TAURI_INVOKE("replay_chat_turn", { streamId, after })),
 };
 
 /** Events */

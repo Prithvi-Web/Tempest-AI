@@ -15,9 +15,9 @@ export const streamHost: TempestSSEHost = {
     const { events } = await import("../../../../desktop/src/generated/bindings");
     return events.agentStreamEvent.listen((event) => handler(event.payload));
   },
-  async replay(streamId: string): Promise<StreamPush> {
+  async replay(streamId: string, after: number): Promise<StreamPush> {
     const { commands } = await import("../../../../desktop/src/generated/bindings");
-    const reply = await commands.replayChatTurn(streamId);
+    const reply = await commands.replayChatTurn(streamId, after);
     if (reply.status === "error") {
       throw new Error(`replayChatTurn: ${reply.error.message}`);
     }

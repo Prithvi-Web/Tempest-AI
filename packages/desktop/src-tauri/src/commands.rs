@@ -323,9 +323,15 @@ fn call_typed<T: serde::de::DeserializeOwned>(
 pub fn replay_chat_turn(
     state: tauri::State<'_, Arc<Supervisor>>,
     stream_id: String,
+    after: i32,
 ) -> CmdResult<crate::agent_chat::ChatTurnReplay> {
+    // The cursor is the CLIENT's high-water mark, not a constant 0. Delta frames are
+    // coalesced on the read side and a merged frame carries its run's LAST seq, so a replay
+    // computed from 0 merges a LONGER run than a live push that landed meanwhile — and the
+    // same text arrives under two different seqs, which no membership dedupe can collapse.
+    // Serving from the caller's cursor makes the two windows disjoint by construction.
     let page: crate::generated::domain::TurnEventsOut =
-        call_typed(&state, "listChatTurnEvents", json!({"stream_id": stream_id, "after": 0}))?;
+        call_typed(&state, "listChatTurnEvents", json!({"stream_id": stream_id, "after": after}))?;
     Ok(crate::agent_chat::ChatTurnReplay {
         stream_id: page.stream_id.clone(),
         status: page.status.clone(),

@@ -31,7 +31,11 @@ export interface StreamPush {
 /** What the desktop host provides: a live event feed and a ledger replay. */
 export interface TempestSSEHost {
   listen(handler: (push: StreamPush) => void): Promise<() => void>;
-  replay(streamId: string): Promise<StreamPush>;
+  /** `after` is the caller's high-water seq: the ledger is served, and COALESCED, from
+   * there. Replaying from 0 while a live push has already delivered part of the run merges
+   * a longer run than the push did, and the overlap arrives under a seq the client has
+   * never seen. */
+  replay(streamId: string, after: number): Promise<StreamPush>;
 }
 
 type Listener = (event: { data: string }) => void;
@@ -66,6 +70,10 @@ export class TempestSSE {
   private readonly streamId: string;
   private readonly listeners = new Map<string, Listener[]>();
   private readonly delivered = new Set<number>();
+  /** The highest seq delivered so far — the cursor a replay must be served from. Coalesced
+   * delta frames make a membership set insufficient on its own: the same text can arrive
+   * under two different seqs if two reads merge different runs. */
+  private highWater = 0;
   private unlisten: (() => void) | null = null;
   private closed = false;
 
@@ -133,8 +141,32 @@ export class TempestSSE {
       this.unlisten = unlisten;
       this.readyState = TempestSSE.OPEN;
       this.emit("open", "");
-      // …then replay the ledger so far; seq-dedup collapses any overlap.
-      this.deliver(await host.replay(this.streamId));
+      // …then replay the ledger so far, FROM OUR OWN CURSOR.
+      //
+      // A live push can land during the replay's round trip — the poll interval is 40 ms and
+      // the round trip is single-digit ms, so this window is hit routinely. Both reads
+      // coalesce, and a merged delta frame carries its run's LAST seq, so a replay computed
+      // from a lower cursor merges a LONGER run than the push did: the overlap arrives under
+      // a seq the client has never seen, and a membership set cannot collapse it. The user
+      // saw the run's text twice.
+      //
+      // So the cursor is re-read after every round trip, and a replay that was overtaken is
+      // re-requested rather than delivered. It converges immediately in practice (one extra
+      // round trip at most), and the bound keeps a pathological feed from spinning here.
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const requestedFrom = this.highWater;
+        const page = await host.replay(this.streamId, requestedFrom);
+        if (this.closed) {
+          return;
+        }
+        if (this.highWater === requestedFrom) {
+          this.deliver(page);
+          return;
+        }
+      }
+      // Exhausted: serve what the last cursor can still be trusted for. Frames at or below
+      // the high-water mark are already on screen; anything above it is genuinely new.
+      this.deliver(await host.replay(this.streamId, this.highWater));
     } catch (error) {
       this.fail(String(error));
     }
@@ -150,6 +182,9 @@ export class TempestSSE {
         continue;
       }
       this.delivered.add(seq);
+      if (seq > this.highWater) {
+        this.highWater = seq;
+      }
       this.emit("message", frame_json);
       let terminal = false;
       try {
