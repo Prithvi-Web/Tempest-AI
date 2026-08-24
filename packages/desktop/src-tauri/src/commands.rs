@@ -941,9 +941,9 @@ pub struct ModelServerStatus {
 
 #[tauri::command]
 #[specta::specta]
-pub fn model_server_status() -> CmdResult<ModelServerStatus> {
+pub fn model_server_status(data_dir: tauri::State<'_, DataDir>) -> CmdResult<ModelServerStatus> {
     let (running, model_path) = crate::modelserver::status();
-    let (runner, runner_problem) = match crate::modelserver::resolve_runner() {
+    let (runner, runner_problem) = match crate::modelserver::resolve_runner(Some(&data_dir.0)) {
         Ok(path) => (Some(path), String::new()),
         Err(err) => (None, err.to_string()),
     };
@@ -1007,15 +1007,19 @@ pub async fn start_model_server(
     model_path: String,
 ) -> CmdResult<ModelServerStatus> {
     let contained = model_path_inside_the_models_dir(&data_dir.0, &model_path)?;
-    tauri::async_runtime::spawn_blocking(move || start_model_server_blocking(contained))
+    let root = data_dir.0.clone();
+    tauri::async_runtime::spawn_blocking(move || start_model_server_blocking(contained, root))
         .await
         .unwrap_or_else(|err| {
             Err(SidecarFailure { code: -3, message: format!("the model server task failed: {err}") })
         })
 }
 
-fn start_model_server_blocking(model_path: std::path::PathBuf) -> CmdResult<ModelServerStatus> {
-    match crate::modelserver::start(&model_path.to_string_lossy()) {
+fn start_model_server_blocking(
+    model_path: std::path::PathBuf,
+    data_dir: std::path::PathBuf,
+) -> CmdResult<ModelServerStatus> {
+    match crate::modelserver::start(&model_path.to_string_lossy(), Some(&data_dir)) {
         Ok(runner) => {
             let (running, path) = crate::modelserver::status();
             Ok(ModelServerStatus {

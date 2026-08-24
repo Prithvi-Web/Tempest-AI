@@ -62,11 +62,32 @@ class TestTheCatalogueIsHonestData:
     def test_every_row_is_permissively_licensed(self) -> None:
         """ "Free to download" and "free to use" are different claims, and only the second is
         the promise this feature makes. A row outside the permissive set is a build failure,
-        not a judgement call at review time."""
+        not a judgement call at review time.
+
+        This was widened once, to admit Llama and Gemma, and reverted the same day (owner
+        decision, 24 Aug 2026). Both are freely downloadable under vendor conditions —
+        acceptable-use policies, and in Llama's case a user-count threshold — which makes them
+        open WEIGHTS and not open SOURCE, and listing them inside a product would put those
+        conditions onto the product's users without their ever having read them. The test is
+        kept as an enumeration of the ALLOWED set rather than a list of banned names, so a
+        future row has to argue its way in rather than merely avoid a blocklist."""
         for entry in CATALOG:
             assert entry.license in catalog_mod._PERMISSIVE, (
-                f"{entry.id} carries {entry.license!r}, which is not a permissive licence"
+                f"{entry.id} carries {entry.license!r}, which is not an OSI-permissive licence"
             )
+
+    def test_the_catalogue_is_broad_enough_to_be_worth_opening(self) -> None:
+        """A LOWER bound, because an upper bound is satisfied by zero (trap 60). Four rows
+        was a demonstration; the point of a catalogue is that a person finds something that
+        fits their machine, so there is a small one, a middle one and a large one."""
+        assert len(CATALOG) >= 8, f"only {len(CATALOG)} rows"
+        assert min(e.size_bytes for e in CATALOG) < 1_000_000_000, "nothing small enough to try"
+        assert max(e.size_bytes for e in CATALOG) > 4_000_000_000, "nothing worth a big machine"
+        assert len({e.size_gb for e in CATALOG}) == len(CATALOG), "two rows the same size"
+        # Ordered smallest-first: the panel renders them in this order and the first thing a
+        # person sees should be the one they can actually finish downloading.
+        sizes = [e.size_bytes for e in CATALOG]
+        assert sizes == sorted(sizes), "the catalogue is not smallest-first"
 
     def test_every_row_carries_what_a_user_needs_before_spending_gigabytes(self) -> None:
         for entry in CATALOG:
@@ -76,6 +97,7 @@ class TestTheCatalogueIsHonestData:
             assert len(entry.sha256) == 64 and entry.sha256.islower(), entry.id
             assert int(entry.sha256, 16) >= 0, f"{entry.id}: sha256 is not hex"
             assert 0.1 < entry.size_gb < 100, entry.id
+            assert entry.license, entry.id
 
     def test_ids_are_unique_and_filesystem_safe(self) -> None:
         ids = [e.id for e in CATALOG]

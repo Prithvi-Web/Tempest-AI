@@ -72,10 +72,28 @@ class CatalogEntry:
 #: Licences this catalogue may carry. A row outside this set is a build failure, not a
 #: judgement call at review time: "free to download" and "free to use" are different claims,
 #: and only the second one is the promise being made to the user here.
+#:
+#: **This was widened once, to admit Llama and Gemma, and the widening was REVERTED** — owner
+#: decision, 24 Aug 2026: nothing that is not open source ships in this list. Meta's Llama
+#: Community Licence and Google's Gemma Terms are freely downloadable but carry conditions
+#: (acceptable-use policies, and in Llama's case a user-count threshold), which makes them
+#: open WEIGHTS, not open SOURCE. Listing them inside a product would put those conditions on
+#: the product's users without their ever having read them. The argument for widening was that
+#: excluding them sends people elsewhere; the answer is that "somewhere else lists them too"
+#: has never been a licence.
+#:
+#: Two properties every row must have, both checked against Hugging Face's own metadata when
+#: the row is authored, never from memory: an OSI-permissive `license`, and `gated: false` —
+#: a model behind an access request is not one a user with no account can fetch.
 _PERMISSIVE = frozenset({"apache-2.0", "mit"})
 
 
 CATALOG: tuple[CatalogEntry, ...] = (
+    # Smallest first, on purpose: someone on a slow link can have a working local model in a
+    # couple of minutes and decide whether they want a bigger one, rather than committing to
+    # five gigabytes to find out. Every licence below was read from Hugging Face's own
+    # metadata at authoring time, not from memory — DeepSeek's distill declares apache-2.0
+    # there, which is not what a confident guess would have written.
     CatalogEntry(
         id="qwen3-0.6b-q8",
         label="Qwen3 0.6B",
@@ -86,6 +104,28 @@ CATALOG: tuple[CatalogEntry, ...] = (
         size_bytes=639_446_688,
         sha256="9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
         ram_note="Runs comfortably in about 2 GB of memory.",
+    ),
+    CatalogEntry(
+        id="deepseek-r1-distill-qwen-1.5b-q4",
+        label="DeepSeek-R1 Distill 1.5B",
+        good_at="Showing its working. A reasoning model small enough to stay quick.",
+        license="apache-2.0",
+        repo="unsloth/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
+        filename="DeepSeek-R1-Distill-Qwen-1.5B-Q4_K_M.gguf",
+        size_bytes=1_117_321_312,
+        sha256="f3bdf9cf31dee4b57ae4e455a1cb0d01b5c2c1b50d72d3112141c195506c2840",
+        ram_note="Wants about 3 GB of memory free.",
+    ),
+    CatalogEntry(
+        id="qwen3-1.7b-q8",
+        label="Qwen3 1.7B",
+        good_at="One step up from the 0.6B for the same kind of work, and still fast.",
+        license="apache-2.0",
+        repo="Qwen/Qwen3-1.7B-GGUF",
+        filename="Qwen3-1.7B-Q8_0.gguf",
+        size_bytes=1_834_426_016,
+        sha256="061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+        ram_note="Wants about 4 GB of memory free.",
     ),
     CatalogEntry(
         id="smollm3-3b-q4",
@@ -119,6 +159,28 @@ CATALOG: tuple[CatalogEntry, ...] = (
         size_bytes=2_497_281_120,
         sha256="3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
         ram_note="Wants about 6 GB of memory free.",
+    ),
+    CatalogEntry(
+        id="mistral-7b-instruct-v0.3-q4",
+        label="Mistral 7B Instruct",
+        good_at="Long-form writing and explanation. A well-known all-rounder.",
+        license="apache-2.0",
+        repo="bartowski/Mistral-7B-Instruct-v0.3-GGUF",
+        filename="Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
+        size_bytes=4_372_812_000,
+        sha256="1270d22c0fbb3d092fb725d4d96c457b7b687a5f5a715abe1e818da303e562b6",
+        ram_note="Wants about 8 GB of memory free.",
+    ),
+    CatalogEntry(
+        id="qwen3-8b-q4",
+        label="Qwen3 8B",
+        good_at="The best answers here, and the slowest. Worth it on 16 GB or more.",
+        license="apache-2.0",
+        repo="Qwen/Qwen3-8B-GGUF",
+        filename="Qwen3-8B-Q4_K_M.gguf",
+        size_bytes=5_027_783_488,
+        sha256="d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+        ram_note="Wants about 10 GB of memory free.",
     ),
 )
 

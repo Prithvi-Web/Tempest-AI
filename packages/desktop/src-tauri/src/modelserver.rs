@@ -115,7 +115,17 @@ fn abandon(mut child: Child, pgid: i32) {
     let _ = child.wait();
 }
 
-/// Where the runner binary is: `PATH`, and only `PATH`.
+/// The one place a runner Tempest manages is kept: `<data>/runners/llama-server`.
+///
+/// This is ADR-0080 §6's "bundled" step made real without bundling anything into the app
+/// itself. The directory belongs to Tempest, sits beside `models/`, and goes away with the
+/// app — so a user who wants the runner gone deletes one folder, and a user who wants to
+/// supply their own drops a binary in with that name.
+pub(crate) fn managed_runner(data_dir: &std::path::Path) -> std::path::PathBuf {
+    data_dir.join("runners").join("llama-server")
+}
+
+/// Where the runner binary is: Tempest's own `runners/` directory, then `PATH`.
 ///
 /// **It used to take a path from the CALLER, and the caller is the webview.** `start_model_server`
 /// is a `#[tauri::command]`, so any script that reaches `__TAURI_INVOKE` — rendered model output
@@ -124,17 +134,28 @@ fn abandon(mut child: Child, pgid: i32) {
 /// the hazard `agent_tools.rs` makes unrepresentable for tools (`WriteScope` has no variant for
 /// the user's tree), and it was expressible here through a plain command argument.
 ///
-/// The parameter is gone rather than validated, because there is no validation to write: the
-/// whole point of a configured runner is that it is an arbitrary path. The panel passed `null`
-/// on every call anyway — the setting it would have come from does not exist. When it arrives
-/// with T38 it reads from the host's own settings store (`runners.rs`), the way the editor
-/// runners already do, and never from an IPC argument.
+/// `data_dir` is not that parameter coming back. It is the HOST's own directory, handed down
+/// from `tauri::State<DataDir>` — the same path the engine is spawned with — and the webview
+/// cannot influence it. The distinction that matters is not "is there an argument" but "who
+/// chooses the value", and here it is the app.
 ///
-/// Nothing is bundled yet, and the refusal says so rather than pretending otherwise
-/// (ADR-0080 §6). Bundling a signed `llama-server` per platform is what makes this feature
-/// fully zero-setup, and it is T38.
-pub(crate) fn resolve_runner() -> Result<String, ModelServerError> {
-    resolve_runner_in(&std::env::var_os("PATH").unwrap_or_default())
+/// **Why `PATH` alone was not enough, learned the hard way.** A macOS app launched from Finder
+/// does not inherit a login shell's `PATH`: it gets roughly `/usr/bin:/bin:/usr/sbin:/sbin`.
+/// So a runner installed by Homebrew into `/opt/homebrew/bin` — the exact thing the old refusal
+/// told users to do — would be invisible to the shipped app while being perfectly present in
+/// their terminal. A PATH-only search made the advice in the error message wrong for the
+/// machine it was printed on.
+pub(crate) fn resolve_runner(data_dir: Option<&std::path::Path>) -> Result<String, ModelServerError> {
+    if let Some(dir) = data_dir {
+        let managed = managed_runner(dir);
+        if managed.is_file() {
+            return Ok(managed.to_string_lossy().into_owned());
+        }
+    }
+    resolve_runner_in(
+        &std::env::var_os("PATH").unwrap_or_default(),
+        data_dir.map(managed_runner),
+    )
 }
 
 /// `resolve_runner`, with the search path passed in.
@@ -146,16 +167,32 @@ pub(crate) fn resolve_runner() -> Result<String, ModelServerError> {
 /// two tests in other modules that were merely looking for their own programs at the time.
 /// A test that reaches for a global to control its subject can fail a test it has never heard
 /// of.
-fn resolve_runner_in(search: &std::ffi::OsStr) -> Result<String, ModelServerError> {
+fn resolve_runner_in(
+    search: &std::ffi::OsStr,
+    managed: Option<std::path::PathBuf>,
+) -> Result<String, ModelServerError> {
     if let Some(found) = which_in(search, "llama-server") {
         return Ok(found);
     }
-    Err(ModelServerError::RunnerMissing(
-        "no `llama-server` was found on your PATH. Tempest does not bundle one yet, so serving \
-         a downloaded model needs it installed — `brew install llama.cpp` on macOS. Your \
-         downloaded models are kept and will work as soon as it is there."
-            .to_string(),
-    ))
+    // The old message said `brew install llama.cpp` and nothing else, which is wrong twice on
+    // a machine with no Homebrew: it names a command the user cannot run, and even where it
+    // succeeds it installs into a directory a Finder-launched app cannot see. It now names the
+    // place Tempest actually looks, which is a place the user can always put a file.
+    let where_to_put_it = match managed {
+        Some(path) => format!(
+            "Put a `llama-server` binary at {} and Tempest will use it — that folder is \
+             Tempest's own, so removing it removes the runner. ",
+            path.display()
+        ),
+        None => String::new(),
+    };
+    Err(ModelServerError::RunnerMissing(format!(
+        "no `llama-server` was found. Tempest does not bundle one yet, so running a downloaded \
+         model needs one. {where_to_put_it}Official macOS builds are published at \
+         github.com/ggml-org/llama.cpp/releases (the `bin-macos-arm64` archive); `brew install \
+         llama.cpp` also works if you have Homebrew. Your downloaded models are kept either \
+         way and will work as soon as a runner is there."
+    )))
 }
 
 fn which_in(search: &std::ffi::OsStr, program: &str) -> Option<String> {
@@ -209,7 +246,10 @@ fn server_command(runner: &str, model_path: &str) -> Command {
 }
 
 /// Start a server for `model_path`, or return the one already running for it.
-pub(crate) fn start(model_path: &str) -> Result<String, ModelServerError> {
+pub(crate) fn start(
+    model_path: &str,
+    data_dir: Option<&std::path::Path>,
+) -> Result<String, ModelServerError> {
     // One start at a time. Two concurrent starts both spawned and the second's assignment
     // dropped the first's `Child` unreaped and unkilled.
     let _serialised = starting().lock().expect("model server start lock");
@@ -219,7 +259,7 @@ pub(crate) fn start(model_path: &str) -> Result<String, ModelServerError> {
             "{model_path} is not on disk — download the model first"
         )));
     }
-    let runner = resolve_runner()?;
+    let runner = resolve_runner(data_dir)?;
 
     // `status()` reaps a child that has died, so asking it here is also how a crashed server
     // stops being reported as the one that is serving. Without this, pressing Serve after a
@@ -387,7 +427,7 @@ mod tests {
     fn a_missing_model_file_is_refused_before_any_process_is_spawned() {
         // The order matters: resolving a runner that does not exist would otherwise report
         // "install llama.cpp" to someone whose actual problem is a model they never downloaded.
-        let err = start("/nope/not-a-model.gguf").unwrap_err();
+        let err = start("/nope/not-a-model.gguf", None).unwrap_err();
         assert!(matches!(err, ModelServerError::ModelMissing(_)), "{err:?}");
         assert!(err.to_string().contains("download the model first"));
     }
@@ -400,7 +440,7 @@ mod tests {
         // point of a configured runner and there is no validation to write for it.
         //
         // Asserted against the SIGNATURE, so re-adding the parameter cannot pass unnoticed.
-        let resolve: fn() -> Result<String, ModelServerError> = resolve_runner;
+        let resolve: fn(Option<&std::path::Path>) -> Result<String, ModelServerError> = resolve_runner;
         let _ = resolve;
         assert!(
             !include_str!("commands.rs").contains("configured_runner"),
@@ -419,12 +459,40 @@ mod tests {
         // to reach — it asserted nothing and reported as passed. An EMPTY SEARCH PATH is
         // passed instead, so the refusal is reachable on every machine, including the
         // developer's, without touching the environment other tests are reading.
-        let err = resolve_runner_in(std::ffi::OsStr::new(""))
+        let err = resolve_runner_in(std::ffi::OsStr::new(""), None)
             .expect_err("an empty search path cannot produce a runner");
         let text = err.to_string();
         assert!(text.contains("brew install llama.cpp"), "{text}");
         assert!(text.contains("models are kept"), "{text}");
         assert!(matches!(err, ModelServerError::RunnerMissing(_)), "{err:?}");
+    }
+
+    #[test]
+    fn a_runner_in_tempests_own_folder_is_found_when_the_path_has_nothing() {
+        // The case that matters on a real Mac: an app launched from Finder gets roughly
+        // `/usr/bin:/bin:/usr/sbin:/sbin`, so a runner installed anywhere a developer would
+        // put one — Homebrew's `/opt/homebrew/bin`, a Nix profile, `~/.local/bin` — is
+        // invisible to the shipped app while being perfectly present in their terminal. A
+        // PATH-only search made the advice in the refusal wrong for the machine printing it.
+        let data = std::env::temp_dir().join(format!("tempest-data-{}", std::process::id()));
+        let runners = data.join("runners");
+        std::fs::create_dir_all(&runners).expect("a temp data dir");
+        let runner = runners.join("llama-server");
+        std::fs::write(&runner, b"#!/bin/sh\nexit 0\n").expect("a managed runner");
+
+        let found = resolve_runner(Some(&data)).expect("the managed runner is found");
+        assert_eq!(found, runner.to_string_lossy());
+        assert_eq!(managed_runner(&data), runner);
+
+        // And with nothing there, the refusal names the folder rather than a package manager
+        // this machine may not have — the one the panel used to tell everybody to use.
+        std::fs::remove_file(&runner).expect("remove it again");
+        let err = resolve_runner_in(std::ffi::OsStr::new(""), Some(managed_runner(&data)))
+            .expect_err("no runner anywhere");
+        let text = err.to_string();
+        assert!(text.contains(&runners.display().to_string()), "{text}");
+        assert!(text.contains("github.com/ggml-org/llama.cpp"), "{text}");
+        let _ = std::fs::remove_dir_all(&data);
     }
 
     #[test]
@@ -436,7 +504,7 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("a temp dir");
         let runner = dir.join("llama-server");
         std::fs::write(&runner, b"#!/bin/sh\nexit 0\n").expect("a file named llama-server");
-        let found = resolve_runner_in(dir.as_os_str()).expect("the runner in the search path");
+        let found = resolve_runner_in(dir.as_os_str(), None).expect("the runner in the search path");
         assert_eq!(found, runner.to_string_lossy());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -456,13 +524,13 @@ mod tests {
             // the assertion below wants, so the test is still meaningful — but say so rather
             // than silently measuring a different world.
             eprintln!("8080 was already taken; testing the refusal against that listener");
-            let err = start(&a_real_file()).unwrap_err();
+            let err = start(&a_real_file(), None).unwrap_err();
             assert!(matches!(err, ModelServerError::PortBusy(_)), "{err:?}");
             return;
         };
         let runner = std::env::current_exe().expect("a runner-shaped file").display().to_string();
         let _guard = PathGuard::containing_llama_server(&runner);
-        let err = start(&a_real_file()).unwrap_err();
+        let err = start(&a_real_file(), None).unwrap_err();
         drop(squatter);
         assert!(matches!(err, ModelServerError::PortBusy(_)), "{err:?}");
         assert!(
@@ -640,7 +708,7 @@ mod tests {
         };
 
         let model = a_real_file();
-        let runner = start(&model).expect("the stub runner starts and answers");
+        let runner = start(&model, None).expect("the stub runner starts and answers");
         assert!(runner.ends_with("llama-server"), "{runner}");
 
         let (up, serving) = status();
@@ -649,7 +717,7 @@ mod tests {
         assert!(port_answers(), "the port really is open — this is not a mocked probe");
 
         // Starting the same model again is the idempotent path, and must not spawn a second.
-        assert!(start(&model).is_ok());
+        assert!(start(&model, None).is_ok());
         assert!(status().0);
 
         stop();
