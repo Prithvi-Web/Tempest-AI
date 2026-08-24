@@ -1,57 +1,85 @@
-# ⚡ SESSION HANDOFF — updated 2026-08-23 (C5 PART 3 SESSION), READ THIS BEFORE §0
-# NEXT SESSION: attach ~/Desktop/C5-PART4-SESSION-PROMPT.md — it carries this state plus the
-# work order (retrieve the local-models review, e2e spec, final gates, rebuild, ledger flips).
+# ⚡ SESSION HANDOFF — updated 2026-08-24 (C5 PART 4 SESSION), READ THIS BEFORE §0
 #
-# TREE CLEAN · DO NOT PUSH YET. Confirm the tip yourself — a handoff that hard-codes its
-# own SHA is stale the moment the handoff itself is committed:
+# TREE CLEAN · **SAFE TO PUSH** · then WATCH THE 7 CI JOBS. Confirm the tip yourself — a
+# handoff that hard-codes its own SHA is stale the moment the handoff itself is committed:
 #   git rev-parse --short HEAD && git log --oneline origin/main..HEAD | wc -l && git status --short | wc -l
 #
-# C5's CLOSE-OUT IS COMPLETE. The owner's LOCAL-MODELS feature (ADR-0080) is BUILT but not
-# closed out: a review whose findings were never retrieved, no e2e spec, no full gate at HEAD,
-# and the app bundle predates the whole feature.
+# **C5 IS CLOSED, INCLUDING THE OWNER'S LOCAL-MODELS FEATURE.** T36 and T37 are ADOPTED,
+# ADR-0080 has its amendment, and every gate below ran green with its output pasted into the
+# commits that claim it.
 #
-# GATES AS LAST MEASURED (watched, not remembered):
-#   make verify MAKE_EXIT=0, 100.00% coverage, 2375 passed        @ be506be
-#   make verify MAKE_EXIT=2, 99.92% (7 stmts in server.py)        @ f3d8289  -> fixed in db33df4,
-#                                                                    NOT re-run at HEAD
-#   verify-linux-denominator LINUX_EXIT=0, 100.00%, 2368 passed   @ be506be
-#   agent-gates.sh AGENT_GATES_EXIT=0 · agent_bench 55/55         @ 188596d
-#   runtime_check + gate_audit green · egress_check 256 surfaces
-#   orphan_check ORPHAN_EXIT=0, zero TCP listeners, cleared 2.0s
-#   cargo 142 · vitest 101 · e2e 60 (+2 @bench)
+# GATES, THIS SESSION, AT THIS TIP (watched, not remembered):
+#   make verify                    MAKE_EXIT=0 · 100.00% combined (10951 stmts, 3036 branches,
+#                                  ZERO missed) · 2465 passed
+#   make verify-linux-denominator  LINUX_EXIT=0 · 100.00% · 2458 passed, 1 skipped
+#   agent-gates.sh (inside verify) agent_bench 55/55 · intent_bench 54/54, 0 false ·
+#                                  repair_bench 11/11 · resume_test 15/15 · subagent_bench 13/13 ·
+#                                  retrieval_bench 40/40 + 15/15 · redteam 35/35 · mcp_check 16/16 ·
+#                                  mcp_client_check 11/11 · compose_bench 11/11 · escape_suite 0
+#   runtime_check / gate_audit     green — one orchestrator, 6 declared paths, every forge collecting
+#   egress_check                   256 platform surfaces, L32 holds
+#   upstream_check                 16 inline deltas / cap 40, every one declared
+#   cargo 147 · clippy -D warnings clean · vitest 106 (100/100/100/100) · e2e 65 passed
+#   parity --cli-vs-desktop        PARITY_EXIT=0 — byte-identical bundles, frozen sidecar vs CLI
+#   orphan_check --after-sigkill   ORPHAN_EXIT=0 — 3 descendants, ZERO TCP listeners, cleared 2.0s
+#   drive_shipped.py               SHIPPED_DRIVE=OK — the INSTALLED bundle reads its own tool
+#                                  manifest (7 tools), serves the 4-row catalogue, carries NO dev
+#                                  row, answers `absent`, and round-trips agent CRUD
+#   app bundle                     rebuilt and installed Aug 24 02:30 (was Aug 23 21:07)
 #
-# IN FLIGHT / NOT DONE — the next session's FIRST work:
-#   1. The local-models review COMPLETED: 10 confirmed, 5 FIXED (157eaf1, 2436f59), 5 OPEN —
-#      cancel unobservable inside response.read(); readiness is "something answers on 8080"
-#      not "our child"; two Rust/py tests that cannot fail; Remove deletes under a running
-#      server. TWO LENSES DIED on API 529s (security/egress, wire+UI) — re-run them from
-#      .../workflows/scripts/local-models-adversarial-review-wf_585c937f-279.js. They were
-#      pointed at the redirect suffix match, path escapes, the double useModelCatalog call,
-#      and whether MissingKey's `remedy` has any consumer.
-#   2. No e2e spec downloads a model through the real UI. `fake_huggingface_server` exists.
-#   3. make verify has not run at HEAD. Rebuild+reinstall: the bundle is Aug 23 21:07 and
-#      predates every local-models commit.
-#   4. T36/T37 are IN_PROGRESS and flip only on pasted green output (ledger rule 1).
+# WHAT THIS SESSION DID
+#   The local-models review finally came back: 4/4 lenses, 30 findings, 8 CONFIRMED, 3 SPLIT,
+#   18 refuted. Every confirmed and split finding is fixed. The four that changed a recorded
+#   decision are the ADR-0080 amendment (a P0 orphan window that the PREVIOUS fix opened; a
+#   downloader that let the SERVER decide how many bytes reached the disk; a model server the
+#   webview could hand an arbitrary executable; and §8's affordance, which the ADR described
+#   and nobody had built). e2e spec 25 now downloads a model through the REAL panel.
 #
-# WHAT GREEN SIGNALS HID THIS SESSION (why the review is not optional):
-#   62 e2e specs green while EVERY completed tool call rendered "Cancelled" to users and
-#   screen readers · 100% coverage on two gates while platformstore.py LOST WRITES under
-#   concurrency · every gate green while the SHIPPED app could not read its own tool manifest
-#   (empty Tool Library, every tool-bearing turn dead) · tsc green while the absorbed Tempest
-#   surface (client/tempest/views) was NEVER typechecked by make verify — latent since C3 ·
-#   a test I had just written that covered nothing · three verifier REFUTATIONS that mutation
-#   proved wrong (deleting the LAST-seq rule left 37 tests green).
+# **READ THE "18 REFUTED" CORRECTLY.** The verify phase ran while the fixes were landing, so
+# most of those verifiers read a tree in which the defect was already gone — one says so in
+# as many words ("fixed but uncommitted"). They were not refuted as unreal. Each had first
+# been REPRODUCED by a failing test: the byte-budget defect wrote 50,244 bytes for a
+# 10,244-byte row; the cancel defect took 10.2 s against a ten-second dribble; and each of the
+# four "cannot fail" tests was replaced and then mutation-proven to fail.
 #
-# TRAPS PAID (do not repay): a journal-mode change bypasses SQLite's busy handler by design —
-# set WAL once, read before converting, never let a failed conversion take the write; two
-# failed reproductions are NOT evidence of a flake (the WAL bug was 0/8 twice, then 5/5 once a
-# HELD write transaction was added); specta forbids serde_json::Value (stack overflow) AND i64
-# (BigInt) at boundary B — byte counts cross as f64; gen-contracts runs from the repo ROOT and
-# `pnpm tauri build` from packages/desktop; side e2e runs need TEMPEST_DEV=1 or make-repo 500s;
-# adding a declared row without updating the synthetic fixture world turns the suite red for
-# the wrong reason (twice: gate_audit's sixth path, egress_check's check 8); the Bash tool caps
-# timeouts at 10 min — background long gates; NEVER edit source while a gate runs (two 40-min
-# verify runs were discarded).
+# WHAT IS **NOT** PROVEN, said plainly
+#   * **A real model has never been SERVED.** No `llama-server` exists on this machine or on
+#     any CI runner, so T37's stub proves the SUPERVISION (a real child, a real port, a real
+#     sweep — mutation-proven) and not llama.cpp itself. `brew install llama.cpp` makes the
+#     rest demonstrable; bundling a signed runner is T38.
+#   * **A real model has never been DOWNLOADED** from huggingface.co, deliberately: the rows
+#     are gigabytes and the catalogue's hashes were verified against two independent sources at
+#     authoring time. What ran is the loopback e2e row, whose sha256 is checked for real.
+#   * **Boundary A carries the model shapes untyped.** These routes answer
+#     `list[dict[str, Any]]`, so the OpenAPI has no named component and the Python↔Rust field
+#     names are held by the e2e contract net's explicit schemas rather than by generation. A
+#     real gap against L36.8, named in the ADR-0080 amendment rather than papered over.
+#
+# TRAPS PAID THIS SESSION (do not repay)
+#   * **On battery, `parity --cli-vs-desktop` sleeps for ever with no output.** L11's power
+#     pause is doing exactly what it promises; every other gate sets TEMPEST_NO_POWER_PAUSE=1
+#     and this one does not set it for itself. 37 minutes at 0% CPU before `sample` showed it
+#     parked in `time_sleep`. Set it, or plug in.
+#   * **A background command's exit code is the WRAPPER's, not the gate's** — twice this
+#     session a "completed (exit code 0)" notification sat above a log whose own EXIT line said
+#     2. Read the line you echoed into the log (trap 40), never the notification.
+#   * **`localModelRemedy.ts` beside `LocalModelRemedy.tsx` is a case pair**, and on macOS the
+#     bundler resolves whichever it likes — the client build failed with "LocalModelRemedy is
+#     not exported" from a file that exports it.
+#   * **A test that sets a process-wide global fails tests it has never heard of.** Emptying
+#     `PATH` to reach a refusal broke two tests in other modules under the parallel runner,
+#     while passing under `--lib modelserver`.
+#   * **A payload under one `read()` cannot exercise a progress bar.** The first e2e row was
+#     68 KB — a single 1 MiB read — so progress went 0 → 100 and the spec could not have told a
+#     working poll from a broken one. It is 4.25 MiB now, five reads.
+#   * **The harness serves a BUILT client.** `make platform-client-dist` after any seam change,
+#     or the e2e drives a bundle from before the feature existed.
+#   * Coverage litter (`packages/platform/client/coverage/`, `junit.xml`) still breaks
+#     `upstream_check`; `rm` it first.
+#
+# NEXT SESSION'S WORK: C6 (datastore cutover) — or C7/C8 items, several of which this session
+# sharpened: the runner-path field must arrive HOST-side and never as an IPC argument (T38),
+# and per-turn steer scoping is still open with its reasoning recorded.
 
 ## What this wave holds (b3ba308..HEAD), briefly
 

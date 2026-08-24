@@ -414,6 +414,17 @@ not let anything else land while it is in flight.
       code path by which agent-authored change reaches a user, and require a forge test per path.
       *(Six declared paths; the agent chat surface is the sixth, with its no-verdict forge.)*
 - [x] `docs/MERGE-CONTRACT.md` and `UPSTREAM.md` updated with the `services/Agents/` delta.
+- [x] **Local models, the owner's mandate** (ADR-0080 + its amendment): a curated
+      free-and-permissive catalogue downloaded in-app with `Range:` resume and sha256
+      verification, deletable, sizes and free space on screen before the spend; a supervised
+      loopback model server, off by default; and the keyless turn's structured remedy wired to
+      a "Get a local model" affordance. **T36 and T37 ADOPTED.** Two adversarial review waves
+      over it: the second retrieved all four lenses (30 findings, 8 confirmed, 3 split), and
+      what they found is the amendment — a P0 orphan window opened by the previous fix, a
+      downloader that let the SERVER choose how many bytes reached the disk, a model server
+      that could be told which executable to run by the webview, and four tests that could not
+      fail. Driven end to end through the real panel by e2e spec 25, with the progress poll
+      mutation-proven.
 
 **Gate:**
 ```bash
