@@ -184,7 +184,16 @@ class TestDownloading:
             entry = _point_at(_entry(base, sha256="0" * 64), base, monkeypatch)
             with pytest.raises(dl.DownloadRefused, match="did not match its recorded checksum"):
                 dl.download_entry(entry)
-            assert not dl.installed_path(entry).exists(), "a file that failed its hash must go"
+
+            # BOTH paths, because verification now happens BEFORE the promote and asserting
+            # only on the installed path would be satisfied for free — the file never gets
+            # there. That is the assertion this test had until the reorder made it vacuous
+            # (trap 60), and the partial is the one that actually needs checking.
+            assert not dl.installed_path(entry).exists(), "nothing may sit at the installed path"
+            assert not dl._partial_path(dl.installed_path(entry)).exists(), (
+                "a file that failed its hash must be REMOVED, not left as a partial that the "
+                "next attempt would happily resume from and re-verify forever"
+            )
 
     def test_an_interrupted_download_resumes_from_its_partial(
         self, models_root: Path, monkeypatch: pytest.MonkeyPatch
@@ -308,6 +317,66 @@ class TestDownloading:
             entry = _point_at(_entry(base, filename="absent.gguf"), base, monkeypatch)
             with pytest.raises(dl.DownloadRefused, match="stale"):
                 dl.download_entry(entry)
+
+    def test_a_disk_that_fills_mid_download_is_a_refusal_not_a_tempest_defect(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """L15.3. ENOSPC on the WRITE is an ordinary condition with an obvious next step, and
+        it used to escape as a bare OSError into the job layer's last-resort arm — the one
+        reserved for "a defect in us" — so a user with a full disk was told the download failed
+        inside Tempest."""
+        fake = FakeHuggingFace(payload=PAYLOAD)
+        monkeypatch.setattr(dl, "_CHUNK", 512)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+
+            real_open = Path.open
+
+            def full_disk(self: Path, *args: object, **kwargs: object) -> object:
+                handle = real_open(self, *args, **kwargs)  # type: ignore[arg-type]
+                if self.suffix == ".partial":
+                    original_write = handle.write
+
+                    def boom(data: object) -> int:
+                        original_write(data)  # type: ignore[arg-type]
+                        raise OSError(28, "No space left on device")
+
+                    handle.write = boom  # type: ignore[method-assign,assignment]
+                return handle
+
+            monkeypatch.setattr(Path, "open", full_disk)
+            with pytest.raises(dl.DownloadRefused, match="No space left on device"):
+                dl.download_entry(entry)
+
+    def test_a_connection_dropped_mid_body_is_a_refusal_that_keeps_the_partial(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Walking out of wifi range is not a Tempest defect. The read loop lives outside the
+        guard that owns the friendly message, so a `ConnectionResetError` used to reach the
+        user as an internal fault with no next step."""
+        fake = FakeHuggingFace(payload=PAYLOAD)
+        monkeypatch.setattr(dl, "_CHUNK", 512)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            reads = {"n": 0}
+            import http.client
+
+            real_read = http.client.HTTPResponse.read
+
+            def drop(self: object, amt: int | None = None) -> bytes:
+                reads["n"] += 1
+                if reads["n"] > 2:
+                    raise ConnectionResetError(54, "Connection reset by peer")
+                return real_read(self, amt)  # type: ignore[arg-type]
+
+            monkeypatch.setattr(http.client.HTTPResponse, "read", drop)
+            with pytest.raises(dl.DownloadRefused, match="Connection reset by peer"):
+                dl.download_entry(entry)
+
+        kept = dl._partial_path(dl.installed_path(entry))
+        assert kept.exists() and kept.stat().st_size > 0, (
+            "the bytes already downloaded must survive, or the retry is a restart"
+        )
 
     def test_an_unreachable_host_says_so_and_keeps_what_it_had(
         self, models_root: Path, monkeypatch: pytest.MonkeyPatch

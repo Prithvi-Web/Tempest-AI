@@ -245,30 +245,54 @@ def download_entry(
         have = 0
     mode = "ab" if resuming and have else "wb"
 
-    with response, partial.open(mode) as handle:
-        if on_progress is not None:
-            on_progress(DownloadProgress(have, entry.size_bytes))
-        while True:
-            if cancel is not None and cancel.is_set():
-                raise DownloadCancelled(
-                    f"{entry.label} was stopped at {have} of {entry.size_bytes} bytes; "
-                    f"the partial download is kept and resuming will continue from there"
-                )
-            chunk = response.read(_CHUNK)
-            if not chunk:
-                break
-            handle.write(chunk)
-            have += len(chunk)
+    try:
+        with response, partial.open(mode) as handle:
             if on_progress is not None:
                 on_progress(DownloadProgress(have, entry.size_bytes))
+            while True:
+                if cancel is not None and cancel.is_set():
+                    raise DownloadCancelled(
+                        f"{entry.label} was stopped at {have} of {entry.size_bytes} bytes; "
+                        f"the partial download is kept and resuming will continue from there"
+                    )
+                chunk = response.read(_CHUNK)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                have += len(chunk)
+                if on_progress is not None:
+                    on_progress(DownloadProgress(have, entry.size_bytes))
+    except DownloadCancelled:
+        raise
+    except OSError as err:
+        # The read loop and the WRITE both live in here, and both fail in ordinary ways that
+        # are not defects: the wifi drops (ConnectionResetError), the socket times out
+        # (TimeoutError — the stall guard this module relies on), the body ends early
+        # (IncompleteRead), the disk fills (ENOSPC on `handle.write`).
+        #
+        # None of those were caught before: the guard around `_opener().open()` covers the
+        # CONNECT only, so every one of them escaped as a bare OSError into the job layer's
+        # last-resort arm — the one reserved for "a defect in us" — and a user who had simply
+        # walked out of wifi range was told "the download failed inside Tempest". That is
+        # L15.3 exactly: a real condition, reported as an internal fault, with no next step.
+        raise DownloadRefused(
+            f"{entry.label} stopped after {have} of {entry.size_bytes} bytes: {err}. The "
+            f"partial download is kept, so resuming will continue from where it stopped "
+            f"rather than starting again."
+        ) from err
 
     if have != entry.size_bytes:
         raise DownloadRefused(
             f"{entry.label} arrived incomplete ({have} of {entry.size_bytes} bytes). The "
             f"partial download is kept; resuming will continue from where it stopped."
         )
+    # VERIFY FIRST, then promote. The rename is the commit point: doing it first leaves a
+    # full-size, unverified file at the installed path for the whole duration of a sha256 over
+    # gigabytes, and anything that ends the process in that window — a quit, a supervised
+    # restart, a crash — leaves it there looking installed. `_verify` deletes what it rejects,
+    # so a mismatch now removes a `.partial` and never an "installed" model.
+    _verify(partial, entry)
     partial.replace(final)
-    _verify(final, entry)
     return final
 
 
