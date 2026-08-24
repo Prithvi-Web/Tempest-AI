@@ -14,6 +14,11 @@ _ENTRIES: dict[str, str] = {
     ),
     "packages/engine/src/tempest/compose/compose.py": "def apply_selection(repo):\n    pass\n",
     "packages/api/src/tempest_api/chatturn.py": "def start_turn(payload):\n    pass\n",
+    # The SIXTH door (ADR-0079 §8): a tool-bearing chat turn dispatches through `run_task`,
+    # so the miniature world needs it as a DECLARED caller — exactly as `subagents.py` is.
+    "packages/api/src/tempest_api/agentturn.py": (
+        "def run_agent_turn(payload):\n    return run_task(payload)\n"
+    ),
 }
 
 
