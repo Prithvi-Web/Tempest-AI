@@ -120,16 +120,116 @@ class TestMultiCollectionCommit:
         assert store.get("conversations", "c1") is None
 
     def test_concurrent_writers_all_land(self, store: PlatformStore) -> None:
-        def write(index: int) -> None:
-            store.put_many_multi([("turn_events", f"s:{index}", {"streamId": "s", "seq": index})])
+        """A write that vanishes under concurrency is L15.5 failing quietly, and the worker
+        that vanishes with it is L15.3.
 
-        threads = [threading.Thread(target=write, args=(i,)) for i in range(8)]
+        This caught a real one: `_connect` set `PRAGMA journal_mode=WAL` on EVERY connection,
+        changing the journal mode needs a brief EXCLUSIVE lock, and SQLite answers
+        SQLITE_BUSY for it rather than parking on the busy handler — so one of several
+        writers opening at once died with `database is locked` and its document never landed.
+        In a turn thread that is not a missing row, it is a turn that stops.
+
+        The original raced only under load, which is why it survived: a writer count and a
+        hope are not a concurrency test. A BARRIER makes every thread contend on `_connect`
+        at the same moment (trap 61), and thread exceptions are collected so a lost write
+        fails as ITSELF rather than as a mystery row count.
+        """
+        writers = 24
+        ready = threading.Barrier(writers)
+        failures: list[BaseException] = []
+        failures_lock = threading.Lock()
+
+        def write(index: int) -> None:
+            try:
+                ready.wait(timeout=10)  # everyone opens a connection at once, deliberately
+                store.put_many_multi(
+                    [("turn_events", f"s:{index}", {"streamId": "s", "seq": index})]
+                )
+            except BaseException as exc:  # recorded, never swallowed — see the docstring
+                with failures_lock:
+                    failures.append(exc)
+
+        threads = [threading.Thread(target=write, args=(i,)) for i in range(writers)]
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join()
+            thread.join(timeout=60)
+
+        assert not failures, f"writers died instead of writing: {failures[:3]}"
         docs = store.find_equal("turn_events", "streamId", "s", order_by="seq")
-        assert [d["seq"] for d in docs] == list(range(8))
+        assert [d["seq"] for d in docs] == list(range(writers))
+
+    def test_a_write_survives_a_journal_mode_change_it_cannot_make(self, tmp_path: Path) -> None:
+        """The deterministic form of the bug that made this file go red, reproduced by its
+        actual mechanism instead of by load.
+
+        A `PRAGMA journal_mode=` change needs an EXCLUSIVE lock and SQLite answers
+        SQLITE_BUSY for it IMMEDIATELY — it does not park on the busy handler, deliberately,
+        to avoid deadlock. So a store opening a not-yet-WAL file while ANY other connection
+        holds a write transaction used to die on the pragma, losing the write and the worker
+        with it. Measured at 5/5 trials against raw sqlite3; a WAL→WAL no-op never fails,
+        which is why the bug needed a fresh file to show itself.
+
+        Here the file is placed in rollback mode and a write transaction is held open
+        throughout. The store must still take the write: WAL is a durability and concurrency
+        optimisation, not a precondition for storing a document.
+        """
+        db = tmp_path / "platform" / "store.sqlite3"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        seed = sqlite3.connect(db)
+        seed.execute("PRAGMA journal_mode=delete")
+        seed.commit()
+        seed.close()
+
+        holder = sqlite3.connect(db, timeout=30.0)
+        holder.execute("CREATE TABLE IF NOT EXISTS keepalive (x)")
+        holder.execute("BEGIN IMMEDIATE")
+        holder.execute("INSERT INTO keepalive VALUES (1)")
+        try:
+            store = PlatformStore(db)
+            landed: list[str] = []
+            failed: list[BaseException] = []
+
+            def write() -> None:
+                try:
+                    store.put("conversations", "c1", {"conversationId": "c1", "title": "t"})
+                    landed.append("ok")
+                except BaseException as exc:
+                    failed.append(exc)
+
+            worker = threading.Thread(target=write)
+            worker.start()
+            # The write itself waits on the held transaction — that part is correct and is
+            # what `busy_timeout` is for. Release once it has certainly reached the pragma.
+            worker.join(timeout=2)
+            holder.commit()
+            worker.join(timeout=30)
+        finally:
+            holder.close()
+
+        assert not failed, f"the write died on a journal-mode change: {failed}"
+        assert landed == ["ok"]
+        assert store.get("conversations", "c1") is not None, (
+            "the document never landed — a write lost to an optimisation is still a lost write"
+        )
+
+    def test_the_journal_mode_is_set_on_the_file_not_per_connection(
+        self, store: PlatformStore
+    ) -> None:
+        """WAL lives in the database header and survives every connection, so setting it once
+        is not an optimisation — it is what keeps a hot path off an exclusive lock. A fresh
+        connection must FIND the file already in WAL without asking for it."""
+        store.put("conversations", "c1", {"conversationId": "c1"})
+        import sqlite3
+
+        conn = sqlite3.connect(store.path)
+        try:
+            mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        finally:
+            conn.close()
+        assert str(mode).lower() == "wal", (
+            f"the file is in {mode!r}: durability and concurrent readers both depend on WAL"
+        )
 
 
 class TestHonestEdges:

@@ -43,6 +43,37 @@ CREATE INDEX IF NOT EXISTS idx_doc_stream
 """
 
 
+def _ensure_wal(conn: sqlite3.Connection) -> None:
+    """Put the FILE in WAL, once, and never at the cost of the write that asked.
+
+    WAL is a property of the database header, not of a connection: it survives every open,
+    so it only ever needs setting once. It used to run on every `_connect`, and that was a
+    data-loss bug. Changing the journal mode needs an EXCLUSIVE lock, and SQLite answers
+    SQLITE_BUSY for it IMMEDIATELY rather than parking on the busy handler — deliberately,
+    to avoid deadlock. So while one thread held the write transaction that creates the
+    schema, every other thread opening a connection died on the pragma with `database is
+    locked`. Measured, deterministically, at 5/5 trials: a journal-mode change against a
+    held write transaction always fails, while a WAL→WAL no-op never does.
+
+    In a test that looked like a missing row. In a turn thread it is worse: the exception
+    kills a worker nobody is reading, the document never lands, and the turn simply stops —
+    L15.5 (zero data loss) failing quietly, with L15.3 on top.
+
+    Two things follow, and both are here. The mode is READ first, so a file already in WAL —
+    every file after the first open — never attempts a conversion at all. And a conversion
+    that cannot get its lock right now is not fatal: WAL is a durability and concurrency
+    optimisation, and a store that cannot convert this instant must still take the write.
+    The catch recovers rather than swallows (L15.3): the file stays in rollback mode, every
+    write still lands, and the next open tries again.
+    """
+    try:
+        mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        if str(mode).lower() != "wal":
+            conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.OperationalError:
+        return
+
+
 class PlatformStore:
     """One file, one table, JSON documents — opened lazily, schema ensured once per path."""
 
@@ -54,11 +85,15 @@ class PlatformStore:
     def _connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.path, timeout=30.0)
-        conn.execute("PRAGMA journal_mode=WAL")
+        # Set BEFORE anything that can contend, and explicitly rather than relying on the
+        # connect timeout alone: a statement that meets a held lock waits here instead of
+        # failing, which is the difference between a slow write and a lost one.
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA synchronous=FULL")
         if not self._schema_ready:
             with self._lock:
                 if not self._schema_ready:
+                    _ensure_wal(conn)
                     conn.executescript(_SCHEMA)
                     conn.commit()
                     self._schema_ready = True
