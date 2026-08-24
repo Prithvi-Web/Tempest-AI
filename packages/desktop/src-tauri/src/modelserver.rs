@@ -547,19 +547,26 @@ mod tests {
         // microseconds, the spawned child failed to bind and exited, and the panel said
         // "Serving on 127.0.0.1" over a foreign process that then received the user's chat
         // turns. A real listener on the real port, because the port is the thing under test.
-        let Ok(squatter) =
-            std::net::TcpListener::bind(format!("{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT}"))
-        else {
-            // Something on this machine already holds 8080. The refusal is then exactly what
-            // the assertion below wants, so the test is still meaningful — but say so rather
-            // than silently measuring a different world.
-            eprintln!("8080 was already taken; testing the refusal against that listener");
-            let err = start(&a_real_file(), None).unwrap_err();
-            assert!(matches!(err, ModelServerError::PortBusy(_)), "{err:?}");
-            return;
-        };
+        // The runner is put in reach FIRST, and for both arms. `start()` triages in the order
+        // a person can act on — is the model on disk, is there a program to run it, is the
+        // port free — so without a resolvable runner the refusal is `RunnerMissing` and this
+        // test never reaches its own subject. The fallback arm below used to skip this and
+        // then assert PortBusy anyway; it went red the first time 8080 was genuinely taken on
+        // a machine with no runner on PATH, naming a problem it was not testing.
         let runner = std::env::current_exe().expect("a runner-shaped file").display().to_string();
         let _guard = PathGuard::containing_llama_server(&runner);
+        let squatter =
+            match std::net::TcpListener::bind(format!("{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT}")) {
+                Ok(listener) => Some(listener),
+                Err(_) => {
+                    // Something on this machine already holds 8080. The refusal is then
+                    // exactly what the assertions below want, so the test is still
+                    // meaningful — but say so rather than silently measuring a different
+                    // world.
+                    eprintln!("8080 was already taken; testing the refusal against that listener");
+                    None
+                }
+            };
         let err = start(&a_real_file(), None).unwrap_err();
         drop(squatter);
         assert!(matches!(err, ModelServerError::PortBusy(_)), "{err:?}");
