@@ -58,6 +58,11 @@ def catalogue(
     )
     from tempest.models import catalog as catalog_mod
 
+    # This suite owns its catalogue. The e2e row appears when TEMPEST_DEV=1 (which `make
+    # verify` sets) AND a dev base URL is exported, so a developer with one in their shell
+    # would otherwise watch every row-count assertion here fail for a reason that has nothing
+    # to do with the code under test.
+    monkeypatch.delenv(catalog_mod.DEV_BASE_ENV, raising=False)
     monkeypatch.setattr(catalog_mod, "CATALOG", (entry,))
     monkeypatch.setattr("tempest.models.CATALOG", (entry,))
     monkeypatch.setattr(catalog_mod, "entry_for", lambda mid: entry if mid == entry.id else None)

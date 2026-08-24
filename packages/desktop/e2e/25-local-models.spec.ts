@@ -110,7 +110,8 @@ test("pressing Download moves a real progress bar and ends with a verified file"
 
   const after = await peerState();
   expect(after.requests.length).toBeGreaterThanOrEqual(1);
-  expect(after.requests[0].range).toBeNull(); // a fresh download asks for the whole file
+  const firstRequest = after.requests.at(0);
+  expect(firstRequest?.range).toBeNull(); // a fresh download asks for the whole file
 
   // It survives a reload, because it is a file and not a piece of React state.
   await page.reload();
@@ -171,10 +172,11 @@ test("stopping a download keeps what arrived, and resuming asks only for the res
 
   const requests = (await peerState()).requests;
   expect(requests.length).toBeGreaterThan(beforeResume);
-  expect(requests[requests.length - 1].range).toMatch(/^bytes=\d+-$/);
+  const resumed = requests.at(-1)?.range ?? "";
+  expect(resumed).toMatch(/^bytes=\d+-$/);
   // The resumed request asked to start somewhere past zero — it continued rather than
   // restarting, which is the difference the partial exists to make.
-  const askedFrom = Number(/^bytes=(\d+)-$/.exec(requests[requests.length - 1].range ?? "")?.[1]);
+  const askedFrom = Number(/^bytes=(\d+)-$/.exec(resumed)?.[1] ?? "0");
   expect(askedFrom).toBeGreaterThan(0);
 });
 

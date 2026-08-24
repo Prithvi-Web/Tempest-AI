@@ -911,3 +911,42 @@ class TestAirplaneMode:
         assert row.base_url.startswith("http://127.0.0.1"), row.base_url
         assert row.env_var == "", "a local runner that demands a key is not a local runner"
         assert not row.needs_key
+
+
+class TestTheTwoSidesOfServingAgree:
+    """The port is a contract between two languages and nothing was holding it.
+
+    `modelserver.rs` binds `MODEL_SERVER_HOST:MODEL_SERVER_PORT`; `providers.py`'s `llamacpp`
+    row points at a URL. That agreement is the entire reason serving needed no new provider
+    code (ADR-0080 context §1) — and it was asserted on each side separately, against its own
+    constant, which cannot catch the two drifting apart. If they ever disagree the server runs,
+    the panel says "Serving", and the model never appears in the picker: three green surfaces
+    and a feature that does nothing.
+
+    Read from the Rust SOURCE, the way `gate_audit` reads for its tripwires. A generated
+    boundary would be better still, but the model server deliberately speaks no boundary — it
+    is the one child with no contract to generate from (ADR-0080 §1), so the pin goes here.
+    """
+
+    def test_the_llamacpp_row_points_at_the_address_the_rust_host_binds(self) -> None:
+        import re
+        from pathlib import Path as _Path
+
+        from tempest.inference import providers
+
+        source = _Path("packages/desktop/src-tauri/src/modelserver.rs")
+        if not source.is_file():  # pragma: no cover — only if the tree is rearranged
+            pytest.skip(f"{source} is not where this pin expects the Rust host to be")
+        body = source.read_text(encoding="utf-8")
+        host = re.search(r'MODEL_SERVER_HOST:\s*&str\s*=\s*"([^"]+)"', body)
+        port = re.search(r"MODEL_SERVER_PORT:\s*u16\s*=\s*(\d+)", body)
+        assert host is not None and port is not None, (
+            "modelserver.rs no longer declares its host and port as named constants — the pin "
+            "below cannot read them, and a silent disagreement is exactly what it exists for"
+        )
+
+        row = providers.get("llamacpp")
+        assert row.base_url == f"http://{host.group(1)}:{port.group(1)}/v1", (
+            f"the Rust host binds {host.group(1)}:{port.group(1)} and the llamacpp row points "
+            f"at {row.base_url} — a served model would never appear in the picker"
+        )
