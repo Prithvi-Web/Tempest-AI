@@ -242,7 +242,9 @@ def run_agent_turn(
     # live stream rendered.
     state: dict[str, int] = {"next_index": 1}
     open_steps: dict[str, tuple[str, int, str, dict[str, Any]]] = {}
-    last_label: dict[str, str] = {"label": ""}
+    #: The batch being accumulated: its mechanical label, and the calls it covers. The label
+    #: part is allocated only when the batch CLOSES — see `close_batch`.
+    batch: dict[str, Any] = {"label": "", "ids": []}
 
     def allocate(part: dict[str, Any]) -> int:
         index = state["next_index"]
@@ -250,15 +252,42 @@ def run_agent_turn(
         job.extra_parts.append(part)
         return index
 
-    def emit_label(label: str, call_id: str) -> None:
-        """LC19's activity headers, MECHANICALLY derived from the tool kind — no model
-        writes a label (L17), and none of the reserved verdict vocabulary appears (L31)."""
-        if label == last_label["label"]:
+    def close_batch() -> None:
+        """Publish the finished batch's header — AFTER the calls it covers.
+
+        LC19's headers are MECHANICAL functions of the tool kind: no model writes a label
+        (L17) and none of the reserved vocabulary appears (L31). What changed here is WHERE
+        the part lands. The vendored grouper (`groupSequentialToolCalls`) accumulates
+        groupable tool calls as it walks content in index order and, on reaching an
+        ACTIVITY_LABEL, claims `currentBlock.slice(claimStart)` — the parts BEFORE the label.
+        Upstream publishes labels from its post-batch hook, so a label always follows its
+        batch.
+
+        Emitting the label first put `claimed.length === 0` on every batch, which takes the
+        grouper's "Orphan label" branch: the header rendered as a standalone line and the
+        tool calls after it were flushed with no `labelPart` at all. Every LC19 header was an
+        orphan and every tool card was header-less — while spec 24 stayed green, because
+        `getByText("Running commands")` is just as visible on an orphan.
+        """
+        if not batch["label"]:
             return
-        last_label["label"] = label
-        part = {"type": "activity_label", "activity_label": label, "tool_call_ids": [call_id]}
+        part = {
+            "type": "activity_label",
+            "activity_label": batch["label"],
+            "tool_call_ids": list(batch["ids"]),
+        }
         index = allocate(part)
         job.append({"event": "on_activity_label", "data": {"index": index, "part": part}})
+        batch["label"] = ""
+        batch["ids"] = []
+
+    def note_call(label: str, call_id: str) -> None:
+        """Record a call against the open batch, closing the previous one when the kind
+        changes — that boundary is what makes the header describe its own calls."""
+        if batch["label"] and label != batch["label"]:
+            close_batch()
+        batch["label"] = label
+        batch["ids"].append(call_id)
 
     def emit(event: AgentEvent) -> None:
         if isinstance(event, Narration):
@@ -270,7 +299,7 @@ def run_agent_turn(
                 )
             )
         elif isinstance(event, ToolCallStarted):
-            emit_label(_ACTIVITY_LABELS.get(event.name, "Working"), event.call_id)
+            note_call(_ACTIVITY_LABELS.get(event.name, "Working"), event.call_id)
             index = state["next_index"]
             state["next_index"] += 1
             step_id = f"step_{job.response_message_id}_{index}"
@@ -338,6 +367,7 @@ def run_agent_turn(
             if gauge is not None:
                 job.append(gauge)
         elif isinstance(event, Proving):
+            close_batch()  # the tool batch is over; its header lands before the phase label
             part = {"type": "activity_label", "activity_label": "Proving the change"}
             index = allocate(part)
             job.append({"event": "on_activity_label", "data": {"index": index, "part": part}})
@@ -454,6 +484,31 @@ def run_agent_turn(
         error_text = str(exc)
     except Exception as exc:  # a defect in us, surfaced in-band rather than swallowed
         error_text = f"the agent turn failed inside Tempest: {exc!r}"
+
+    # Every exit closes the books on what the stream showed, including the exits that did not
+    # reach the end of the loop — an abort, a park the user never answered, an outage.
+    close_batch()
+    for call_id, (_step_id, index, name, arguments) in open_steps.items():
+        # A step that OPENED and never finished. Its slot was reserved as
+        # `{"type": "tool_call", "tool_call": {}}` and filled on `ToolCallFinished`; an
+        # unwind in between left the empty placeholder in the persisted message, and the
+        # vendored Part renderer drops a tool_call with no payload entirely. The live stream
+        # showed a tool card, the reload showed nothing, and history quietly disagreed with
+        # what the user watched.
+        #
+        # It is filled with the call as it was actually issued and an EMPTY output, which is
+        # the truth: this call was started and never came back. Removing the part instead
+        # would shift every later index away from the one the stream published.
+        job.extra_parts[index - 1] = {
+            "type": "tool_call",
+            "tool_call": {
+                "type": "tool_call",
+                "name": name,
+                "args": arguments,
+                "id": call_id,
+                "output": "",
+            },
+        }
     # usage=None on purpose: the ORCHESTRATOR already metered every completion through
     # `TaskSpec.meter`; a second spend here would double-charge the turn.
     turns._finish(

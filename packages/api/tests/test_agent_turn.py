@@ -635,6 +635,109 @@ class TestHumanInTheLoopWire:
         assert payload["status"] == "aborted"
         assert time.monotonic() - started < 5.0, "the park must observe the abort, not sit it out"
 
+    def test_an_interrupted_tool_step_persists_the_card_the_stream_showed(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """A step that OPENS and never finishes must not persist as an empty placeholder.
+
+        `emit` reserves the persisted mirror of a tool step when the step opens
+        (`{"type": "tool_call", "tool_call": {}}`, filled on `ToolCallFinished`). Any exit
+        between the two — an abort, an unanswered park, an outage — left that empty part in
+        the message, and the vendored Part renderer drops a tool_call with no payload
+        entirely: the live stream showed a tool card, the reload showed nothing, and the
+        history quietly disagreed with what the user had watched.
+
+        Removing the part instead would shift every later index away from the one the stream
+        already published, so it is FILLED with the call as issued and an empty output —
+        which is the truth: started, never came back.
+        """
+        ack, _pending = self._park(api, agent_env, repo)
+        assert api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel").status_code == 200
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "aborted"
+
+        final = _frames(payload)[-1]
+        parts = final["responseMessage"]["content"]
+        cards = [p for p in parts if p.get("type") == "tool_call"]
+        assert cards, "the interrupted step must still persist a card"
+        for card in cards:
+            body = card["tool_call"]
+            assert body, f"an EMPTY tool_call part reached the store: {card!r}"
+            assert body.get("name"), "the persisted card must name the call the stream showed"
+            assert "args" in body and "id" in body
+            assert body.get("output") == "", (
+                "an interrupted call has no output, and must not invent one"
+            )
+
+    def test_the_activity_header_follows_the_calls_it_covers(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """LC19 against the vendored grouper's ACTUAL contract.
+
+        `groupSequentialToolCalls` walks content in index order, accumulates groupable tool
+        calls, and on reaching an ACTIVITY_LABEL claims `currentBlock.slice(claimStart)` —
+        the parts BEFORE the label. Upstream publishes labels from its post-batch hook, so a
+        label always follows its batch.
+
+        Tempest emitted the header FIRST, which made `claimed.length === 0` on every batch
+        and took the grouper's "Orphan label" branch: the header rendered as a standalone
+        line and the tool calls after it were flushed with no `labelPart`. Spec 24 stayed
+        green throughout, because `getByText("Running commands")` is just as visible on an
+        orphan as on a real header — the assertion could not tell a grouped header from a
+        floating one.
+
+        So the invariant is positional, and this is where it can be asserted precisely.
+        """
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Reading two files.",
+                "tool_calls": [
+                    {"name": "read_file", "arguments": {"path": "app.py"}},
+                    {"name": "read_file", "arguments": {"path": "app.py"}},
+                ],
+            },
+            {"text": "Both read."},
+        ]
+        ack = _start(api, agent["id"], "Read them")
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete"
+
+        parts = _frames(payload)[-1]["responseMessage"]["content"]
+        kinds = [p.get("type") for p in parts]
+        # A BATCH header is a label that names the calls it covers; the phase label the
+        # `Proving` event publishes carries no `tool_call_ids` and heads no tool group.
+        header_at = [
+            i
+            for i, k in enumerate(kinds)
+            if k == "activity_label" and parts[i].get("tool_call_ids")
+        ]
+        calls_at = [i for i, k in enumerate(kinds) if k == "tool_call"]
+        assert header_at, f"no batch header was persisted at all: {kinds}"
+        assert calls_at, f"no tool call was persisted at all: {kinds}"
+
+        label_at = header_at
+        header = parts[header_at[0]]
+        covered = header.get("tool_call_ids") or []
+        assert covered, "a header that covers no call cannot be claimed by the grouper"
+
+        # The positional contract: every call the header names sits BEFORE it.
+        ids_before = [
+            parts[i]["tool_call"].get("id")
+            for i in calls_at
+            if i < label_at[0] and isinstance(parts[i].get("tool_call"), dict)
+        ]
+        for call_id in covered:
+            assert call_id in ids_before, (
+                f"header at index {label_at[0]} names {call_id!r}, which is not among the "
+                f"calls that precede it ({ids_before}) — the grouper would claim nothing and "
+                f"render this header as an orphan"
+            )
+
+        # Both calls are the same kind, so they are ONE batch under ONE header.
+        assert len(header_at) == 1, f"one batch must wear one header, got {len(header_at)}"
+        assert len(covered) == 2, f"the header must cover both calls, got {covered}"
+
     def test_ask_user_round_trips_an_answer(
         self, api: Any, agent_env: AgentPeer, repo: Path
     ) -> None:
