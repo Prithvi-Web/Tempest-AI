@@ -79,12 +79,27 @@ def token_usage_frame(
     model: str,
     input_tokens: int,
     output_tokens: int,
+    seq: int = 0,
 ) -> dict[str, Any]:
-    """Measured usage, straight from the provider's own stream (L21: never estimated)."""
+    """Measured usage, straight from the provider's own stream (L21: never estimated).
+
+    `seq` is the per-run emission counter, and it is load-bearing for exactly the shape C5
+    introduced: ONE `runId` (the response message id) now spans MANY model calls, because a
+    tool-bearing turn loops. The vendored client folds usage under
+    `runId != null && seq != null ? `${runId}:${seq}` : JSON.stringify(data)`
+    (`useUsageHandler.ts`), and the field's own upstream doc says what it is for — "keeps
+    identical payloads from distinct model calls unique".
+
+    Without it the key degrades to the payload itself, so two calls in one turn that happen
+    to report the same counts fold into ONE and the turn under-reports its own spend. Two
+    identical counts is not a corner case: it is what a scripted peer produces every time,
+    and small tool-loop turns land on the same numbers routinely.
+    """
     return {
         "event": "on_token_usage",
         "data": {
             "runId": response_message_id,
+            "seq": seq,
             "provider": provider,
             "model": model,
             "input_tokens": input_tokens,

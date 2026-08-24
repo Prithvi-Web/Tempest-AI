@@ -62,18 +62,41 @@ test("an agent turn parks on approval, runs the tool, and finishes durably", asy
 
   const approve = page.getByRole("button", { name: /approve/i }).first();
   await approve.waitFor({ timeout: 30_000 });
-  // The mechanical activity header labels the batch (LC19) while the turn is parked.
-  await expect(page.getByText("Running commands").first()).toBeVisible();
+  // Parked: the call the user is being asked about is named on the card itself.
+  await expect(page.getByText("run_command").first()).toBeVisible();
   // Approve SELECTS the decision; the batch goes with the submit button (one submit
   // covers every paused call in the action — the client's own contract).
   await approve.click();
   await page.getByRole("button", { name: /submit/i }).first().click();
 
-  // The approved command really ran (its run step renders), and the reply finishes.
   await expect(page.getByText("The command finished; all set.")).toBeVisible({
     timeout: 60_000,
   });
-  await expect(page.getByText("run_command").first()).toBeVisible();
+
+  // LC19, as the vendored grouper actually renders it: the mechanical header CLAIMS its
+  // batch, so the label and the call it covers are one collapsible group — not a header
+  // floating above an unrelated, un-headed card. The label must FOLLOW its calls in the
+  // content parts for the grouper to claim them, which is the invariant this asserts from
+  // the outside: a `button` whose accessible name is the label and whose body names the call.
+  const group = page.getByRole("button", { name: /Running commands/ }).first();
+  await expect(group).toBeVisible({ timeout: 30_000 });
+  await expect(group).toContainText("run_command");
+
+  // The approved command REALLY RAN. Neither previous witness showed that: the reply text
+  // comes from the scripted peer, which advances on the next completion whatever the tool
+  // did, and the string "run_command" is put on the wire by `on_run_step` — emitted from
+  // ToolCallStarted, BEFORE the dispatch — so both were already true of a turn whose
+  // approved call was dropped instead of run. The command's own OUTPUT is the only witness
+  // that cannot be produced without executing it, and it lives inside the group.
+  await group.click();
+  // The card also says, in its own words, that the call RAN rather than that it was
+  // cancelled — the phase the vendored renderer derives from `progress`. A finished call
+  // that omits the field resolves to 'cancelled' and is announced that way to a screen
+  // reader, so this is the accessible-name assertion, not decoration.
+  const card = page.getByRole("button", { name: /Ran run_command/ }).first();
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await card.click();
+  await expect(page.getByText(/spec24-ran/).first()).toBeVisible({ timeout: 30_000 });
 
   // Durable: the finished turn survives a reload with the same content (the final frame
   // is a persistence receipt, and the persisted message mirrors the stream).

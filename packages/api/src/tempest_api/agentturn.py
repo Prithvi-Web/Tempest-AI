@@ -240,7 +240,7 @@ def run_agent_turn(
     # steps, steer chips and activity labels share the index space, in arrival order, and
     # `job.extra_parts` mirrors the allocation so the PERSISTED message renders what the
     # live stream rendered.
-    state: dict[str, int] = {"next_index": 1}
+    state: dict[str, int] = {"next_index": 1, "usage_seq": 0}
     open_steps: dict[str, tuple[str, int, str, dict[str, Any]]] = {}
     #: The batch being accumulated: its mechanical label, and the calls it covers. The label
     #: part is allocated only when the batch CLOSES — see `close_batch`.
@@ -339,6 +339,17 @@ def run_agent_turn(
                 "args": arguments,
                 "id": event.call_id,
                 "output": event.detail,
+                # `progress: 1` is how a tool card says it FINISHED. The vendored renderer
+                # reads `toolCall.progress ?? 0.1` (Part.tsx) and resolves the phase with
+                # `!isSubmitting && reportedProgress < 1 -> 'cancelled'` (toolCallPhase.ts),
+                # so a completed call that omits the field renders — and is ANNOUNCED to a
+                # screen reader — as "Cancelled" the moment streaming ends. Every successful
+                # tool call in the app was labelled that way.
+                #
+                # An interrupted step deliberately does NOT get this: the flush at the turn's
+                # exit fills its slot without a progress, so a call that really was stopped
+                # keeps saying so.
+                "progress": 1,
             }
             # The persisted mirror of this step, at the slot reserved when it opened.
             job.extra_parts[index - 1] = {"type": "tool_call", "tool_call": tool_call}
@@ -349,6 +360,10 @@ def run_agent_turn(
                 }
             )
         elif isinstance(event, TurnUsage):
+            # One turn is many model calls under ONE runId, so each report carries its own
+            # per-run sequence — the client's fold key. Without it two calls reporting equal
+            # counts collapse into one and the turn under-reports its spend (L21).
+            state["usage_seq"] += 1
             job.append(
                 chatwire.token_usage_frame(
                     response_message_id=job.response_message_id,
@@ -356,6 +371,7 @@ def run_agent_turn(
                     model=event.model,
                     input_tokens=event.input_tokens,
                     output_tokens=event.output_tokens,
+                    seq=state["usage_seq"],
                 )
             )
             gauge = context_usage_frame(

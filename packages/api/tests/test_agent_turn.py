@@ -313,9 +313,20 @@ class TestToolBearingTurns:
             "the write batch must wear its mechanical header"
         )
         parts = final["responseMessage"]["content"]
-        assert any(p.get("type") == "tool_call" for p in parts), (
-            "the persisted message must mirror the streamed run step"
+        mirrored = [p for p in parts if p.get("type") == "tool_call"]
+        assert mirrored, "the persisted message must mirror the streamed run step"
+        # The outer `type` discriminator is written at ToolCallStarted time as an EMPTY
+        # placeholder, so asserting only on it is satisfied by a mirror that was never
+        # filled in — a reload would show a blank card where the stream showed the call.
+        # The contract (ADR-0079: `_finish(extra_parts=…)` persists the same parts the
+        # stream showed) is about the CONTENT and the slot, so assert the content.
+        body = mirrored[0]["tool_call"]
+        assert body.get("name") == "write_file"
+        assert body.get("args", {}).get("path") == "app.py"
+        assert body.get("id") == opened["id"], (
+            "the persisted mirror must carry the same call id the stream published"
         )
+        assert body.get("output"), "a finished call's persisted mirror must carry its output"
         # The gauge stays HONESTLY silent here: the ollama row documents no context window,
         # and an invented denominator would be worse than an indeterminate gauge (LC21).
         assert not [f for f in frames if f.get("event") == "on_context_usage"]
@@ -668,6 +679,53 @@ class TestHumanInTheLoopWire:
             assert body.get("output") == "", (
                 "an interrupted call has no output, and must not invent one"
             )
+
+    def test_every_model_call_reports_its_own_usage_under_a_distinct_key(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """C5 made ONE runId span MANY model calls, which breaks the client's usage fold.
+
+        `useUsageHandler` keys on `runId != null && seq != null ? `${runId}:${seq}` :
+        JSON.stringify(data)`, and upstream's own doc for the field says what it is for:
+        "keeps identical payloads from distinct model calls unique". `token_usage_frame`
+        never set it, so the key degraded to the payload — and two calls in one turn
+        reporting the same counts folded into ONE. The turn under-reported its own spend
+        (L21), and identical counts are not a corner case: the scripted peer produces them
+        every time, and small tool-loop turns land on the same numbers routinely.
+        """
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Looking.",
+                "tool_calls": [{"name": "read_file", "arguments": {"path": "app.py"}}],
+            },
+            {"text": "Done looking."},
+        ]
+        ack = _start(api, agent["id"], "Look at it")
+        payload = _wait_terminal(api, ack["streamId"])
+        usage = [f for f in _frames(payload) if f.get("event") == "on_token_usage"]
+
+        assert len(usage) >= 2, (
+            f"a tool-bearing turn makes at least two model calls; got {len(usage)} usage "
+            f"frames, so this test would be vacuous"
+        )
+        run_ids = {f["data"]["runId"] for f in usage}
+        assert len(run_ids) == 1, "the whole turn is one run — that is why seq is needed"
+
+        keys = [(f["data"]["runId"], f["data"].get("seq")) for f in usage]
+        assert all(seq is not None for _run, seq in keys), (
+            "a usage frame with no seq folds under its payload, and identical payloads merge"
+        )
+        assert len(set(keys)) == len(keys), (
+            f"two model calls shared a fold key and would collapse into one: {keys}"
+        )
+
+        # The scripted peer reports the SAME counts every call, which is exactly the case
+        # that folds — so this turn is the failing shape, not a lucky one.
+        payloads = [(f["data"]["input_tokens"], f["data"]["output_tokens"]) for f in usage]
+        assert len(set(payloads)) == 1, (
+            f"expected identical counts from the scripted peer (the folding case); got {payloads}"
+        )
 
     def test_the_activity_header_follows_the_calls_it_covers(
         self, api: Any, agent_env: AgentPeer, repo: Path

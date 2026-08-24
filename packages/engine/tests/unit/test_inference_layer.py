@@ -150,7 +150,21 @@ def serve(peer: Peer) -> Iterator[str]:
                             # Hold the stream open until the test says the client has gone. The
                             # timeout is a safety net, not a wait anybody expects to expire.
                             peer.resume.wait(timeout=10)
-                except (BrokenPipeError, ConnectionResetError):
+                            # Then keep writing UNTIL THE HANGUP IS OBSERVED, rather than a
+                            # fixed number of frames and a hope. A run of small frames fits
+                            # entirely inside the loopback send buffer, so whether any write
+                            # raises depends on which side is scheduled first — under load the
+                            # peer finishes first, nothing fails, and a test about
+                            # CANCELLATION goes red for a reason about buffer sizes (trap 61).
+                            # Writing to a deadline turns "the peer outlasted the client" from
+                            # a coin flip into a bounded fact.
+                            deadline = time.monotonic() + 3.0
+                            while time.monotonic() < deadline:
+                                self.wfile.write(b"data: {}\n\n")
+                                self.wfile.flush()
+                                time.sleep(0.02)
+                            return
+                except (BrokenPipeError, ConnectionResetError, OSError):
                     peer.closed_early.set()  # the client really hung up
                 return
             body = peer.body()
