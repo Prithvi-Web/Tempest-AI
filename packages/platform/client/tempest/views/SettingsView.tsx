@@ -127,17 +127,11 @@ function LocalModelsGroup() {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  // No configured-runner box yet: `resolve_runner` supports one (bundled -> setting -> PATH),
-  // and the SETTING half has no field on this panel, so this resolves from PATH. Recorded as a
-  // plan item rather than referenced as though it existed.
-  const configuredRunner: string | null = null;
 
-  // Poll only while something is actually downloading. An idle panel is not a timer.
-  const catalog = useModelCatalog(false);
-  const downloading = (catalog.data ?? []).some((row) => row.download?.state === "running");
-  const live = useModelCatalog(downloading ? 500 : false);
-  const rows = live.data ?? catalog.data ?? [];
-  const server = useModelServerStatus(configuredRunner);
+  // One observer; the poll turns itself on while a download is running (see useModelCatalog).
+  const catalog = useModelCatalog();
+  const rows = catalog.data ?? [];
+  const server = useModelServerStatus();
 
   async function act(work: () => Promise<unknown>, whenItFails: string) {
     setProblem(null);
@@ -171,7 +165,18 @@ function LocalModelsGroup() {
           {server.data.runner_problem}
         </p>
       )}
-      {rows.length === 0 && !catalog.isLoading && (
+      {catalog.isLoading && (
+        <p className="group-note" data-testid="models-loading">
+          Reading the model catalogue…
+        </p>
+      )}
+      {catalog.isError && (
+        <p className="yellow" role="alert" data-testid="models-unavailable">
+          The model catalogue could not be read: {catalog.error.message}. Downloaded models are
+          unaffected — this is the list, not the files.
+        </p>
+      )}
+      {rows.length === 0 && !catalog.isLoading && !catalog.isError && (
         <p className="group-note" data-testid="models-empty">
           No models are listed. This build shipped without a catalogue.
         </p>
@@ -183,6 +188,16 @@ function LocalModelsGroup() {
         const done = row.download?.doneBytes ?? 0;
         const total = row.download?.totalBytes ?? row.sizeBytes ?? 0;
         const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+        const paused = !isDownloading && (row.partialBytes ?? 0) > 0;
+        const stray = row.strayBytes ?? 0;
+        // Anything of this row's on disk — an install, a paused partial, or a file that is not
+        // the model at all. Remove used to render only for `installed`, so a partial was
+        // gigabytes with no way to free them and a stray file had no way out either.
+        const anythingOnDisk = row.installed || paused || stray > 0;
+        const servingThisRow =
+          server.data?.running === true &&
+          row.installedPath !== null &&
+          server.data.model_path === row.installedPath;
         return (
           <div key={row.id} className="setting-stack" data-testid={`model-${row.id}`}>
             <div className="setting-label">
@@ -203,6 +218,20 @@ function LocalModelsGroup() {
                 some space first, rather than starting a download that cannot finish.
               </p>
             )}
+            {paused && (
+              <p className="group-note" data-testid={`paused-${row.id}`}>
+                Paused with {gb(row.partialBytes)} of {gb(row.sizeBytes)} already downloaded.
+                Download again to continue from there, or remove it to get the space back.
+              </p>
+            )}
+            {stray > 0 && (
+              <p className="yellow" role="alert" data-testid={`stray-${row.id}`}>
+                There is a file where this model goes that is not this model ({gb(stray)}, and
+                the catalogue records {gb(row.sizeBytes)}). It may be a copy from another tool,
+                or a model that was re-uploaded upstream. Remove it and download again —
+                Tempest will not serve a file it cannot identify.
+              </p>
+            )}
             {isDownloading && (
               <p className="group-note" data-testid={`progress-${row.id}`}>
                 Downloading… {percent}% ({gb(done)} of {gb(total)})
@@ -220,7 +249,7 @@ function LocalModelsGroup() {
             )}
 
             <div className="setting-row">
-              {!row.installed && !isDownloading && (
+              {!row.installed && !isDownloading && stray === 0 && (
                 <button
                   disabled={busy !== null || !row.fitsOnDisk}
                   data-testid={`download-${row.id}`}
@@ -232,7 +261,7 @@ function LocalModelsGroup() {
                     );
                   }}
                 >
-                  Download
+                  {paused ? "Resume download" : "Download"}
                 </button>
               )}
               {isDownloading && (
@@ -244,27 +273,38 @@ function LocalModelsGroup() {
                 </button>
               )}
               {row.installed && (
-                <>
-                  <button
-                    disabled={busy !== null || server.data?.runner == null}
-                    data-testid={`serve-${row.id}`}
-                    onClick={() => {
-                      setBusy(row.id);
-                      void act(
-                        () => startModelServer(row.installedPath ?? "", configuredRunner),
-                        "the model server could not be started",
-                      );
-                    }}
-                  >
-                    Serve
-                  </button>
-                  <button
-                    data-testid={`remove-${row.id}`}
-                    onClick={() => void act(() => removeModel(row.id), "could not remove it")}
-                  >
-                    Remove
-                  </button>
-                </>
+                <button
+                  disabled={busy !== null || server.data?.runner == null || servingThisRow}
+                  data-testid={`serve-${row.id}`}
+                  onClick={() => {
+                    setBusy(row.id);
+                    void act(
+                      () => startModelServer(row.installedPath ?? ""),
+                      "the model server could not be started",
+                    );
+                  }}
+                >
+                  {servingThisRow ? "Serving" : "Serve"}
+                </button>
+              )}
+              {anythingOnDisk && !isDownloading && (
+                <button
+                  disabled={busy !== null}
+                  data-testid={`remove-${row.id}`}
+                  onClick={() => {
+                    setBusy(row.id);
+                    // Stop the server FIRST when it is serving this very file. Deleting the
+                    // file out from under a live `llama-server` reported success and freed
+                    // nothing — on POSIX the inode survives until the last fd closes — while
+                    // the panel went on claiming to serve a path that no longer existed.
+                    void act(async () => {
+                      if (servingThisRow) await stopModelServer();
+                      return removeModel(row.id);
+                    }, "could not remove it");
+                  }}
+                >
+                  Remove
+                </button>
               )}
             </div>
           </div>

@@ -306,10 +306,23 @@ export function useProjectFile(repoPath: string, path: string) {
 
 // ── Local models (ADR-0080) ─────────────────────────────────────────────────────────────────
 
+/** How often the catalogue is re-read while a download is running. */
+const DOWNLOAD_POLL_MS = 500;
+
 /** The catalogue, with `installed`, `freeBytes` and `fitsOnDisk` already resolved by the
  * engine — the size and the room for it in one reply, so the panel never has to make a second
- * call to answer "can I?" (L21). */
-export function useModelCatalog(pollMs: number | false) {
+ * call to answer "can I?" (L21).
+ *
+ * **One observer, and the interval decides for itself.** The panel used to call this hook
+ * TWICE on the same query key with different intervals (`false`, then `downloading ? 500 :
+ * false`), because the decision needed data the first call returned. That worked — react-query
+ * keeps `refetchInterval` per OBSERVER, so the second one's timer ran regardless of the
+ * first's `false` (`queryObserver.js`: `computeRefetchInterval` reads `this.options`, and
+ * `onQueryUpdate` re-runs `updateTimers`) — but it was two observers on one cache entry, and
+ * the redundancy read as a bug convincingly enough to cost a review lens its whole budget.
+ * The function form is what the library provides for exactly this: it is re-evaluated on every
+ * query update, so the poll starts when a download appears and stops when it ends. */
+export function useModelCatalog() {
   return useQuery<ModelCatalogRow[], SidecarError>({
     queryKey: ["modelCatalog"],
     queryFn: async () => {
@@ -320,15 +333,16 @@ export function useModelCatalog(pollMs: number | false) {
     // Downloads report by POLLING, not by a second stream: the app already has exactly one
     // push mechanism for long work, and a progress bar needs less than that. `false` while
     // nothing is downloading, so an idle panel is not a timer.
-    refetchInterval: pollMs,
+    refetchInterval: (rows) =>
+      (rows ?? []).some((row) => row.download?.state === "running") ? DOWNLOAD_POLL_MS : false,
   });
 }
 
-export function useModelServerStatus(configuredRunner: string | null) {
+export function useModelServerStatus() {
   return useQuery<ModelServerStatus, SidecarError>({
-    queryKey: ["modelServer", configuredRunner],
+    queryKey: ["modelServer"],
     queryFn: async () => {
-      const result = await commands.modelServerStatus(configuredRunner);
+      const result = await commands.modelServerStatus();
       if (result.status === "error") throw new SidecarError(result.error);
       return result.data;
     },
@@ -353,11 +367,8 @@ export async function removeModel(modelId: string): Promise<ModelRemoved> {
   return result.data;
 }
 
-export async function startModelServer(
-  modelPath: string,
-  configuredRunner: string | null,
-): Promise<ModelServerStatus> {
-  const result = await commands.startModelServer(modelPath, configuredRunner);
+export async function startModelServer(modelPath: string): Promise<ModelServerStatus> {
+  const result = await commands.startModelServer(modelPath);
   if (result.status === "error") throw new SidecarError(result.error);
   return result.data;
 }

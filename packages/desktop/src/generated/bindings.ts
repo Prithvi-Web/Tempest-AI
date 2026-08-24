@@ -172,10 +172,9 @@ export const commands = {
 	 */
 	listModelCatalog: () => typedError<ModelCatalogRow[], SidecarFailure>(__TAURI_INVOKE("list_model_catalog")),
 	startModelDownload: (modelId: string) => typedError<ModelDownloadState, SidecarFailure>(__TAURI_INVOKE("start_model_download", { modelId })),
-	getModelDownloadStatus: (modelId: string) => typedError<ModelDownloadState, SidecarFailure>(__TAURI_INVOKE("get_model_download_status", { modelId })),
 	cancelModelDownload: (modelId: string) => typedError<ModelDownloadState, SidecarFailure>(__TAURI_INVOKE("cancel_model_download", { modelId })),
 	removeModel: (modelId: string) => typedError<ModelRemoved, SidecarFailure>(__TAURI_INVOKE("remove_model", { modelId })),
-	modelServerStatus: (configuredRunner: string | null) => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("model_server_status", { configuredRunner })),
+	modelServerStatus: () => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("model_server_status")),
 	/**
 	 *  Start serving a downloaded model on loopback. Off until asked — nothing starts at launch,
 	 *  which is what keeps the airplane-mode claim honest.
@@ -189,7 +188,7 @@ export const commands = {
 	 *  the Settings screen, which is the only way to undo whatever caused it. So the blocking work
 	 *  goes to `spawn_blocking`, which is the pool that exists for exactly this.
 	 */
-	startModelServer: (modelPath: string, configuredRunner: string | null) => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("start_model_server", { modelPath, configuredRunner })),
+	startModelServer: (modelPath: string) => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("start_model_server", { modelPath })),
 	stopModelServer: () => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("stop_model_server")),
 };
 
@@ -1708,6 +1707,17 @@ export type ModelCatalogRow = {
 	installedPath: string,
 	freeBytes: number | null,
 	fitsOnDisk: boolean,
+	/**
+	 *  Resume progress. A partial download used to be invisible to the panel: gigabytes with
+	 *  no UI that could name them, let alone free them.
+	 */
+	partialBytes: number | null,
+	/**
+	 *  A file at the installed path that is NOT this row's model — a truncated copy, or a
+	 *  model whose row was refreshed after an upstream re-upload. Non-zero is a state the
+	 *  panel has to be able to show and act on, because `installed` no longer covers it.
+	 */
+	strayBytes: number | null,
 	download: ModelDownloadState | null,
 };
 
@@ -1725,7 +1735,12 @@ export type ModelCatalogRow = {
  */
 export type ModelDownloadState = {
 	modelId: string,
-	/**  `running` | `done` | `failed` | `cancelled`. */
+	/**
+	 *  `running` | `done` | `failed` | `cancelled` | `absent`.
+	 * 
+	 *  `absent` is a model nobody has started. It used to report `failed` with the sentence
+	 *  "not downloaded", so a caller switching on the state read a fresh install as a fault.
+	 */
 	state: string,
 	doneBytes: number | null,
 	totalBytes: number | null,

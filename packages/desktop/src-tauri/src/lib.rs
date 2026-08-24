@@ -88,7 +88,6 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::replay_chat_turn,
             commands::list_model_catalog,
             commands::start_model_download,
-            commands::get_model_download_status,
             commands::cancel_model_download,
             commands::remove_model,
             commands::model_server_status,

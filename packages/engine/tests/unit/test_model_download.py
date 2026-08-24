@@ -721,19 +721,22 @@ class TestTheGuardsThatOnlyFireOnAHostilePeer:
 
         cancel = threading.Event()
         cancel.set()
-        with pytest.raises(dl.DownloadCancelled, match="was stopped"):
-            with dl._watching(cancel, Response()):
-                raise OSError("the read came back broken")
+        with (
+            pytest.raises(dl.DownloadCancelled, match="was stopped"),
+            dl._watching(cancel, Response()),
+        ):
+            raise OSError("the read came back broken")
 
         quiet = threading.Event()
-        with pytest.raises(OSError, match="a real upstream fault"):
-            with dl._watching(quiet, Response()):
-                raise OSError("a real upstream fault")
+        with (
+            pytest.raises(OSError, match="a real upstream fault"),
+            dl._watching(quiet, Response()),
+        ):
+            raise OSError("a real upstream fault")
 
         # No cancel event at all: the guard is a pass-through, not a rewrapper.
-        with pytest.raises(OSError, match="untouched"):
-            with dl._watching(None, Response()):
-                raise OSError("untouched")
+        with pytest.raises(OSError, match="untouched"), dl._watching(None, Response()):
+            raise OSError("untouched")
 
 
 class _OpenerReturning:

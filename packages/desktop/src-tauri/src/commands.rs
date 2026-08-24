@@ -833,7 +833,10 @@ mod enum_discipline {
 pub struct ModelDownloadState {
     #[serde(rename = "modelId")]
     pub model_id: String,
-    /// `running` | `done` | `failed` | `cancelled`.
+    /// `running` | `done` | `failed` | `cancelled` | `absent`.
+    ///
+    /// `absent` is a model nobody has started. It used to report `failed` with the sentence
+    /// "not downloaded", so a caller switching on the state read a fresh install as a fault.
     pub state: String,
     #[serde(rename = "doneBytes")]
     pub done_bytes: f64,
@@ -865,6 +868,15 @@ pub struct ModelCatalogRow {
     pub free_bytes: f64,
     #[serde(rename = "fitsOnDisk")]
     pub fits_on_disk: bool,
+    /// Resume progress. A partial download used to be invisible to the panel: gigabytes with
+    /// no UI that could name them, let alone free them.
+    #[serde(rename = "partialBytes")]
+    pub partial_bytes: f64,
+    /// A file at the installed path that is NOT this row's model — a truncated copy, or a
+    /// model whose row was refreshed after an upstream re-upload. Non-zero is a state the
+    /// panel has to be able to show and act on, because `installed` no longer covers it.
+    #[serde(rename = "strayBytes")]
+    pub stray_bytes: f64,
     pub download: Option<ModelDownloadState>,
 }
 
@@ -885,15 +897,6 @@ pub fn start_model_download(
     model_id: String,
 ) -> CmdResult<ModelDownloadState> {
     call_typed(&state, "startModelDownload", json!({ "model_id": model_id }))
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn get_model_download_status(
-    state: tauri::State<'_, Arc<Supervisor>>,
-    model_id: String,
-) -> CmdResult<ModelDownloadState> {
-    call_typed(&state, "getModelDownloadStatus", json!({ "model_id": model_id }))
 }
 
 #[tauri::command]
@@ -938,14 +941,52 @@ pub struct ModelServerStatus {
 
 #[tauri::command]
 #[specta::specta]
-pub fn model_server_status(configured_runner: Option<String>) -> CmdResult<ModelServerStatus> {
+pub fn model_server_status() -> CmdResult<ModelServerStatus> {
     let (running, model_path) = crate::modelserver::status();
-    let (runner, runner_problem) =
-        match crate::modelserver::resolve_runner(configured_runner.as_deref()) {
-            Ok(path) => (Some(path), String::new()),
-            Err(err) => (None, err.to_string()),
-        };
+    let (runner, runner_problem) = match crate::modelserver::resolve_runner() {
+        Ok(path) => (Some(path), String::new()),
+        Err(err) => (None, err.to_string()),
+    };
     Ok(ModelServerStatus { running, model_path, runner, runner_problem })
+}
+
+/// The model file must be one Tempest downloaded — under `<data>/models/` and nowhere else.
+///
+/// `start_model_server` is reachable from the webview, and neither of its strings was checked:
+/// any script that reaches `__TAURI_INVOKE` could name an arbitrary executable and an
+/// arbitrary file to feed it. The executable half is gone (`resolve_runner` takes no argument
+/// now); this is the file half. `<data>/models` is exactly the engine's `model_root()` — the
+/// host passes this same directory as `--data-dir` and `server.py` exports it as
+/// `TEMPEST_DATA_DIR`, which is what that function reads.
+fn model_path_inside_the_models_dir(
+    data_dir: &std::path::Path,
+    model_path: &str,
+) -> Result<std::path::PathBuf, SidecarFailure> {
+    let models = data_dir.join("models");
+    // Canonicalised on both sides: `..` in the argument, and a symlink anywhere along it,
+    // are the two ways a containment check gets talked out of its own answer.
+    let root = models.canonicalize().map_err(|err| SidecarFailure {
+        code: -3,
+        message: format!(
+            "no models directory yet ({err}) — download a model before serving one"
+        ),
+    })?;
+    let candidate = std::path::Path::new(model_path).canonicalize().map_err(|err| SidecarFailure {
+        code: -3,
+        message: format!("{model_path} is not on disk ({err}) — download the model first"),
+    })?;
+    if !candidate.starts_with(&root) {
+        return Err(SidecarFailure {
+            code: -3,
+            message: format!(
+                "{model_path} is not one of Tempest's downloaded models. Only files under \
+                 {} can be served — a model server is a process that reads the file it is \
+                 given, so the file it is given is not the webview's to choose.",
+                root.display()
+            ),
+        });
+    }
+    Ok(candidate)
 }
 
 /// Start serving a downloaded model on loopback. Off until asked — nothing starts at launch,
@@ -962,21 +1003,19 @@ pub fn model_server_status(configured_runner: Option<String>) -> CmdResult<Model
 #[tauri::command]
 #[specta::specta]
 pub async fn start_model_server(
+    data_dir: tauri::State<'_, DataDir>,
     model_path: String,
-    configured_runner: Option<String>,
 ) -> CmdResult<ModelServerStatus> {
-    tauri::async_runtime::spawn_blocking(move || start_model_server_blocking(model_path, configured_runner))
+    let contained = model_path_inside_the_models_dir(&data_dir.0, &model_path)?;
+    tauri::async_runtime::spawn_blocking(move || start_model_server_blocking(contained))
         .await
         .unwrap_or_else(|err| {
             Err(SidecarFailure { code: -3, message: format!("the model server task failed: {err}") })
         })
 }
 
-fn start_model_server_blocking(
-    model_path: String,
-    configured_runner: Option<String>,
-) -> CmdResult<ModelServerStatus> {
-    match crate::modelserver::start(&model_path, configured_runner.as_deref()) {
+fn start_model_server_blocking(model_path: std::path::PathBuf) -> CmdResult<ModelServerStatus> {
+    match crate::modelserver::start(&model_path.to_string_lossy()) {
         Ok(runner) => {
             let (running, path) = crate::modelserver::status();
             Ok(ModelServerStatus {

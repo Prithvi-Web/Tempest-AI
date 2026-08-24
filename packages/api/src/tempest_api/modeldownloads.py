@@ -28,9 +28,15 @@ from tempest.models import (
     entry_for,
     installed_path,
 )
-from tempest.models.download import delete_entry, disk_free_bytes
+from tempest.models.download import (
+    delete_entry,
+    disk_free_bytes,
+    is_installed,
+    partial_bytes,
+    stray_bytes,
+)
 
-State = Literal["running", "done", "failed", "cancelled"]
+State = Literal["running", "done", "failed", "cancelled", "absent"]
 
 
 class ModelDownloadRejected(RuntimeError):
@@ -86,6 +92,7 @@ def catalogue(*, include_installed: bool = True) -> list[dict[str, Any]]:
     for entry in CATALOG:
         with _lock:
             job = _jobs.get(entry.id)
+        already = partial_bytes(entry)
         rows.append(
             {
                 "id": entry.id,
@@ -94,13 +101,27 @@ def catalogue(*, include_installed: bool = True) -> list[dict[str, Any]]:
                 "license": entry.license,
                 "sizeBytes": entry.size_bytes,
                 "ramNote": entry.ram_note,
-                "installed": include_installed and installed_path(entry).exists(),
+                # `installed` was a bare `.exists()`, which answers a different question than
+                # every caller was asking: a file of the wrong size — a truncated copy, or a
+                # model whose row was refreshed after an upstream re-upload — was reported
+                # installed for ever and handed to the model server unreviewed.
+                "installed": include_installed and is_installed(entry),
                 # The file's real path. Serving takes a PATH, not an id — without this the
                 # panel would have to reconstruct one, and a UI that recomputes a filesystem
                 # layout is a second place for that layout to be wrong.
                 "installedPath": str(installed_path(entry)),
                 "freeBytes": free,
-                "fitsOnDisk": free > entry.size_bytes,
+                # What resuming actually costs. `free > size_bytes` disabled the resume of a
+                # download that was 95% done on a disk with room for the remaining 5% — the
+                # panel refused the one action that would have finished it.
+                "fitsOnDisk": free > max(0, entry.size_bytes - already),
+                #: Resume progress, so the panel can show it and offer to delete it. A partial
+                #: was invisible: gigabytes with no UI that could name them, let alone free
+                #: them.
+                "partialBytes": already,
+                #: A file at the installed path that is NOT this row's model. Non-zero is a
+                #: state the panel has to be able to show and act on.
+                "strayBytes": stray_bytes(entry),
                 "download": job.snapshot() if job is not None else None,
             }
         )
@@ -111,7 +132,7 @@ def start(model_id: str) -> dict[str, Any]:
     """Begin a download, or return the running one. Never starts a second worker for the same
     model: two writers on one path is a corrupted file, not a faster download."""
     entry = _entry_or_reject(model_id)
-    if installed_path(entry).exists():
+    if is_installed(entry):
         return {
             "modelId": entry.id,
             "state": "done",
@@ -155,13 +176,16 @@ def status(model_id: str) -> dict[str, Any]:
         job = _jobs.get(model_id)
     if job is not None:
         return job.snapshot()
-    installed = installed_path(entry).exists()
+    installed = is_installed(entry)
+    # `absent` rather than `failed`: nobody started this, so nothing failed. A poller that
+    # switches on the state read a fresh install as a fault, and the sentence it carried
+    # ("not downloaded") was doing the work the state should have been doing (L15.3).
     return {
         "modelId": entry.id,
-        "state": "done" if installed else "failed",
-        "doneBytes": entry.size_bytes if installed else 0,
+        "state": "done" if installed else "absent",
+        "doneBytes": entry.size_bytes if installed else partial_bytes(entry),
         "totalBytes": entry.size_bytes,
-        "error": "" if installed else "not downloaded",
+        "error": "",
     }
 
 

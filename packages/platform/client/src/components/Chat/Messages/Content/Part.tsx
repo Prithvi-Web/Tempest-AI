@@ -23,6 +23,10 @@ import {
   SubagentCall,
   SteerPart,
 } from './Parts';
+// TEMPEST DELTA (ADR-0080 §8, UPSTREAM.md): an in-band error may carry a machine-readable
+// `remedy`, and the one that exists says "this app can run a model with no key at all". Both
+// the narrowing and the affordance live in the seam; this file gains an import and one branch.
+import { hasLocalModelRemedy, LocalModelRemedy } from '../../../../../tempest/views/LocalModelRemedy';
 import { getCachedPreview, getActivityLabelPart, getActivityLabelText } from '~/utils';
 import { getAskUserQuestionPart } from '~/utils/approval';
 import AskUserQuestionCall from './AskUserQuestionCall';
@@ -88,16 +92,19 @@ const Part = memo(function Part({
 
   if (part.type === ContentTypes.ERROR) {
     return (
-      <ErrorMessage
-        text={
-          part[ContentTypes.ERROR] ??
-          (typeof part[ContentTypes.TEXT] === 'string'
-            ? part[ContentTypes.TEXT]
-            : part.text?.value) ??
-          ''
-        }
-        className="my-2"
-      />
+      <>
+        <ErrorMessage
+          text={
+            part[ContentTypes.ERROR] ??
+            (typeof part[ContentTypes.TEXT] === 'string'
+              ? part[ContentTypes.TEXT]
+              : part.text?.value) ??
+            ''
+          }
+          className="my-2"
+        />
+        {hasLocalModelRemedy(part) && <LocalModelRemedy />}
+      </>
     );
   } else if (part.type === ContentTypes.AGENT_UPDATE) {
     return (

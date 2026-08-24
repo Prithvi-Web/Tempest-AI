@@ -117,13 +117,28 @@ class TestDownloadingThroughTheWire:
         assert dl.installed_path(catalogue).read_bytes() == PAYLOAD
 
     def test_a_second_start_does_not_open_a_second_writer(
-        self, api: Any, catalogue: CatalogEntry
+        self, api: Any, catalogue: CatalogEntry, peer: tuple[FakeHuggingFace, str]
     ) -> None:
-        """Two workers on one path is a corrupted file, not a faster download."""
+        """Two workers on one path is a corrupted file, not a faster download.
+
+        The observation is the FETCH COUNT, not the final bytes. Asserting only that the file
+        lands correct proved nothing: delete the dedup guard in `start` and two threads open
+        the same `.partial`, but both fetch identical bytes and each promotes a file that
+        hashes correctly, so the assertion held and CI reported the guard as covered. At real
+        sizes, with the two writers at different offsets, that is a corrupted download — the
+        exact failure the test was named for, invisible to it (trap 60).
+        """
+        fake, _base = peer
         api.client.post(f"/v1/models/{catalogue.id}/download")
         again = api.client.post(f"/v1/models/{catalogue.id}/download")
         assert again.status_code == 200
+        assert again.json()["modelId"] == catalogue.id
         _settle(api, catalogue.id)
+
+        gets = [path for path, _rng in fake.requests]
+        assert len(gets) == 1, (
+            f"the second start opened another writer: the peer saw {len(gets)} fetches, {gets}"
+        )
         assert dl.installed_path(catalogue).read_bytes() == PAYLOAD
 
     def test_starting_an_installed_model_is_a_no_op_that_costs_nothing(
@@ -193,9 +208,12 @@ class TestDownloadingThroughTheWire:
     def test_the_status_of_a_model_nobody_started_is_honest(
         self, api: Any, catalogue: CatalogEntry
     ) -> None:
+        """`absent`, not `failed`. Nobody started this, so nothing failed — and a poller that
+        switches on the state read a fresh install as a fault, with the sentence
+        ("not downloaded") doing the work the state should have been doing."""
         body = api.client.get(f"/v1/models/{catalogue.id}/download").json()
-        assert body["state"] == "failed"
-        assert body["error"] == "not downloaded"
+        assert body["state"] == "absent"
+        assert body["error"] == "", "an absent model is not an error to report"
         assert body["totalBytes"] == len(PAYLOAD), "the size is known even before a download"
 
 
@@ -346,3 +364,72 @@ class TestTheKeylessTurnOffersAWayOut:
             "the client offers 'get a local model' by branching on this field, never by "
             f"reading the sentence; got {errors[0]}"
         )
+
+
+class TestTheRowTellsTheTruthAboutTheDisk:
+    """The wire+UI lens, over what the panel is given to render.
+
+    Three of its findings share one cause: the row reported `installed` from a bare
+    `.exists()` and reported nothing at all about a partial, so the panel could neither show
+    resume progress, nor free it, nor decline to serve a file that is not the model.
+    """
+
+    def test_a_partial_is_reported_so_the_panel_can_show_and_free_it(
+        self, api: Any, catalogue: CatalogEntry
+    ) -> None:
+        partial = dl._partial_path(dl.installed_path(catalogue))
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        partial.write_bytes(PAYLOAD[:2_048])
+
+        row = api.client.get("/v1/models/catalog").json()[0]
+        assert row["partialBytes"] == 2_048
+        assert row["installed"] is False
+        assert row["strayBytes"] == 0
+
+    def test_resuming_is_offered_when_only_the_REMAINDER_has_to_fit(
+        self, api: Any, catalogue: CatalogEntry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`free > size_bytes` disabled the resume of a download that was nearly done on a
+        disk with room for what was left — the panel refused the one action that would have
+        finished it, and offered no way to reclaim the partial either."""
+        partial = dl._partial_path(dl.installed_path(catalogue))
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        partial.write_bytes(PAYLOAD[: len(PAYLOAD) - 100])
+        # A disk with room for the last 100 bytes and nothing like room for the whole row.
+        monkeypatch.setattr(modeldownloads, "disk_free_bytes", lambda: 500)
+
+        row = api.client.get("/v1/models/catalog").json()[0]
+        assert row["fitsOnDisk"] is True, "resuming costs the remainder, and the remainder fits"
+        assert row["partialBytes"] == len(PAYLOAD) - 100
+
+    def test_a_file_of_the_wrong_size_is_not_reported_installed(
+        self, api: Any, catalogue: CatalogEntry
+    ) -> None:
+        """The panel renders Serve from `installed` and hands `installedPath` straight to the
+        model server. A file that is not this row's model must never reach that button."""
+        final = dl.installed_path(catalogue)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        final.write_bytes(b"not the model this row records")
+
+        row = api.client.get("/v1/models/catalog").json()[0]
+        assert row["installed"] is False
+        assert row["strayBytes"] == len(b"not the model this row records")
+
+        # And starting a download over it refuses with the path to remove, rather than
+        # installing over a file Tempest cannot identify.
+        api.client.post(f"/v1/models/{catalogue.id}/download")
+        final_state = _settle(api, catalogue.id)
+        assert final_state["state"] == "failed"
+        assert str(final) in final_state["error"]
+
+    def test_an_installed_model_is_reported_installed_with_no_partial(
+        self, api: Any, catalogue: CatalogEntry
+    ) -> None:
+        api.client.post(f"/v1/models/{catalogue.id}/download")
+        assert _settle(api, catalogue.id)["state"] == "done"
+
+        row = api.client.get("/v1/models/catalog").json()[0]
+        assert row["installed"] is True
+        assert row["partialBytes"] == 0
+        assert row["strayBytes"] == 0
+        assert api.client.get(f"/v1/models/{catalogue.id}/download").json()["state"] == "done"
