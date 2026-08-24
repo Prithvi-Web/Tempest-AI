@@ -43,14 +43,39 @@ def main() -> None:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        required=True,
+        default=None,
         help="writable directory for tempest.db (created if missing)",
     )
+    parser.add_argument(
+        "--print-tool-manifest",
+        action="store_true",
+        help=(
+            "print boundary D's tool names and exit — a self-check that the committed "
+            "manifest is READABLE from wherever this binary is running"
+        ),
+    )
     args = parser.parse_args()
+
+    if args.print_tool_manifest:
+        # Deliberately the first thing handled, and deliberately needing no --data-dir: this
+        # exists so a BUILD can ask a frozen binary whether it can still read its own tool
+        # contract. It could not, once, and nothing in the source tree noticed — the app
+        # shipped with an empty Tool Library and a failure at the top of every tool-bearing
+        # turn while every gate stayed green, because every gate runs from the checkout.
+        from tempest.agent.tools import MANIFEST_PATH, load_manifest
+
+        names = sorted(load_manifest())
+        if not names:
+            parser.exit(1, f"tool manifest at {MANIFEST_PATH} is empty\n")
+        print("\n".join(names))
+        return
+
     port: int | None = args.port
     stdio: bool = args.stdio
     if stdio == (port is not None):
         parser.error("exactly one of --stdio or --port is required")
+    if args.data_dir is None:
+        parser.error("--data-dir is required")
     data_dir: Path = args.data_dir.expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
 

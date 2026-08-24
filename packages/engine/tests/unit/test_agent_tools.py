@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -303,6 +304,40 @@ class TestApproval:
     def test_an_empty_argv_is_refused_for_its_own_reason(self, shadow: Path) -> None:
         got = _sandboxed(shadow).call("run_command", {"argv": []})
         assert not got.ok and "already-split" in got.content
+
+
+class TestTheManifestIsReachableWhereverThisRuns:
+    """The manifest is DATA read at runtime, and where it is read FROM is load-bearing.
+
+    Frozen by PyInstaller this module's `__file__` points inside the extraction directory, so
+    a purely source-relative constant resolved above it to a path that does not exist. The
+    shipped app answered `FileNotFoundError` to `listAgentTools`: an empty Tool Library in the
+    builder, and a failure at the top of every tool-bearing agent turn. Nothing in the source
+    tree noticed — the repo, the e2e harness and both 100% coverage gates all run from the
+    checkout — which is why the build now loads the manifest THROUGH the frozen binary, and
+    why the resolution itself is pinned here.
+    """
+
+    def test_a_frozen_bundle_resolves_the_manifest_beside_itself(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+        assert tools._schema_dir() == tmp_path / "shared-schema", (
+            "under PyInstaller the artifacts ship as data beside the engine; resolving "
+            "anywhere else is the bug that emptied the builder's tool picker"
+        )
+
+    def test_a_checkout_resolves_the_committed_artifacts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+        resolved = tools._schema_dir()
+        assert (resolved / "agent-tools.json").is_file(), (
+            f"the committed manifest is not at {resolved} — boundary D's root of truth moved"
+        )
+        assert sorted(tools.load_manifest()) == sorted(HANDLERS), (
+            "the manifest and the handler set must name the same tools"
+        )
 
 
 class TestAskUserHasNoHandlerToReach:

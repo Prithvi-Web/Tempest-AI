@@ -38,6 +38,20 @@ datas = [
     # green. ts_dual resolves them via Path(__file__).with_name(...).
     (str(ENGINE_SRC / "execute" / "ts_worker.mjs"), "tempest/execute"),
     (str(ENGINE_SRC / "execute" / "ts_shims.mjs"), "tempest/execute"),
+    # Boundary D's committed artifacts. Same lesson as the JS pair above, learned twice: the
+    # manifest is DATA read at runtime by `tools.load_manifest`, and without it the frozen
+    # app answered FileNotFoundError to `listAgentTools` — an empty Tool Library in the
+    # builder and a failure at the top of every tool-bearing turn — while the repo, the e2e
+    # harness and both coverage gates stayed green, because all three run from the source
+    # tree. `tools._schema_dir()` resolves here under `sys._MEIPASS`.
+    *[
+        (str(REPO / "packages" / "shared-schema" / name), "shared-schema")
+        for name in (
+            "agent-tools.json",
+            "agent-tools.anthropic.json",
+            "agent-tools.openai.json",
+        )
+    ],
 ]
 
 hiddenimports = (

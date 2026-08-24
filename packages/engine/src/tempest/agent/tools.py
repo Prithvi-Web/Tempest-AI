@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,8 +47,31 @@ from tempest.agent import terminal
 from tempest.execute.sandbox import Sandbox
 from tempest.inference.client import ToolCatalog
 
-# tools.py lives at packages/engine/src/tempest/agent/, so parents[4] is `packages/`.
-_SCHEMA_DIR = Path(__file__).resolve().parents[4] / "shared-schema"
+
+def _schema_dir() -> Path:
+    """Where the committed boundary-D artifacts live — in a checkout AND in the shipped app.
+
+    A source-relative path alone was wrong in the one place it mattered most. Frozen by
+    PyInstaller, this module's `__file__` points inside the extraction dir, so
+    `parents[4] / "shared-schema"` resolved to somewhere above it that does not exist: in the
+    installed app `listAgentTools` answered `FileNotFoundError`, the builder's Tool Library
+    was EMPTY, and every tool-bearing agent turn died at `load_manifest()`. The whole C5
+    surface was dark in the bundle while the repo, the e2e harness and both coverage gates
+    stayed green — because all three run from the source tree.
+
+    This is the failure class ADR-0028 already names in `tempest-server.spec` ("the frozen
+    app would fail every TS prove while parity stays green"), and the manifest walked into it
+    anyway. `build-server.sh` now loads the manifest THROUGH the frozen binary so the next one
+    cannot.
+    """
+    bundled = getattr(sys, "_MEIPASS", None)
+    if bundled is not None:  # PyInstaller: shipped beside the engine as data (see the spec)
+        return Path(bundled) / "shared-schema"
+    # tools.py lives at packages/engine/src/tempest/agent/, so parents[4] is `packages/`.
+    return Path(__file__).resolve().parents[4] / "shared-schema"
+
+
+_SCHEMA_DIR = _schema_dir()
 #: The committed boundary-D artifact. Read, never written, and never mirrored.
 MANIFEST_PATH = _SCHEMA_DIR / "agent-tools.json"
 

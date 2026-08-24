@@ -26,8 +26,25 @@ mkdir -p "$DEST"
 rm -rf "${DEST:?}/$NAME"
 cp "packages/desktop/dist/$NAME" "$DEST/$NAME"
 
-# Fast sanity only (arg parsing + one full self-extraction of the frozen bundle); the real
+# Fast sanity (arg parsing + one full self-extraction of the frozen bundle); the deeper
 # proof — health, ingest, and a frozen-worker local prove — is the API smoke test.
 "$DEST/$NAME" --help >/dev/null
+
+# …and one thing --help cannot see: DATA files resolve inside the bundle.
+#
+# The engine reads the committed boundary-D manifest at runtime. Nothing in the source tree
+# notices when it is missing from the frozen bundle — the repo, the e2e harness and both 100%
+# coverage gates all run from the checkout — so the app shipped with `listAgentTools`
+# answering FileNotFoundError: an EMPTY Tool Library in the builder, and a failure at the top
+# of every tool-bearing agent turn. The whole C5 surface was dark in the binary while every
+# gate was green.
+#
+# Loading the manifest THROUGH the frozen binary is the cheapest check that could have caught
+# it, so it runs here, on every build, before anything is staged for the shell.
+"$DEST/$NAME" --print-tool-manifest >/dev/null || {
+  echo "FATAL: the frozen sidecar cannot read its own tool manifest — boundary D's" >&2
+  echo "artifacts are missing from the bundle (see \`datas\` in tempest-server.spec)." >&2
+  exit 1
+}
 
 echo "sidecar staged: $DEST/$NAME ($(du -h "$DEST/$NAME" | cut -f1))"
