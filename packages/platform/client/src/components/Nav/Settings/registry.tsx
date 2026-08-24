@@ -50,6 +50,11 @@ import ApiKeys from '../SettingsTabs/ApiKeys';
 import MemoryToggle from './MemoryToggle';
 import { TTSEndpoints } from '~/common';
 import store from '~/store';
+/** Tempest seam (ADR-0082): the local-model panel, the proof engine's settings, and the
+ * engine's own key. Every panel is lazy — this module is in the main chunk and those panels
+ * reach the tauri host. Ledger row in packages/platform/UPSTREAM.md. */
+import { TEMPEST_SETTINGS_ENTRIES } from '../../../../tempest/settings/tabs';
+import { TEMPEST_MODELS_TAB } from '../../../../tempest/settings/tabIds';
 
 const { GENERAL, CHAT, SPEECH, DATA, ACCOUNT, ABOUT } = SettingsTabValues;
 
@@ -588,11 +593,21 @@ export const registry: SettingEntry[] = [
     keywords: ['archive', 'chats', 'conversations', 'bulk'],
     Component: ArchiveAllChats,
   },
-  // Data controls · API keys
+  /** Provider keys · Tempest seam (ADR-0082).
+   *
+   * These three are upstream's components, unchanged — only their ADDRESS moved, from
+   * Data & Privacy to the Models tab. The owner's requirement is that local models and API
+   * keys are the same decision in the same place: a person choosing how the assistant thinks
+   * should not have to know whether the answer is "download this" or "paste a key". Moving
+   * two fields is a smaller and more honest delta than re-declaring the entries in the seam.
+   *
+   * The now-empty `apiKeys` section is deliberately LEFT in the Data tab's meta: `Content.tsx`
+   * renders nothing for a section with no entries, and removing it would silently swallow an
+   * entry upstream adds there later. */
   {
     id: 'providerApiKeys',
-    tab: DATA,
-    section: 'apiKeys',
+    tab: TEMPEST_MODELS_TAB,
+    section: 'tempestProviderKeys',
     labelKey: 'com_ui_settings_label_provider_api_keys',
     keywords: ['api', 'key', 'keys', 'provider', 'endpoint', 'credentials'],
     show: (ctx) => ctx.hasUserProvidedEndpoints,
@@ -600,16 +615,16 @@ export const registry: SettingEntry[] = [
   },
   {
     id: 'agentApiKeys',
-    tab: DATA,
-    section: 'apiKeys',
+    tab: TEMPEST_MODELS_TAB,
+    section: 'tempestProviderKeys',
     labelKey: 'com_ui_settings_label_agent_api_keys',
     show: (ctx) => ctx.hasRemoteAgents,
     Component: ApiKeys,
   },
   {
     id: 'revokeKeys',
-    tab: DATA,
-    section: 'apiKeys',
+    tab: TEMPEST_MODELS_TAB,
+    section: 'tempestProviderKeys',
     labelKey: 'com_ui_settings_label_revoke_keys',
     Component: RevokeKeys,
   },
@@ -701,4 +716,8 @@ export const registry: SettingEntry[] = [
     show: (ctx) => ctx.aboutEnabled,
     Component: About,
   },
+
+  /** Tempest seam (ADR-0082). Appended, so an upstream entry added anywhere above merges
+   * without touching our rows. */
+  ...TEMPEST_SETTINGS_ENTRIES,
 ];

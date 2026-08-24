@@ -4532,3 +4532,116 @@ real loopback SSE peer, all reproduced as failures first. Then the real thing: a
 channel where it yielded nothing, and the 900-token turn yields *"A local language model is
 trained on specific dialects to generate natural-sounding responses."* with 1,264 characters of
 reasoning carried beside it.
+
+---
+
+## ADR-0082 — One settings home, and the models a person picks are on the main rail (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L27, L30, L36.12 ·
+**Builds on:** ADR-0067 (chat is the primary surface), ADR-0077 (the absorbed proof surface),
+ADR-0080 (local models)
+
+**Context — the owner's words, which are the requirement.**
+
+> *"I would like to be able to download local models on the vertical navigation bar for the AI
+> Tempest. and people should be able to use local models or api keys for that. And the tempest
+> that i integrated is more of like a tool that the AI will use to accomplish important tasks…
+> ALso i want the settings of the tempest tool and the Tempest AI to also be fully integrated
+> into one spot."*
+
+and, a session later, the diagnosis behind it:
+
+> *"right now it seems like two different apps."*
+
+They are right, and the drift is measurable. ADR-0067 decided chat is the front door and the
+proof engine is a **tool the assistant uses**. But `LocalModelsGroup` — the panel that decides
+whether this product can answer you at all without a credit card — lived on
+`/tempest/settings`, three clicks deep behind the tool. And the product had **two settings
+homes**: the app's own dialog (theme, language, chat, speech, data, account, provider keys),
+and a second page inside the proof surface (engine key, sync, storage, editor runners, local
+models, privacy). Nobody chose that. It is what happens when a surface is absorbed with its
+furniture still attached.
+
+**Decision.**
+
+**§1 — The one settings home is the app's own settings dialog.** Not a new page, not the proof
+surface's page: the dialog every other setting already lived in, which is searchable,
+localised, keyboard-navigable, and where a person looks. Tempest's settings become two tabs in
+it — **Models** and **Proof engine** — and the proof surface stops having settings of its own.
+
+The dialog is registry-driven (`TABS` in `Nav/Settings/types.ts`, `registry` in
+`Nav/Settings/registry.tsx`), which is exactly the extension point this needed: **two spread
+expressions** are the whole of the structural vendored change. Everything that makes the tabs
+real is in `client/tempest/settings/`, where `make verify` typechecks it.
+
+**§2 — Local models and API keys are ONE decision, in ONE tab.** Upstream's three provider-key
+entries move from Data & Privacy into the Models tab beside the local-model panel and the
+engine's own key. A person choosing how the assistant thinks should not have to know whether
+the answer is "download this" or "paste a key" — and until now those answers lived in
+different halves of the product.
+
+The moved entries are **re-addressed, not re-declared**: two fields each, their components
+untouched, which is a smaller and more honest delta than copying upstream's components into
+the seam. The vacated `apiKeys` section is deliberately left in the Data tab's meta —
+`Content.tsx` renders nothing for an empty section, and removing it would silently swallow an
+entry upstream adds there later.
+
+**§3 — Models are on the MAIN rail.** A second entry beside the Tempest bolt, following the
+insights-link pattern the rail already carries. It opens the settings home on the Models tab
+rather than navigating to a page of its own, because §1 and §2 mean there is nowhere else for
+it to go.
+
+**§4 — `/tempest/settings` survives as a DEEP LINK, and this is not two homes.** The URL
+opens the one home on the Proof engine tab and returns the view to the runs list. The proof
+surface's rail keeps a Settings item, which does the same thing. *One home, more than one
+door* — the thing the owner asked to end was two **homes**, and a second settings page inside
+a tool surface is exactly that. Bookmarks, older links and the e2e suite keep working.
+
+**§5 — The panels were RESTYLED, not merely relocated, and this was forced.** The old markup
+used `tempest-views.css`, which ships with the proof surface's lazy chunk: a class from there
+is unstyled for anyone who has not opened that surface — the exact trap `LocalModelRemedy.tsx`
+already documents. Every class is now the vendored client's own. That constraint and the
+owner's "make the UI fully integrated" happen to want the same thing, which is the pleasant
+kind of forcing.
+
+**§6 — Every panel is lazily imported.** `registry.tsx` is in the client's MAIN chunk and
+these panels reach the host through `views/hooks.ts`, which imports the generated tauri
+bindings. A static import would put `@tauri-apps/api` into every build including the browser
+harness and server mode. `streamHost.ts` established this discipline for the SSE seam;
+`React.lazy` is the component-shaped version. Verified against the built `dist`: the bindings
+land in their own chunk, not the entry.
+
+**§7 — The keyless-turn remedy opens the home instead of navigating.** ADR-0080 §8's "Get a
+local model" was a `<Link>` to `/tempest/settings`, which took a user who had just been told
+"no API key" out of the conversation they were reading. It is a button now, and the panel
+opens over the message.
+
+**The hard part, and how it is held.** The seam declares its own copies of upstream's
+`TabMeta`/`SettingEntry` shapes rather than importing them. That looks like duplication and is
+not optional: one `import type` from `client/src` drags the vendored tree into the seam's
+tsconfig, and **the vendored client's own `tsc` is red at baseline** (thousands of pre-existing
+React/Recoil conflicts, exit 2). Importing the real types turns the seam's only green type
+signal into noise — measured, not feared: doing it produced a wall of errors from files this
+change never touched.
+
+What that costs is a compile-time link between the two declarations. What pays for it is
+`packages/desktop/tests/settingsManifest.test.ts`, which makes the same three assertions
+upstream's own `registry.spec.ts` makes over its registry (every `labelKey` exists in the
+English locale, every entry names a section its tab declares, ids are unique and do not
+collide with upstream's), plus three this seam owes specifically: the section ids match the
+ones `SectionId` was widened with, the spreads are present in both vendored files, and no
+panel is statically imported. **Each was mutation-proven to fail** before being believed. The
+same tabs are then driven end to end by the e2e suite through the real dialog.
+
+For the same reason the two tab marks are drawn as inline SVG rather than imported from
+`lucide-react`: two copies of `@types/react` are resolvable in this workspace, and lucide's
+`ForwardRefExoticComponent` is typed against the other one — so `createElement(Boxes, …)`
+fails in the seam's project while being fine in the vendored tree. `TempestViews.tsx` already
+draws its own rail icons; these match that set.
+
+**Consequences.** 21 inline deltas against a cap of 40, every one declared. The 16 new locale
+keys are English-only and fall back for the other 43 locales until C11. One capability the
+product did not have before falls out of the merge for free and is worth naming: **settings
+search now spans both halves of the product** — typing "model" finds the local models, the
+provider keys and the theme, without the person knowing which half owns which. Two settings
+pages cannot do that at any price, and there is an e2e pin asserting it.

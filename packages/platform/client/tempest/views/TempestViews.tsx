@@ -24,7 +24,9 @@ import { LogsView } from "./LogsView";
 import { ProveView } from "./ProveView";
 import { RunsView } from "./RunsView";
 import { RunView } from "./RunView";
-import { SettingsView } from "./SettingsView";
+import SettingsRedirect from "../settings/SettingsRedirect";
+import { openSettingsHome } from "../settings/home";
+import { TEMPEST_ENGINE_TAB } from "../settings/tabIds";
 import { TargetView } from "./TargetView";
 import { WatchView } from "./WatchView";
 import { useGetHealth } from "./hooks";
@@ -35,7 +37,6 @@ import {
   provePath,
   rowId,
   runsPath,
-  settingsPath,
   watchPath,
 } from "./routes";
 import "./tempest-views.css";
@@ -75,6 +76,27 @@ function NavItem({
       <Icon name={icon} />
       {label}
     </Link>
+  );
+}
+
+/**
+ * The rail's Settings item, which is no longer a destination inside this surface (ADR-0082).
+ *
+ * It opens the app's ONE settings home on the proof-engine tab. Two doors into one home is
+ * fine and is what a person expects — what the owner asked to end was two HOMES, which is
+ * what a second settings page inside a tool surface is.
+ */
+function SettingsNavItem() {
+  return (
+    <button
+      type="button"
+      className="nav-item"
+      data-testid="tempest-open-settings"
+      onClick={() => openSettingsHome(TEMPEST_ENGINE_TAB)}
+    >
+      <Icon name="settings" />
+      Settings
+    </button>
   );
 }
 
@@ -189,12 +211,7 @@ export default function TempestViews() {
               label="Composer"
             />
             <NavItem to={logsPath()} current={section === "logs"} icon="logs" label="Logs" />
-            <NavItem
-              to={settingsPath()}
-              current={section === "settings"}
-              icon="settings"
-              label="Settings"
-            />
+            <SettingsNavItem />
           </nav>
           <div className="sidebar-foot" role="status" aria-live="polite" aria-label="engine status">
             {health.isLoading ? (
@@ -220,7 +237,8 @@ export default function TempestViews() {
             <Route path="watch" element={<WatchView />} />
             <Route path="composer" element={<ComposerView />} />
             <Route path="logs" element={<LogsView />} />
-            <Route path="settings" element={<SettingsView />} />
+            {/* Kept as a deep link into the one settings home (ADR-0082), never a second one. */}
+            <Route path="settings" element={<SettingsRedirect />} />
             <Route path="editor" element={<EditorView />} />
             {/* `parseRoute` answered every unrecognised URL with the runs list rather than an
                 error page, and a bad link is still not an error worth a screen of its own. */}

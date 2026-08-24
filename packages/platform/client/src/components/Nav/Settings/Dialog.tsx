@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import { X, ChevronLeft } from 'lucide-react';
 import { Button, useMediaQuery } from '@librechat/client';
@@ -7,6 +7,10 @@ import { Dialog, DialogPanel, DialogTitle, Transition, TransitionChild } from '@
 import type { TDialogProps } from '~/common';
 import type { SettingsTab } from './types';
 import { useSettingsContext } from './context';
+/** Tempest seam (ADR-0082): the one settings home is addressable — the main rail, the
+ * proof surface and the keyless-turn remedy all ask for it BY TAB. Ledger row in
+ * packages/platform/UPSTREAM.md. */
+import { useSettingsHomeRequest } from '../../../../tempest/settings/home';
 import { useLocalize } from '~/hooks';
 import Sidebar from './Sidebar';
 import Content from './Content';
@@ -18,6 +22,16 @@ export default function SettingsDialog({ open, onOpenChange }: TDialogProps) {
   const ctx = useSettingsContext();
   const isSmallScreen = useMediaQuery('(max-width: 767px)');
   const [activeTab, setActiveTab] = useState<SettingsTab>(SettingsTabValues.GENERAL);
+  /** Tempest seam (ADR-0082). An EFFECT rather than a `useState` initializer: the request can
+   * arrive while the dialog is already open (a second rail click), and an initializer runs
+   * only on mount — which under StrictMode's dev double-mount is also the wrong number of
+   * times to read a value that is cleared on close. */
+  const requestedTab = useSettingsHomeRequest();
+  useEffect(() => {
+    if (requestedTab !== null) {
+      setActiveTab(requestedTab.tab);
+    }
+  }, [requestedTab]);
   const [query, setQuery] = useState('');
   const [mobileDetail, setMobileDetail] = useState(false);
 

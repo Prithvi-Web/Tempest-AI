@@ -4,6 +4,7 @@
  * /tempest, mounted inside the client's authed shell (the local principal auto-authenticates
  * through /api/auth/refresh; no login step exists to perform). */
 import { expect, test } from "./fixtures";
+import { closeSettings, settingsPanel } from "./settings-home";
 
 test("the app reaches a healthy engine and shows the empty runs state", async ({ page }) => {
   await page.goto("/tempest");
@@ -26,8 +27,11 @@ test("sidebar navigation reaches every destination and returns to runs", async (
   await expect(page).toHaveURL(/\/tempest\/watch/);
   await page.locator(".sidebar").getByRole("link", { name: "Logs" }).click();
   await expect(page.getByRole("heading", { name: "Logs" })).toBeVisible();
-  await page.locator(".sidebar").getByRole("link", { name: "Settings" }).click();
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  // Settings is no longer a destination INSIDE this surface (ADR-0082): it opens the app's
+  // one settings home over it, on the proof-engine tab, and the runs list is still behind.
+  await page.getByTestId("tempest-open-settings").click();
+  await expect(settingsPanel(page).getByRole("heading", { name: "Settings" })).toBeVisible();
+  await closeSettings(page);
   await page.locator(".sidebar").getByRole("link", { name: "Runs" }).click();
   await expect(page.getByText("No runs yet.")).toBeVisible();
 });

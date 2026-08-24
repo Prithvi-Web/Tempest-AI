@@ -8,6 +8,7 @@
  * only designed scroll containers like .mono-block scroll inside themselves).
  */
 import { expect, test } from "./fixtures";
+import { settingsPanel } from "./settings-home";
 
 test("landmarks: the subtree's nav, per-view main, live engine status", async ({ page }) => {
   await page.goto("/tempest");
@@ -39,12 +40,57 @@ test("the skip link surfaces on focus and moves focus into the content", async (
 
 test("after in-app navigation, focus lands on the new view's title", async ({ page }) => {
   await page.goto("/tempest");
-  await page.locator(".sidebar").getByRole("link", { name: "Settings" }).click();
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeFocused();
+  // Logs rather than Settings: settings is a dialog now, not a destination in this surface
+  // (ADR-0082), and the behaviour under test is the SPA focus move on in-app navigation —
+  // which needs a real route change to be about anything. The dialog's own focus contract is
+  // asserted below, where it belongs.
+  await page.locator(".sidebar").getByRole("link", { name: "Logs" }).click();
+  await expect(page.getByRole("heading", { name: "Logs" })).toBeFocused();
   // …and the whole app is drivable from the keyboard from there: Tab reaches a real control.
   await page.keyboard.press("Tab");
   const focusedTag = await page.evaluate(() => document.activeElement?.tagName);
-  expect(["A", "BUTTON", "INPUT"]).toContain(focusedTag);
+  // SELECT is here because the Logs view's first control is its level filter. The point of the
+  // assertion is that Tab from the title reaches an OPERABLE control rather than nothing.
+  expect(["A", "BUTTON", "INPUT", "SELECT"]).toContain(focusedTag);
+});
+
+test("the settings home traps focus and gives it back where it was", async ({ page }) => {
+  // The other half of what the test above used to cover. A dialog owes a keyboard user three
+  // things — focus moves in, Escape closes it, and focus returns to the control that opened
+  // it — and the settings home became a dialog for Tempest's settings at ADR-0082, so those
+  // three now apply to them.
+  await page.goto("/tempest");
+  const opener = page.getByTestId("tempest-open-settings");
+  await opener.click();
+  const panel = settingsPanel(page);
+  await expect(panel).toBeVisible();
+
+  // Focus is INSIDE the dialog, not left behind on the rail. Headless UI focuses the dialog
+  // CONTAINER — the element carrying `role="dialog"`, which is its full-screen wrapper here
+  // and not the panel (spec 21 documents that split, and it is why this reads the wrapper).
+  // Measured rather than assumed: an assertion against the panel fails, and would have been
+  // the wrong bar anyway.
+  const inside = await page.evaluate(() =>
+    document.querySelector('[role="dialog"]')?.contains(document.activeElement) ?? false,
+  );
+  expect(inside).toBe(true);
+
+  // And the trap really holds: Tab from the container lands on a control inside the PANEL,
+  // not on something behind the scrim.
+  await page.keyboard.press("Tab");
+  const reached = await page.evaluate(() => {
+    const dialogPanel = document.querySelector('[id^="headlessui-dialog-panel"]');
+    return {
+      inPanel: dialogPanel?.contains(document.activeElement) ?? false,
+      tag: document.activeElement?.tagName,
+    };
+  });
+  expect(reached.inPanel).toBe(true);
+  expect(["A", "BUTTON", "INPUT", "SELECT"]).toContain(reached.tag);
+
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+  await expect(opener).toBeFocused();
 });
 
 test("prefers-reduced-motion quiets the view transition to an instant", async ({ page }) => {
@@ -94,7 +140,9 @@ test("no view forces horizontal scroll at 200% zoom, tables excepted by design",
     "/tempest/prove",
     "/tempest/watch",
     "/tempest/logs",
-    "/tempest/settings",
+    // `/tempest/settings` is gone from this list on purpose (ADR-0082): it is a redirect into
+    // the app's ONE settings home now, not a view with a `.content` column of its own. The
+    // dialog's own geometry is pinned by spec 21 and its controls by spec 08.
     // The editor route, with a repo that does not exist: the REFUSAL surface is a view like any
     // other and must not overflow either. The view shipped outside this loop entirely, which is
     // how it also shipped with no stylesheet.

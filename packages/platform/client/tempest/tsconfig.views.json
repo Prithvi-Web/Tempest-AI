@@ -1,6 +1,6 @@
 {
   "extends": "../tsconfig.json",
-  "include": ["./views/**/*.ts", "./views/**/*.tsx"],
+  "include": ["./views/**/*.ts", "./views/**/*.tsx", "./settings/**/*.ts", "./settings/**/*.tsx"],
   "compilerOptions": {
     "noEmit": true
   }

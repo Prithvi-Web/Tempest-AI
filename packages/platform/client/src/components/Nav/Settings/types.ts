@@ -4,6 +4,12 @@ import { SettingsTabValues } from 'librechat-data-provider';
 import { GearIcon, DataIcon, UserIcon, SpeechIcon } from '@librechat/client';
 import type { ComponentType, ReactNode } from 'react';
 import type { TranslationKeys } from '~/hooks';
+/** Tempest seam (ADR-0082): the app's ONE settings home also holds the proof engine's
+ * settings and the local-model panel. The tabs, their sections and their panels all live in
+ * `client/tempest/settings`; this file's knowledge of them is the type below and the spread
+ * at the end of `TABS`. Ledger rows in packages/platform/UPSTREAM.md. */
+import { TEMPEST_SETTINGS_TABS } from '../../../../tempest/settings/tabs';
+import type { TempestSettingsTab } from '../../../../tempest/settings/tabIds';
 
 export type SettingsTab =
   | SettingsTabValues.GENERAL
@@ -12,7 +18,8 @@ export type SettingsTab =
   | SettingsTabValues.LANGFUSE
   | SettingsTabValues.DATA
   | SettingsTabValues.ACCOUNT
-  | SettingsTabValues.ABOUT;
+  | SettingsTabValues.ABOUT
+  | TempestSettingsTab;
 
 export type SectionId =
   | 'appearance'
@@ -35,7 +42,14 @@ export type SectionId =
   | 'profile'
   | 'security'
   | 'billing'
-  | 'about';
+  | 'about'
+  /** Tempest seam (ADR-0082) — the sections of the two tabs added below. */
+  | 'tempestLocalModels'
+  | 'tempestProviderKeys'
+  | 'tempestProofStorage'
+  | 'tempestProofSync'
+  | 'tempestProofEditor'
+  | 'tempestProofPrivacy';
 
 export interface SettingsContextValue {
   balanceEnabled: boolean;
@@ -167,4 +181,7 @@ export const TABS: TabMeta[] = [
     sections: [{ id: 'about', labelKey: 'com_nav_setting_about' }],
     show: (ctx) => ctx.aboutEnabled,
   },
+  /** Tempest seam (ADR-0082). Appended rather than interleaved so an upstream tab added in
+   * the middle of this list merges without touching our rows. */
+  ...TEMPEST_SETTINGS_TABS,
 ];

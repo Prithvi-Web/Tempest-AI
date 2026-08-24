@@ -17,6 +17,10 @@ import { useGetStartupConfig, useGetUserBalance } from '~/data-provider';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { useLocalize } from '~/hooks';
 import Settings from './Settings';
+import {
+  closeSettingsHome,
+  useSettingsHomeOpen,
+} from '../../../tempest/settings/home';
 import store from '~/store';
 
 function HelpSubmenu({
@@ -98,6 +102,12 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
     enabled: !!isAuthenticated && startupConfig?.balance?.enabled,
   });
   const [showSettings, setShowSettings] = useState(false);
+  /** Tempest seam (ADR-0082): the ONE settings home, opened from anywhere. Upstream owns its
+   * open state here in a `useState`, so the rail, the proof surface and the keyless-turn
+   * remedy had no way to ask for it; they set a request instead and this reads it. Ledger row
+   * in packages/platform/UPSTREAM.md. */
+  const settingsHomeOpen = useSettingsHomeOpen();
+  const settingsOpen = showSettings || settingsHomeOpen;
   const setShowShortcutsDialog = useSetRecoilState(store.showShortcutsDialog);
   const [showArchived, setShowArchived] = useState(false);
   const accountSettingsButtonRef = useRef<HTMLButtonElement>(null);
@@ -182,7 +192,20 @@ function AccountSettings({ collapsed = false }: { collapsed?: boolean }) {
           triggerRef={accountSettingsButtonRef}
         />
       )}
-      {showSettings && <Settings open={showSettings} onOpenChange={setShowSettings} />}
+      {settingsOpen && (
+        <Settings
+          open={settingsOpen}
+          onOpenChange={(next) => {
+            setShowSettings(next);
+            // Withdraw the request on close, whichever way it was opened — otherwise the next
+            // person to open settings from this menu lands on a tab someone asked for minutes
+            // ago, which is a small, baffling bug of the kind that makes software feel haunted.
+            if (!next) {
+              closeSettingsHome();
+            }
+          }}
+        />
+      )}
     </Menu.MenuProvider>
   );
 }

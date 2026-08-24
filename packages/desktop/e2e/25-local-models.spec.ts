@@ -18,6 +18,7 @@
  * explicit loopback base, and the engine refuses that variable if it names anything else.
  */
 import { expect, test } from "./fixtures";
+import { openModelsFromRail, settingsPanel } from "./settings-home";
 
 const BRIDGE_URL = `http://127.0.0.1:${process.env.E2E_BRIDGE_PORT ?? 39755}`;
 const ROW = "tempest-e2e-tiny";
@@ -47,8 +48,9 @@ async function shownPercent(page: import("@playwright/test").Page): Promise<numb
 }
 
 test("the cost is on screen before the spend, and the catalogue is real", async ({ page }) => {
-  await page.goto("/tempest/settings");
-  await expect(page.getByRole("heading", { name: "Local models" })).toBeVisible();
+  await page.goto("/");
+  const panel = await openModelsFromRail(page);
+  await expect(panel.getByRole("heading", { name: "Local models" })).toBeVisible();
 
   // L21, applied to disk: the size, the licence and the free space are all on screen BEFORE
   // any button, because gigabytes are a cost.
@@ -75,7 +77,8 @@ test("pressing Download moves a real progress bar and ends with a verified file"
   // one on purpose — loopback would otherwise deliver the whole body before the page could
   // react, and the test would be racing the network stack rather than watching a poll.
   await armPeer({ chunks: 24, delayMs: 200 });
-  await page.goto("/tempest/settings");
+  await page.goto("/");
+  await openModelsFromRail(page);
 
   const before = await peerState();
   expect(before.requests).toHaveLength(0);
@@ -113,13 +116,17 @@ test("pressing Download moves a real progress bar and ends with a verified file"
   const firstRequest = after.requests.at(0);
   expect(firstRequest?.range).toBeNull(); // a fresh download asks for the whole file
 
-  // It survives a reload, because it is a file and not a piece of React state.
+  // It survives a reload, because it is a file and not a piece of React state. (A reload
+  // closes the dialog with the rest of the page, so the home is reopened — which also proves
+  // the rail entry works from a cold load.)
   await page.reload();
+  await openModelsFromRail(page);
   await expect(page.getByTestId(`installed-${ROW}`)).toBeVisible();
 });
 
 test("Remove frees the space and the row offers the download again", async ({ page }) => {
-  await page.goto("/tempest/settings");
+  await page.goto("/");
+  await openModelsFromRail(page);
   // The previous test installed it; if this spec is run alone, install it here.
   if ((await page.getByTestId(`download-${ROW}`).count()) > 0) {
     await armPeer({ chunks: 1, delayMs: 0 });
@@ -141,7 +148,8 @@ test("stopping a download keeps what arrived, and resuming asks only for the res
 }) => {
   // Slow enough that Stop lands mid-body rather than racing the last chunk.
   await armPeer({ chunks: 30, delayMs: 250 });
-  await page.goto("/tempest/settings");
+  await page.goto("/");
+  await openModelsFromRail(page);
   if ((await page.getByTestId(`remove-${ROW}`).count()) > 0) {
     await page.getByTestId(`remove-${ROW}`).click();
     await expect(page.getByTestId(`download-${ROW}`)).toBeVisible();
@@ -203,8 +211,12 @@ test("a keyless turn offers the local-model way out, and it goes to the panel", 
   await expect(remedy).toBeVisible();
   await expect(remedy).toContainText("no key needed");
 
-  // And it is a route, not decoration: it lands on the panel that solves the problem.
+  // And it is real, not decoration: it opens the panel that solves the problem — OVER the
+  // conversation (ADR-0082). It used to navigate to `/tempest/settings`, which took a person
+  // who had just been told "no API key" out of the message they were reading.
   await page.getByTestId("local-model-remedy-link").click();
-  await expect(page.getByRole("heading", { name: "Local models" })).toBeVisible();
-  await expect(page.getByTestId(`model-${ROW}`)).toBeVisible();
+  const panel = settingsPanel(page);
+  await expect(panel.getByRole("heading", { name: "Local models" })).toBeVisible();
+  await expect(panel.getByTestId(`model-${ROW}`)).toBeVisible();
+  await expect(page.getByTestId("local-model-remedy")).toBeVisible(); // still in the chat behind
 });

@@ -10,6 +10,7 @@
 import path from "node:path";
 
 import { expect, test } from "./fixtures";
+import { closeSettings, openModelsFromRail, openProofEngineSettings } from "./settings-home";
 
 const OUT = path.resolve(import.meta.dirname, "..", "..", "..", "docs", "ui");
 
@@ -39,13 +40,16 @@ test("screenshot every view in light and dark", async ({ page, bridge }) => {
   await expect(page).toHaveURL(/\/tempest\/divergences\/\d+/);
   const divergenceUrl = page.url();
 
-  // Settings with a configured key (the planted fixture — trap 19).
-  await page.goto("/tempest/settings");
-  await page
-    .getByRole("textbox", { name: "API key" })
+  // The engine key with the planted fixture (trap 19), through the app's ONE settings home
+  // (ADR-0082) — the same door a person uses, on the rail.
+  await page.goto("/");
+  const settings = await openModelsFromRail(page);
+  await settings
+    .getByRole("textbox", { name: "Anthropic API key for the proof engine" })
     .fill("sk-ant-api03-PLANTED-FAKE-TEMPEST-KEYFIXTURE-AAAABBBBCCCC");
-  await page.getByRole("button", { name: "Save key" }).click();
-  await expect(page.getByText("Key configured")).toBeVisible();
+  await settings.getByRole("button", { name: "Save key" }).click();
+  await expect(settings.getByText("Key configured")).toBeVisible();
+  await closeSettings(page);
 
   const shots: Array<[string, string]> = [
     ["runs", "/tempest"],
@@ -55,7 +59,6 @@ test("screenshot every view in light and dark", async ({ page, bridge }) => {
     ["divergence", divergenceUrl],
     ["watch", "/tempest/watch"],
     ["logs", "/tempest/logs"],
-    ["settings", "/tempest/settings"],
     // The editor over REAL code from the same pyfix fixture the run above proved. Added because
     // the view shipped unstyled and this pass — the one place a human sees every surface in both
     // schemes — was not looking at it.
@@ -75,5 +78,19 @@ test("screenshot every view in light and dark", async ({ page, bridge }) => {
       await page.waitForTimeout(400); // let queries settle + the view-in transition finish
       await page.screenshot({ path: path.join(OUT, `${name}-${scheme}.png`) });
     }
+
+    // The settings home is a DIALOG now (ADR-0082), not a route, so it cannot ride the loop
+    // above — and it is the one surface this pass most needs to keep looking at, because it is
+    // where the proof engine's settings and the chat app's settings meet. Both new tabs.
+    await page.goto("/");
+    await openModelsFromRail(page);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: path.join(OUT, `settings-models-${scheme}.png`) });
+    await closeSettings(page);
+
+    await openProofEngineSettings(page);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: path.join(OUT, `settings-engine-${scheme}.png`) });
+    await closeSettings(page);
   }
 });

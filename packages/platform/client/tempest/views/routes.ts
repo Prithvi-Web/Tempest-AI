@@ -45,6 +45,12 @@ export function logsPath(): string {
   return `${TEMPEST_BASE}/logs`;
 }
 
+/**
+ * The proof surface no longer HAS a settings page — its settings live in the app's one
+ * settings home (ADR-0082). This path survives as the deep link into that home: it is what
+ * every bookmark, every older link and the e2e suite already name, and `SettingsRedirect`
+ * is what answers it.
+ */
 export function settingsPath(): string {
   return `${TEMPEST_BASE}/settings`;
 }

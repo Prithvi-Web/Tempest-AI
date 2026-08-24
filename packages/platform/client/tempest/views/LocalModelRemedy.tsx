@@ -19,26 +19,30 @@
  * none of the verdict colours, and renders below the error text as ordinary interface.
  */
 
-import { Link } from "react-router-dom";
-
-import { settingsPath } from "./routes";
+import { openSettingsHome } from "../settings/home";
+import { TEMPEST_MODELS_TAB } from "../settings/tabIds";
 
 export { hasLocalModelRemedy } from "./remedy";
 
 /**
- * A `Link`, not an anchor: inside the app a plain `href` reloads the webview and costs the
- * user the conversation they are reading.
+ * A BUTTON, not a link (ADR-0082).
+ *
+ * It used to navigate to `/tempest/settings`, which took a user who had just been told "no
+ * API key" out of the conversation they were reading and into a different surface. The models
+ * panel now lives in the app's one settings home, so the remedy opens that home on its Models
+ * tab — over the conversation, which stays exactly where it was.
  */
 export function LocalModelRemedy(): JSX.Element {
   return (
     <p className="my-2 text-sm text-text-secondary" data-testid="local-model-remedy">
-      <Link
-        to={settingsPath()}
+      <button
+        type="button"
         data-testid="local-model-remedy-link"
+        onClick={() => openSettingsHome(TEMPEST_MODELS_TAB)}
         className="font-medium text-text-primary underline decoration-border-medium underline-offset-2 transition-colors hover:text-text-secondary"
       >
         Get a local model
-      </Link>{" "}
+      </button>{" "}
       — free, openly licensed, and no key needed. It runs on this machine and keeps working
       with the network unplugged.
     </p>
