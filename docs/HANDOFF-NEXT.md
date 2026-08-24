@@ -2,7 +2,9 @@
 # NEXT SESSION: attach ~/Desktop/C5-PART4-SESSION-PROMPT.md — it carries this state plus the
 # work order (retrieve the local-models review, e2e spec, final gates, rebuild, ledger flips).
 #
-# HEAD 2436f59 · 38 commits ahead of origin/main · tree CLEAN · DO NOT PUSH YET.
+# TREE CLEAN · DO NOT PUSH YET. Confirm the tip yourself — a handoff that hard-codes its
+# own SHA is stale the moment the handoff itself is committed:
+#   git rev-parse --short HEAD && git log --oneline origin/main..HEAD | wc -l && git status --short | wc -l
 #
 # C5's CLOSE-OUT IS COMPLETE. The owner's LOCAL-MODELS feature (ADR-0080) is BUILT but not
 # closed out: a review whose findings were never retrieved, no e2e spec, no full gate at HEAD,
