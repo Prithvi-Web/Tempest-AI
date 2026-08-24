@@ -126,8 +126,6 @@ class _Job:
     kind: str = "chat"
     #: Queued follow-ups not yet drained (C5 steering, LC16) — mutated under `lock`.
     steers: list[dict[str, Any]] = field(default_factory=list)
-    #: Steers the turn loop consumed, in application order.
-    steers_applied: list[dict[str, Any]] = field(default_factory=list)
     #: Content parts beyond the narration text, in ALLOCATION order (agent turns): tool
     #: steps, steer chips, activity labels. The persisted message mirrors the live stream.
     extra_parts: list[dict[str, Any]] = field(default_factory=list)

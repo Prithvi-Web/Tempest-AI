@@ -74,9 +74,30 @@ fn pollers() -> &'static Mutex<HashMap<String, i64>> {
 
 const POLL_INTERVAL: Duration = Duration::from_millis(40);
 const POLL_CALL_TIMEOUT: Duration = Duration::from_secs(10);
-/// Consecutive failed polls tolerated while the supervisor restarts the engine underneath
-/// us before the poller gives up and reports the stream broken.
-const POLL_MAX_CONSECUTIVE_FAILURES: u32 = 50;
+/// Backoff between failed polls while the engine is away.
+const POLL_FAILURE_BACKOFF: Duration = Duration::from_millis(250);
+/// How long a live stream tolerates a missing engine before it reports itself broken.
+///
+/// This used to be a COUNT — fifty consecutive failures — justified as "while the supervisor
+/// restarts the engine underneath us". A count is the wrong unit, because the failures are
+/// not all the same size: a poll against a dead process fails immediately, but one against a
+/// HUNG engine burns the full `POLL_CALL_TIMEOUT`. Fifty of those is 50 × (10 s + 250 ms) ≈
+/// 8.5 minutes of a stream that renders as still-live while nothing arrives — three orders of
+/// magnitude past the restart window the comment appealed to, and indistinguishable from a
+/// hang to the person watching it.
+///
+/// A deadline says what the comment always meant: recovery gets a real window (the supervisor
+/// backs off and returns within seconds — `PATIENT_READ_DEADLINE` is sized from the same
+/// fact), and past it the failure IS the story and is reported honestly.
+const POLL_FAILURE_GRACE: Duration = Duration::from_secs(30);
+
+/// Whether a poller that has been failing since `first_failure` should give up now.
+///
+/// Extracted so the bound is a value a test can hold, rather than an arithmetic claim made in
+/// a comment about two constants that never meet in one expression (trap 45).
+fn poll_grace_exhausted(first_failure: std::time::Instant, now: std::time::Instant) -> bool {
+    now.saturating_duration_since(first_failure) >= POLL_FAILURE_GRACE
+}
 
 fn response(status: u16, content_type: &str, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
     tauri::http::Response::builder()
@@ -542,7 +563,7 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
     }
     std::thread::spawn(move || {
         let mut after: i64 = 0;
-        let mut failures: u32 = 0;
+        let mut first_failure: Option<std::time::Instant> = None;
         loop {
             {
                 let live = pollers().lock().expect("poller lock");
@@ -559,7 +580,7 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
                 serde_json::from_value::<TurnEventsOut>(value).ok()
             }) {
                 Some(page) => {
-                    failures = 0;
+                    first_failure = None;
                     let terminal = page.status != "active";
                     if let Some(last) = page.events.last() {
                         after = i64::from(last.seq);
@@ -578,8 +599,8 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
                     }
                 }
                 None => {
-                    failures += 1;
-                    if failures >= POLL_MAX_CONSECUTIVE_FAILURES {
+                    let started = *first_failure.get_or_insert_with(std::time::Instant::now);
+                    if poll_grace_exhausted(started, std::time::Instant::now()) {
                         let _ = AgentStreamEvent {
                             stream_id: stream_id.clone(),
                             status: "error".to_string(),
@@ -588,7 +609,7 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
                         .emit(&app);
                         break;
                     }
-                    std::thread::sleep(Duration::from_millis(250));
+                    std::thread::sleep(POLL_FAILURE_BACKOFF);
                     continue;
                 }
             }
@@ -702,6 +723,44 @@ mod tests {
         let reply = handle_chat(None, None, "GET", "/api/agents/chat/stream/abc", "", b"")
             .expect("stream is the seam's route");
         assert_eq!(reply.status(), 200);
+    }
+
+    #[test]
+    fn the_stream_gives_up_on_a_missing_engine_within_a_bounded_window() {
+        // LC22's circuit breaker, as a value rather than an arithmetic claim in a comment.
+        // The bound has to be long enough for a supervised restart (the patient-read deadline
+        // is sized from the same fact) and short enough that a person watching a dead stream
+        // is told, rather than left with a live-looking view that never moves.
+        let start = std::time::Instant::now();
+        assert!(!poll_grace_exhausted(start, start));
+        assert!(!poll_grace_exhausted(start, start + PATIENT_READ_DEADLINE));
+        assert!(!poll_grace_exhausted(
+            start,
+            start + POLL_FAILURE_GRACE - Duration::from_millis(1)
+        ));
+        assert!(poll_grace_exhausted(start, start + POLL_FAILURE_GRACE));
+        assert!(poll_grace_exhausted(start, start + Duration::from_secs(3600)));
+    }
+
+    #[test]
+    fn the_breaker_outlasts_a_restart_but_not_a_users_patience() {
+        // The two ends of the window, named. A grace shorter than the supervisor's own
+        // recovery would paint the console red during routine restarts — the exact failure
+        // `engine_reply_patient` exists to prevent — and one that a HUNG engine can stretch
+        // into minutes is a hang wearing a breaker's clothes: the previous count-based cap
+        // tolerated 50 failures which, at one full call timeout each, ran to over eight
+        // minutes.
+        assert!(
+            POLL_FAILURE_GRACE > PATIENT_READ_DEADLINE,
+            "the stream must not give up sooner than a single patient read does"
+        );
+        assert!(
+            POLL_FAILURE_GRACE <= Duration::from_secs(60),
+            "a stream that looks alive for over a minute with nothing arriving is a hang"
+        );
+        // And the bound must hold no matter how SLOW each individual failure is: a deadline
+        // is independent of the attempt count, which is the whole reason it replaced one.
+        assert!(POLL_CALL_TIMEOUT < POLL_FAILURE_GRACE);
     }
 
     #[test]

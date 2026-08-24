@@ -51,10 +51,11 @@
 | LC16 | Run control: interrupt, steer mid-run, queue follow-ups | PROOF_NATIVE | C5 | ADOPTED | cancel threads TaskSpec→model call→ProveConfig (`TestRunControl`); steer drain pins (`TestSteering`/`TestSteeringWire`); `resume_test` 15/15 |
 | LC17 | Reclaim / edit / escalate pending steers | PROOF_NATIVE | C5 | ADOPTED | steer lifecycle pins (queue/cancel/unconsumed-return); preempt-arm answers PREEMPT_UNSUPPORTED honestly (ADR-0079 §4) |
 | LC18 | Human-in-the-loop: pause for input or tool approval, up to 4 questions per form | PROOF_NATIVE | C5 | ADOPTED | e2e 24 (park→approve→submit→run→durable); 8 engine + 6 wire pins; `ask_user` on boundary D |
-| LC19 | Generated activity-group headers, parent phase summaries, live tool intent labels | PLATFORM | C5 | ADOPTED | e2e 24 renders the mechanical headers; `vocab_check` green (labels are functions of the tool kind — L17/L31, ADR-0079 §5) |
+| LC19 | Generated activity-group headers + live tool intent labels | PLATFORM | C5 | ADOPTED | e2e 24: the header GROUPS its batch (a `button` named for the label, containing the call) — the vendored grouper claims only parts BEFORE the label, so this fails if the ordering regresses; `test_the_activity_header_follows_the_calls_it_covers` pins the part order; `vocab_check` green (labels are functions of the tool kind — L17/L31, ADR-0079 §5) |
+| LC19b | Parent phase summaries over an activity group | PLATFORM | C8 | NOT_STARTED | a group's summary line, generated MECHANICALLY (L17 forbids a model writing it); rides C8 with per-tool background/intent settings |
 | LC20 | Agent memory with optional per-agent isolation | PROOF_ADJACENT | C10 | NOT_STARTED | memory isolation test |
 | LC21 | Context-usage gauge | PLATFORM | C5 | ADOPTED | counts are the provider's own per turn (`TestContextGauge`); denominator only where documented — unknown renders indeterminate, never invented (ADR-0079 §6) |
-| LC22 | Agent stream circuit breakers | PLATFORM | C5 | ADOPTED | e2e 06 fault injection (engine SIGKILL → honest UI → auto-recovery); host poller failure cap + seam patient reads; agent-stream-specific pin queued with C8 background runs |
+| LC22 | Agent stream circuit breakers | PLATFORM | C5 | ADOPTED | e2e 06 fault injection (engine SIGKILL → honest UI → auto-recovery); `the_stream_gives_up_on_a_missing_engine_within_a_bounded_window` + `the_breaker_outlasts_a_restart_but_not_a_users_patience` pin the TIME bound directly (cargo) |
 | LC23 | Support-contact exposure, safely | PLATFORM | C10 | NOT_STARTED | redaction test |
 
 ### Tools and execution
@@ -140,7 +141,13 @@
 | LC75 | Rolling-upgrade-safe generation protocol | PLATFORM | C6 | NOT_STARTED | upgrade rehearsal |
 | LC76 | Customizable dropdown and interface for power users and newcomers | PLATFORM | C3 | NOT_STARTED | visual regression, 2 themes × 3 viewports × 2 densities |
 
-**Denominator: 76 rows. Parity % is computed over these.**
+**Denominator: 77 rows. Parity % is computed over these.**
+
+> LC19 was split during the C5 close-out. Its single row had claimed activity headers, live
+> tool intent labels AND parent phase summaries, while only the first two are built and tested;
+> the third is now its own `NOT_STARTED` row. That LOWERS the parity percentage, which is
+> ledger rule 4 working as written — an unbuilt capability hidden inside an `ADOPTED` row is
+> exactly the unmeasured claim L35 exists to prevent.
 
 ---
 

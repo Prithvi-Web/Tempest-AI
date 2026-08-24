@@ -465,6 +465,17 @@ python -m tempest.dev.perf_suite --enforce-budgets        # document-store p95 r
 - [ ] Import from LibreChat / ChatGPT / Chatbot UI. Export to markdown / JSON / text / screenshot
       — **with proof bundles attached**, so an exported session re-imports on another machine with
       every repro still runnable.
+- [ ] **Per-turn steer scoping, so a steer drained into a turn that then DIED is reclaimable.**
+      `_converse` drains `steer_source()` into the transcript BEFORE the model call that carries
+      it, and the client's chip flips to applied at that moment. If that call then fails — an
+      abort, a provider outage, a cost cap — the instruction never reached a model that could act
+      on it, yet it is gone from `pendingSteers` and absent from `unrecoveredSteers`. Today its
+      TEXT survives visibly as a `steer` content part on the persisted message, so nothing the
+      user typed is lost from the record; what is missing is the one-click reclaim. Doing it right
+      needs per-TURN scoping (an accumulated applied-list would hand back steers earlier turns
+      legitimately consumed), which is why the write-only `steers_applied` field was removed
+      rather than given a reader that would have been wrong. Found by the C5 close-out review; the
+      two verifiers split on severity and both agreed the text is preserved.
 - [ ] Resumable streams (P2) extended: the **proof stage** is checkpointed so a killed turn resumes
       without re-proving what was already proven.
 

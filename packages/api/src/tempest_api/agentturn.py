@@ -460,7 +460,6 @@ def run_agent_turn(
             drained = list(job.steers)
             if drained:
                 job.steers.clear()
-                job.steers_applied.extend(drained)
         if not drained:
             return ()
         for row in drained:
