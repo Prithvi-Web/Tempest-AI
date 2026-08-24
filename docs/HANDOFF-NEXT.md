@@ -2,7 +2,7 @@
 # NEXT SESSION: attach ~/Desktop/C5-PART4-SESSION-PROMPT.md — it carries this state plus the
 # work order (retrieve the local-models review, e2e spec, final gates, rebuild, ledger flips).
 #
-# HEAD db33df4 · 35 commits ahead of origin/main · tree CLEAN · DO NOT PUSH YET.
+# HEAD 2436f59 · 38 commits ahead of origin/main · tree CLEAN · DO NOT PUSH YET.
 #
 # C5's CLOSE-OUT IS COMPLETE. The owner's LOCAL-MODELS feature (ADR-0080) is BUILT but not
 # closed out: a review whose findings were never retrieved, no e2e spec, no full gate at HEAD,
@@ -19,11 +19,13 @@
 #   cargo 142 · vitest 101 · e2e 60 (+2 @bench)
 #
 # IN FLIGHT / NOT DONE — the next session's FIRST work:
-#   1. The local-models adversarial review DIED UNRETRIEVED (4 finders started, 0 results).
-#      Re-run the saved script: .../workflows/scripts/local-models-adversarial-review-wf_585c937f-279.js
-#      Two things it was pointed at: LocalModelsGroup calls useModelCatalog TWICE on one query
-#      key with different refetchInterval (does the poll ever start?), and the MissingKey
-#      `remedy` field reaches the client with NO consumer.
+#   1. The local-models review COMPLETED: 10 confirmed, 5 FIXED (157eaf1, 2436f59), 5 OPEN —
+#      cancel unobservable inside response.read(); readiness is "something answers on 8080"
+#      not "our child"; two Rust/py tests that cannot fail; Remove deletes under a running
+#      server. TWO LENSES DIED on API 529s (security/egress, wire+UI) — re-run them from
+#      .../workflows/scripts/local-models-adversarial-review-wf_585c937f-279.js. They were
+#      pointed at the redirect suffix match, path escapes, the double useModelCatalog call,
+#      and whether MissingKey's `remedy` has any consumer.
 #   2. No e2e spec downloads a model through the real UI. `fake_huggingface_server` exists.
 #   3. make verify has not run at HEAD. Rebuild+reinstall: the bundle is Aug 23 21:07 and
 #      predates every local-models commit.
