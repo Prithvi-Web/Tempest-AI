@@ -950,9 +950,29 @@ pub fn model_server_status(configured_runner: Option<String>) -> CmdResult<Model
 
 /// Start serving a downloaded model on loopback. Off until asked — nothing starts at launch,
 /// which is what keeps the airplane-mode claim honest.
+/// `async` + `spawn_blocking`, and both halves matter. `start` waits up to 120 s for a
+/// multi-gigabyte model to load, and a plain `#[tauri::command]` runs on the IPC thread — the
+/// whole window, including the Stop button, would be frozen for that entire time.
+///
+/// `#[tauri::command(async)]` on a SYNCHRONOUS body would not fix it either: this repository
+/// has already paid that one. It spawns the future on tokio's multi-thread runtime and the
+/// sync body then blocks a WORKER, where it can starve every other async command — including
+/// the Settings screen, which is the only way to undo whatever caused it. So the blocking work
+/// goes to `spawn_blocking`, which is the pool that exists for exactly this.
 #[tauri::command]
 #[specta::specta]
-pub fn start_model_server(
+pub async fn start_model_server(
+    model_path: String,
+    configured_runner: Option<String>,
+) -> CmdResult<ModelServerStatus> {
+    tauri::async_runtime::spawn_blocking(move || start_model_server_blocking(model_path, configured_runner))
+        .await
+        .unwrap_or_else(|err| {
+            Err(SidecarFailure { code: -3, message: format!("the model server task failed: {err}") })
+        })
+}
+
+fn start_model_server_blocking(
     model_path: String,
     configured_runner: Option<String>,
 ) -> CmdResult<ModelServerStatus> {

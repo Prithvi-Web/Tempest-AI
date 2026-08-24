@@ -275,6 +275,33 @@ mod tests {
     }
 
     #[test]
+    fn the_exit_sweep_stops_this_child_too() {
+        // The defect this pins is the one `sweep_on_exit`'s own doc-comment already describes:
+        // the LSP multiplexer once rested its no-orphans case on `impl Drop`, and a `pgrep`
+        // after quitting found the language server still running. The model server walked into
+        // the same trap one function later — spawned into its OWN process group (so the host's
+        // death signals it nothing), stock `llama-server` (so no parent-watch of its own), and
+        // `Running` has no `Drop`, which per that comment would not run anyway.
+        //
+        // Asserted as a SOURCE fact rather than by launching a real server, because the honest
+        // end-to-end proof is `orphan_check` starting one — and that is where it now lives. A
+        // comment naming a trap does not stop the next thing falling in; this makes the sweep's
+        // membership checkable.
+        let lib = include_str!("lib.rs");
+        let sweep = lib
+            .split_once("fn sweep_on_exit")
+            .expect("sweep_on_exit exists")
+            .1;
+        let body = sweep.split_once("\n}").expect("the sweep has a body").0;
+        assert!(
+            body.contains("modelserver::stop()"),
+            "sweep_on_exit does not stop the model server: quitting the app would leave \
+             llama-server holding {MODEL_SERVER_HOST}:{MODEL_SERVER_PORT} and the model's \
+             memory, with no UI left that could stop it (L34, L11)"
+        );
+    }
+
+    #[test]
     fn stopping_nothing_is_harmless() {
         stop();
         let (up, model) = status();

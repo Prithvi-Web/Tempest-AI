@@ -179,6 +179,15 @@ export const commands = {
 	/**
 	 *  Start serving a downloaded model on loopback. Off until asked — nothing starts at launch,
 	 *  which is what keeps the airplane-mode claim honest.
+	 *  `async` + `spawn_blocking`, and both halves matter. `start` waits up to 120 s for a
+	 *  multi-gigabyte model to load, and a plain `#[tauri::command]` runs on the IPC thread — the
+	 *  whole window, including the Stop button, would be frozen for that entire time.
+	 * 
+	 *  `#[tauri::command(async)]` on a SYNCHRONOUS body would not fix it either: this repository
+	 *  has already paid that one. It spawns the future on tokio's multi-thread runtime and the
+	 *  sync body then blocks a WORKER, where it can starve every other async command — including
+	 *  the Settings screen, which is the only way to undo whatever caused it. So the blocking work
+	 *  goes to `spawn_blocking`, which is the pool that exists for exactly this.
 	 */
 	startModelServer: (modelPath: string, configuredRunner: string | null) => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("start_model_server", { modelPath, configuredRunner })),
 	stopModelServer: () => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("stop_model_server")),

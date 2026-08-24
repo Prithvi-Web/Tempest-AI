@@ -386,4 +386,15 @@ fn sweep_on_exit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Ok(mut mux) = app.state::<Arc<std::sync::Mutex<lsp::Multiplexer>>>().lock() {
         mux.shutdown_all();
     }
+    // ...and no model server. It is spawned into its OWN process group (so the host's death
+    // signals it nothing), it is stock `llama-server` (so it has no parent-watch of its own),
+    // and `Running` has no `Drop` — which per this function's own doc-comment would not run
+    // anyway. Without this line, quitting left it holding 127.0.0.1:8080 and the model's
+    // memory forever, with no UI remaining that could stop it.
+    //
+    // That is the SECOND time the argument above has been paid for in this file: the LSP
+    // multiplexer rested its no-orphans case on `impl Drop` and a `pgrep` found the language
+    // server still running. A comment naming a trap does not stop the next thing falling in,
+    // which is why `orphan_check` now starts a model server rather than trusting this line.
+    crate::modelserver::stop();
 }
