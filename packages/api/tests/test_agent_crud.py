@@ -191,3 +191,104 @@ class TestOneToolRegistry:
         rows = resp.json()
         assert isinstance(rows, list) and rows, "an empty list renders an empty marketplace"
         assert all({"value", "label"} <= set(r) for r in rows)
+
+
+class TestMissingAgentsAreNotFound:
+    """Every mutation that can name an agent that is gone answers 404, not 500 and not 200.
+
+    This is the trap the C5 session paid in full: the vendored builder reads
+    `error.response.status`, and `engine_reply_passthrough` exists precisely so the ENGINE's
+    own 404 survives the host seam instead of being flattened into a 502. A store method that
+    returned a fabricated empty doc — or raised — instead of `None` would turn "no such agent"
+    into "the backend is broken" in front of the owner, and every one of these arms was
+    unexercised until the 100% combined-coverage gate named it.
+    """
+
+    def test_updating_a_missing_agent_is_a_404(self, api: Any, agents_env: Path) -> None:
+        resp = api.client.patch("/v1/agents/agent_ghost", json={"name": "Renamed"})
+        assert resp.status_code == 404, resp.text
+        assert "agent_ghost" in resp.text
+
+    def test_duplicating_a_missing_agent_is_a_404(self, api: Any, agents_env: Path) -> None:
+        resp = api.client.post("/v1/agents/agent_ghost/duplicate")
+        assert resp.status_code == 404, resp.text
+        assert "agent_ghost" in resp.text
+
+    def test_reverting_a_missing_agent_is_a_404(self, api: Any, agents_env: Path) -> None:
+        resp = api.client.post("/v1/agents/agent_ghost/revert", json={"version_index": 0})
+        assert resp.status_code == 404, resp.text
+
+    def test_listing_versions_of_a_missing_agent_is_a_404(self, api: Any, agents_env: Path) -> None:
+        assert api.client.get("/v1/agents/agent_ghost/versions").status_code == 404
+
+    def test_a_duplicate_of_a_missing_agent_creates_nothing(
+        self, api: Any, agents_env: Path
+    ) -> None:
+        """The refusal must not have a side effect: a 404 that still wrote a copy would leave
+        an orphan agent named '(copy)' in the owner's list with nothing to copy from."""
+        before = api.client.get("/v1/agents").json()["data"]
+        api.client.post("/v1/agents/agent_ghost/duplicate")
+        after = api.client.get("/v1/agents").json()["data"]
+        assert [r["id"] for r in after] == [r["id"] for r in before]
+
+
+class TestRevertBounds:
+    def test_a_version_index_past_the_end_is_a_404_and_changes_nothing(
+        self, api: Any, agents_env: Path
+    ) -> None:
+        """`revert` counts NEWEST-FIRST over a history that is one entry long for a fresh
+        agent. Index 5 names a version that does not exist; answering 200 would hand the
+        builder an unchanged doc and let it report a revert that never happened."""
+        agent = _create(api, name="Bounded")
+        versions = api.client.get(f"/v1/agents/{agent['id']}/versions").json()
+        assert len(versions) == 1, "a fresh agent has exactly its creation snapshot"
+
+        resp = api.client.post(
+            f"/v1/agents/{agent['id']}/revert", json={"version_index": len(versions) + 4}
+        )
+        assert resp.status_code == 404, resp.text
+
+        after = api.client.get(f"/v1/agents/{agent['id']}").json()
+        assert after["name"] == "Bounded"
+        assert len(api.client.get(f"/v1/agents/{agent['id']}/versions").json()) == 1, (
+            "a refused revert must not append a version — the history is the audit trail"
+        )
+
+    def test_a_negative_version_index_is_a_404(self, api: Any, agents_env: Path) -> None:
+        """`-1` is a valid Python index into the history list and would silently revert to the
+        OLDEST version. The bound is `0 <= i < len`, and this is the arm that proves the lower
+        half of it bites."""
+        agent = _create(api, name="Bounded")
+        resp = api.client.post(f"/v1/agents/{agent['id']}/revert", json={"version_index": -1})
+        assert resp.status_code in (404, 422), resp.text
+        assert api.client.get(f"/v1/agents/{agent['id']}").json()["name"] == "Bounded"
+
+
+class TestCategoryFilter:
+    def test_the_category_filter_narrows_the_list(self, api: Any, agents_env: Path) -> None:
+        writer = _create(api, name="Writer", category="writing")
+        coder = _create(api, name="Coder", category="code")
+
+        rows = api.client.get("/v1/agents", params={"category": "code"}).json()["data"]
+        ids = [r["id"] for r in rows]
+        assert coder["id"] in ids, "the matching agent must survive the filter"
+        assert writer["id"] not in ids, "a non-matching agent must be filtered out"
+        assert len(ids) == 1
+
+    def test_the_all_sentinel_filters_nothing(self, api: Any, agents_env: Path) -> None:
+        """`all` is the picker's default value, not a real category — treating it as one would
+        answer an empty marketplace to a user who selected 'All'."""
+        writer = _create(api, name="Writer", category="writing")
+        coder = _create(api, name="Coder", category="code")
+        rows = api.client.get("/v1/agents", params={"category": "all"}).json()["data"]
+        assert {r["id"] for r in rows} == {writer["id"], coder["id"]}
+
+    def test_an_unmatched_category_answers_an_empty_page_not_everything(
+        self, api: Any, agents_env: Path
+    ) -> None:
+        """The failure mode a filter has when it is wired backwards: it returns the whole list.
+        An empty result here is the assertion — with a lower bound proving the agents exist."""
+        _create(api, name="Writer", category="writing")
+        assert len(api.client.get("/v1/agents").json()["data"]) == 1
+        rows = api.client.get("/v1/agents", params={"category": "nonesuch"}).json()["data"]
+        assert rows == []
