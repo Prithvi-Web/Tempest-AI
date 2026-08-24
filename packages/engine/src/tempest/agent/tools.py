@@ -249,7 +249,25 @@ class Dispatcher:
     # -- approval (C5 HITL) --------------------------------------------------------------
 
     def approval_needed(self, name: str) -> bool:
-        """True when dispatching `name` now would hit the approval gate."""
+        """True when dispatching `name` now would hit the approval gate.
+
+        **The agent's selection is checked FIRST, and that ordering is load-bearing.** The
+        `allowed` narrowing is enforced inside `call()` below, but `_dispatch_with_approval`
+        consults this predicate to decide whether to park — and its `ask_user_question` arm
+        returns the human's answer WITHOUT ever reaching `call()`. So while this read
+        `manifest`-only, an agent whose selection excluded `ask_user` could still park the
+        turn, put a question in front of the user, and have the answer injected into its
+        transcript: the one tool that bypasses the dispatcher was the one tool the selection
+        did not bind. The docstring on `allowed` promised the opposite, which is why it took
+        a test to find — a guard's ARGUMENT is not a proof of the guard (trap 45).
+
+        A tool outside the selection has nothing to approve: dispatch refuses it outright,
+        so answering False here routes it to `call()`'s refusal, which names the agent's
+        real toolset and is a sentence the model can act on. This also stops the user being
+        asked to approve a call that was always going to be refused after they clicked.
+        """
+        if self.allowed is not None and name not in self.allowed:
+            return False
         spec = self.manifest.get(name)
         return spec is not None and spec.policy.needs_grant and name not in self.grants
 

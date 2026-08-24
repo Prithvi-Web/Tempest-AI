@@ -286,8 +286,64 @@ class TestToolBearingTurns:
         ack = _start(api, agent["id"], "Write something")
         payload = _wait_terminal(api, ack["streamId"])
         assert payload["status"] == "complete"
-        assert (repo / "app.py").read_text(encoding="utf-8").endswith("sum(xs)\n"), (
-            "the unselected tool must not have run"
+
+        # The user's tree being unchanged proves NOTHING here: under L19 an agent write lands
+        # in the shadow worktree, so that assertion is equally true when the forbidden tool
+        # RUNS (trap 60 — an assertion satisfied by the absence of what it measures). The
+        # refusal has to be read where it actually appears: the tool call's own output.
+        completed = [f for f in _frames(payload) if f.get("event") == "on_run_step_completed"]
+        assert completed, "the refused call must still open and complete a run step"
+        refused = completed[0]["data"]["result"]["tool_call"]
+        assert refused["name"] == "write_file"
+        assert "not part of this agent's toolset" in refused["output"], (
+            f"the refusal must name the reason the model can act on; got {refused['output']!r}"
+        )
+        assert "read_file" in refused["output"], (
+            "the refusal must list what the agent DOES offer, or the model cannot recover"
+        )
+
+    def test_ask_user_outside_the_agents_selection_is_refused_not_asked(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """LC15's tooth applied to the ONE tool that bypasses the dispatcher.
+
+        `tools.py` advertises the selection as "defense in depth beside the filtered catalog,
+        so a model that hallucinates an unoffered tool still meets a refusal, never a
+        handler". That promise is enforced inside `Dispatcher.call` — and
+        `_dispatch_with_approval`'s `ask_user_question` branch RETURNS BEFORE IT, so for
+        `ask_user` the promise was false: an agent whose selection excludes `ask_user` could
+        still interrupt the user with a question, and the user's typed answer was injected
+        into the model's transcript. A guard's argument is not a proof of the guard (trap 45).
+
+        The model text that asks is attacker-reachable — repository bytes read through
+        `read_file` are untrusted input — so this is a capability boundary, not a nicety.
+        """
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "I need to check something with you.",
+                "tool_calls": [
+                    {"name": "ask_user", "arguments": {"question": "Should I use tabs?"}}
+                ],
+            },
+            {"text": "Understood, carrying on."},
+        ]
+        ack = _start(api, agent["id"], "Do the thing")
+        payload = _wait_terminal(api, ack["streamId"])
+
+        frames = _frames(payload)
+        assert not [f for f in frames if f.get("event") == "on_pending_action"], (
+            "an agent that was never given ask_user must not be able to park the turn and "
+            "put a question in front of the user"
+        )
+        assert payload["status"] == "complete", payload.get("status")
+        completed = [f for f in frames if f.get("event") == "on_run_step_completed"]
+        assert completed, "the refused call must still complete a run step the model can read"
+        refused = completed[0]["data"]["result"]["tool_call"]
+        assert refused["name"] == "ask_user"
+        assert "not part of this agent's toolset" in refused["output"], (
+            f"ask_user must meet the same refusal as any other unselected tool; "
+            f"got {refused['output']!r}"
         )
 
     def test_tools_without_a_repository_refuse_actionably(
