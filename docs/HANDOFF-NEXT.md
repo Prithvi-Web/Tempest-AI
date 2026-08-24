@@ -1,9 +1,35 @@
-# ⚡ SESSION HANDOFF — updated 2026-08-23, READ THIS BEFORE §0
-# NEXT SESSION: attach ~/Desktop/C5-PART2-SESSION-PROMPT.md — it carries this handoff plus
-# the owner's NEW MANDATE (an in-app "download a free local model" flow for zero-setup
-# chat; ADR + FEATURES row required before building) and the C5 back-half work order.
-# (fix wave + C5.1–C5.3 + C5.5 LANDED · the chat vertical is REAL end to end ·
-#  gates green at the final tree · owner push pending · C5.6/C5.7 remain)
+# ⚡ SESSION HANDOFF — updated 2026-08-23 (C5 PART 2 SESSION), READ THIS BEFORE §0
+# NEXT SESSION: attach ~/Desktop/C5-PART3-SESSION-PROMPT.md — it carries this handoff plus
+# the C5 CLOSE-OUT work order (verify pair + adversarial review + rebuild) and the owner's
+# local-models mandate with its full recon.
+# (C5 BACK HALF CODE-COMPLETE: 8 commits b32b886..508d290 — run control/cancel + trap-58
+#  bounded reads · builder CRUD on the host seam · tool-bearing turns through run_task ·
+#  HITL parks + ask_user · steering · the event union + run steps/headers/gauge + delta
+#  batching · spec 24 = the whole story through the real UI · ADR-0079 · 10 ledger rows
+#  ADOPTED · PLAN-V3 C5 boxes flipped)
+#
+# GATE STATE AT HANDOFF (watched, not remembered): e2e 60/0 (specs 21/23/24 in) · ALL
+# ELEVEN agent gates exit 0 post-migration · agent_bench 55/55 at EVERY landing · cargo 133
+# · clippy clean · mypy --strict clean (188) · runtime_check green · gate_audit 6 paths.
+#
+# IN FLIGHT / NOT DONE — the next session's FIRST work (details in C5-PART3 Part 1):
+#   1. make verify was RUNNING at handoff (combined-coverage may name arms) — RE-RUN both:
+#      make verify + make verify-linux-denominator.
+#   2. The adversarial review workflow over b32b886..HEAD died unretrieved — RE-RUN it
+#      (4 read-only lenses, 2 refute-by-default verifiers per finding; trap 48).
+#   3. The app was NOT rebuilt: build-server.sh → parity → tauri build → ditto →
+#      orphan_check, then drive the installed app once.
+#   4. Owner pushes (GitHub Desktop) only after the pair is green; WATCH the 7 CI jobs —
+#      this wave carries the spec-21 transparency fix + the edited ci.yml artifact step.
+#
+# TRAPS PAID THIS SESSION: cross-thread response.close() cannot unblock a buffered read
+# (shutdown(2) the fd; re-check cancel after EVERY read — clean EOF can be a cancellation);
+# GitHub macOS runners have Reduce Transparency ON (pin media states via CDP in specs);
+# EPIPE needs several writes + macOS spells it EPROTOTYPE; the client ACL-keys on _id and
+# an unanswered /api/permissions/{t}/{id}/effective renders "Agent Not Available";
+# Approve/Reject only SELECT — the Submit button sends the batch; steer refusal codes must
+# be TOP-LEVEL {code}; a class method named `list` shadows the builtin for later
+# annotations; the harness dispatcher must fall through to local-api on a false answer.
 
 ## What this wave holds (b3ba308..HEAD), briefly
 
