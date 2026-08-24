@@ -177,6 +177,13 @@ verify-node:
 	# the client build chain, but their own suites join `make verify-v3` at the phases that
 	# make them green (merge contract §6 rule 4) — not silently via -r.
 	pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' typecheck
+	# The ABSORBED Tempest surface (ADR-0077): `client/tempest/views` and `client/tempest/stream`
+	# are OUR code living inside the vendored tree, and they have their own tsconfig because the
+	# vendored client's own `typecheck` script does not reach them. Nothing ran it, so this
+	# surface — Settings, Evidence, Composer, Editor, the SSE seam — was the one part of the app
+	# `make verify` did not typecheck. Found when a dozen wrong field names in a new settings
+	# panel passed every gate; the desktop tsconfig includes only `src` and `tests`.
+	cd packages/platform/client && npx tsc --noEmit -p tempest/tsconfig.views.json
 	pnpm --filter './packages/shared-schema' --filter './packages/ts-sidecar' --filter './packages/desktop' test
 	# No `@tempest/desktop build` step: the legacy vite bundle died with the ADR-0077 close.
 	# The package's shipping artifact is the tauri bundle; its webview is the platform client

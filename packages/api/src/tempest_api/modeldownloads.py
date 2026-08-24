@@ -95,6 +95,10 @@ def catalogue(*, include_installed: bool = True) -> list[dict[str, Any]]:
                 "sizeBytes": entry.size_bytes,
                 "ramNote": entry.ram_note,
                 "installed": include_installed and installed_path(entry).exists(),
+                # The file's real path. Serving takes a PATH, not an id — without this the
+                # panel would have to reconstruct one, and a UI that recomputes a filesystem
+                # layout is a second place for that layout to be wrong.
+                "installedPath": str(installed_path(entry)),
                 "freeBytes": free,
                 "fitsOnDisk": free > entry.size_bytes,
                 "download": job.snapshot() if job is not None else None,

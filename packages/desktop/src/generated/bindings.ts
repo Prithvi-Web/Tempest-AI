@@ -1691,6 +1691,12 @@ export type ModelCatalogRow = {
 	sizeBytes: number | null,
 	ramNote: string,
 	installed: boolean,
+	/**
+	 *  Where the file is (or would be). Serving takes a PATH, and the panel should not have
+	 *  to reconstruct one — a UI that recomputes a filesystem layout is a second place for
+	 *  that layout to be wrong.
+	 */
+	installedPath: string,
 	freeBytes: number | null,
 	fitsOnDisk: boolean,
 	download: ModelDownloadState | null,

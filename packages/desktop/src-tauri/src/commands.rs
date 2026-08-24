@@ -856,6 +856,11 @@ pub struct ModelCatalogRow {
     #[serde(rename = "ramNote")]
     pub ram_note: String,
     pub installed: bool,
+    /// Where the file is (or would be). Serving takes a PATH, and the panel should not have
+    /// to reconstruct one — a UI that recomputes a filesystem layout is a second place for
+    /// that layout to be wrong.
+    #[serde(rename = "installedPath")]
+    pub installed_path: String,
     #[serde(rename = "freeBytes")]
     pub free_bytes: f64,
     #[serde(rename = "fitsOnDisk")]

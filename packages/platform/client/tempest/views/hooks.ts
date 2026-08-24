@@ -16,6 +16,10 @@ import {
   type ComposeView,
   type DiagnosticBundle,
   type LocalProveRequest,
+  type ModelCatalogRow,
+  type ModelDownloadState,
+  type ModelRemoved,
+  type ModelServerStatus,
   type RunCreated,
   type EditorRunners,
   type EditorRunnersOut,
@@ -298,4 +302,68 @@ export function useProjectFile(repoPath: string, path: string) {
       return result.data;
     },
   });
+}
+
+// ── Local models (ADR-0080) ─────────────────────────────────────────────────────────────────
+
+/** The catalogue, with `installed`, `freeBytes` and `fitsOnDisk` already resolved by the
+ * engine — the size and the room for it in one reply, so the panel never has to make a second
+ * call to answer "can I?" (L21). */
+export function useModelCatalog(pollMs: number | false) {
+  return useQuery<ModelCatalogRow[], SidecarError>({
+    queryKey: ["modelCatalog"],
+    queryFn: async () => {
+      const result = await commands.listModelCatalog();
+      if (result.status === "error") throw new SidecarError(result.error);
+      return result.data;
+    },
+    // Downloads report by POLLING, not by a second stream: the app already has exactly one
+    // push mechanism for long work, and a progress bar needs less than that. `false` while
+    // nothing is downloading, so an idle panel is not a timer.
+    refetchInterval: pollMs,
+  });
+}
+
+export function useModelServerStatus(configuredRunner: string | null) {
+  return useQuery<ModelServerStatus, SidecarError>({
+    queryKey: ["modelServer", configuredRunner],
+    queryFn: async () => {
+      const result = await commands.modelServerStatus(configuredRunner);
+      if (result.status === "error") throw new SidecarError(result.error);
+      return result.data;
+    },
+  });
+}
+
+export async function startModelDownload(modelId: string): Promise<ModelDownloadState> {
+  const result = await commands.startModelDownload(modelId);
+  if (result.status === "error") throw new SidecarError(result.error);
+  return result.data;
+}
+
+export async function cancelModelDownload(modelId: string): Promise<ModelDownloadState> {
+  const result = await commands.cancelModelDownload(modelId);
+  if (result.status === "error") throw new SidecarError(result.error);
+  return result.data;
+}
+
+export async function removeModel(modelId: string): Promise<ModelRemoved> {
+  const result = await commands.removeModel(modelId);
+  if (result.status === "error") throw new SidecarError(result.error);
+  return result.data;
+}
+
+export async function startModelServer(
+  modelPath: string,
+  configuredRunner: string | null,
+): Promise<ModelServerStatus> {
+  const result = await commands.startModelServer(modelPath, configuredRunner);
+  if (result.status === "error") throw new SidecarError(result.error);
+  return result.data;
+}
+
+export async function stopModelServer(): Promise<ModelServerStatus> {
+  const result = await commands.stopModelServer();
+  if (result.status === "error") throw new SidecarError(result.error);
+  return result.data;
 }

@@ -465,6 +465,12 @@ python -m tempest.dev.perf_suite --enforce-budgets        # document-store p95 r
 - [ ] Import from LibreChat / ChatGPT / Chatbot UI. Export to markdown / JSON / text / screenshot
       — **with proof bundles attached**, so an exported session re-imports on another machine with
       every repro still runnable.
+- [ ] **A runner-path field for the local model server.** `resolve_runner` implements the
+      ADR-0080 §6 order (bundled -> configured setting -> PATH) and the SETTING half has no box
+      on the panel, so today it resolves from PATH only. Wanted by anyone whose `llama-server`
+      is not on PATH — a Nix profile, a manual build. Written down rather than referenced as
+      though it existed: an earlier draft of the panel read a `local_model_server` field that
+      does not exist, and the seam's typecheck gap meant nothing caught it.
 - [ ] **Per-turn steer scoping, so a steer drained into a turn that then DIED is reclaimable.**
       `_converse` drains `steer_source()` into the transcript BEFORE the model call that carries
       it, and the client's chip flips to applied at that moment. If that call then fails — an

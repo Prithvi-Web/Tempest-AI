@@ -4,20 +4,28 @@ import { useEffect, useState } from "react";
 import type {
   EditorRunners,
   EnvOverride,
+  ModelCatalogRow,
   SettingsOut_Serialize,
   SyncReport,
 } from "../../../../desktop/src/generated/bindings";
 import {
+  cancelModelDownload,
   clearAiKey,
   exportDiagnostics,
+  removeModel,
   revealInDataDir,
   setAiKey,
+  startModelDownload,
+  startModelServer,
+  stopModelServer,
   syncPush,
   testAiKey,
   updateEditorRunners,
   updateSettings,
   useAiKeyStatus,
   useEditorRunners,
+  useModelCatalog,
+  useModelServerStatus,
   useSettings,
 } from "./hooks";
 
@@ -100,6 +108,184 @@ function Toggle({
  * undiscoverable feature is one nobody has. This is the whole of what the handoff called item 2
  * of three: a place to type the command, a statement of whether it can be FOUND, and the same
  * "forced by the environment" honesty the groups above already keep. */
+/** Bytes as a person reads them. `sizeBytes` arrives as `number | null` because specta maps
+ * an f64 that way (JSON cannot carry NaN); it is never actually null, and `?? 0` costs less
+ * than a 4.29 GB ceiling waiting to overflow in a `u32`. */
+function gb(bytes: number | null): string {
+  return `${((bytes ?? 0) / 1e9).toFixed(1)} GB`;
+}
+
+/** Local models (ADR-0080): download a free, permissively licensed model and serve it here.
+ *
+ * The honesty rules this group follows. The SIZE and the free space are on screen before the
+ * button, because gigabytes are a cost and L21 says a cost is visible before it is spent. A
+ * model that will not fit says so instead of failing halfway. And the runner is resolved on
+ * every status read, so "install llama.cpp" appears BEFORE someone clicks Serve rather than
+ * as a refusal afterwards — the one place this feature is not yet zero-setup, stated rather
+ * than discovered. */
+function LocalModelsGroup() {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  // No configured-runner box yet: `resolve_runner` supports one (bundled -> setting -> PATH),
+  // and the SETTING half has no field on this panel, so this resolves from PATH. Recorded as a
+  // plan item rather than referenced as though it existed.
+  const configuredRunner: string | null = null;
+
+  // Poll only while something is actually downloading. An idle panel is not a timer.
+  const catalog = useModelCatalog(false);
+  const downloading = (catalog.data ?? []).some((row) => row.download?.state === "running");
+  const live = useModelCatalog(downloading ? 500 : false);
+  const rows = live.data ?? catalog.data ?? [];
+  const server = useModelServerStatus(configuredRunner);
+
+  async function act(work: () => Promise<unknown>, whenItFails: string) {
+    setProblem(null);
+    try {
+      await work();
+      await queryClient.invalidateQueries({ queryKey: ["modelCatalog"] });
+      await queryClient.invalidateQueries({ queryKey: ["modelServer"] });
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : whenItFails);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="settings-group" aria-labelledby="local-models-heading">
+      <h2 id="local-models-heading">Local models</h2>
+      <p className="group-note">
+        Free, openly licensed models you can download and run on this machine. No account, no
+        key, and nothing you type goes anywhere — once a model is downloaded it works with the
+        network unplugged. Downloads start only when you press Download.
+      </p>
+
+      {problem !== null && (
+        <p className="yellow" role="alert">
+          {problem}
+        </p>
+      )}
+      {server.data !== undefined && server.data.runner === null && (
+        <p className="yellow" data-testid="runner-missing">
+          {server.data.runner_problem}
+        </p>
+      )}
+      {rows.length === 0 && !catalog.isLoading && (
+        <p className="group-note" data-testid="models-empty">
+          No models are listed. This build shipped without a catalogue.
+        </p>
+      )}
+
+      {rows.map((row: ModelCatalogRow) => {
+        const state = row.download?.state ?? null;
+        const isDownloading = state === "running";
+        const done = row.download?.doneBytes ?? 0;
+        const total = row.download?.totalBytes ?? row.sizeBytes ?? 0;
+        const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+        return (
+          <div key={row.id} className="setting-stack" data-testid={`model-${row.id}`}>
+            <div className="setting-label">
+              {row.label} <span className="group-note">· {gb(row.sizeBytes)} · {row.license}</span>
+            </div>
+            <p className="group-note">
+              {row.goodAt} {row.ramNote}
+            </p>
+
+            {row.installed && (
+              <p className="group-note" data-testid={`installed-${row.id}`}>
+                Downloaded. {gb(row.freeBytes)} free on this disk.
+              </p>
+            )}
+            {!row.installed && !row.fitsOnDisk && (
+              <p className="yellow" data-testid={`too-big-${row.id}`}>
+                This needs {gb(row.sizeBytes)} and only {gb(row.freeBytes)} is free — free
+                some space first, rather than starting a download that cannot finish.
+              </p>
+            )}
+            {isDownloading && (
+              <p className="group-note" data-testid={`progress-${row.id}`}>
+                Downloading… {percent}% ({gb(done)} of {gb(total)})
+              </p>
+            )}
+            {state === "failed" && row.download !== null && (
+              <p className="yellow" role="alert" data-testid={`failed-${row.id}`}>
+                {row.download.error}
+              </p>
+            )}
+            {state === "cancelled" && row.download !== null && (
+              <p className="group-note" data-testid={`cancelled-${row.id}`}>
+                {row.download.error}
+              </p>
+            )}
+
+            <div className="setting-row">
+              {!row.installed && !isDownloading && (
+                <button
+                  disabled={busy !== null || !row.fitsOnDisk}
+                  data-testid={`download-${row.id}`}
+                  onClick={() => {
+                    setBusy(row.id);
+                    void act(
+                      () => startModelDownload(row.id),
+                      "the download could not be started",
+                    );
+                  }}
+                >
+                  Download
+                </button>
+              )}
+              {isDownloading && (
+                <button
+                  data-testid={`stop-${row.id}`}
+                  onClick={() => void act(() => cancelModelDownload(row.id), "could not stop")}
+                >
+                  Stop
+                </button>
+              )}
+              {row.installed && (
+                <>
+                  <button
+                    disabled={busy !== null || server.data?.runner == null}
+                    data-testid={`serve-${row.id}`}
+                    onClick={() => {
+                      setBusy(row.id);
+                      void act(
+                        () => startModelServer(row.installedPath ?? "", configuredRunner),
+                        "the model server could not be started",
+                      );
+                    }}
+                  >
+                    Serve
+                  </button>
+                  <button
+                    data-testid={`remove-${row.id}`}
+                    onClick={() => void act(() => removeModel(row.id), "could not remove it")}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      {server.data?.running === true && (
+        <div className="setting-stack">
+          <p className="group-note" data-testid="server-running">
+            Serving on 127.0.0.1 — pick it in the model list to chat with it. It is reachable
+            only from this machine.
+          </p>
+          <button data-testid="stop-server" onClick={() => void act(stopModelServer, "could not stop")}>
+            Stop serving
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function EditorRunnersGroup() {
   const runners = useEditorRunners();
   const queryClient = useQueryClient();
@@ -591,6 +777,8 @@ export function SettingsView() {
       </section>
 
       <EditorRunnersGroup />
+
+      <LocalModelsGroup />
 
       <section className="settings-group" aria-labelledby="privacy-heading">
         <h2 id="privacy-heading">Privacy</h2>
