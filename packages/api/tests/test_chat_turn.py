@@ -161,6 +161,27 @@ def _start(api: Any, text: str, **extra: Any) -> dict[str, Any]:
     return ack
 
 
+def _delta_text_of(frame: Any) -> str | None:
+    """The text of an `on_message_delta` frame, read the way the CLIENT reads it.
+
+    Deliberately NOT `chatturn._delta_text`: a test that measures the stream with the
+    production helper is blind to a bug in that helper, and this file's whole subject is
+    whether the frames a consumer sees are correct.
+    """
+    if not isinstance(frame, dict) or frame.get("event") != "on_message_delta":
+        return None
+    try:
+        content = frame["data"]["delta"]["content"]
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(content, list) or len(content) != 1:
+        return None
+    part = content[0]
+    if not isinstance(part, dict) or part.get("type") != "text":
+        return None
+    return str(part.get("text", ""))
+
+
 def _events(api: Any, stream_id: str, after: int = 0) -> dict[str, Any]:
     resp = api.client.get(f"/v1/chat/turns/{stream_id}/events", params={"after": after})
     assert resp.status_code == 200, resp.text
@@ -882,6 +903,103 @@ class TestCoverageNamedArms:
         stored_tail = _events(api, ack["streamId"], after=prev_seq)
         assert [e["seq"] for e in stored_tail["events"]] == [last_seq]
         assert stored_tail["events"][0]["frame"].get("final") is True
+
+    def test_a_coalesced_frame_carries_its_runs_LAST_seq_so_a_resume_repeats_nothing(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        """LC06/ADR-0079 §7's actual invariant, and the one the suite could not see.
+
+        `_coalesce_deltas` merges adjacent same-step text deltas into ONE frame and sets
+        `merged["seq"] = event["seq"]` — the run's LAST seq. The docstring calls that rule
+        load-bearing "because a consumer that saw the merged frame has seen everything up to
+        that seq", and it is: `useResumableSSE` resumes with `after=<the seq it last saw>`.
+
+        Deleting that one line left all 37 tests in this file green. The sibling cursor test
+        above cannot catch it because it reads BOTH its cursor and its expectation out of the
+        same (mutated) event list, so it stays self-consistent — an expectation derived from
+        the output cannot contradict the output.
+
+        This asserts the user-visible consequence instead: resume from the cursor a client
+        would actually hold after rendering the whole stream, and require that the tail
+        carries no delta text at all. With the merged frame carrying the FIRST seq, the tail
+        re-serves every chunk after the run's first one and the reader sees duplicated text.
+        """
+        ack = _start(api, "coalescing cursor test")
+        full = _wait_terminal(api, ack["streamId"])
+        events = full["events"]
+
+        def delta_text(payload_events: list[dict[str, Any]]) -> str:
+            return "".join(
+                str(t) for e in payload_events if (t := _delta_text_of(e.get("frame"))) is not None
+            )
+
+        whole = delta_text(events)
+        assert whole, "no delta text streamed — this test would be vacuous (trap 60)"
+        deltas = [e for e in events if _delta_text_of(e.get("frame")) is not None]
+        assert deltas, "no delta frames at all"
+
+        # A merge must actually have HAPPENED, or the seq rule under test was never
+        # exercised and everything below is green about nothing (trap 60). The peer sends
+        # three chunks; a working coalescer delivers them as strictly fewer frames carrying
+        # the identical text.
+        assert len(chat_env.chunks) > 1, "the peer must send more than one chunk"
+        assert whole == "".join(chat_env.chunks), (
+            "the delivered text must be exactly what the peer streamed"
+        )
+        assert len(deltas) < len(chat_env.chunks), (
+            f"{len(chat_env.chunks)} chunks arrived as {len(deltas)} frame(s) — nothing was "
+            f"coalesced, so the LAST-seq rule is not under test here"
+        )
+
+        # The cursor a client holds once it has rendered every delta it was sent.
+        cursor = deltas[-1]["seq"]
+        tail = _events(api, ack["streamId"], after=cursor)
+        assert delta_text(tail["events"]) == "", (
+            "resuming from the last delta frame's seq re-delivered text the client had "
+            "already rendered — the merged frame is not carrying its run's LAST seq"
+        )
+
+        # Both paths, because a reload reads the STORE and must agree with the live feed.
+        chat_router._REGISTRY.clear()
+        stored_full = _events(api, ack["streamId"], after=0)
+        assert delta_text(stored_full["events"]) == whole, (
+            "the store replay must render exactly what the stream rendered"
+        )
+        stored_deltas = [
+            e for e in stored_full["events"] if _delta_text_of(e.get("frame")) is not None
+        ]
+        stored_tail = _events(api, ack["streamId"], after=stored_deltas[-1]["seq"])
+        assert delta_text(stored_tail["events"]) == ""
+
+    def test_every_cursor_in_the_stream_splits_the_text_without_overlap(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        """The general form: for EVERY seq in the stream, what was delivered up to that seq
+        plus what a resume from it delivers must equal the whole text exactly once. A rule
+        that only held at the end would still duplicate mid-stream, which is precisely when
+        a real reconnect happens."""
+        ack = _start(api, "every cursor")
+        full = _wait_terminal(api, ack["streamId"])
+        events = full["events"]
+
+        def delta_text(payload_events: list[dict[str, Any]]) -> str:
+            return "".join(
+                str(t) for e in payload_events if (t := _delta_text_of(e.get("frame"))) is not None
+            )
+
+        whole = delta_text(events)
+        assert whole, "vacuous without streamed text"
+        checked = 0
+        for event in events:
+            seq = event["seq"]
+            head = delta_text([e for e in events if e["seq"] <= seq])
+            tail = delta_text(_events(api, ack["streamId"], after=seq)["events"])
+            assert head + tail == whole, (
+                f"resuming after seq {seq} does not split the text cleanly: "
+                f"{head!r} + {tail!r} != {whole!r}"
+            )
+            checked += 1
+        assert checked == len(events) and checked > 0, "no cursors were actually exercised"
 
     def test_a_broken_meter_disk_never_kills_the_turn(
         self, chat_env: ChatPeer, tmp_path: Path
