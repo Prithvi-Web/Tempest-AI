@@ -23,7 +23,9 @@ from typing import Any
 
 import pytest
 
+from tempest.agent.events import CostCapReached, ModelUnavailable
 from tempest.dev._first_party import mark_first_party
+from tempest_api.agentturn import _stop_note
 from tempest_api.routers import chat as chat_router
 
 
@@ -40,10 +42,19 @@ class AgentPeer:
         self.script: list[dict[str, Any]] = []
         self.stream_chunks: list[str] = ["Hel", "lo"]
         self.requests: list[dict[str, Any]] = []
+        #: Answer HTTP 503 once this many non-stream completions have been served. `None`
+        #: never fails. This is how a mid-turn provider OUTAGE is produced — the condition
+        #: `_converse` soft-breaks on (L23) and the surface has to report.
+        self.fail_after: int | None = None
+        self.completions = 0
         self._lock = threading.Lock()
 
-    def next_reply(self) -> dict[str, Any]:
+    def next_reply(self) -> dict[str, Any] | None:
+        """`None` means "answer 503" — the provider died mid-turn."""
         with self._lock:
+            if self.fail_after is not None and self.completions >= self.fail_after:
+                return None
+            self.completions += 1
             return self.script.pop(0) if self.script else {"text": "all done"}
 
 
@@ -87,7 +98,16 @@ def agent_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Agent
                     self.wfile.write(b"data: " + frame.encode() + b"\n\n")
                 self.wfile.write(b"data: [DONE]\n\n")
                 return
-            payload = _completion_body(peer.next_reply())
+            reply = peer.next_reply()
+            if reply is None:
+                self.send_response(503)
+                self.send_header("Content-Type", "application/json")
+                body = b'{"error":{"message":"upstream is down"}}'
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            payload = _completion_body(reply)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -300,6 +320,86 @@ class TestToolBearingTurns:
         )
         assert "read_file" in refused["output"], (
             "the refusal must list what the agent DOES offer, or the model cannot recover"
+        )
+
+    def test_the_two_stop_notes_read_differently_and_carry_the_real_reason(self) -> None:
+        """An outage is transient and worth retrying; a cap is a decision the user made and
+        has to change. A single generic "something went wrong" for both would be an apology
+        with no content, which is precisely what L23 forbids — so each note names its own
+        condition, carries the provider's own words, and says what the user can do next.
+
+        The other half of the contract: neither note may borrow the reserved verdict
+        vocabulary (L31). These sentences say why the LOOP stopped, never what the change
+        does — the engine's verdict for whatever was staged is computed exactly as usual.
+        """
+        outage = _stop_note(ModelUnavailable(message="anthropic: HTTP 503 upstream is down"))
+        capped = _stop_note(CostCapReached(message="session cap reached at $5.00"))
+
+        assert "unavailable" in outage.lower()
+        assert "HTTP 503 upstream is down" in outage, "the provider's own words must survive"
+        assert "try again" in outage.lower()
+
+        assert "cost cap" in capped.lower()
+        assert "session cap reached at $5.00" in capped
+        assert "raise the cap" in capped.lower()
+
+        assert outage != capped, "two different conditions must not read identically"
+        for note in (outage, capped):
+            assert "still proved" in note, (
+                "the user must be told the staged work still got its verdict (L23)"
+            )
+            for reserved in ("DIVERGENT", "EQUIVALENT_UNDER_BUDGET", "UNPROVEN", "ERROR"):
+                assert reserved not in note, f"L31: {reserved!r} is the engine's word, not a note's"
+
+    def test_a_midturn_provider_outage_is_reported_not_swallowed(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """L23/L15.3: the loop ends, the shadow is still proved — and the user is TOLD why.
+
+        `_converse` handles a mid-turn `ModelError` by emitting `ModelUnavailable` and
+        soft-breaking, deliberately, so whatever is already staged still gets proved and
+        shown with its real verdict. `run_task` then returns NORMALLY. The surface's `emit`
+        ended in a bare `else: return`, so that event was dropped on the floor: the turn
+        persisted as `status: complete, error: false` carrying only turn 1's narration, and
+        a user whose provider had just died was shown a finished, error-free answer that
+        silently stopped early. A catch that continues without surfacing is a build failure
+        (L15.3), and this was its quietest form — nothing was even caught.
+        """
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Let me look at app.py.",
+                "tool_calls": [{"name": "read_file", "arguments": {"path": "app.py"}}],
+            },
+        ]
+        agent_env.fail_after = 1  # turn 2's completion meets a 503
+
+        ack = _start(api, agent["id"], "Explain total")
+        payload = _wait_terminal(api, ack["streamId"])
+        frames = _frames(payload)
+        final = frames[-1]
+        text = final["responseMessage"]["text"]
+
+        assert "Let me look at app.py." in text, (
+            "the partial answer the model DID give must survive — the turn was proved"
+        )
+        assert "unavailable" in text.lower(), (
+            f"the turn stopped because the provider died and must say so; got {text!r}"
+        )
+        assert "503" in text or "upstream" in text.lower(), (
+            "the reason must be specific enough to act on (L23), not a generic apology"
+        )
+
+        # It has to arrive LIVE too, not only on reload: a user watching the stream sees the
+        # tokens stop, and a note that only appears in the persisted message is a note they
+        # never read.
+        deltas = "".join(
+            str(f["data"]["delta"]["content"][0]["text"])
+            for f in frames
+            if f.get("event") == "on_message_delta"
+        )
+        assert "unavailable" in deltas.lower(), (
+            "the outage note must ride the stream, not appear only after a reload"
         )
 
     def test_ask_user_outside_the_agents_selection_is_refused_not_asked(

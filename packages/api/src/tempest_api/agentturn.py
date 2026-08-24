@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING, Any
 
 from tempest.agent.events import (
     AgentEvent,
+    CostCapReached,
+    ModelUnavailable,
     Narration,
     Proving,
     ToolCallFinished,
@@ -60,6 +62,31 @@ _ACTIVITY_LABELS = {
     "prove": "Proving the change",
     "ask_user": "Waiting on you",
 }
+
+
+def _stop_note(event: ModelUnavailable | CostCapReached) -> str:
+    """The sentence a user reads when the turn ended early but still got proved.
+
+    Both conditions are honest degradations, not defects, and they read differently: an
+    outage is transient and worth retrying, a cap is a decision the user made and has to
+    change. Neither may be phrased as an apology with no content — L23 wants a SPECIFIC
+    reason, so the provider's own message rides along via `describe()`.
+
+    Nothing here touches the reserved verdict vocabulary (L31): this narrates why the LOOP
+    stopped, and says nothing about what the change does. The engine's verdict for whatever
+    was staged is computed and recorded exactly as it would have been.
+    """
+    reason = event.describe()
+    if isinstance(event, CostCapReached):
+        return (
+            f"I stopped early: the cost cap was reached ({reason}). "
+            "What I had already staged was still proved — raise the cap or start a new turn "
+            "to continue."
+        )
+    return (
+        f"I stopped early: the model became unavailable ({reason}). "
+        "What I had already staged was still proved — try again once the provider answers."
+    )
 
 
 @dataclasses.dataclass
@@ -314,6 +341,28 @@ def run_agent_turn(
             part = {"type": "activity_label", "activity_label": "Proving the change"}
             index = allocate(part)
             job.append({"event": "on_activity_label", "data": {"index": index, "part": part}})
+        elif isinstance(event, (ModelUnavailable, CostCapReached)):
+            # The two events `_converse` SOFT-BREAKS on. It ends the loop and still proves
+            # the shadow on purpose (L23: degrade explicitly), then `run_task` returns
+            # normally — so nothing raises and `error_text` stays None. Without this arm the
+            # turn persisted as `complete, error: false` carrying only the narration it had
+            # managed before the provider died, and the user was shown a finished answer to
+            # a turn that broke. That is L15.3's quietest failure: not a catch that logs and
+            # continues, but a typed report with no reader.
+            #
+            # It rides the reply text rather than the `error` field because the turn did
+            # finish its lifecycle and the engine did compute a verdict for what was staged:
+            # marking the whole message an error would throw away a partial answer the user
+            # is entitled to. That is exactly what `_record_spend`'s `cap_note` already does
+            # for the cap it discovers at persist time — same shape, same place.
+            note = _stop_note(event)
+            chunk = note if not collected else f"\n\n{note}"
+            collected.append(chunk)
+            job.append(
+                chatwire.message_delta_frame(
+                    response_message_id=job.response_message_id, text=chunk
+                )
+            )
         else:
             return
         turns._flush_if_due(job)
