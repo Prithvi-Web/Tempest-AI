@@ -85,11 +85,11 @@ def catalogue(*, include_installed: bool = True) -> list[dict[str, Any]]:
     `installed` and `freeBytes` ride along so the UI never has to make a second call to answer
     "do I already have this, and will it fit".
     """
-    from tempest.models import CATALOG
+    from tempest.models.catalog import active_catalog
 
     free = disk_free_bytes()
     rows: list[dict[str, Any]] = []
-    for entry in CATALOG:
+    for entry in active_catalog():
         with _lock:
             job = _jobs.get(entry.id)
         already = partial_bytes(entry)

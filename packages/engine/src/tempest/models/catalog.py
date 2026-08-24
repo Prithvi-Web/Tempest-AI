@@ -20,7 +20,10 @@ rather than committing to a 2.5 GB download to find out.
 
 from __future__ import annotations
 
+import hashlib
+import os
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 #: The single host these files come from. It lives here and nowhere else: `egress_check`'s
 #: huggingface ledger is closed over this one constant, so a second hard-coded host anywhere
@@ -50,10 +53,16 @@ class CatalogEntry:
     sha256: str
     #: Honest guidance, not a hard gate: a machine with less will swap rather than refuse.
     ram_note: str
+    #: Where this row's bytes come from, when it is NOT the recorded model host. `None` on
+    #: every shipped row — the only thing that sets it is `_dev_entry`, and only to a loopback
+    #: address. It exists so the e2e suite can drive a real download through the real UI
+    #: without a shipped row ever pointing anywhere but `HUGGINGFACE_HOST`.
+    base_url: str | None = None
 
     @property
     def url(self) -> str:
-        return f"https://{HUGGINGFACE_HOST}/{self.repo}/resolve/main/{self.filename}"
+        base = self.base_url or f"https://{HUGGINGFACE_HOST}"
+        return f"{base}/{self.repo}/resolve/main/{self.filename}"
 
     @property
     def size_gb(self) -> float:
@@ -114,10 +123,90 @@ CATALOG: tuple[CatalogEntry, ...] = (
 )
 
 
+# ── the e2e row ──────────────────────────────────────────────────────────────────────────────
+#
+# A download is the one thing in this feature that cannot be proven by unit tests alone: the
+# question "does pressing Download in the real panel move a real progress bar and end with a
+# real file" crosses the engine, boundary A, the host, boundary B, react-query's poll and the
+# panel's own states. Answering it needs a row whose bytes come from somewhere a test can serve.
+#
+# TWO conditions, the same shape as `select_sandbox_for_repo`'s first-party rule (ADR-0008):
+# `TEMPEST_DEV=1` in the environment AND an explicit loopback base URL. Either alone does
+# nothing. A base that is not loopback REFUSES rather than falling back, because a silent
+# fallback is how a misconfigured harness ends up quietly downloading from the real host.
+#
+# Loopback is not egress, so this adds no surface to `egress_check`'s check 8 ledger — and the
+# integrity check stays fully live, because the row carries the real sha256 of the real bytes
+# the peer serves. Nothing here weakens verification; it only changes where the bytes come from.
+
+#: The dev payload, as a unit and a repeat count, so a peer in another language can produce the
+#: same bytes without a hash being copied by hand anywhere. The bridge's peer builds the same
+#: two values; if they ever disagree the download fails its real sha256 check, which is the
+#: loud failure rather than a quiet one.
+DEV_PAYLOAD_UNIT = b"tempest-e2e-gguf\n"
+#: Deliberately larger than `download._CHUNK` (1 MiB), and by more than one whole chunk.
+#:
+#: The first cut of this row was 68 KB, which is smaller than a single read — so the whole
+#: transfer arrived in ONE `response.read()` and progress went 0 → 100 with nothing in
+#: between. A real 639 MB model produces 639 reports; a payload under the chunk size produces
+#: one, so a spec written against it could not tell a working progress bar from a broken one.
+#: 4.25 MiB is five reads: enough for the panel's 500 ms poll to observe movement.
+DEV_PAYLOAD_REPEATS = 262_144
+DEV_PAYLOAD = DEV_PAYLOAD_UNIT * DEV_PAYLOAD_REPEATS
+
+#: Hosts a dev base URL may name. Anything else is refused.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+DEV_MODEL_ID = "tempest-e2e-tiny"
+DEV_BASE_ENV = "TEMPEST_DEV_MODEL_BASE"
+
+
+class CatalogueMisconfigured(RuntimeError):
+    """A dev catalogue base that will not be used, with the reason (L15.3)."""
+
+
+def _dev_entry() -> CatalogEntry | None:
+    """The e2e row, or None. Raises when the environment asks for something unsafe."""
+    if os.environ.get("TEMPEST_DEV") != "1":
+        return None
+    base = os.environ.get(DEV_BASE_ENV, "").strip().rstrip("/")
+    if not base:
+        return None
+    host = (urlsplit(base).hostname or "").lower()
+    if host not in _LOOPBACK_HOSTS:
+        raise CatalogueMisconfigured(
+            f"{DEV_BASE_ENV} is {base!r}, whose host {host!r} is not loopback. This variable "
+            f"exists so a test can serve model bytes from this machine; pointing it anywhere "
+            f"else would make Tempest fetch a model from an unaudited host, so it is refused "
+            f"rather than ignored."
+        )
+    return CatalogEntry(
+        id=DEV_MODEL_ID,
+        label="Tempest E2E Tiny",
+        good_at="Nothing at all — it exists so the download path can be tested for real.",
+        license="apache-2.0",
+        repo="tempest/e2e",
+        filename="tiny.gguf",
+        size_bytes=len(DEV_PAYLOAD),
+        sha256=hashlib.sha256(DEV_PAYLOAD).hexdigest(),
+        ram_note="Runs in no memory worth measuring.",
+        base_url=base,
+    )
+
+
+def active_catalog() -> tuple[CatalogEntry, ...]:
+    """Every row a caller may act on: the shipped catalogue, plus the e2e row when the two
+    conditions above are both met. Every other caller reads THIS, not `CATALOG`, so the
+    downloader, the job layer and the panel cannot disagree about what exists."""
+    dev = _dev_entry()
+    return CATALOG if dev is None else (*CATALOG, dev)
+
+
 def entry_for(model_id: str) -> CatalogEntry | None:
-    """The catalogue row with this id, or None. Never raises: an unknown id is a 404 to
-    answer, not an exception to translate."""
-    for entry in CATALOG:
+    """The catalogue row with this id, or None. Never raises for an unknown id: that is a 404
+    to answer, not an exception to translate. It DOES propagate a misconfigured dev base,
+    because a caller that cannot be told which rows exist must not be told "not found"."""
+    for entry in active_catalog():
         if entry.id == model_id:
             return entry
     return None

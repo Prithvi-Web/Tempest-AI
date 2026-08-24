@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   LOCAL_MODEL_REMEDY,
   hasLocalModelRemedy,
-} from "../../platform/client/tempest/views/localModelRemedy";
+} from "../../platform/client/tempest/views/remedy";
 
 describe("hasLocalModelRemedy", () => {
   it("recognises the remedy the engine actually sends", () => {

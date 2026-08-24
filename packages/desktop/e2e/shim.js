@@ -166,6 +166,40 @@
             : "unknown";
         throw { kind: "unsupported", language };
       }
+      // Host-side (modelserver.rs — ADR-0080 §1): the model SERVER is a child of the Rust
+      // host, so there is no sidecar behind these three and this browser harness replaces the
+      // host. The stand-in mirrors what the real commands answer on a machine with no
+      // `llama-server` on PATH — which is this Mac, and every CI runner, and the state
+      // ADR-0080 §6 says the feature refuses honestly in.
+      //
+      // What that means for coverage, stated rather than implied: this harness exercises the
+      // panel's runner-missing branch and its refusal to offer Serve, and it does NOT exercise
+      // starting a real server. Serving is pinned in Rust, where it lives — the argv the child
+      // is given, the busy-port refusal, the liveness of `status`, the exit sweep's membership
+      // — because a fake server would only ever prove the fake.
+      if (cmd === "model_server_status") {
+        return {
+          running: false,
+          model_path: null,
+          runner: null,
+          runner_problem:
+            "no `llama-server` was found on your PATH. Tempest does not bundle one yet, so " +
+            "serving a downloaded model needs it installed — `brew install llama.cpp` on " +
+            "macOS. Your downloaded models are kept and will work as soon as it is there.",
+        };
+      }
+      if (cmd === "start_model_server") {
+        // The real command refuses for the same reason, before it touches the port.
+        throw {
+          code: -3,
+          message:
+            "no `llama-server` was found on your PATH. Tempest does not bundle one yet, so " +
+            "serving a downloaded model needs it installed — `brew install llama.cpp` on macOS.",
+        };
+      }
+      if (cmd === "stop_model_server") {
+        return { running: false, model_path: null, runner: null, runner_problem: "" };
+      }
       // Host-side (commands.rs read_project_file): no sidecar behind it. The bridge does a real
       // read; the guard's rules live in Rust and are pinned there.
       if (cmd === "read_project_file") {

@@ -52,6 +52,60 @@ const listOf = (name) => ({ type: "array", items: def(name) });
  * read_project_file) have no row — the shim answers those without an engine behind them.
  * `getDivergenceRepro` stays the one transport-level type defined in the Rust host.
  */
+/** One download job's state, as `modeldownloads._Job.snapshot` writes it. */
+function modelDownloadState() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["modelId", "state", "doneBytes", "totalBytes", "error"],
+    properties: {
+      modelId: { type: "string" },
+      state: { enum: ["running", "done", "failed", "cancelled", "absent"] },
+      doneBytes: { type: "number" },
+      totalBytes: { type: "number" },
+      error: { type: "string" },
+    },
+  };
+}
+
+/** One catalogue row. Every field here is read by `LocalModelsGroup`. */
+function modelCatalogRow() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "id",
+      "label",
+      "goodAt",
+      "license",
+      "sizeBytes",
+      "ramNote",
+      "installed",
+      "installedPath",
+      "freeBytes",
+      "fitsOnDisk",
+      "partialBytes",
+      "strayBytes",
+      "download",
+    ],
+    properties: {
+      id: { type: "string" },
+      label: { type: "string" },
+      goodAt: { type: "string" },
+      license: { type: "string" },
+      sizeBytes: { type: "number" },
+      ramNote: { type: "string" },
+      installed: { type: "boolean" },
+      installedPath: { type: "string" },
+      freeBytes: { type: "number" },
+      fitsOnDisk: { type: "boolean" },
+      partialBytes: { type: "number" },
+      strayBytes: { type: "number" },
+      download: { anyOf: [{ type: "null" }, modelDownloadState()] },
+    },
+  };
+}
+
 const RESULT_SCHEMAS = {
   getHealth: def("HealthResponse"),
   listRuns: def("Page_RunSummary_"),
@@ -80,6 +134,24 @@ const RESULT_SCHEMAS = {
   stopWatch: def("WatchStatus"),
   reportUiError: def("UiErrorRecorded"),
   startDemoProve: def("RunCreated"),
+  // ── ADR-0080: the local-model surface ────────────────────────────────────────────────
+  //
+  // Spelled out rather than `def(...)`, because these routes answer `list[dict[str, Any]]`
+  // and therefore have no named component in the OpenAPI — which means boundary A carries
+  // these shapes UNTYPED, and the only thing standing between a renamed Python key and a
+  // silently `undefined` field in the panel is this net. That is exactly the drift L36.8
+  // exists to forbid, so the schemas are strict: `additionalProperties: false` makes adding a
+  // field an explicit obligation here, in the same commit, rather than a shape the harness
+  // waves through and the panel ignores.
+  listModelCatalog: { type: "array", items: modelCatalogRow() },
+  startModelDownload: modelDownloadState(),
+  cancelModelDownload: modelDownloadState(),
+  removeModel: {
+    type: "object",
+    additionalProperties: false,
+    required: ["modelId", "removed"],
+    properties: { modelId: { type: "string" }, removed: { type: "boolean" } },
+  },
 };
 
 const compiled = new Map();

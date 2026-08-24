@@ -73,7 +73,7 @@ export default defineConfig({
         // The keyless-turn remedy's DECISION (ADR-0080 §8). Its markup lives beside it in
         // `LocalModelRemedy.tsx` and is e2e-pinned like every other view; the predicate is a
         // pure function reading an untyped frame field, which is exactly what this gate is for.
-        `${SEAM}/localModelRemedy.ts`,
+        `${SEAM}/remedy.ts`,
         // The C5 stream transport's state machine; its tauri glue (streamHost.ts) is
         // e2e-pinned like hooks.ts and deliberately not measured here.
         `${STREAM}/TempestSSE.ts`,

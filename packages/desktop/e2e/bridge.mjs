@@ -62,20 +62,54 @@ let chatPeer = {
   requests: [],
   script: [],
 };
+// The model-file peer. The payload is built from the SAME unit and repeat count
+// `tempest/models/catalog.py` uses to derive the e2e row's size and sha256 — one definition of
+// the bytes, in two languages, verified by the download's own hash check rather than trusted.
+// 262144 repeats = 4,456,448 bytes: five of the downloader's 1 MiB reads, so progress moves
+// more than once. `catalog.py` carries the same two values and derives the row's sha256 from
+// them; a disagreement fails the download's real hash check rather than passing quietly.
+const HF_PAYLOAD = Buffer.from("tempest-e2e-gguf\n".repeat(262144), "utf8");
+const HF_PATH = "/hf-peer/tempest/e2e/resolve/main/tiny.gguf";
+let hfPeer = { chunks: 24, delayMs: 200, requests: [] };
 let stdoutBuf = Buffer.alloc(0);
 let nextRpcId = 1;
 const pending = new Map(); // rpc id -> {resolve, reject, timer}
+
+/** The engine's environment, minus anything that could spend the owner's money.
+ *
+ * The suite inherits `process.env`, and two specs depend on a provider having NO key: the
+ * Settings spec asserts the honest keyless answer, and the local-models spec asserts the
+ * keyless turn's remedy. On a machine where the developer exports `ANTHROPIC_API_KEY` — which
+ * is every machine this app is built on — those specs would instead send REAL requests to a
+ * real paid API, and the assertion they make would fail for the most expensive possible
+ * reason. A test suite must not be able to bill anybody.
+ *
+ * Stripped by shape rather than by a list, because the list is `providers.py`'s and this file
+ * cannot import it: every `*_API_KEY`, plus the two that spell it differently.
+ */
+function engineEnv() {
+  const env = { ...process.env };
+  for (const name of Object.keys(env)) {
+    if (/_API_KEY$/.test(name) || name === "OPENAI_API_KEY" || name === "AWS_SECRET_ACCESS_KEY") {
+      delete env[name];
+    }
+  }
+  return env;
+}
 
 function spawnSidecar() {
   child = spawn("uv", ["run", "tempest-server", "--stdio", "--data-dir", dataDir], {
     cwd: REPO_ROOT,
     env: {
-      ...process.env,
+      ...engineEnv(),
       TEMPEST_DEV: "1",
       TEMPEST_NO_POWER_PAUSE: "1",
       // C5 chat specs: the engine's ollama provider reaches the bridge's own scripted
       // OpenAI-wire peer — the exact way a real local runner is reached, no mocks (L4).
       TEMPEST_MODEL_BASE_URL_OLLAMA: `http://127.0.0.1:${PORT}/chat-peer/v1`,
+      // ADR-0080: the e2e catalogue row's bytes come from the peer below. Loopback, and the
+      // engine refuses this variable if it is anything else.
+      TEMPEST_DEV_MODEL_BASE: `http://127.0.0.1:${PORT}/hf-peer`,
     },
     stdio: ["pipe", "pipe", "inherit"],
     detached: true, // own process group, so engine-down can SIGKILL the whole tree
@@ -195,6 +229,13 @@ const COMMANDS = {
   stop_watch: () => ["stopWatch", {}],
   report_ui_error: (a) => ["reportUiError", { body: a.report }],
   start_demo_prove: () => ["startDemoProve", {}],
+  // ADR-0080: the catalogue and the downloads live in the ENGINE and cross boundary A like
+  // every other long operation. Serving does NOT appear here — it is a child of the Rust host
+  // this harness replaces, and shim.js answers those three directly.
+  list_model_catalog: () => ["listModelCatalog", {}],
+  start_model_download: (a) => ["startModelDownload", { model_id: a.modelId }],
+  cancel_model_download: (a) => ["cancelModelDownload", { model_id: a.modelId }],
+  remove_model: (a) => ["removeModel", { model_id: a.modelId }],
 };
 
 // ── HTTP surface (CORS: the page lives on localhost:1420, we are 127.0.0.1:PORT) ──────────
@@ -264,6 +305,82 @@ const server = http.createServer(async (req, res) => {
   // above); /admin/chat-peer scripts its next answers. hold/resume make cancellation a fact
   // rather than a race (trap 61): the peer stops after its first delta until resumed, and
   // records whether the client genuinely hung up.
+  // ── ADR-0080: the model-file peer ────────────────────────────────────────────────────
+  //
+  // The engine's e2e catalogue row points here (TEMPEST_DEV_MODEL_BASE above). It serves the
+  // same bytes `catalog.py` derives the row's sha256 from — the unit and the repeat count are
+  // the shared constants, so no hash is copied by hand and a disagreement between the two
+  // sides fails the download's real verification rather than passing quietly.
+  //
+  // It writes the body in pieces with a pause between them for the same reason the chat peer
+  // has staged holds: loopback delivers 68 KB before a browser can react, and a spec about
+  // watching progress MOVE needs the producer to be the slow one, or it is a race (trap 61).
+  if (req.method === "POST" && req.url === "/admin/hf-peer") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      try {
+        const body = raw ? JSON.parse(raw) : {};
+        hfPeer = {
+          chunks: typeof body.chunks === "number" ? body.chunks : 24,
+          delayMs: typeof body.delayMs === "number" ? body.delayMs : 200,
+          requests: [],
+        };
+        json(res, 200, { armed: true, bytes: HF_PAYLOAD.length });
+      } catch (err) {
+        json(res, 400, { error: String(err) });
+      }
+    });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/admin/hf-peer/state") {
+    json(res, 200, { requests: hfPeer.requests, bytes: HF_PAYLOAD.length });
+    return;
+  }
+  if (req.url?.startsWith("/hf-peer/")) {
+    if (req.url !== HF_PATH) {
+      res.writeHead(404, { "content-length": "0" });
+      res.end();
+      return;
+    }
+    const range = req.headers["range"] ?? null;
+    hfPeer.requests.push({ path: req.url, range });
+    let start = 0;
+    if (typeof range === "string" && range.startsWith("bytes=")) {
+      start = Number.parseInt(range.slice("bytes=".length).split("-")[0], 10) || 0;
+    }
+    if (start >= HF_PAYLOAD.length) {
+      res.writeHead(416, { "content-length": "0" });
+      res.end();
+      return;
+    }
+    const body = HF_PAYLOAD.subarray(start);
+    const headers = {
+      "content-type": "application/octet-stream",
+      "content-length": String(body.length),
+    };
+    if (start > 0) {
+      headers["content-range"] =
+        `bytes ${start}-${start + body.length - 1}/${HF_PAYLOAD.length}`;
+    }
+    res.writeHead(start > 0 ? 206 : 200, headers);
+    const pieces = Math.max(1, hfPeer.chunks);
+    const size = Math.ceil(body.length / pieces);
+    let offset = 0;
+    const pump = () => {
+      if (offset >= body.length) {
+        res.end();
+        return;
+      }
+      // `write` returning false means the socket is backed up; ignoring it here is safe at
+      // this size and keeps the pacing the spec depends on.
+      res.write(body.subarray(offset, offset + size));
+      offset += size;
+      setTimeout(pump, hfPeer.delayMs);
+    };
+    pump();
+    return;
+  }
   if (req.method === "POST" && req.url === "/admin/chat-peer") {
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));

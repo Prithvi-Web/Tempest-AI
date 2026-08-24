@@ -84,11 +84,17 @@ class TestTheCatalogueIsHonestData:
             assert dl.safe_leaf(entry.id) == entry.id
             assert dl.safe_leaf(entry.filename) == entry.filename
 
-    def test_every_url_is_the_one_recorded_host(self) -> None:
-        """The host lives in exactly one constant so `egress_check` can close a ledger over
-        it. A row that hard-codes a different host would be a second egress surface."""
-        for entry in CATALOG:
-            assert entry.url.startswith(f"https://{catalog_mod.HUGGINGFACE_HOST}/"), entry.id
+    def test_the_recorded_host_is_the_one_the_ledger_names(self) -> None:
+        """The host lives in exactly one constant so `egress_check` can close a ledger over it.
+
+        Read as a LITERAL. The previous version asserted
+        `entry.url.startswith(f"https://{HUGGINGFACE_HOST}/")` — and `url` is built from that
+        same global, so both sides moved together and no value of either could fail it. It was
+        cited as the thing protecting the single-egress-surface property while being unable to
+        catch `HUGGINGFACE_HOST = "models.exfil.example"`, which is the exact edit it existed
+        for. (The per-row assertion moved to `TestTheE2ERowIsGatedTwice`, where `base_url` —
+        the field that makes any other host expressible at all — is checked too.)"""
+        assert catalog_mod.HUGGINGFACE_HOST == "huggingface.co"
 
     def test_an_unknown_id_is_a_none_not_an_exception(self) -> None:
         assert entry_for(CATALOG[0].id) is CATALOG[0]
@@ -794,3 +800,62 @@ class TestProgressArithmetic:
     def test_a_fraction_never_exceeds_one_even_if_a_peer_overruns(self) -> None:
         assert dl.DownloadProgress(500, 100).fraction == 1.0
         assert dl.DownloadProgress(50, 100).fraction == 0.5
+
+
+class TestTheE2ERowIsGatedTwice:
+    """The dev row exists so a download can be driven through the REAL panel. Both of its
+    conditions are asserted, in both directions, because a row that appears by accident is a
+    row that could point a real user's download somewhere nobody audited."""
+
+    def test_neither_condition_alone_produces_a_row(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("TEMPEST_DEV", raising=False)
+        monkeypatch.delenv(catalog_mod.DEV_BASE_ENV, raising=False)
+        assert catalog_mod.active_catalog() == CATALOG
+
+        monkeypatch.setenv("TEMPEST_DEV", "1")
+        assert catalog_mod.active_catalog() == CATALOG, "dev alone is not enough"
+
+        monkeypatch.delenv("TEMPEST_DEV")
+        monkeypatch.setenv(catalog_mod.DEV_BASE_ENV, "http://127.0.0.1:4321")
+        assert catalog_mod.active_catalog() == CATALOG, "a base alone is not enough"
+
+    def test_both_conditions_produce_one_extra_row_whose_hash_is_its_real_payload(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("TEMPEST_DEV", "1")
+        monkeypatch.setenv(catalog_mod.DEV_BASE_ENV, "http://127.0.0.1:4321/hf-peer")
+        rows = catalog_mod.active_catalog()
+        assert len(rows) == len(CATALOG) + 1
+        dev = rows[-1]
+        assert dev.id == catalog_mod.DEV_MODEL_ID
+        assert dev.url == "http://127.0.0.1:4321/hf-peer/tempest/e2e/resolve/main/tiny.gguf"
+        # The integrity check stays fully live: the row's hash is the hash of the bytes the
+        # peer will serve, computed here rather than copied from anywhere.
+        assert dev.size_bytes == len(catalog_mod.DEV_PAYLOAD)
+        assert dev.sha256 == hashlib.sha256(catalog_mod.DEV_PAYLOAD).hexdigest()
+        assert dev.license in ("apache-2.0", "mit")
+
+    def test_a_base_that_is_not_loopback_refuses_rather_than_falling_back(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A silent fallback is how a misconfigured harness ends up quietly downloading from
+        the real host — which is the one thing this variable must never be able to cause."""
+        monkeypatch.setenv("TEMPEST_DEV", "1")
+        for hostile in (
+            "https://huggingface.co",
+            "http://127.0.0.1.evil.example",
+            "http://models.internal",
+        ):
+            monkeypatch.setenv(catalog_mod.DEV_BASE_ENV, hostile)
+            with pytest.raises(catalog_mod.CatalogueMisconfigured, match="not loopback"):
+                catalog_mod.active_catalog()
+
+    def test_every_shipped_row_still_resolves_to_the_recorded_host(self) -> None:
+        """The `base_url` field is what makes the dev row possible, so this is the assertion
+        that keeps it from being usable for anything else. It reads the LITERAL host, not the
+        module global the URL is built from — comparing a value against the thing that
+        produced it is a tautology no catalogue can fail (the previous version of this test
+        could not have caught `HUGGINGFACE_HOST = "models.exfil.example"`)."""
+        for entry in CATALOG:
+            assert entry.base_url is None, entry.id
+            assert entry.url.startswith("https://huggingface.co/"), entry.id

@@ -1,7 +1,12 @@
 /**
  * The "Get a local model" affordance, rendered beside the keyless-turn error it answers
- * (ADR-0080 §8). The decision to show it is `hasLocalModelRemedy`, which the vitest gate
- * measures; this file is the markup, e2e-pinned like every other view.
+ * (ADR-0080 §8). The decision to show it is `hasLocalModelRemedy` in `remedy.ts`, which the
+ * vitest gate measures; this file is the markup, e2e-pinned like every other view.
+ *
+ * The two files are NOT named as a case pair. `localModelRemedy.ts` beside
+ * `LocalModelRemedy.tsx` resolves to whichever the filesystem feels like on macOS, and the
+ * client build failed on exactly that — the bundler took the `.ts` and reported the component
+ * as a missing export.
  *
  * **Styled with the vendored client's own utilities, not the seam stylesheet.** This is the
  * one Tempest component that renders inside the CHAT surface, and `tempest-views.css` (with
@@ -18,7 +23,7 @@ import { Link } from "react-router-dom";
 
 import { settingsPath } from "./routes";
 
-export { hasLocalModelRemedy } from "./localModelRemedy";
+export { hasLocalModelRemedy } from "./remedy";
 
 /**
  * A `Link`, not an anchor: inside the app a plain `href` reloads the webview and costs the

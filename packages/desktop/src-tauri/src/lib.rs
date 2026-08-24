@@ -393,7 +393,13 @@ fn sweep_on_exit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     //
     // That is the SECOND time the argument above has been paid for in this file: the LSP
     // multiplexer rested its no-orphans case on `impl Drop` and a `pgrep` found the language
-    // server still running. A comment naming a trap does not stop the next thing falling in,
-    // which is why `orphan_check` now starts a model server rather than trusting this line.
+    // server still running. A comment naming a trap does not stop the next thing falling in.
+    //
+    // What pins THIS line is `modelserver::tests::the_exit_sweep_stops_this_child_too`, which
+    // fails when the call is removed and also when it is merely commented out — the form the
+    // call actually disappears in. `orphan_check` covers the child by pid-tree wherever a
+    // runner exists to start one; it does not start one itself, and an earlier version of this
+    // comment said it did. That was the exact shape it was warning about: a guard named in
+    // prose and absent from the tree.
     crate::modelserver::stop();
 }
