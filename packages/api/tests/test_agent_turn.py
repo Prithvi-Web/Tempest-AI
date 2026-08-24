@@ -24,7 +24,9 @@ from typing import Any
 import pytest
 
 from tempest.agent.events import CostCapReached, ModelUnavailable
+from tempest.agent.orchestrator import AgentError
 from tempest.dev._first_party import mark_first_party
+from tempest_api import agentturn as agentturn_mod
 from tempest_api.agentturn import _stop_note
 from tempest_api.routers import chat as chat_router
 
@@ -39,6 +41,8 @@ class AgentPeer:
     """
 
     def __init__(self) -> None:
+        #: Answer the ANTHROPIC wire instead of the OpenAI one.
+        self.wire_anthropic = False
         self.script: list[dict[str, Any]] = []
         self.stream_chunks: list[str] = ["Hel", "lo"]
         self.requests: list[dict[str, Any]] = []
@@ -56,6 +60,25 @@ class AgentPeer:
                 return None
             self.completions += 1
             return self.script.pop(0) if self.script else {"text": "all done"}
+
+
+def _anthropic_completion_body(reply: dict[str, Any]) -> bytes:
+    """The Anthropic wire's non-stream shape. Needed because `anthropic` is the ONLY provider
+    that documents a context window, and the gauge is emitted only where one is documented
+    (ADR-0079 §6: a wrong maximum is worse than no maximum)."""
+    blocks: list[dict[str, Any]] = [{"type": "text", "text": reply.get("text", "")}]
+    for index, call in enumerate(reply.get("tool_calls", [])):
+        blocks.append(
+            {
+                "type": "tool_use",
+                "id": f"call_{index}",
+                "name": call["name"],
+                "input": call.get("arguments", {}),
+            }
+        )
+    return json.dumps(
+        {"content": blocks, "usage": {"input_tokens": 11, "output_tokens": 5}}
+    ).encode()
 
 
 def _completion_body(reply: dict[str, Any]) -> bytes:
@@ -107,7 +130,11 @@ def agent_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Agent
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            payload = _completion_body(reply)
+            payload = (
+                _anthropic_completion_body(reply)
+                if peer.wire_anthropic
+                else _completion_body(reply)
+            )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -123,6 +150,8 @@ def agent_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Agent
     monkeypatch.setenv("TEMPEST_DATA_DIR", str(tmp_path / "appdata"))
     monkeypatch.setenv("TEMPEST_DEV", "1")
     monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_OLLAMA", f"http://127.0.0.1:{server.server_port}/v1")
+    monkeypatch.setenv("TEMPEST_MODEL_BASE_URL_ANTHROPIC", f"http://127.0.0.1:{server.server_port}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     chat_router._REGISTRY.clear()
     try:
         yield peer
@@ -593,6 +622,119 @@ class TestHumanInTheLoopWire:
         replayed = json.dumps(agent_env.requests[-1])
         assert "refused by the user" in replayed and "not in this repo" in replayed
 
+    def test_resuming_a_turn_that_is_no_longer_running_is_a_409(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """A tab that was left open on an approval and comes back after the run ended must be
+        told its decision is stale — the client locks its submit on exactly this."""
+        ack, pending = self._park(api, agent_env, repo)
+        request = pending["payload"]["action_requests"][0]
+        api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel")
+        _wait_terminal(api, ack["streamId"])
+
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [{"tool_call_id": request["tool_call_id"], "decision": "approve"}],
+            },
+        )
+        assert resp.status_code == 409, resp.text
+
+    def test_a_decision_verb_outside_approve_or_reject_is_refused(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """The resume body is client-authored. A verb this action does not offer must be a
+        loud 400 rather than a silent fall-through to some default — an unrecognised verb
+        treated as "approve" would run a tool nobody approved."""
+        ack, pending = self._park(api, agent_env, repo)
+        request = pending["payload"]["action_requests"][0]
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [{"tool_call_id": request["tool_call_id"], "decision": "maybe-later"}],
+            },
+        )
+        assert resp.status_code == 400, resp.text
+        assert "approve or reject" in resp.text
+
+        # The turn is still parked and still answerable — a bad body must not kill the run.
+        good = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={
+                "actionId": pending["actionId"],
+                "decisions": [{"tool_call_id": request["tool_call_id"], "decision": "approve"}],
+            },
+        )
+        assert good.status_code == 200, good.text
+        assert _wait_terminal(api, ack["streamId"])["status"] == "complete"
+
+    def test_an_ask_user_answer_may_arrive_under_the_answers_map(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """The vendored form posts `{answers: {<fieldId>: value}}` for a multi-question form;
+        the single-question shape posts `{answer}`. Both are the same decision and both must
+        reach the model."""
+        agent = _make_agent(api, tools=["ask_user"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "One question.",
+                "tool_calls": [{"name": "ask_user", "arguments": {"question": "Which module?"}}],
+            },
+            {"text": "Thanks."},
+        ]
+        ack = _start(api, agent["id"], "Decide")
+        pending = _wait_pending(api, ack["streamId"])
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={"actionId": pending["actionId"], "answers": {"q1": "the totals module"}},
+        )
+        assert resp.status_code == 200, resp.text
+        _wait_terminal(api, ack["streamId"])
+        assert "the totals module" in json.dumps(agent_env.requests[-1])
+
+    def test_an_empty_ask_user_answer_is_refused(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """A blank answer is not an answer. Accepting it would hand the model an empty string
+        as though the user had said something, and the model cannot tell the difference."""
+        agent = _make_agent(api, tools=["ask_user"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "One question.",
+                "tool_calls": [{"name": "ask_user", "arguments": {"question": "Which module?"}}],
+            },
+            {"text": "Thanks."},
+        ]
+        ack = _start(api, agent["id"], "Decide")
+        pending = _wait_pending(api, ack["streamId"])
+        resp = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/resume",
+            json={"actionId": pending["actionId"], "answer": "   "},
+        )
+        assert resp.status_code == 400, resp.text
+        assert "answer is required" in resp.text
+        api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel")
+        _wait_terminal(api, ack["streamId"])
+
+    def test_an_agent_naming_a_provider_outside_the_catalog_is_refused_at_start(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """An agent document is data, and its provider can go stale — a provider removed from
+        the catalog, or a document written by an older build. The turn refuses at the entry
+        checkpoint with a reason naming the agent and the provider, rather than starting and
+        failing somewhere further in."""
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+        store = api.client.patch(f"/v1/agents/{agent['id']}", json={"provider": "NoSuchProvider"})
+        assert store.status_code == 200, store.text
+        resp = api.client.post(
+            "/v1/chat/turns",
+            json={"agent_id": agent["id"], "text": "go", "endpoint": "agents"},
+        )
+        assert resp.status_code == 400, resp.text
+        assert "NoSuchProvider" in resp.text and "not in the catalog" in resp.text
+
     def test_a_stale_action_id_is_409_and_undecided_is_400(
         self, api: Any, agent_env: AgentPeer, repo: Path
     ) -> None:
@@ -893,6 +1035,127 @@ class TestSteeringWire:
         assert "never mind" not in json.dumps(agent_env.requests[-1])
         assert not [f for f in _frames(payload) if f.get("event") == "on_steer_applied"]
 
+    def test_a_steer_with_no_text_is_a_400_the_client_can_read(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """A whitespace-only steer steers nothing, and the refusal code is TOP-LEVEL because
+        that is the field the client's degrade switch reads (the ApiError envelope hides it)."""
+        ack, pending = self._parked_agent_turn(api, agent_env, repo)
+        resp = api.client.post(f"/v1/chat/turns/{ack['streamId']}/steer", json={"text": "   "})
+        assert resp.status_code == 400, resp.text
+        assert resp.json()["code"] == "EMPTY_TEXT"
+        self._approve(api, ack, pending)
+        _wait_terminal(api, ack["streamId"])
+
+    def test_a_redelivered_steer_replays_its_ack_instead_of_queueing_twice(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """The deliver/retry path: a client that loses the 202 re-sends the same
+        `clientSteerId`, and must get the ORIGINAL ack back rather than steering the model
+        twice with one instruction."""
+        ack, pending = self._parked_agent_turn(api, agent_env, repo)
+        first = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer",
+            json={"text": "use tabs", "clientSteerId": "cs-dup"},
+        ).json()
+        # A DIFFERENT id first: the dedupe scan must walk past a non-matching row and queue
+        # normally, rather than treating any queued steer as a duplicate of any other.
+        other = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer",
+            json={"text": "and check the README", "clientSteerId": "cs-other"},
+        )
+        assert other.status_code == 202
+        assert other.json()["steerId"] != first["steerId"]
+        assert other.json()["position"] == 2
+
+        second = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer",
+            json={"text": "use tabs", "clientSteerId": "cs-dup"},
+        )
+        assert second.status_code == 202
+        assert second.json()["steerId"] == first["steerId"], "the ack must be the ORIGINAL"
+        assert second.json()["position"] == first["position"]
+
+        self._approve(api, ack, pending)
+        payload = _wait_terminal(api, ack["streamId"])
+        applied = [f for f in _frames(payload) if f.get("event") == "on_steer_applied"]
+        texts = [f["data"]["part"]["steer"] for f in applied]
+        assert texts == ["use tabs", "and check the README"], (
+            f"one instruction applied once, both in order; got {texts}"
+        )
+
+    def test_reclaiming_one_steer_keeps_the_others(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        ack, pending = self._parked_agent_turn(api, agent_env, repo)
+        keep = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer", json={"text": "keep me"}
+        ).json()
+        drop = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer", json={"text": "drop me"}
+        ).json()
+        removed = api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer/cancel", json={"steerId": drop["steerId"]}
+        )
+        assert removed.status_code == 200 and removed.json()["removed"] is True
+
+        self._approve(api, ack, pending)
+        payload = _wait_terminal(api, ack["streamId"])
+        replayed = json.dumps(agent_env.requests[-1])
+        assert "keep me" in replayed, "reclaiming one steer must not drop its neighbours"
+        assert "drop me" not in replayed
+        applied = [f for f in _frames(payload) if f.get("event") == "on_steer_applied"]
+        assert [f["data"]["part"]["steer"] for f in applied] == ["keep me"]
+        assert keep["steerId"] != drop["steerId"]
+
+    def test_a_settled_turn_with_nothing_queued_reports_no_leftovers(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """The other side of LC17's escalate branch: a turn that ended with an empty queue
+        must not carry an `unrecoveredSteers` key at all. An empty list is not nothing — the
+        client re-materializes the field, and a present-but-empty one is a reclaim UI with no
+        rows in it."""
+        ack, pending = self._parked_agent_turn(api, agent_env, repo)
+        self._approve(api, ack, pending)
+        _wait_terminal(api, ack["streamId"])
+        status = api.client.get(f"/v1/chat/turns/{ack['streamId']}").json()
+        assert status["active"] is False
+        assert status.get("unrecoveredSteers") is None, status
+
+    def test_cancelling_a_steer_with_no_active_run_is_a_404(
+        self, api: Any, agent_env: AgentPeer
+    ) -> None:
+        resp = api.client.post(
+            "/v1/chat/turns/convo-nope/steer/cancel", json={"steerId": "steer_x"}
+        )
+        assert resp.status_code == 404
+        assert resp.json()["code"] == "NO_ACTIVE_RUN"
+
+    def test_unconsumed_steers_ride_the_status_of_a_FINISHED_turn(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """LC17's escalate half on the ordinary path: a turn that ENDS with steers it never
+        drained hands them back on its status, so the client can re-materialize them for the
+        user to reclaim or resend rather than silently losing what they typed."""
+        ack, _pending = self._parked_agent_turn(api, agent_env, repo)
+        api.client.post(
+            f"/v1/chat/turns/{ack['streamId']}/steer", json={"text": "too late for this"}
+        )
+        # Stop the turn, so it ends with no further turn boundary to drain the steer into.
+        # (A rejection would NOT do: the loop still runs another turn to tell the model it
+        # was refused, and that boundary consumes the steer.)
+        api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel")
+        _wait_terminal(api, ack["streamId"])
+
+        resp = api.client.get(f"/v1/chat/turns/{ack['streamId']}")
+        assert resp.status_code == 200, resp.text
+        status = resp.json()
+        assert status["active"] is False
+        leftovers = status.get("unrecoveredSteers") or []
+        # The abort ANSWER carries them too (pinned separately); this is the STATUS path,
+        # which is what a client reads after a reload rather than at the moment it stopped.
+        assert [row["text"] for row in leftovers] == ["too late for this"], status
+
     def test_no_active_run_answers_the_fallback_code(self, api: Any, agent_env: AgentPeer) -> None:
         resp = api.client.post("/v1/chat/turns/convo-nope/steer", json={"text": "hi"})
         assert resp.status_code == 404
@@ -982,6 +1245,226 @@ class TestContextGauge:
             )
             is None
         ), "zero input tokens means the provider said nothing — no gauge from nothing"
+
+
+class TestCoverageNamedArms:
+    """Arms the 100% combined-coverage gate named in the C5 back half's new code. Every one
+    is real, reachable behaviour — none is defensive filler, and none earned a pragma."""
+
+    def test_an_ask_user_question_carries_its_options(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """LC18's multiple-choice shape: a question with options renders as choices rather
+        than a free-text box, and the client reads them off the pending payload."""
+        agent = _make_agent(api, tools=["ask_user"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Need a decision.",
+                "tool_calls": [
+                    {
+                        "name": "ask_user",
+                        "arguments": {"question": "Tabs or spaces?", "options": ["tabs", "spaces"]},
+                    }
+                ],
+            },
+            {"text": "Understood."},
+        ]
+        ack = _start(api, agent["id"], "Decide")
+        pending = _wait_pending(api, ack["streamId"])
+        question = pending["payload"]["question"]
+        assert question["question"] == "Tabs or spaces?"
+        assert [o["value"] for o in question["options"]] == ["tabs", "spaces"]
+        assert [o["label"] for o in question["options"]] == ["tabs", "spaces"]
+        api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel")
+        _wait_terminal(api, ack["streamId"])
+
+    def test_a_question_without_options_omits_the_key(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """The other side of the branch: a free-text question must not carry an EMPTY options
+        list, which the client would render as a choice widget with nothing to choose."""
+        agent = _make_agent(api, tools=["ask_user"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Need a decision.",
+                "tool_calls": [{"name": "ask_user", "arguments": {"question": "Which module?"}}],
+            },
+            {"text": "Understood."},
+        ]
+        ack = _start(api, agent["id"], "Decide")
+        pending = _wait_pending(api, ack["streamId"])
+        assert "options" not in pending["payload"]["question"]
+        api.client.post(f"/v1/chat/turns/{ack['streamId']}/cancel")
+        _wait_terminal(api, ack["streamId"])
+
+    def test_an_approval_that_is_never_answered_expires_into_a_refusal(
+        self, api: Any, agent_env: AgentPeer, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """L15.4 wants a budget AND a cancellation path; an unbounded lease on a worker
+        thread is neither. The park expires into an honest refusal the model can read, rather
+        than holding the turn open forever because nobody came back to the screen.
+
+        The shipped budget is 30 minutes, so the constant is shortened here — the arm under
+        test is the deadline comparison, not the number.
+        """
+        monkeypatch.setattr(agentturn_mod, "_APPROVAL_EXPIRY_S", 0.5)
+        agent = _make_agent(api, tools=["run_command"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Running it.",
+                "tool_calls": [{"name": "run_command", "arguments": {"argv": ["echo", "hi"]}}],
+            },
+            {"text": "It refused."},
+        ]
+        ack = _start(api, agent["id"], "Run it")
+        _wait_pending(api, ack["streamId"])
+        payload = _wait_terminal(api, ack["streamId"])
+
+        assert payload["status"] == "complete", "an expiry is a refusal, not a crash"
+        replayed = json.dumps(agent_env.requests[-1])
+        assert "expired unanswered" in replayed, (
+            "the model must be told the question went unanswered so it can proceed honestly"
+        )
+
+    def test_a_batch_closes_when_the_tool_KIND_changes(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """Two kinds, two headers — each following the calls it covers. A single header over
+        a mixed batch would name work it did not describe."""
+        agent = _make_agent(api, tools=["read_file", "search_text"], tempest_repo=str(repo))
+        agent_env.script = [
+            {
+                "text": "Reading then searching.",
+                "tool_calls": [
+                    {"name": "read_file", "arguments": {"path": "app.py"}},
+                    {"name": "search_text", "arguments": {"query": "total"}},
+                ],
+            },
+            {"text": "Done."},
+        ]
+        ack = _start(api, agent["id"], "Look around")
+        payload = _wait_terminal(api, ack["streamId"])
+        parts = _frames(payload)[-1]["responseMessage"]["content"]
+        headers = [p for p in parts if p.get("type") == "activity_label" and p.get("tool_call_ids")]
+        labels = [h["activity_label"] for h in headers]
+        assert labels == ["Reading the repository", "Searching the repository"], labels
+        assert all(len(h["tool_call_ids"]) == 1 for h in headers), (
+            "a kind change must split the batch, not pool both calls under one header"
+        )
+
+    def test_a_cancel_that_races_the_spawn_still_wins(
+        self, api: Any, agent_env: AgentPeer, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The POST returns its ack immediately and the worker starts a moment later, so a
+        Stop can land in between. The worker re-reads the flag at the top of its body and
+        cancels its own scope — without that, the turn would run to completion after the user
+        had already stopped it, and a model call the user cancelled would be billed.
+
+        The race is ENFORCED rather than hoped for (trap 61): the worker is wrapped so the
+        flag is certain to be set before its body runs, which is the ordering the arm exists
+        for and the one a timing-based test would only sometimes produce.
+        """
+        real = agentturn_mod.run_agent_turn
+
+        def cancel_first(turns: Any, job: Any, *args: Any, **kwargs: Any) -> Any:
+            job.cancel.set()
+            return real(turns, job, *args, **kwargs)
+
+        monkeypatch.setattr(agentturn_mod, "run_agent_turn", cancel_first)
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+        agent_env.script = [{"text": "should never be asked for"}]
+
+        ack = _start(api, agent["id"], "Do it")
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "aborted", payload["status"]
+        assert agent_env.requests == [], (
+            "a turn cancelled before its body ran must not reach the provider at all"
+        )
+
+    def test_the_context_gauge_rides_a_turn_on_a_provider_that_documents_its_window(
+        self, api: Any, agent_env: AgentPeer, repo: Path
+    ) -> None:
+        """LC21 end to end. The gauge is emitted only where `Provider.context_window` is
+        DOCUMENTED — `anthropic` is the one such row (200k) — and the counts that ride it are
+        the provider's own. An unknown window produces no frame at all rather than an
+        invented denominator (ADR-0079 §6), which the sibling unit tests pin directly; this
+        is the arm that proves the frame actually reaches the ledger.
+        """
+        agent_env.wire_anthropic = True
+        agent = _make_agent(
+            api,
+            provider="anthropic",
+            model="claude-sonnet-5",
+            tools=["read_file"],
+            tempest_repo=str(repo),
+        )
+        # Tools make this the TOOL-BEARING path (`run_agent_turn`); a tool-less agent is a
+        # persona that streams instead, and never reaches the gauge's call site.
+        agent_env.script = [{"text": "Nothing to do here."}]
+        ack = _start(api, agent["id"], "Say hello")
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete", json.dumps(_frames(payload)[-1])[:400]
+
+        gauges = [f for f in _frames(payload) if f.get("event") == "on_context_usage"]
+        assert gauges, "a documented window must produce a gauge frame"
+        breakdown = gauges[0]["data"]["breakdown"]
+        assert breakdown["maxContextTokens"] == 200_000, (
+            "the denominator is the provider's DOCUMENTED window, never an estimate"
+        )
+        assert breakdown["messageTokens"] == 11, (
+            "the numerator is the provider's own prompt count for the turn (L21)"
+        )
+        assert gauges[0]["data"]["remainingContextTokens"] == 200_000 - 11
+        # The components Tempest cannot decompose are zeros the client sums, never invented
+        # estimates that would make the gauge look precise about something it did not measure.
+        for absent in (
+            "instructionTokens",
+            "systemMessageTokens",
+            "dynamicInstructionTokens",
+            "toolSchemaTokens",
+            "summaryTokens",
+        ):
+            assert breakdown[absent] == 0, absent
+        assert breakdown["toolCount"] == 1, "the agent's own tool count rides the breakdown"
+
+    def test_a_defect_inside_tempest_surfaces_in_band(
+        self, api: Any, agent_env: AgentPeer, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """L15.3: a defect in US is reported to the user with a diagnostic, never swallowed
+        into a turn that just stops. `run_task` raising an unexpected type is the arm."""
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+
+        def boom(*_args: Any, **_kwargs: Any) -> Any:
+            raise ZeroDivisionError("a defect that is ours, not the model's")
+
+        monkeypatch.setattr(agentturn_mod, "run_task", boom)
+        ack = _start(api, agent["id"], "Do it")
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "error"
+        final = _frames(payload)[-1]
+        text = json.dumps(final)
+        assert "failed inside Tempest" in text
+        assert "ZeroDivisionError" in text, "the diagnostic must name the real cause (L15.3)"
+
+    def test_a_tool_error_at_task_start_is_a_readable_refusal(
+        self, api: Any, agent_env: AgentPeer, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An `AgentError`/`ToolError` escaping the run is the agent's own refusal, and it
+        reaches the user as its message rather than as a Tempest defect."""
+        agent = _make_agent(api, tools=["read_file"], tempest_repo=str(repo))
+
+        def refuse(*_args: Any, **_kwargs: Any) -> Any:
+            raise AgentError("the agent could not start: no baseline commit")
+
+        monkeypatch.setattr(agentturn_mod, "run_task", refuse)
+        ack = _start(api, agent["id"], "Do it")
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "error"
+        text = json.dumps(_frames(payload)[-1])
+        assert "no baseline commit" in text
+        assert "failed inside Tempest" not in text, (
+            "an agent refusal is not a Tempest defect and must not be dressed as one"
+        )
 
 
 class TestTheForge:

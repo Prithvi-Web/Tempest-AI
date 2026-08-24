@@ -904,6 +904,46 @@ class TestCoverageNamedArms:
         assert [e["seq"] for e in stored_tail["events"]] == [last_seq]
         assert stored_tail["events"][0]["frame"].get("final") is True
 
+    def test_only_a_single_text_delta_frame_is_coalescable(self) -> None:
+        """`_delta_text` is the predicate the coalescer merges on, and every arm that answers
+        None keeps a frame OUT of a merge. Getting one wrong does not raise — it silently
+        merges frames that are not adjacent text, or refuses to merge ones that are, and the
+        reader sees the damage rather than an error. So each shape is pinned directly.
+
+        The multi-part and non-text arms matter because a merge concatenates `content[0].text`
+        and drops everything else: a frame carrying a second part, or an image part, would
+        lose it silently.
+        """
+        from tempest_api.chatturn import _delta_text
+
+        def frame_with(content: Any) -> dict[str, Any]:
+            return {
+                "event": "on_message_delta",
+                "data": {"id": "s0", "delta": {"content": content}},
+            }
+
+        assert _delta_text(frame_with([{"type": "text", "text": "hi"}])) == "hi"
+
+        # Not a delta frame at all.
+        assert _delta_text({"event": "on_run_step", "data": {}}) is None
+        assert _delta_text("not a frame") is None
+        assert _delta_text(None) is None
+
+        # A delta whose content is not exactly ONE text part: merging would drop a part.
+        assert _delta_text(frame_with([])) is None
+        assert (
+            _delta_text(frame_with([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]))
+            is None
+        )
+        assert _delta_text(frame_with([{"type": "image_url", "image_url": {}}])) is None
+
+        # Malformed shapes reach the same answer through the except arm rather than raising:
+        # a frame the coalescer cannot read is a frame it must not merge, not a crash.
+        assert _delta_text({"event": "on_message_delta", "data": {}}) is None
+        assert _delta_text({"event": "on_message_delta", "data": {"delta": {}}}) is None
+        assert _delta_text(frame_with("not-a-list")) is None
+        assert _delta_text(frame_with([{"type": "text"}])) is None
+
     def test_a_coalesced_frame_carries_its_runs_LAST_seq_so_a_resume_repeats_nothing(
         self, api: Any, chat_env: ChatPeer
     ) -> None:
