@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
@@ -193,6 +194,89 @@ def fake_openai_server(fake: FakeOpenAI) -> Iterator[str]:
 
         def log_message(self, *args: object) -> None:
             pass  # keep test output clean
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+@dataclass
+class FakeHuggingFace:
+    """A stand-in for the model host, with the two behaviours that matter (ADR-0080).
+
+    **Range**, because resume is the whole reason a 2.5 GB download is tolerable, and a peer
+    that ignores `Range:` cannot tell a correct resume from a client that silently restarts.
+
+    **A redirect**, because the real host answers `302` to a CDN and that single hop is the
+    reason this downloader needed a redirect policy of its own. A fake that served bytes
+    directly would leave the interesting half untested.
+    """
+
+    #: The file the peer serves.
+    payload: bytes = b""
+    #: Serve from this path; anything else is a 404.
+    path: str = "/repo/resolve/main/model.gguf"
+    #: When set, `path` answers 302 to this location instead of bytes.
+    redirect_to: str | None = None
+    #: Honour `Range:` (the real host does). Off makes the peer answer 200 from zero, which is
+    #: how a resume gets spliced into the middle of a file if the client trusts its request
+    #: rather than the response STATUS.
+    honour_range: bool = True
+    #: Requests seen, as (path, range-header-or-None).
+    requests: list[tuple[str, str | None]] = field(default_factory=list)
+    #: Serve at most this many bytes per response, then close — a truncated body.
+    truncate_at: int | None = None
+
+
+@contextmanager
+def fake_huggingface_server(fake: FakeHuggingFace) -> Iterator[str]:
+    """Serve `fake` on a loopback port; yields the base URL."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # the http.server contract dictates this name
+            rng = self.headers.get("Range")
+            fake.requests.append((self.path, rng))
+
+            if fake.redirect_to is not None and self.path == fake.path:
+                self.send_response(302)
+                self.send_header("Location", fake.redirect_to)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if self.path not in (fake.path, "/cdn/model.gguf"):
+                self.send_response(404)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+
+            start = 0
+            if rng and fake.honour_range and rng.startswith("bytes="):
+                start = int(rng.removeprefix("bytes=").split("-")[0])
+            if start >= len(fake.payload):
+                self.send_response(416)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+
+            body = fake.payload[start:]
+            if fake.truncate_at is not None:
+                body = body[: fake.truncate_at]
+            self.send_response(206 if start else 200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            if start:
+                end = start + len(body) - 1
+                self.send_header("Content-Range", f"bytes {start}-{end}/{len(fake.payload)}")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_: object) -> None:
+            return
 
     server = HTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
