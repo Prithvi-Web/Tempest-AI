@@ -11,6 +11,7 @@ pub mod generated;
 pub mod keychain;
 pub mod localmodel;
 pub mod lsp;
+pub mod modelserver;
 pub mod pathguard;
 pub mod platform;
 pub mod platform_web;
@@ -85,6 +86,14 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::get_editor_runners,
             commands::update_editor_runners,
             commands::replay_chat_turn,
+            commands::list_model_catalog,
+            commands::start_model_download,
+            commands::get_model_download_status,
+            commands::cancel_model_download,
+            commands::remove_model,
+            commands::model_server_status,
+            commands::start_model_server,
+            commands::stop_model_server,
         ])
         .events(tauri_specta::collect_events![
             commands::SidecarStateEvent,

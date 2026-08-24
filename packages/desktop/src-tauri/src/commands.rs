@@ -812,3 +812,165 @@ mod enum_discipline {
         }
     }
 }
+
+// ── Local models (ADR-0080) ─────────────────────────────────────────────────────────────────
+//
+// The catalogue and the downloads live in the ENGINE and cross boundary A like every other
+// long operation; these are pass-throughs. Serving is different: it is a supervised child of
+// THIS process, so it has no boundary-A hop at all.
+
+/// One download's state. TYPED rather than `serde_json::Value`: specta cannot express an
+/// arbitrary JSON value at this boundary (the generator overflows its stack on one — a trap
+/// this repository has paid once already), and a typed row is what L36.8 asks for anyway.
+///
+/// **Byte counts are `f64`, deliberately against this file's `i32`/`u32` habit.** Specta
+/// refuses `i64` outright to avoid precision loss, and `u32` caps at 4.29 GB — fine for
+/// today's catalogue and a silent overflow the first time someone adds a larger model, which
+/// is exactly the kind of limit nobody remembers is there. A JS number IS an `f64` and is
+/// exact for integers to 2^53 (nine petabytes), so this is not a widening for convenience: it
+/// is the type the value actually has once it arrives.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ModelDownloadState {
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    /// `running` | `done` | `failed` | `cancelled`.
+    pub state: String,
+    #[serde(rename = "doneBytes")]
+    pub done_bytes: f64,
+    #[serde(rename = "totalBytes")]
+    pub total_bytes: f64,
+    /// Empty on success; a sentence a person can act on otherwise (L23).
+    pub error: String,
+}
+
+/// One catalogue row, with everything the panel needs to decide in a single reply.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ModelCatalogRow {
+    pub id: String,
+    pub label: String,
+    #[serde(rename = "goodAt")]
+    pub good_at: String,
+    pub license: String,
+    #[serde(rename = "sizeBytes")]
+    pub size_bytes: f64,
+    #[serde(rename = "ramNote")]
+    pub ram_note: String,
+    pub installed: bool,
+    #[serde(rename = "freeBytes")]
+    pub free_bytes: f64,
+    #[serde(rename = "fitsOnDisk")]
+    pub fits_on_disk: bool,
+    pub download: Option<ModelDownloadState>,
+}
+
+/// The catalogue, with `installed`, `freeBytes` and `fitsOnDisk` already resolved — the size
+/// and the room for it on screen before the spend (L21).
+#[tauri::command]
+#[specta::specta]
+pub fn list_model_catalog(
+    state: tauri::State<'_, Arc<Supervisor>>,
+) -> CmdResult<Vec<ModelCatalogRow>> {
+    call_typed(&state, "listModelCatalog", json!({}))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn start_model_download(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    model_id: String,
+) -> CmdResult<ModelDownloadState> {
+    call_typed(&state, "startModelDownload", json!({ "model_id": model_id }))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_model_download_status(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    model_id: String,
+) -> CmdResult<ModelDownloadState> {
+    call_typed(&state, "getModelDownloadStatus", json!({ "model_id": model_id }))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cancel_model_download(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    model_id: String,
+) -> CmdResult<ModelDownloadState> {
+    call_typed(&state, "cancelModelDownload", json!({ "model_id": model_id }))
+}
+
+/// `removed` is false when there was nothing there — a delete that reports success for a file
+/// it never saw teaches a user their disk is emptier than it is.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ModelRemoved {
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    pub removed: bool,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remove_model(
+    state: tauri::State<'_, Arc<Supervisor>>,
+    model_id: String,
+) -> CmdResult<ModelRemoved> {
+    call_typed(&state, "removeModel", json!({ "model_id": model_id }))
+}
+
+/// Serving state: whether a loopback model server is up, and for which file.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+pub struct ModelServerStatus {
+    pub running: bool,
+    pub model_path: Option<String>,
+    /// The runner Tempest would use, or `None` when there is none to find. Resolved on every
+    /// status read so the panel can say "install this" BEFORE the user clicks start and gets
+    /// a refusal (L23: the reason arrives with the affordance, not after it).
+    pub runner: Option<String>,
+    /// Why there is no runner, when there is none. Empty otherwise.
+    pub runner_problem: String,
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn model_server_status(configured_runner: Option<String>) -> CmdResult<ModelServerStatus> {
+    let (running, model_path) = crate::modelserver::status();
+    let (runner, runner_problem) =
+        match crate::modelserver::resolve_runner(configured_runner.as_deref()) {
+            Ok(path) => (Some(path), String::new()),
+            Err(err) => (None, err.to_string()),
+        };
+    Ok(ModelServerStatus { running, model_path, runner, runner_problem })
+}
+
+/// Start serving a downloaded model on loopback. Off until asked — nothing starts at launch,
+/// which is what keeps the airplane-mode claim honest.
+#[tauri::command]
+#[specta::specta]
+pub fn start_model_server(
+    model_path: String,
+    configured_runner: Option<String>,
+) -> CmdResult<ModelServerStatus> {
+    match crate::modelserver::start(&model_path, configured_runner.as_deref()) {
+        Ok(runner) => {
+            let (running, path) = crate::modelserver::status();
+            Ok(ModelServerStatus {
+                running,
+                model_path: path,
+                runner: Some(runner),
+                runner_problem: String::new(),
+            })
+        }
+        // A refusal is a VALUE with a reason a person can act on, not a swallowed error and
+        // not a generic failure toast (L15.3, L23).
+        Err(err) => Err(SidecarFailure { code: -3, message: err.to_string() }),
+    }
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn stop_model_server() -> CmdResult<ModelServerStatus> {
+    crate::modelserver::stop();
+    let (running, model_path) = crate::modelserver::status();
+    Ok(ModelServerStatus { running, model_path, runner: None, runner_problem: String::new() })
+}

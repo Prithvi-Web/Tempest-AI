@@ -166,6 +166,22 @@ export const commands = {
 	 *  pushes. Same boundary-A operation the host poller drains.
 	 */
 	replayChatTurn: (streamId: string, after: number) => typedError<ChatTurnReplay, SidecarFailure>(__TAURI_INVOKE("replay_chat_turn", { streamId, after })),
+	/**
+	 *  The catalogue, with `installed`, `freeBytes` and `fitsOnDisk` already resolved — the size
+	 *  and the room for it on screen before the spend (L21).
+	 */
+	listModelCatalog: () => typedError<ModelCatalogRow[], SidecarFailure>(__TAURI_INVOKE("list_model_catalog")),
+	startModelDownload: (modelId: string) => typedError<ModelDownloadState, SidecarFailure>(__TAURI_INVOKE("start_model_download", { modelId })),
+	getModelDownloadStatus: (modelId: string) => typedError<ModelDownloadState, SidecarFailure>(__TAURI_INVOKE("get_model_download_status", { modelId })),
+	cancelModelDownload: (modelId: string) => typedError<ModelDownloadState, SidecarFailure>(__TAURI_INVOKE("cancel_model_download", { modelId })),
+	removeModel: (modelId: string) => typedError<ModelRemoved, SidecarFailure>(__TAURI_INVOKE("remove_model", { modelId })),
+	modelServerStatus: (configuredRunner: string | null) => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("model_server_status", { configuredRunner })),
+	/**
+	 *  Start serving a downloaded model on loopback. Off until asked — nothing starts at launch,
+	 *  which is what keeps the airplane-mode claim honest.
+	 */
+	startModelServer: (modelPath: string, configuredRunner: string | null) => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("start_model_server", { modelPath, configuredRunner })),
+	stopModelServer: () => typedError<ModelServerStatus, SidecarFailure>(__TAURI_INVOKE("stop_model_server")),
 };
 
 /** Events */
@@ -1665,6 +1681,65 @@ export type LspError =
  *  </details>
  */
 export type Message = string;
+
+/**  One catalogue row, with everything the panel needs to decide in a single reply. */
+export type ModelCatalogRow = {
+	id: string,
+	label: string,
+	goodAt: string,
+	license: string,
+	sizeBytes: number | null,
+	ramNote: string,
+	installed: boolean,
+	freeBytes: number | null,
+	fitsOnDisk: boolean,
+	download: ModelDownloadState | null,
+};
+
+/**
+ *  One download's state. TYPED rather than `serde_json::Value`: specta cannot express an
+ *  arbitrary JSON value at this boundary (the generator overflows its stack on one — a trap
+ *  this repository has paid once already), and a typed row is what L36.8 asks for anyway.
+ * 
+ *  **Byte counts are `f64`, deliberately against this file's `i32`/`u32` habit.** Specta
+ *  refuses `i64` outright to avoid precision loss, and `u32` caps at 4.29 GB — fine for
+ *  today's catalogue and a silent overflow the first time someone adds a larger model, which
+ *  is exactly the kind of limit nobody remembers is there. A JS number IS an `f64` and is
+ *  exact for integers to 2^53 (nine petabytes), so this is not a widening for convenience: it
+ *  is the type the value actually has once it arrives.
+ */
+export type ModelDownloadState = {
+	modelId: string,
+	/**  `running` | `done` | `failed` | `cancelled`. */
+	state: string,
+	doneBytes: number | null,
+	totalBytes: number | null,
+	/**  Empty on success; a sentence a person can act on otherwise (L23). */
+	error: string,
+};
+
+/**
+ *  `removed` is false when there was nothing there — a delete that reports success for a file
+ *  it never saw teaches a user their disk is emptier than it is.
+ */
+export type ModelRemoved = {
+	modelId: string,
+	removed: boolean,
+};
+
+/**  Serving state: whether a loopback model server is up, and for which file. */
+export type ModelServerStatus = {
+	running: boolean,
+	model_path: string | null,
+	/**
+	 *  The runner Tempest would use, or `None` when there is none to find. Resolved on every
+	 *  status read so the panel can say "install this" BEFORE the user clicks start and gets
+	 *  a refusal (L23: the reason arrives with the affordance, not after it).
+	 */
+	runner: string | null,
+	/**  Why there is no runner, when there is none. Empty otherwise. */
+	runner_problem: string,
+};
 
 /**
  * `PageRunSummary`

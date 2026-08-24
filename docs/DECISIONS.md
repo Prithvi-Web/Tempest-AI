@@ -4275,10 +4275,16 @@ them contradict the reconnaissance this work was handed.
 **Decision.**
 
 **§1 — A new supervision struct, not a new `Wire` variant.** `modelserver.rs` supervises the
-model server as its own kind of child: it reuses `spawn_child`'s process-group discipline
-(`command.process_group(0)`, `terminate_group`, `kill_group`, widened to `pub(crate)`) and adds
-an HTTP health probe, because an HTTP server's readiness cannot be observed on a pipe that does
-not exist. `Wire` keeps both its variants and gains none — the JSON-RPC boundary stays
+model server as its own kind of child: same process-group discipline (`command.process_group(0)`
+at spawn, swept with `terminate_group` / `kill_group`), plus an HTTP health probe, because an
+HTTP server's readiness cannot be observed on a pipe that does not exist.
+
+*(Corrected while building it: an earlier draft of this ADR said those two helpers would need
+widening to `pub(crate)`. They already are — the claim came from a misread grep, and is
+recorded here rather than quietly deleted, because an ADR that silently repairs its own
+premises teaches a later reader to trust premises that were never checked. `spawn_child`
+itself is NOT reused: it pipes stdio and builds a `Wire`, neither of which an HTTP child
+wants, so `modelserver.rs` spawns its own and shares only the discipline.)* `Wire` keeps both its variants and gains none — the JSON-RPC boundary stays
 unrepresentably-TCP-free, and the deviation is confined to a child that speaks no boundary at
 all. Loopback only (`127.0.0.1`, never `0.0.0.0`), off by default, started only when the user
 enables serving, and torn down with the process group like every other child (L34).
