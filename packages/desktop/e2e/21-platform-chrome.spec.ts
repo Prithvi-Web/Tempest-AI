@@ -113,3 +113,45 @@ test("the rail wears the Tempest mark, top-left, actually loaded", async ({ page
   const loaded = await mark.evaluate((el) => (el as HTMLImageElement).naturalWidth > 0);
   expect(loaded).toBe(true);
 });
+
+test("the proof surface owns the window — one rail, not three columns of navigation", async ({
+  page,
+}) => {
+  // ADR-0084. The owner's diagnosis was "it seems like two different apps", and the most
+  // literal cause was on screen the whole time: standing in the proof surface, the window
+  // carried THREE columns of navigation — the icon rail, the conversations panel showing
+  // "Projects / Chats", and the proof surface's own sidebar. The middle one applied to nothing
+  // the user was looking at and was the widest of the three.
+  await page.goto("/c/new");
+  const aside = page.getByRole("complementary").first();
+  const inChat = await aside.boundingBox();
+  if (!inChat) throw new Error("the sidebar must have a box in chat");
+  // In chat the panel is expanded and genuinely wide — a lower bound, so a collapsed-
+  // everywhere regression cannot make the assertion below pass by accident (trap 60).
+  expect(inChat.width).toBeGreaterThan(200);
+
+  await page.goto("/tempest");
+  await expect(page.locator(".tempest-views")).toBeVisible();
+  const inProof = await aside.boundingBox();
+  if (!inProof) throw new Error("the sidebar must still have a box in the proof surface");
+  // Collapsed to the icon rail: the chat list does not apply here, and the proof surface's
+  // own sidebar is the second column rather than the third.
+  expect(inProof.width).toBeLessThan(80);
+
+  // And the rail says where you are. Without this the bolt is dark while "Chats" reads as
+  // current, which is its own small lie about what the window is showing.
+  const bolt = page.getByTestId("nav-panel-tempest");
+  await expect(bolt).toHaveAttribute("aria-pressed", "true");
+
+  // Leaving is one click and lands in chat, with the panel back.
+  await page.getByTestId("nav-panel-conversations").click();
+  await expect(page).toHaveURL(/\/c\/new/);
+  // Polled, not measured once: the aside's width is a CSS transition, and a single read
+  // catches it mid-slide — the first version of this line read 176px of an animation that
+  // settles above 200, which is a test about frame timing rather than about layout.
+  await expect
+    .poll(async () => (await aside.boundingBox())?.width ?? 0, {
+      message: "the conversations panel never came back after leaving the proof surface",
+    })
+    .toBeGreaterThan(200);
+});

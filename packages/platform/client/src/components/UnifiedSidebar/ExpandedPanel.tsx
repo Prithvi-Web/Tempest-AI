@@ -9,6 +9,7 @@ import { useActivePanel, resolveActivePanel, DEFAULT_PANEL } from '~/Providers';
 import { CLOSE_SIDEBAR_ID } from '~/components/Chat/Menus/OpenSidebar';
 import useNewChat from '~/hooks/Chat/useNewChat';
 import { useLocalize } from '~/hooks';
+import { isTempestRoute } from '../../../tempest/views/fullWidthRoute';
 import { cn } from '~/utils';
 import store from '~/store';
 
@@ -140,6 +141,14 @@ function ExpandedPanel({
   const { active, setActive } = useActivePanel();
   const effectiveActive = resolveActivePanel(active, links);
   const isInsightsRoute = location.pathname.startsWith('/insights');
+  /** Tempest seam (ADR-0084): the proof surface is a full-width route like insights, so the
+   * rail entry that reads as current is the ROUTE's, not the panel's own active section —
+   * otherwise standing in the proof surface highlights "Chats". Ledger row in UPSTREAM.md. */
+  const routeActiveLinkId = isInsightsRoute
+    ? 'insights'
+    : isTempestRoute(location.pathname)
+      ? 'tempest'
+      : null;
 
   const toggleLabel = expanded ? 'com_nav_close_sidebar' : 'com_nav_open_sidebar';
   /** Zero-arg on purpose: `onCollapse` is `(afterSlide?: () => void) => void`, and handing it
@@ -188,16 +197,16 @@ function ExpandedPanel({
             key={link.id}
             link={link}
             isActive={
-              link.id === 'insights'
-                ? isInsightsRoute
-                : !isInsightsRoute && link.id === effectiveActive
+              routeActiveLinkId !== null
+                ? link.id === routeActiveLinkId
+                : link.id === effectiveActive
             }
             expanded={expanded ?? true}
             setActive={setActive}
             onExpand={onExpand}
             onCollapse={onCollapse}
             onNavigate={onNavigate}
-            onLeaveInsights={isInsightsRoute ? onLeaveInsights : undefined}
+            onLeaveInsights={routeActiveLinkId !== null ? onLeaveInsights : undefined}
           />
         ))}
       </div>

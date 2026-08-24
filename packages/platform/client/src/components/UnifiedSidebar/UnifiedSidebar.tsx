@@ -15,6 +15,7 @@ import {
 import { ChatContext, ChatFormProvider, ActivePanelProvider } from '~/Providers';
 import { MobileHeader, MobileBottomBar, MobileShortcutTargets } from './mobile';
 import useUnifiedSidebarLinks from '~/hooks/Nav/useUnifiedSidebarLinks';
+import { isTempestRoute } from '../../../tempest/views/fullWidthRoute';
 import useSidebarToggle from '~/hooks/Nav/useSidebarToggle';
 import useSidebarState from '~/hooks/Nav/useSidebarState';
 import { useChatHelpers, useLocalize } from '~/hooks';
@@ -56,7 +57,12 @@ function UnifiedSidebar() {
 
   const links = useUnifiedSidebarLinks();
   const isInsightsRoute = location.pathname.startsWith('/insights');
-  const panelExpanded = expanded && !isInsightsRoute;
+  /** Tempest seam (ADR-0084): the proof surface owns the whole width, exactly as insights
+   * does. Without this the window carried THREE nav columns — this rail, this panel showing
+   * "Projects / Chats", and the proof surface's own sidebar — and the middle one applied to
+   * nothing the user was looking at. Ledger row in packages/platform/UPSTREAM.md. */
+  const ownsFullWidth = isInsightsRoute || isTempestRoute(location.pathname);
+  const panelExpanded = expanded && !ownsFullWidth;
 
   /** The aside's max width is a viewport percentage, so the announced range has to track
    *  the viewport rather than a render-time snapshot of it. */
@@ -74,6 +80,14 @@ function UnifiedSidebar() {
     ? Math.min(Math.max(sidebarWidth, EXPANDED_MIN), resizeMax)
     : COLLAPSED_WIDTH;
 
+  /** Which rail entry reads as current. A full-width route is not one of the panel's own
+   *  sections, so it names itself (ADR-0084). */
+  const routeActiveId = isInsightsRoute
+    ? 'insights'
+    : isTempestRoute(location.pathname)
+      ? 'tempest'
+      : undefined;
+
   const handleCollapse = useCallback(
     (afterSlide?: () => void) => {
       setSidebarOpen(false, afterSlide);
@@ -90,11 +104,13 @@ function UnifiedSidebar() {
   }, [navigate]);
 
   const handlePanelExpand = useCallback(() => {
-    if (isInsightsRoute) {
+    // Expanding the panel is a request for the chat list, so a full-width route yields the
+    // window to it — the same bargain insights already made (ADR-0084).
+    if (ownsFullWidth) {
       handleLeaveInsights();
     }
     handleExpand();
-  }, [handleExpand, handleLeaveInsights, isInsightsRoute]);
+  }, [handleExpand, handleLeaveInsights, ownsFullWidth]);
 
   const handleResizeStart = useCallback(() => {
     setIsResizing(true);
@@ -201,7 +217,7 @@ function UnifiedSidebar() {
               expanded={expanded}
               onClose={handleCollapse}
               onLeaveInsights={handleLeaveInsights}
-              routeActiveId={isInsightsRoute ? 'insights' : undefined}
+              routeActiveId={routeActiveId}
             />
             <nav
               id="chat-history-nav"
@@ -212,7 +228,7 @@ function UnifiedSidebar() {
             <MobileShortcutTargets
               links={links}
               onLeaveInsights={handleLeaveInsights}
-              routeActiveId={isInsightsRoute ? 'insights' : undefined}
+              routeActiveId={routeActiveId}
             />
             <MobileBottomBar links={links} onNewChat={handleCollapse} />
           </ActivePanelProvider>

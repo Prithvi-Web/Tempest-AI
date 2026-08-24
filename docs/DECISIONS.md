@@ -4721,3 +4721,55 @@ absolute path; a folder picker is a real improvement and is now the only step in
 asks a person to know something a dialog could tell them. Nothing here weakens the proof gate:
 the preset selects tools that already exist in the boundary-D registry, and every one of them
 runs through the same `run_task` the bench measures.
+
+---
+
+## ADR-0084 — The proof surface owns the window (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L26, L27, L36.12 ·
+**Builds on:** ADR-0067, ADR-0077 (the absorbed proof surface), ADR-0082
+
+**Context.** The owner's diagnosis was *"right now it seems like two different apps."* ADR-0082
+answered the structural half — one settings home, models on the main rail. This is the half
+that was visible in a screenshot the whole time and that nobody had looked at squarely.
+
+Standing in the proof surface, the window carried **three columns of navigation**:
+
+1. the app's icon rail,
+2. the app's conversations panel, showing "Projects / Chats",
+3. the proof surface's own sidebar — Runs, New proof, Watch, Composer, Logs, Settings.
+
+The middle column applied to nothing on screen, and it was the **widest of the three**. It is
+hard to look at that and not conclude you are inside a second application that has been given a
+window inside the first.
+
+**Decision.** The proof surface is a **full-width route**, exactly as `/insights` already is.
+
+This is not a new rule; it is the existing one, applied where it obviously belongs. Upstream's
+`UnifiedSidebar` already computes `panelExpanded = expanded && !isInsightsRoute` — the chat list
+gets out of the way when a route owns the space. The proof surface owns the space for precisely
+the same reason, so it joins the predicate rather than getting a mechanism of its own.
+
+Three things follow, and all three were bugs before:
+
+- **The panel collapses to the icon rail.** Two columns, not three: the shell's rail, and the
+  proof surface's own section navigator — which is now legible as a *section* navigator rather
+  than a rival to the one beside it.
+- **The rail says where you are.** The active entry follows the ROUTE on a full-width route
+  rather than the panel's own active section. Standing in the proof surface used to highlight
+  "Chats", which is a small lie about what the window is showing.
+- **Expanding the panel leaves.** Asking for the chat list is a request to be in chat, so a
+  full-width route yields the window — the bargain insights already made.
+
+**What was NOT done, and why.** The proof surface's inner sidebar could have been dissolved
+entirely, its six destinations promoted onto the main icon rail. That was rejected: the main
+rail carries chat-app concerns, and six proof destinations on it would make the front door
+noisier to fix a problem that lives one level down. A section navigator beside a shell rail is
+a normal, legible shape — *three* nav columns is not. The defect was the count, not the
+existence.
+
+**Consequences.** 27 inline deltas against a cap of 40. The e2e pin measures the aside's real
+width in both routes with a lower bound on the chat side, so a "collapsed everywhere"
+regression cannot make it pass by accident. Its first version read the width once and caught a
+CSS transition mid-slide at 176px of a value that settles above 200 — it polls now, because
+that was a test about frame timing rather than about layout.
