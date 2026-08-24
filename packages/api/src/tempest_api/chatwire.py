@@ -136,7 +136,14 @@ def text_content_part(text: str) -> dict[str, Any]:
     return {"type": "text", "text": {"value": text}}
 
 
-def error_content_part(message: str) -> dict[str, Any]:
+def error_content_part(message: str, *, remedy: str = "") -> dict[str, Any]:
     """An in-band error the client renders inside the message, preserving any partial text
-    part beside it — the content-part route, which keeps what already streamed."""
-    return {"type": "error", "error": message}
+    part beside it — the content-part route, which keeps what already streamed.
+
+    `remedy` is a machine-readable hint about the way OUT of this state, present only when
+    there is one. The client branches on it rather than reading the sentence: an affordance
+    keyed on prose breaks the moment the prose improves (ADR-0080 §8)."""
+    part: dict[str, Any] = {"type": "error", "error": message}
+    if remedy:
+        part["remedy"] = remedy
+    return part

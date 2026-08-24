@@ -406,6 +406,7 @@ class ChatTurns:
         collected: list[str] = []
         usage: StreamUsage | None = None
         error_text: str | None = None
+        error_remedy = ""
         aborted = False
         try:
             history = self._history_for(user_message)
@@ -456,6 +457,10 @@ class ChatTurns:
             aborted = True
         except ModelError as exc:
             error_text = str(exc)
+            # A machine-readable way OUT, when the error has one. `MissingKey` does: this app
+            # can run a local model with no key at all, and a user who has just been told
+            # "no API key" is exactly the user who wants to hear that (ADR-0080 §8).
+            error_remedy = getattr(exc, "remedy", "")
         except Exception as exc:  # a defect in us, surfaced in-band rather than swallowed
             error_text = f"the turn failed inside Tempest: {exc!r}"
         self._finish(
@@ -468,6 +473,7 @@ class ChatTurns:
             endpoint,
             provider,
             aborted=aborted,
+            error_remedy=error_remedy,
             error=error_text,
         )
 
@@ -484,6 +490,7 @@ class ChatTurns:
         *,
         aborted: bool = False,
         error: str | None = None,
+        error_remedy: str = "",
         extra_parts: list[dict[str, Any]] | None = None,
     ) -> None:
         cap_note = self._record_spend(job, provider, model, usage)
@@ -499,7 +506,7 @@ class ChatTurns:
             # what the live stream showed, or a reload rewrites history.
             content.extend(extra_parts)
         if error is not None:
-            content.append(chatwire.error_content_part(error))
+            content.append(chatwire.error_content_part(error, remedy=error_remedy))
         response_message = {
             "messageId": job.response_message_id,
             "parentMessageId": job.user_message_id,

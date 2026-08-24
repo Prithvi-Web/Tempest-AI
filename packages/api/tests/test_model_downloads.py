@@ -276,3 +276,73 @@ class TestCancelAndRemove:
         assert "stop it first" in resp.text
         api.client.post(f"/v1/models/{catalogue.id}/download/cancel")
         _settle(api, catalogue.id)
+
+
+class TestTheKeylessTurnOffersAWayOut:
+    """ADR-0080 §8. A user with no API key is exactly the user who wants to hear that this app
+    can run a model with no key at all — so the refusal carries a machine-readable remedy, and
+    the client branches on THAT rather than on the sentence.
+
+    The distinction is the point: an affordance keyed on prose breaks the moment the prose
+    improves, which is precisely the wrong incentive to build into an error message.
+    """
+
+    def test_missing_key_carries_a_structured_remedy_not_just_a_sentence(self) -> None:
+        from tempest.inference.client import MissingKey, ModelError
+
+        err = MissingKey("no API key for Anthropic. Set it in Settings…")
+        assert isinstance(err, ModelError)
+        assert err.remedy == "local-model", (
+            "the way out has to be a VALUE — a client cannot branch on a paragraph"
+        )
+
+    def test_the_error_part_carries_the_remedy_to_the_client(self) -> None:
+        from tempest_api import chatwire
+
+        with_remedy = chatwire.error_content_part("no API key", remedy="local-model")
+        assert with_remedy == {"type": "error", "error": "no API key", "remedy": "local-model"}
+
+    def test_an_error_with_no_way_out_carries_no_remedy_key_at_all(self) -> None:
+        """Absent, not empty. A present-but-blank field is a UI that renders an affordance
+        leading nowhere — the mystery state L36.12 forbids."""
+        from tempest_api import chatwire
+
+        plain = chatwire.error_content_part("the disk is full")
+        assert plain == {"type": "error", "error": "the disk is full"}
+        assert "remedy" not in plain
+
+    def test_a_keyless_turn_reaches_the_client_with_the_remedy_attached(
+        self, api: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole path, not the pieces: a real turn against a provider with no key, and the
+        persisted message carries the remedy beside the sentence."""
+        monkeypatch.setenv("TEMPEST_DATA_DIR", str(tmp_path / "appdata"))
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        from tempest_api.routers import chat as chat_router
+
+        chat_router._REGISTRY.clear()
+
+        ack = api.client.post(
+            "/v1/chat/turns",
+            json={"text": "hello", "endpoint": "anthropic", "model_parameters": {"model": "m"}},
+        )
+        assert ack.status_code == 200, ack.text
+        stream_id = ack.json()["streamId"]
+
+        deadline = time.monotonic() + 30.0
+        payload: dict[str, Any] = {}
+        while time.monotonic() < deadline:
+            payload = api.client.get(f"/v1/chat/turns/{stream_id}/events?after=0").json()
+            if payload["status"] not in ("active", "unknown"):
+                break
+            time.sleep(0.05)
+
+        final = payload["events"][-1]["frame"]
+        parts = final["responseMessage"]["content"]
+        errors = [p for p in parts if p.get("type") == "error"]
+        assert errors, f"a keyless turn must surface an error part; got {parts}"
+        assert "no API key" in errors[0]["error"]
+        assert errors[0].get("remedy") == "local-model", (
+            "the client offers 'get a local model' by branching on this field, never by "
+            f"reading the sentence; got {errors[0]}"
+        )

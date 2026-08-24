@@ -91,7 +91,16 @@ class ModelError(Exception):
 
 
 class MissingKey(ModelError):
-    """No API key for this provider. Names the provider and the variable that carries it."""
+    """No API key for this provider. Names the provider and the variable that carries it.
+
+    Carries a machine-readable `remedy` as well as the sentence, because the surface wants to
+    offer a way OUT of this state — "get a local model, no key needed" — and the alternative
+    is a client matching on prose. A UI that branches on an error string breaks the moment the
+    string improves, which is the wrong incentive to build into an error message (ADR-0080 §8).
+    """
+
+    #: Stable, renderable-by-branching. One value today; a union the day there is a second.
+    remedy: str = "local-model"
 
 
 class MissingModel(ModelError):

@@ -230,6 +230,7 @@ def run_agent_turn(
     every exit — answer, refusal, cancellation, defect — lands in `ChatTurns._finish`."""
     collected: list[str] = []
     error_text: str | None = None
+    error_remedy = ""
     aborted = False
     scope = CancelScope()
     job.cancel_scope = scope
@@ -497,6 +498,7 @@ def run_agent_turn(
         error_text = str(exc)
     except (AgentError, ToolError) as exc:
         error_text = str(exc)
+        error_remedy = getattr(exc, "remedy", "")
     except Exception as exc:  # a defect in us, surfaced in-band rather than swallowed
         error_text = f"the agent turn failed inside Tempest: {exc!r}"
 
@@ -537,5 +539,6 @@ def run_agent_turn(
         provider,
         aborted=aborted,
         error=error_text,
+        error_remedy=error_remedy,
         extra_parts=list(job.extra_parts),
     )
