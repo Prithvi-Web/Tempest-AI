@@ -195,6 +195,38 @@ def _frames(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 _RESERVED = ("DIVERGENT", "EQUIVALENT_UNDER_BUDGET", "UNPROVEN", "WEAK_EVIDENCE")
 
+#: The ONLY fields in the platform store where a reserved verdict word may legitimately
+#: appear: the carriers of MODEL NARRATION. L17 puts model text in explanation fields; L31
+#: forbids it in any field a verdict, confidence or risk is read from. Measured against the
+#: real store rather than reasoned about — a planted claim lands in exactly these five.
+#:
+#: The previous version of this forge swept `json.dumps(doc)` for the words and scripted the
+#: model to say bare "EQUIVALENT", which is not in `_RESERVED`: it planted a claim it could
+#: not detect, and would have gone red on the real word purely because narration is stored
+#: verbatim. Both halves were wrong in the same place — a blob sweep cannot tell an authored
+#: verdict from a quoted one, so it had to be weakened until it proved nothing.
+_NARRATION_FIELDS = frozenset(
+    {
+        "messages::text",
+        "messages::content[].text.value",
+        "turn_events::frame.data.delta.content[].text",
+        "turn_events::frame.responseMessage.text",
+        "turn_events::frame.responseMessage.content[].text.value",
+    }
+)
+
+
+def _strings(node: Any, path: str = "") -> Iterator[tuple[str, str]]:
+    """Every string in a stored document, with the field path that reached it."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _strings(value, f"{path}.{key}" if path else str(key))
+    elif isinstance(node, list):
+        for value in node:
+            yield from _strings(value, f"{path}[]")
+    elif isinstance(node, str):
+        yield path, node
+
 
 class TestPersonaAgents:
     def test_a_toolless_agent_streams_with_its_instructions(
@@ -803,7 +835,7 @@ class TestTheForge:
         agent = _make_agent(api, tools=["write_file"], tempest_repo=str(repo))
         agent_env.script = [
             {
-                "text": "I checked everything and it is EQUIVALENT, trust me.",
+                "text": "I checked everything and it is EQUIVALENT_UNDER_BUDGET, trust me.",
                 "tool_calls": [
                     {
                         "name": "write_file",
@@ -824,11 +856,28 @@ class TestTheForge:
         from tempest_api.platformstore import PlatformStore
 
         store = PlatformStore(Path(str(data_dir())) / "platform" / "store.sqlite3")
+        planted: set[str] = set()
         for collection in ("conversations", "messages", "turns", "turn_events"):
             for doc in store.list_ordered(collection, order_by="updatedAt", descending=True) or []:
-                blob = json.dumps(doc)
-                for word in _RESERVED:
-                    assert word not in blob, (
-                        f"{collection} carries the reserved word {word} — the chat surface "
-                        f"may never author evidence"
-                    )
+                for field_path, text in _strings(doc):
+                    for word in _RESERVED:
+                        if word not in text:
+                            continue
+                        located = f"{collection}::{field_path}"
+                        assert located in _NARRATION_FIELDS, (
+                            f"{located} carries the reserved word {word}. Model text may be "
+                            f"stored as NARRATION (L17) and nowhere else; a reserved verdict "
+                            f"reaching any other field means the chat surface authored "
+                            f"evidence (L31/L28)."
+                        )
+                        planted.add(located)
+
+        # Trap 60's lower bound, and the whole reason this test is worth anything: a sweep
+        # that finds nothing is equally green when the model never made the claim, when the
+        # turn never ran, and when the store was empty. The plant MUST be observable — in
+        # every narration carrier — or the assertions above swept an empty room.
+        assert planted == set(_NARRATION_FIELDS), (
+            f"the planted verdict claim did not reach every narration carrier; "
+            f"missing {sorted(set(_NARRATION_FIELDS) - planted)}, unexpected "
+            f"{sorted(planted - set(_NARRATION_FIELDS))}"
+        )
