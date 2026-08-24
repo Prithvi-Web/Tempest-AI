@@ -859,3 +859,55 @@ class TestTheE2ERowIsGatedTwice:
         for entry in CATALOG:
             assert entry.base_url is None, entry.id
             assert entry.url.startswith("https://huggingface.co/"), entry.id
+
+
+class TestAirplaneMode:
+    """T36's own verifying claim: *an already-downloaded model still works with the network
+    unplugged*. It is the whole point of the feature — L8 says every core capability works with
+    the cable out, and until a model could be obtained locally, generation was the one place
+    that was false.
+
+    Proven by making the network unusable rather than by reasoning about it: the opener is
+    replaced with one that raises on any call, so a code path that reaches for the network
+    fails loudly instead of quietly succeeding on a machine that happens to be online.
+    """
+
+    def test_an_installed_model_is_usable_with_every_outbound_call_refused(
+        self, models_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake = FakeHuggingFace(payload=PAYLOAD)
+        with fake_huggingface_server(fake) as base:
+            entry = _point_at(_entry(base), base, monkeypatch)
+            installed = dl.download_entry(entry)
+            fetches_while_online = len(fake.requests)
+
+            # The cable comes out. Anything that so much as opens a connection now raises.
+            def no_network() -> object:
+                raise AssertionError("airplane mode: something reached for the network")
+
+            monkeypatch.setattr(dl, "_opener", no_network)
+
+            # The file is there, it is recognised as this row's model, and asking for it again
+            # is answered from disk without a single request.
+            assert dl.is_installed(entry)
+            assert dl.download_entry(entry) == installed
+            assert installed.read_bytes() == PAYLOAD
+            assert dl.disk_free_bytes() > 0
+            assert len(fake.requests) == fetches_while_online, (
+                "an installed model must not be re-fetched, offline or otherwise"
+            )
+
+    def test_the_provider_a_served_model_appears_as_is_loopback_so_chatting_needs_no_egress(
+        self,
+    ) -> None:
+        """The other half of the claim. A downloaded model is chatted with through the
+        `llamacpp` provider row, which is what makes a served model appear in the picker with
+        no new provider code (ADR-0080 context §1). If that row ever pointed off-machine, an
+        "offline" conversation would be reaching the network — so the address is pinned here
+        rather than assumed, in the suite that owns the offline claim."""
+        from tempest.inference import providers
+
+        row = providers.get("llamacpp")
+        assert row.base_url.startswith("http://127.0.0.1"), row.base_url
+        assert row.env_var == "", "a local runner that demands a key is not a local runner"
+        assert not row.needs_key

@@ -134,7 +134,20 @@ fn abandon(mut child: Child, pgid: i32) {
 /// (ADR-0080 §6). Bundling a signed `llama-server` per platform is what makes this feature
 /// fully zero-setup, and it is T38.
 pub(crate) fn resolve_runner() -> Result<String, ModelServerError> {
-    if let Some(found) = which_on_path("llama-server") {
+    resolve_runner_in(&std::env::var_os("PATH").unwrap_or_default())
+}
+
+/// `resolve_runner`, with the search path passed in.
+///
+/// The env read happens in exactly one place above, so the decision itself is a pure function
+/// of its input and a test can ask "what happens when nothing is found" without emptying the
+/// PROCESS's `PATH`. That matters more than it looks: cargo runs a binary's tests on parallel
+/// threads sharing one environment, and an earlier cut of this did set `PATH=""` — which broke
+/// two tests in other modules that were merely looking for their own programs at the time.
+/// A test that reaches for a global to control its subject can fail a test it has never heard
+/// of.
+fn resolve_runner_in(search: &std::ffi::OsStr) -> Result<String, ModelServerError> {
+    if let Some(found) = which_in(search, "llama-server") {
         return Ok(found);
     }
     Err(ModelServerError::RunnerMissing(
@@ -145,13 +158,14 @@ pub(crate) fn resolve_runner() -> Result<String, ModelServerError> {
     ))
 }
 
-fn which_on_path(program: &str) -> Option<String> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
+fn which_in(search: &std::ffi::OsStr, program: &str) -> Option<String> {
+    std::env::split_paths(search)
         .map(|dir| dir.join(program))
         .find(|candidate| candidate.is_file())
         .map(|candidate| candidate.to_string_lossy().into_owned())
 }
+
+
 
 /// True when something is answering on the model port. Used as the readiness probe and by the
 /// status call — an HTTP server's readiness cannot be observed on a pipe that does not exist,
@@ -352,6 +366,14 @@ pub(crate) fn status() -> (bool, Option<String>) {
 mod tests {
     use super::*;
 
+    /// Serialises every test that touches the fixed port or `RUNNING`.
+    ///
+    /// cargo runs a binary's tests on parallel threads, and these share two pieces of global
+    /// state: 127.0.0.1:8080 and the `RUNNING` slot. Without this they interleave and fail
+    /// each other for reasons that have nothing to do with the code under test — the shape of
+    /// a flaky suite that then gets "fixed" by deleting an assertion.
+    static SHARED_PORT: Mutex<()> = Mutex::new(());
+
     /// A file that really exists, so `start` gets past its on-disk check and reaches the
     /// behaviour under test. `std::env::current_exe` is always a file and always readable.
     fn a_real_file() -> String {
@@ -394,10 +416,11 @@ mod tests {
         //
         // The previous version began `let Err(err) = resolve_runner(None) else { return; }`,
         // so on a machine WITH llama.cpp installed — the state this very message tells users
-        // to reach — it asserted nothing and reported as passed. The PATH is emptied instead,
-        // which makes the refusal reachable on every machine, including the developer's.
-        let _guard = PathGuard::emptied();
-        let err = resolve_runner().expect_err("an empty PATH cannot produce a runner");
+        // to reach — it asserted nothing and reported as passed. An EMPTY SEARCH PATH is
+        // passed instead, so the refusal is reachable on every machine, including the
+        // developer's, without touching the environment other tests are reading.
+        let err = resolve_runner_in(std::ffi::OsStr::new(""))
+            .expect_err("an empty search path cannot produce a runner");
         let text = err.to_string();
         assert!(text.contains("brew install llama.cpp"), "{text}");
         assert!(text.contains("models are kept"), "{text}");
@@ -405,14 +428,22 @@ mod tests {
     }
 
     #[test]
-    fn a_start_with_no_runner_anywhere_refuses_before_it_touches_the_port() {
-        let _guard = PathGuard::emptied();
-        let err = start(&a_real_file()).unwrap_err();
-        assert!(matches!(err, ModelServerError::RunnerMissing(_)), "{err:?}");
+    fn a_runner_is_found_when_the_search_path_holds_one() {
+        // The other side of the same decision: a directory containing an executable of that
+        // name resolves to it, so the refusal above is about absence and not about the search
+        // being broken (an assertion that only ever sees failures cannot tell those apart).
+        let dir = std::env::temp_dir().join(format!("tempest-which-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a temp dir");
+        let runner = dir.join("llama-server");
+        std::fs::write(&runner, b"#!/bin/sh\nexit 0\n").expect("a file named llama-server");
+        let found = resolve_runner_in(dir.as_os_str()).expect("the runner in the search path");
+        assert_eq!(found, runner.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_port_already_taken_is_refused_rather_than_adopted() {
+        let _shared = SHARED_PORT.lock().unwrap_or_else(|e| e.into_inner());
         // Readiness is "something answers on 8080", which cannot tell our child from a
         // squatter. With anything already listening there the first probe succeeded in
         // microseconds, the spawned child failed to bind and exited, and the panel said
@@ -523,6 +554,7 @@ mod tests {
 
     #[test]
     fn stopping_nothing_is_harmless() {
+        let _shared = SHARED_PORT.lock().unwrap_or_else(|e| e.into_inner());
         stop();
         let (up, model) = status();
         assert!(!up);
@@ -531,6 +563,7 @@ mod tests {
 
     #[test]
     fn a_child_that_died_stops_being_reported_as_serving() {
+        let _shared = SHARED_PORT.lock().unwrap_or_else(|e| e.into_inner());
         // `status()` read only the slot, never the child, so an llama-server OOM-killed
         // mid-session left the panel rendering "Serving on 127.0.0.1 — pick it in the model
         // list" for ever, over nothing, while every turn failed to connect. A real process
@@ -582,6 +615,118 @@ mod tests {
         assert_eq!(MODEL_SERVER_HOST, "127.0.0.1");
     }
 
+    #[test]
+    fn a_real_child_is_started_supervised_and_swept_with_its_port() {
+        // T37's claim, executed rather than argued: "a supervised loopback child, off by
+        // default". Nothing in this crate had ever RUN one — the only test that called `start`
+        // returned at the missing-model check — so the spawn, the readiness probe, the status
+        // and the teardown were all unexercised, and `orphan_check` cannot reach them either
+        // because no `llama-server` exists on this machine or on any CI runner.
+        //
+        // A stub runner closes that gap honestly. It is a stand-in for the RUNNER, not for the
+        // model: the process is real, the port is real, the process group is real, and what is
+        // proven is the supervision, which is the part Tempest owns. Whether llama.cpp serves
+        // good tokens is llama.cpp's business.
+        let _shared = SHARED_PORT.lock().unwrap_or_else(|e| e.into_inner());
+        stop(); // whatever a previous test left
+
+        if port_answers() {
+            eprintln!("skipping: {MODEL_SERVER_PORT} is held by something else on this machine");
+            return;
+        }
+        let Some(stub) = StubRunner::on_path() else {
+            eprintln!("skipping: no python3 to build a stub runner with");
+            return;
+        };
+
+        let model = a_real_file();
+        let runner = start(&model).expect("the stub runner starts and answers");
+        assert!(runner.ends_with("llama-server"), "{runner}");
+
+        let (up, serving) = status();
+        assert!(up, "a child that answers on the port is serving");
+        assert_eq!(serving.as_deref(), Some(model.as_str()));
+        assert!(port_answers(), "the port really is open — this is not a mocked probe");
+
+        // Starting the same model again is the idempotent path, and must not spawn a second.
+        assert!(start(&model).is_ok());
+        assert!(status().0);
+
+        stop();
+        let (after, model_after) = status();
+        assert!(!after, "stop() leaves nothing claiming to serve");
+        assert_eq!(model_after, None);
+        // The port goes with the child. A stop that reported success while the process kept
+        // the socket is the orphan this whole struct exists to make impossible (L34).
+        let mut freed = false;
+        for _ in 0..40 {
+            if !port_answers() {
+                freed = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        drop(stub);
+        assert!(freed, "the port was still answering two seconds after stop() — an orphan");
+    }
+
+    /// A directory on `PATH` holding an executable called `llama-server` that binds the model
+    /// port and stays up. Removed, with its directory, on drop.
+    struct StubRunner {
+        _path: PathGuard,
+        dir: std::path::PathBuf,
+    }
+
+    impl StubRunner {
+        fn on_path() -> Option<Self> {
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let python = ["python3", "python"]
+                .into_iter()
+                .find_map(|name| which_in(&path, name))?;
+            let dir = std::env::temp_dir().join(format!("tempest-stub-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).ok()?;
+
+            // The server as a FILE, not an inline `-c`: a one-liner with embedded newlines and
+            // nested quotes is where the first cut of this went wrong, and a stub that fails to
+            // parse reports as "the runner exited before it was ready", which reads like the
+            // code under test rather than the fixture.
+            let server = dir.join("stub_server.py");
+            std::fs::write(
+                &server,
+                format!(
+                    "import socketserver\n\n\
+                     class Quiet(socketserver.BaseRequestHandler):\n\
+                     \x20   def handle(self):\n\
+                     \x20       pass\n\n\
+                     socketserver.TCPServer.allow_reuse_address = True\n\
+                     socketserver.TCPServer(({MODEL_SERVER_HOST:?}, {MODEL_SERVER_PORT}), Quiet).serve_forever()\n"
+                ),
+            )
+            .ok()?;
+
+            // Ignores the argv it is handed — it stands in for the runner's LIFECYCLE, not its
+            // behaviour — and holds the port until it is killed.
+            let script = dir.join("llama-server");
+            std::fs::write(
+                &script,
+                format!("#!/bin/sh\nexec {python} {}\n", server.display()),
+            )
+            .ok()?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).ok()?;
+            }
+            Some(Self { _path: PathGuard::prepending(&dir), dir })
+        }
+    }
+
+    impl Drop for StubRunner {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
     /// Restores `PATH` on drop. Every test that needs a known PATH sets one, because the
     /// answer of `which_on_path` is otherwise a property of the developer's machine — which
     /// is how the refusal test came to assert nothing on exactly the machines where this
@@ -589,24 +734,33 @@ mod tests {
     struct PathGuard(Option<std::ffi::OsString>);
 
     impl PathGuard {
-        fn emptied() -> Self {
+        /// PREPEND `dir` to `PATH`, never replace it.
+        ///
+        /// The two tests that need `start` to find a runner have to go through the process
+        /// environment, because `start` resolves its own. Prepending keeps `PATH` a superset
+        /// of what it was, so a test in another module looking for its own program still finds
+        /// it — replacing it did not, and broke two.
+        fn prepending(dir: &std::path::Path) -> Self {
             let previous = std::env::var_os("PATH");
-            // SAFETY-equivalent note: cargo runs these serially within the module because
-            // each guard restores before the next test observes it; the port test is the only
-            // one that also touches shared state, and it takes the same lock `start` does.
-            unsafe { std::env::set_var("PATH", "") };
+            let joined = match previous.as_ref() {
+                Some(existing) => {
+                    let mut paths = vec![dir.to_path_buf()];
+                    paths.extend(std::env::split_paths(existing));
+                    std::env::join_paths(paths).expect("a joinable PATH")
+                }
+                None => dir.as_os_str().to_os_string(),
+            };
+            unsafe { std::env::set_var("PATH", joined) };
             Self(previous)
         }
 
         fn containing_llama_server(runner: &str) -> Self {
-            let previous = std::env::var_os("PATH");
             let dir = std::env::temp_dir().join(format!("tempest-llama-{}", std::process::id()));
             std::fs::create_dir_all(&dir).expect("a temp dir for the fake runner");
             let link = dir.join("llama-server");
             let _ = std::fs::remove_file(&link);
             std::fs::copy(runner, &link).expect("a file named llama-server");
-            unsafe { std::env::set_var("PATH", &dir) };
-            Self(previous)
+            Self::prepending(&dir)
         }
     }
 

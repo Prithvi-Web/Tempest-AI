@@ -465,12 +465,16 @@ python -m tempest.dev.perf_suite --enforce-budgets        # document-store p95 r
 - [ ] Import from LibreChat / ChatGPT / Chatbot UI. Export to markdown / JSON / text / screenshot
       — **with proof bundles attached**, so an exported session re-imports on another machine with
       every repro still runnable.
-- [ ] **A runner-path field for the local model server.** `resolve_runner` implements the
-      ADR-0080 §6 order (bundled -> configured setting -> PATH) and the SETTING half has no box
-      on the panel, so today it resolves from PATH only. Wanted by anyone whose `llama-server`
-      is not on PATH — a Nix profile, a manual build. Written down rather than referenced as
-      though it existed: an earlier draft of the panel read a `local_model_server` field that
-      does not exist, and the seam's typecheck gap meant nothing caught it.
+- [ ] **A runner-path field for the local model server, read HOST-side.** `resolve_runner`
+      resolves from `PATH` only. Wanted by anyone whose `llama-server` is not on `PATH` — a Nix
+      profile, a manual build. Two constraints on how it may arrive, both learned the hard way
+      (ADR-0080 amendment): the value comes from the host's own settings store (`runners.rs`,
+      the way the editor runners already do) and **never as an IPC argument** — the command
+      used to take the path from its caller, and its caller is the webview, so any script
+      reaching `__TAURI_INVOKE` could name an arbitrary local executable for the host to run;
+      and it is written down rather than referenced as though it existed, because an earlier
+      draft of the panel read a `local_model_server` field that does not exist and the seam's
+      typecheck gap meant nothing caught it.
 - [ ] **Per-turn steer scoping, so a steer drained into a turn that then DIED is reclaimable.**
       `_converse` drains `steer_source()` into the transcript BEFORE the model call that carries
       it, and the client's chip flips to applied at that moment. If that call then fails — an

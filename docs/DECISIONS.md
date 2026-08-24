@@ -4356,3 +4356,85 @@ upstream-merge-style obligation. Nothing here touches the proof engine: a local 
 provider, verdicts are still computed by the differential runner, and L17/L31 are untouched — a
 model that runs on the user's own machine gets no more authority over a verdict than one that
 does not.
+
+---
+
+## ADR-0080 amendment — what the second review found, and the four decisions it forced (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L15.3, L15.4, L23, L32, L34 ·
+**Amends:** ADR-0080 §1, §2, §6, §8
+
+ADR-0080's own close-out called for an adversarial review; it died twice on API 529s and its two
+surviving lenses found ten defects. The re-run got all four lenses: **30 findings, 29 unique, 8
+confirmed, 3 split, 18 refuted.** Four of them changed a decision this ADR had recorded, and
+those four are the amendment. The rest were repairs and are in the commits.
+
+**One caveat about that "18 refuted", recorded because the number is misleading on its face.**
+The verify phase ran while the fixes were landing, so most of those verifiers read a tree in
+which the defect was already gone — one of them says so explicitly, calling its finding "fixed
+but uncommitted". They were not refuted as unreal. Each had already been reproduced by a failing
+test before it was touched: the byte-budget defect wrote **50,244 bytes for a 10,244-byte row**,
+the cancel defect took **10.2 s** against a ten-second dribble, and each of the four "cannot
+fail" tests was replaced and then mutation-proven to fail. A finding is refuted by evidence, not
+by arriving after the fix.
+
+**§1 amended — a spawned child is recorded before it is ready.** The original design held the
+`Child` in a local until the readiness probe succeeded, which meant `RUNNING` was `None` for up
+to the full 120 s a multi-gigabyte model takes to load — and `stop()`, which `sweep_on_exit`
+calls, takes `RUNNING`. Quitting during a start therefore left an `llama-server` in its own
+process group with no code path able to reach it: the exact P0 the previous commit had just
+closed one function away, re-opened by the fix for it. `Running` gains `ready`, so the record
+can represent "spawned but not answering" — the state whose absence forced the local in the
+first place. **Two further properties are now stated rather than assumed:** the port is checked
+*before* spawning, because readiness is "something answers on 8080" and that cannot tell our
+child from a squatter (with anything already listening, `start` returned Ok in microseconds and
+the panel offered a foreign process the user's chat turns); and `status()` reads the CHILD, not
+the slot, because a crashed server was otherwise reported as serving for ever.
+
+**§2 amended — the row is the budget.** The downloader trusted three numbers the server chose.
+The read loop broke only on an empty chunk, so the bytes committed to disk were the peer's
+decision (L15.4 — an unbounded operation, measured); a 206 was trusted on its status alone,
+though `Content-Range` is the one header that can tell a real resume from a proxy serving the
+whole object; and the 416 arm promoted before verifying, so an upstream file re-uploaded shorter
+destroyed the user's own partial. The catalogue row is now the bound on all three. The redirect
+allowance keeps its shape but gains what it claimed: a scheme rule (never weaken the transport —
+the host was checked and the scheme was not), `max_redirections = 1` to match this ADR's "at
+most one hop" rather than urllib's default of ten, and a credential check that reads
+`unredirected_hdrs` too, which is where urllib's own auth handlers put `Authorization` — the
+idiomatic way to attach a key was the one way past the guard, and the guard was `pragma: no
+cover` on the circular argument that this client never sets one.
+
+**§6 amended — the runner path is not the webview's to choose.** `start_model_server` is a
+`#[tauri::command]`, and it took the runner's path as an argument: any script reaching
+`__TAURI_INVOKE` — rendered model output in an artifact frame, an XSS in the vendored client, a
+hostile MCP result — could name an arbitrary local executable and an arbitrary file to feed it.
+The parameter is **removed**, not validated, because an arbitrary path is the whole point of a
+configured runner and there is no validation to write for one; the panel passed `null` on every
+call anyway. When the setting arrives with **T38** it reads from the host's own store
+(`runners.rs`), the way the editor runners already do, never from an IPC argument. The model
+path must now canonicalise to somewhere under `<data>/models`.
+
+**§8 amended — the affordance exists.** §8 described a remedy "carried through the frame
+contract to a 'Get a local model' affordance". The contract half shipped; nothing read the
+field. An ADR describing an affordance nobody built is worse than one that defers it, so the
+consumer is now real: one vendored delta in `Part.tsx` (an import and a branch, ledgered in
+`UPSTREAM.md`), with the narrowing and the markup in the seam.
+
+**New: a dev-only catalogue row, gated twice.** Proving "pressing Download moves a real progress
+bar and ends with a real file" needs bytes a test can serve, and there was no way to get them:
+the four shipped rows point at `huggingface.co` and are gigabytes. `catalog.py` gains a row that
+appears only when `TEMPEST_DEV=1` **and** an explicit loopback base URL is set — the same
+two-condition shape as ADR-0008's first-party marker — and a base that is not loopback **refuses
+rather than falling back**, because a silent fallback is how a misconfigured harness ends up
+quietly downloading from the real host. Loopback is not egress, so check 8's ledger is untouched
+and no shipped row can express another host (`base_url` is `None` on all four, asserted).
+Integrity stays fully live: the row carries the real sha256 of the real bytes the peer serves.
+
+**Consequences.** The model server is measurably harder to lie about and no longer reachable as
+a process launcher. The downloader cannot be talked into writing more than the user agreed to.
+The one place this feature is still not zero-setup is unchanged and still stated in the refusal
+(T38). And the surface `make verify` covers is honestly narrower than it looks in one respect
+worth writing down: these boundary-A routes answer `list[dict[str, Any]]`, so the OpenAPI has no
+named component for them and the Python↔Rust field names are held by the e2e contract net's
+explicit schemas rather than by generation. That is a real gap against L36.8, and naming it is
+the first half of closing it.
