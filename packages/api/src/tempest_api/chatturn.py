@@ -32,6 +32,7 @@ from tempest.inference.client import (
     Cancelled,
     Message,
     ModelError,
+    ReasoningDelta,
     StreamUsage,
     TextDelta,
     UpstreamError,
@@ -167,34 +168,61 @@ def _coalesce_deltas(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for event in events:
         frame = event.get("frame")
         merged = out[-1] if out else None
+        here = _delta_of(frame)
+        before = _delta_of(merged.get("frame")) if merged is not None else None
         if (
-            merged is not None
-            and _delta_text(merged.get("frame")) is not None
+            before is not None
+            and here is not None
+            and before[0] == here[0]
             and isinstance(frame, dict)
-            and _delta_text(frame) is not None
+            and merged is not None
             and merged["frame"]["data"].get("id") == frame["data"].get("id")
         ):
-            joined = str(_delta_text(merged["frame"])) + str(_delta_text(frame))
-            merged["frame"] = chatwire.message_delta_frame_for_step(
-                step_id=str(frame["data"]["id"]), text=joined
-            )
+            build = _DELTA_BUILDERS[here[0]]
+            merged["frame"] = build(step_id=str(frame["data"]["id"]), text=before[1] + here[1])
             merged["seq"] = event["seq"]
             continue
         out.append({"seq": event["seq"], "frame": frame})
     return out
 
 
-def _delta_text(frame: Any) -> str | None:
-    """The text of an `on_message_delta` frame, or None when this is any other frame."""
-    if not isinstance(frame, dict) or frame.get("event") != "on_message_delta":
+#: The two streamed content channels, each with the frame builder that rebuilds a merged run
+#: (LC06). Reasoning batches exactly as text does, or a reload re-renders hundreds of frames
+#: where the live stream rendered a handful — a different experience from the same ledger.
+_DELTA_BUILDERS = {
+    "on_message_delta": chatwire.message_delta_frame_for_step,
+    "on_reasoning_delta": chatwire.reasoning_delta_frame_for_step,
+}
+
+#: Which key inside a delta's content part carries that channel's text.
+_DELTA_PART_KEY = {"on_message_delta": "text", "on_reasoning_delta": "think"}
+
+
+def _delta_of(frame: Any) -> tuple[str, str] | None:
+    """`(event name, text)` for a single-part delta frame of either channel, or None."""
+    if not isinstance(frame, dict):
         return None
+    event = frame.get("event")
+    if event not in _DELTA_PART_KEY:
+        return None
+    key = _DELTA_PART_KEY[str(event)]
     try:
         content = frame["data"]["delta"]["content"]
-        if len(content) != 1 or content[0].get("type") != "text":
+        if len(content) != 1 or content[0].get("type") != _PART_TYPE[str(event)]:
             return None
-        return str(content[0]["text"])
+        return str(event), str(content[0][key])
     except (KeyError, TypeError, IndexError):
         return None
+
+
+#: The content-part `type` each channel's delta carries.
+_PART_TYPE = {"on_message_delta": "text", "on_reasoning_delta": "think"}
+
+
+def _delta_text(frame: Any) -> str | None:
+    """The text of an `on_message_delta` frame, or None when this is any other frame."""
+    found = _delta_of(frame)
+    return found[1] if found is not None and found[0] == "on_message_delta" else None
 
 
 class ChatTurns:
@@ -404,10 +432,30 @@ class ChatTurns:
         system: str | None,
     ) -> None:
         collected: list[str] = []
+        thinking: list[str] = []
         usage: StreamUsage | None = None
         error_text: str | None = None
         error_remedy = ""
         aborted = False
+
+        def think(text: str) -> None:
+            """One thinking chunk onto the ledger, opening the think step on the first.
+
+            The step is emitted LAZILY: a model that never thinks must produce exactly the
+            frames it produced before this channel existed, and an empty step would leave
+            the client an index-1 content slot nothing ever fills."""
+            if not thinking:
+                job.append(
+                    chatwire.reasoning_run_step_frame(response_message_id=job.response_message_id)
+                )
+            thinking.append(text)
+            job.append(
+                chatwire.reasoning_delta_frame(
+                    response_message_id=job.response_message_id, text=text
+                )
+            )
+            self._flush_if_due(job)
+
         try:
             history = self._history_for(user_message)
             try:
@@ -429,13 +477,18 @@ class ChatTurns:
                             )
                         )
                         self._flush_if_due(job)
+                    elif isinstance(event, ReasoningDelta):
+                        think(event.text)
                     else:
                         usage = event
             except UpstreamError as exc:
                 if "stream_options" not in str(exc) or collected:
                     raise
                 # A strict OpenAI-compatible server rejected the usage knob. Losing the
-                # usage report for this provider is honest; losing chat would not be.
+                # usage report for this provider is honest; losing chat would not be. This
+                # arm loses the thinking channel with it — `stream()` is text-only by
+                # contract — which is the same trade and is why the note below fires on an
+                # empty answer whether or not any thinking was seen.
                 for delta in stream(
                     provider.id,
                     history,
@@ -463,6 +516,27 @@ class ChatTurns:
             error_remedy = getattr(exc, "remedy", "")
         except Exception as exc:  # a defect in us, surfaced in-band rather than swallowed
             error_text = f"the turn failed inside Tempest: {exc!r}"
+
+        if not collected and error_text is None and not aborted:
+            # A turn that ends with no answer is the silence L23 forbids: the user watched a
+            # spinner and got an empty bubble, with nothing to read and nothing to do. It is
+            # the ordinary outcome for a reasoning model whose budget runs out mid-thought —
+            # measured against a real Qwen3 0.6B, 29 thinking frames and not one of answer —
+            # so the sentence names that cause when the thinking is there to prove it, and
+            # names the way out either way (ADR-0081).
+            note = (
+                "The model used its whole reply budget thinking and never reached an "
+                "answer. Its thinking is below. Ask again, or raise the reply length in "
+                "Settings."
+                if thinking
+                else "The model returned an empty reply — no text and no error. Ask again, "
+                "or try a different model."
+            )
+            collected.append(note)
+            job.append(
+                chatwire.message_delta_frame(response_message_id=job.response_message_id, text=note)
+            )
+
         self._finish(
             job,
             conversation,
@@ -475,6 +549,7 @@ class ChatTurns:
             aborted=aborted,
             error_remedy=error_remedy,
             error=error_text,
+            extra_parts=([chatwire.think_content_part("".join(thinking))] if thinking else None),
         )
 
     def _finish(

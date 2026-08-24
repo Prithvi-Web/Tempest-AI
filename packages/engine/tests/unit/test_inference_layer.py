@@ -36,6 +36,11 @@ class Peer:
         self.sse: list[str] | None = None
         #: Verbatim frames, for exercising the event shapes real providers actually send.
         self.raw: list[bytes] | None = None
+        #: A verbatim NON-stream document, for the same reason `raw` exists on the stream
+        #: side: the default body is one tidy text block, and several response shapes worth
+        #: pinning (a reasoning model's split content, an empty answer) cannot be spelled
+        #: with it.
+        self.raw_body: dict[str, Any] | None = None
         self.requests: list[dict[str, object]] = []
         self.headers: list[dict[str, str]] = []
         self.paths: list[str] = []
@@ -78,6 +83,8 @@ class Peer:
         self.wrote_prefix = threading.Event()
 
     def body(self) -> bytes:
+        if self.raw_body is not None:
+            return json.dumps(self.raw_body).encode()
         if self.wire == mp.WIRE_ANTHROPIC:
             return json.dumps(
                 {
@@ -1326,3 +1333,220 @@ class TestRedirectsNeverCarryTheKey:
                 thread.join(timeout=5)
         assert "SECRET-KEY" not in str(caught.value), "the key appeared in an error message"
         assert "redirect" in str(caught.value)
+
+
+class TestReasoningIsItsOwnChannel:
+    """A reasoning model's thinking and its answer are two channels, and reading only one of
+    them is how a user gets silence (ADR-0081).
+
+    Measured against a real `llama-server` running Qwen3 0.6B on 2026-08-24: with a 120-token
+    budget the reply came back `finish_reason: length`, `content: ''`, and 29 SSE frames of
+    `reasoning_content`. A client that reads `content` alone shows the user nothing at all —
+    no text, no explanation, no error. That is the L15.3/L23 failure this class pins, and it
+    lands on the models people are most likely to pick: both Qwen3 rows and the DeepSeek-R1
+    distill in the catalogue are reasoning models, and the smallest is the first click.
+
+    The frames below are the shapes those servers really send, transcribed from that session.
+    """
+
+    def test_thinking_and_answer_arrive_as_separate_events_in_order(self) -> None:
+        provider = mp.get("llamacpp")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"choices": [{"delta": {"role": "assistant", "content": null}}]}\n\n',
+            b'data: {"choices": [{"delta": {"reasoning_content": "Okay"}}]}\n\n',
+            b'data: {"choices": [{"delta": {"reasoning_content": ", the user"}}]}\n\n',
+            b'data: {"choices": [{"delta": {"content": "A local model"}}]}\n\n',
+            b'data: {"choices": [{"delta": {"content": " runs here."}}]}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "llamacpp", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert [(type(e).__name__, e.text) for e in events] == [
+            ("ReasoningDelta", "Okay"),
+            ("ReasoningDelta", ", the user"),
+            ("TextDelta", "A local model"),
+            ("TextDelta", " runs here."),
+        ]
+
+    def test_a_turn_that_is_all_thinking_is_not_silence(self) -> None:
+        """The exact failure, reproduced: every frame is `reasoning_content` and none is
+        `content`. Reading `content` alone yields an empty string — which reaches the user as
+        a turn that finished and said nothing."""
+        provider = mp.get("llamacpp")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"choices": [{"delta": {"reasoning_content": "Okay, the user"}}]}\n\n',
+            b'data: {"choices": [{"delta": {"reasoning_content": " wants a sentence"}}]}\n\n',
+            b'data: {"choices": [{"finish_reason": "length", "delta": {}}]}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "llamacpp", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert not [e for e in events if isinstance(e, mc.TextDelta)], "there is no answer text"
+        assert (
+            "".join(e.text for e in events if isinstance(e, mc.ReasoningDelta))
+            == "Okay, the user wants a sentence"
+        ), "and the thinking is not lost with it"
+
+    def test_the_other_openai_wire_spelling_is_read_too(self) -> None:
+        """OpenRouter and several relays spell the same channel `reasoning`; llama.cpp and
+        DeepSeek spell it `reasoning_content`. Both are read, because a channel that depends
+        on which relay is in front of the model is not a channel."""
+        provider = mp.get("openrouter")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"choices": [{"delta": {"reasoning": "hmm"}}]}\n\n',
+            b'data: {"choices": [{"delta": {"content": "yes"}}]}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "openrouter", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert [(type(e).__name__, e.text) for e in events] == [
+            ("ReasoningDelta", "hmm"),
+            ("TextDelta", "yes"),
+        ]
+
+    def test_anthropic_thinking_deltas_are_reasoning_and_never_text(self) -> None:
+        """The Anthropic wire carries the same split as a `thinking_delta` inside its
+        `content_block_delta`. Folding it into the answer would put the model's private
+        reasoning into the text a harness compiles."""
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"type": "content_block_delta", '
+            b'"delta": {"type": "thinking_delta", "thinking": "let me see"}}\n\n',
+            b'data: {"type": "content_block_delta", '
+            b'"delta": {"type": "text_delta", "text": "the answer"}}\n\n',
+        ]
+        with serve(peer) as base:
+            events = list(
+                mc.stream_events(
+                    "anthropic", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert [(type(e).__name__, e.text) for e in events] == [
+            ("ReasoningDelta", "let me see"),
+            ("TextDelta", "the answer"),
+        ]
+
+    def test_plain_stream_stays_text_only_when_the_model_thinks(self) -> None:
+        """`stream()` feeds harness synthesis, which compiles what it is given. Its contract
+        is the ANSWER, and thinking is not part of it — a `ReasoningDelta` is dropped there
+        exactly as `StreamUsage` already is, rather than leaking a foreign type or, worse,
+        prose into generated code."""
+        provider = mp.get("llamacpp")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"choices": [{"delta": {"reasoning_content": "thinking out loud"}}]}\n\n',
+            b'data: {"choices": [{"delta": {"content": "def f(): pass"}}]}\n\n',
+        ]
+        with serve(peer) as base:
+            got = list(
+                mc.stream(
+                    "llamacpp", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert got == ["def f(): pass"]
+
+    def test_a_completion_carries_reasoning_beside_its_text(self) -> None:
+        """The non-stream path has the same split, and the same silence without it."""
+        provider = mp.get("llamacpp")
+        peer = Peer(provider.wire)
+        peer.raw_body = {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning_content": "Okay, the user is asking for a short sentence",
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 120},
+        }
+        with serve(peer) as base:
+            done = mc.complete(
+                "llamacpp", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+            )
+        assert done.text == ""
+        assert done.reasoning == "Okay, the user is asking for a short sentence"
+        assert done.stop_reason == "length"
+
+    def test_an_anthropic_completion_reads_its_thinking_blocks(self) -> None:
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.raw_body = {
+            "content": [
+                {"type": "thinking", "thinking": "weighing it up"},
+                {"type": "text", "text": "the answer"},
+            ],
+            "usage": {"input_tokens": 3, "output_tokens": 5},
+        }
+        with serve(peer) as base:
+            done = mc.complete(
+                "anthropic", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+            )
+        assert done.text == "the answer"
+        assert done.reasoning == "weighing it up"
+
+
+class TestMalformedDeltasAreSurvived:
+    """A `delta` that is not an object at all.
+
+    The wire contract says these are objects; a relay, a proxy, or a half-written frame can
+    still put a string or a null there. Splitting the reader into two channels turned what
+    used to be one inline `isinstance` guard into three, and a guard nothing exercises is a
+    guard nobody has checked — so each one gets a frame that reaches it (ADR-0081).
+    """
+
+    def test_an_openai_delta_that_is_not_an_object_is_skipped(self) -> None:
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"choices": [{"delta": "not an object"}]}\n\n',
+            b'data: {"choices": [{"delta": {"content": "real"}}]}\n\n',
+        ]
+        with serve(peer) as base:
+            got = list(
+                mc.stream("openai", [mc.Message("user", "hi")], env=_env(provider, base), model="m")
+            )
+        assert got == ["real"]
+
+    def test_an_anthropic_delta_that_is_not_an_object_is_skipped(self) -> None:
+        provider = mp.get("anthropic")
+        peer = Peer(provider.wire)
+        peer.raw = [
+            b'data: {"type": "content_block_delta", "delta": null}\n\n',
+            b'data: {"type": "content_block_delta", "delta": {"text": "real"}}\n\n',
+        ]
+        with serve(peer) as base:
+            got = list(
+                mc.stream(
+                    "anthropic", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+                )
+            )
+        assert got == ["real"]
+
+    def test_a_completion_whose_message_is_not_an_object_answers_empty(self) -> None:
+        """Not a crash, and not an invented answer: an unreadable message is no message."""
+        provider = mp.get("openai")
+        peer = Peer(provider.wire)
+        peer.raw_body = {"choices": [{"message": "not an object"}], "usage": {}}
+        with serve(peer) as base:
+            done = mc.complete(
+                "openai", [mc.Message("user", "hi")], env=_env(provider, base), model="m"
+            )
+        assert done.text == ""
+        assert done.reasoning == ""
+        assert done.usage == mc.Usage(0, 0)

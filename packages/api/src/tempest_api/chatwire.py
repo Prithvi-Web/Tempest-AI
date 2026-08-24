@@ -56,6 +56,67 @@ def run_step_frame(*, response_message_id: str) -> dict[str, Any]:
     }
 
 
+#: The content-part index a reasoning model's THINKING occupies (ADR-0081).
+#:
+#: The client indexes content parts by their run step's `index` (`calculateContentIndex` in
+#: `useStepHandler.ts`), so two channels sharing one step would write over each other at the
+#: same slot. Index 0 stays the answer — it is emitted eagerly in the opening commit, the
+#: client's replay depends on it, and it is what `agentturn` reserves — and the thinking
+#: takes the next slot, matching the allocation `agentturn` gives its first extra part.
+#:
+#: The visible consequence, stated rather than discovered: the answer renders ABOVE the
+#: collapsed thinking. That is the right way round for this product anyway — the answer is
+#: what was asked for, and model narration is supporting material, kept visually distinct
+#: from it (L31).
+REASONING_INDEX = 1
+
+
+def reasoning_step_id(response_message_id: str) -> str:
+    return f"step_{response_message_id}_{REASONING_INDEX}"
+
+
+def reasoning_run_step_frame(*, response_message_id: str) -> dict[str, Any]:
+    """The step that opens the thinking's content slot, emitted on the FIRST thinking delta.
+
+    `content_type: "think"` is upstream's own marker for a reasoning step (its stream store
+    and its reasoning-label runtime both branch on exactly this field) — without it the
+    client has a message_creation step it cannot tell apart from the answer's.
+    """
+    return {
+        "event": "on_run_step",
+        "data": {
+            "id": reasoning_step_id(response_message_id),
+            "index": REASONING_INDEX,
+            "type": "message_creation",
+            "runId": response_message_id,
+            "usage": None,
+            "stepDetails": {
+                "type": "message_creation",
+                "message_creation": {
+                    "message_id": response_message_id,
+                    "content_type": "think",
+                },
+            },
+        },
+    }
+
+
+def reasoning_delta_frame(*, response_message_id: str, text: str) -> dict[str, Any]:
+    return reasoning_delta_frame_for_step(step_id=reasoning_step_id(response_message_id), text=text)
+
+
+def reasoning_delta_frame_for_step(*, step_id: str, text: str) -> dict[str, Any]:
+    """One thinking chunk, in upstream's `Agents.ReasoningDeltaUpdate` shape — a `think`
+    part carrying a bare string, exactly as a text delta carries a bare string."""
+    return {
+        "event": "on_reasoning_delta",
+        "data": {
+            "id": step_id,
+            "delta": {"content": [{"type": "think", "think": text}]},
+        },
+    }
+
+
 def message_delta_frame(*, response_message_id: str, text: str) -> dict[str, Any]:
     return message_delta_frame_for_step(step_id=step_id(response_message_id), text=text)
 
@@ -134,6 +195,12 @@ def text_content_part(text: str) -> dict[str, Any]:
     """A persisted message's content part (the delta shape is flat text; the stored shape
     wraps it — upstream stores `{type, text: {value}}` on final messages)."""
     return {"type": "text", "text": {"value": text}}
+
+
+def think_content_part(text: str) -> dict[str, Any]:
+    """A persisted message's THINKING part. Wrapped like the text part is, for the same
+    reason: the delta shape is a flat string and the stored shape carries `{value}`."""
+    return {"type": "think", "think": {"value": text}}
 
 
 def error_content_part(message: str, *, remedy: str = "") -> dict[str, Any]:

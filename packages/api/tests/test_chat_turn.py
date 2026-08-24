@@ -31,6 +31,9 @@ class ChatPeer:
 
     def __init__(self) -> None:
         self.chunks: list[str] = ["Hel", "lo ", "there"]
+        #: A reasoning model's THINKING frames, sent BEFORE the answer chunks — the order
+        #: a real `llama-server` uses (ADR-0081).
+        self.reasoning: list[str] = []
         self.usage: dict[str, int] | None = {"prompt_tokens": 7, "completion_tokens": 3}
         self.status = 200
         self.reject_stream_options = False
@@ -52,6 +55,12 @@ class ChatPeer:
 
     def frames(self) -> list[bytes]:
         out = [
+            b"data: "
+            + json.dumps({"choices": [{"delta": {"reasoning_content": chunk}}]}).encode()
+            + b"\n\n"
+            for chunk in self.reasoning
+        ]
+        out += [
             b"data: " + json.dumps({"choices": [{"delta": {"content": chunk}}]}).encode() + b"\n\n"
             for chunk in self.chunks
         ]
@@ -1078,3 +1087,141 @@ class TestCoverageNamedArms:
         convos = api.get_json("/v1/chat/conversations")["conversations"]
         assert convos[0]["title"].endswith("…")
         assert len(convos[0]["title"]) <= 41
+
+
+def _reasoning_text_of(frame: Any) -> str | None:
+    """The thinking of an `on_reasoning_delta` frame, read the way the CLIENT reads it
+    (`useStepHandler.ts` → `ContentTypes.THINK` → `part.think`). Deliberately not the
+    production helper, for the reason `_delta_text_of` gives."""
+    if not isinstance(frame, dict) or frame.get("event") != "on_reasoning_delta":
+        return None
+    try:
+        content = frame["data"]["delta"]["content"]
+    except (KeyError, TypeError):
+        return None
+    if not isinstance(content, list) or len(content) != 1:
+        return None
+    part = content[0]
+    if not isinstance(part, dict) or part.get("type") != "think":
+        return None
+    return str(part.get("think", ""))
+
+
+class TestReasoningReachesTheUser:
+    """A reasoning model's thinking is its own channel on the wire too (ADR-0081).
+
+    The failure this pins was measured against a real `llama-server` serving Qwen3 0.6B:
+    every frame carried `reasoning_content`, none carried `content`, and the turn finished
+    with `finish_reason: length`. The user saw a spinner and then nothing — no text, no
+    explanation, no error (L15.3, L23). Both Qwen3 rows and the DeepSeek-R1 distill in the
+    shipped catalogue are reasoning models, and the smallest is the first thing a person
+    clicks.
+    """
+
+    def test_thinking_streams_on_its_own_step_and_persists_beside_the_answer(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        chat_env.reasoning = ["Okay", ", the user"]
+        ack = _start(api, "Say hello")
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete"
+        frames = _frames(payload)
+
+        # The thinking gets its OWN run step, declared as a think step, because the client
+        # indexes content parts by step index — two channels on one step would collide.
+        steps = [f for f in frames if f.get("event") == "on_run_step"]
+        assert len(steps) == 2
+        text_step, think_step = steps[0], steps[1]
+        assert text_step["data"]["index"] == 0
+        assert think_step["data"]["index"] == 1
+        assert think_step["data"]["stepDetails"]["message_creation"]["content_type"] == "think"
+
+        thinking = [t for t in (_reasoning_text_of(f) for f in frames) if t is not None]
+        assert "".join(thinking) == "Okay, the user"
+        assert all(
+            f["data"]["id"] == think_step["data"]["id"]
+            for f in frames
+            if f.get("event") == "on_reasoning_delta"
+        )
+
+        # The answer is unchanged and still the message's `text` — thinking is never folded
+        # into it, because `text` is what a fork, an export and a title are built from.
+        assert (
+            "".join(t for t in (_delta_text_of(f) for f in frames) if t is not None)
+            == "Hello there"
+        )
+        final = frames[-1]
+        assert final["responseMessage"]["text"] == "Hello there"
+
+        # And the persisted message renders what the stream rendered, in the same order.
+        convo_id = ack["conversationId"]
+        messages = api.get_json(f"/v1/chat/conversations/{convo_id}/messages")
+        assert messages[1]["content"] == [
+            {"type": "text", "text": {"value": "Hello there"}},
+            {"type": "think", "think": {"value": "Okay, the user"}},
+        ]
+
+    def test_a_reply_that_is_all_thinking_says_so_instead_of_nothing(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        """The exact measured failure: thinking, no answer. The turn must not complete
+        silently — an empty bubble is the state L23 forbids."""
+        chat_env.reasoning = ["Okay, let me think about this"]
+        chat_env.chunks = []
+        ack = _start(api, "Say hello")
+        payload = _wait_terminal(api, ack["streamId"])
+        assert payload["status"] == "complete"
+        frames = _frames(payload)
+
+        thinking = [t for t in (_reasoning_text_of(f) for f in frames) if t is not None]
+        assert "".join(thinking) == "Okay, let me think about this", "the thinking survives"
+
+        answer = "".join(t for t in (_delta_text_of(f) for f in frames) if t is not None)
+        assert answer, "the turn must say SOMETHING rather than finish blank"
+        assert "thinking" in answer.lower()
+        assert "reply length" in answer.lower(), "and name the way out (L15.3)"
+
+        convo_id = ack["conversationId"]
+        messages = api.get_json(f"/v1/chat/conversations/{convo_id}/messages")
+        assert messages[1]["text"] == answer, "a reload shows the same sentence"
+
+    def test_an_utterly_empty_reply_is_reported_too(self, api: Any, chat_env: ChatPeer) -> None:
+        """No thinking either — a server that streamed a well-formed nothing. Still not
+        allowed to look like a completed answer."""
+        chat_env.reasoning = []
+        chat_env.chunks = []
+        ack = _start(api, "Say hello")
+        payload = _wait_terminal(api, ack["streamId"])
+        frames = _frames(payload)
+        answer = "".join(t for t in (_delta_text_of(f) for f in frames) if t is not None)
+        assert "empty reply" in answer.lower(), answer
+
+    def test_a_model_that_never_thinks_streams_exactly_what_it_did_before(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        """The regression guard: no thinking means no think step, no reasoning frames, and
+        no second content part. The overwhelming majority of turns take this path."""
+        ack = _start(api, "Say hello")
+        payload = _wait_terminal(api, ack["streamId"])
+        frames = _frames(payload)
+        assert [f for f in frames if f.get("event") == "on_run_step"].__len__() == 1
+        assert not [f for f in frames if f.get("event") == "on_reasoning_delta"]
+        convo_id = ack["conversationId"]
+        messages = api.get_json(f"/v1/chat/conversations/{convo_id}/messages")
+        assert messages[1]["content"] == [{"type": "text", "text": {"value": "Hello there"}}]
+
+    def test_a_long_think_coalesces_on_replay_like_the_answer_does(
+        self, api: Any, chat_env: ChatPeer
+    ) -> None:
+        """LC06 applies to both channels or to neither: a reload that re-renders 200 frames
+        where the stream rendered 3 is a different experience, and the batching is the read
+        side's, applied identically live and from the store."""
+        chat_env.reasoning = [f"t{i}" for i in range(12)]
+        ack = _start(api, "Say hello")
+        _wait_terminal(api, ack["streamId"])
+        frames = _frames(_events(api, ack["streamId"]))
+        reasoning_frames = [f for f in frames if f.get("event") == "on_reasoning_delta"]
+        assert len(reasoning_frames) < 12, "adjacent thinking deltas merged"
+        assert "".join(
+            t for t in (_reasoning_text_of(f) for f in frames) if t is not None
+        ) == "".join(f"t{i}" for i in range(12))

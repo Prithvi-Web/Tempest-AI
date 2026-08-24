@@ -166,6 +166,26 @@ class TextDelta:
 
 
 @dataclass(frozen=True)
+class ReasoningDelta:
+    """One streamed chunk of a reasoning model's THINKING, which is not its answer.
+
+    Reasoning models split their output in two: the thinking, and the reply. llama.cpp,
+    DeepSeek and vLLM spell the first `reasoning_content` on the OpenAI wire; OpenRouter and
+    several relays spell it `reasoning`; Anthropic sends it as a `thinking_delta`. Reading
+    only the answer channel is how a user gets NOTHING when the budget runs out mid-thought
+    — measured against a real Qwen3 0.6B on 2026-08-24: 29 reasoning frames, zero content
+    frames, `finish_reason: length`, and a blank screen (ADR-0081).
+
+    It is a separate event rather than more text because the two are different things and
+    only one of them is the answer: `stream()` feeds harness synthesis, which compiles what
+    it is handed, and prose about the model's own deliberations does not belong in generated
+    code.
+    """
+
+    text: str
+
+
+@dataclass(frozen=True)
 class StreamUsage:
     """Token counts the provider reported INSIDE its own stream (L21: measured, never
     estimated). A server that streams no usage produces no event — absence stays absence,
@@ -175,7 +195,7 @@ class StreamUsage:
     output_tokens: int
 
 
-StreamEvent = TextDelta | StreamUsage
+StreamEvent = TextDelta | ReasoningDelta | StreamUsage
 
 
 @dataclass(frozen=True)
@@ -202,6 +222,9 @@ class Completion:
     tool_calls: tuple[ToolCall, ...] = ()
     #: Why the model stopped, normalised across wires: "tool_use" | "end" | "length" | "".
     stop_reason: str = ""
+    #: The model's THINKING, when it is a reasoning model and the wire carried it separately.
+    #: Empty for every other model, and never folded into `text` — see `ReasoningDelta`.
+    reasoning: str = ""
 
 
 def resolve_base_url(provider: Provider, env: dict[str, str]) -> str:
@@ -409,19 +432,55 @@ def _open(
         ) from err
 
 
-def _text_and_usage(provider: Provider, document: Any) -> tuple[str, Usage]:
-    """Read the two response shapes. Missing counts read as 0 — never invented."""
+#: The OpenAI-wire field names for the reasoning channel, in the order they are consulted.
+#: llama.cpp, DeepSeek and vLLM send `reasoning_content`; OpenRouter and several relays send
+#: `reasoning`. Both are read, because a channel that depends on which relay is in front of
+#: the model is not a channel.
+_REASONING_KEYS = ("reasoning_content", "reasoning")
+
+
+def _reasoning_from(holder: Any) -> str:
+    """The reasoning text in one OpenAI-wire `message` or `delta` object, or `""`."""
+    if not isinstance(holder, dict):
+        return ""
+    for key in _REASONING_KEYS:
+        value = holder.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _text_and_usage(provider: Provider, document: Any) -> tuple[str, str, Usage]:
+    """Read the two response shapes: (answer, reasoning, usage).
+
+    Missing counts read as 0 — never invented. The reasoning is returned BESIDE the answer
+    rather than concatenated onto it: a reasoning model that runs out of budget mid-thought
+    answers with an empty `content` and a full `reasoning_content`, and a reader that knows
+    only about `content` turns that into a blank screen (ADR-0081).
+    """
     if provider.wire == WIRE_ANTHROPIC:
         blocks = document.get("content", []) if isinstance(document, dict) else []
         text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
+        thinking = "".join(b.get("thinking", "") for b in blocks if b.get("type") == "thinking")
         raw = document.get("usage", {}) if isinstance(document, dict) else {}
-        return text, Usage(int(raw.get("input_tokens", 0)), int(raw.get("output_tokens", 0)))
+        return (
+            text,
+            thinking,
+            Usage(int(raw.get("input_tokens", 0)), int(raw.get("output_tokens", 0))),
+        )
     choices = document.get("choices", []) if isinstance(document, dict) else []
     text = ""
+    thinking = ""
     if choices:
-        text = str(choices[0].get("message", {}).get("content") or "")
+        message = choices[0].get("message", {})
+        text = str(message.get("content") or "") if isinstance(message, dict) else ""
+        thinking = _reasoning_from(message)
     raw = document.get("usage", {}) if isinstance(document, dict) else {}
-    return text, Usage(int(raw.get("prompt_tokens", 0)), int(raw.get("completion_tokens", 0)))
+    return (
+        text,
+        thinking,
+        Usage(int(raw.get("prompt_tokens", 0)), int(raw.get("completion_tokens", 0))),
+    )
 
 
 def _tool_calls(provider: Provider, document: Any) -> tuple[ToolCall, ...]:
@@ -647,7 +706,7 @@ def complete(
         document: Any = json.loads(raw)
     except ValueError as err:
         raise UpstreamError(f"{provider.label} returned a non-JSON body: {raw[:200]}") from err
-    text, usage = _text_and_usage(provider, document)
+    text, reasoning, usage = _text_and_usage(provider, document)
     calls = _tool_calls(provider, document)
     return Completion(
         provider=provider.id,
@@ -656,23 +715,36 @@ def complete(
         usage=usage,
         tool_calls=calls,
         stop_reason=_stop_reason(provider, document, calls),
+        reasoning=reasoning,
     )
 
 
-def _sse_delta(provider: Provider, payload: Any) -> str:
-    """The text carried by one server-sent event, for whichever wire this is."""
+def _sse_delta(provider: Provider, payload: Any) -> tuple[str, str]:
+    """The (answer, reasoning) text carried by one server-sent event, for whichever wire
+    this is. Either half may be empty; a frame never carries both.
+
+    The Anthropic wire distinguishes them by the delta's own `type` — `text_delta` against
+    `thinking_delta` — and older frames omit `type` entirely while carrying `text`, which is
+    the shape the pre-reasoning tests pin and which must keep reading as the answer.
+    """
     if not isinstance(payload, dict):
-        return ""
+        return "", ""
     if provider.wire == WIRE_ANTHROPIC:
-        if payload.get("type") == "content_block_delta":
-            delta = payload.get("delta", {})
-            return str(delta.get("text", "")) if isinstance(delta, dict) else ""
-        return ""
+        if payload.get("type") != "content_block_delta":
+            return "", ""
+        delta = payload.get("delta", {})
+        if not isinstance(delta, dict):
+            return "", ""
+        if delta.get("type") == "thinking_delta":
+            return "", str(delta.get("thinking") or "")
+        return str(delta.get("text", "")), ""
     choices = payload.get("choices", [])
     if not choices:
-        return ""
+        return "", ""
     delta = choices[0].get("delta", {})
-    return str(delta.get("content") or "") if isinstance(delta, dict) else ""
+    if not isinstance(delta, dict):
+        return "", ""
+    return str(delta.get("content") or ""), _reasoning_from(delta)
 
 
 def stream(
@@ -704,6 +776,8 @@ def stream(
         want_usage=False,
     ):
         if isinstance(event, TextDelta):
+            # `ReasoningDelta` is dropped here exactly as `StreamUsage` is: this iterator's
+            # contract is the ANSWER, and its main consumer compiles what it is handed.
             yield event.text
 
 
@@ -788,9 +862,11 @@ def _stream_core(
                     observed_in, observed_out = _sse_usage(provider, payload)
                     input_tokens = observed_in if observed_in is not None else input_tokens
                     output_tokens = observed_out if observed_out is not None else output_tokens
-                delta = _sse_delta(provider, payload)
-                if delta:
-                    yield TextDelta(delta)
+                answer, reasoning = _sse_delta(provider, payload)
+                if reasoning:
+                    yield ReasoningDelta(reasoning)
+                if answer:
+                    yield TextDelta(answer)
             if cancel is not None and cancel.is_set():
                 # The watcher's shutdown ends the iteration as EOF, not an exception; a
                 # cancelled stream must never impersonate a completed one.
@@ -860,6 +936,7 @@ __all__ = [
     "MissingModel",
     "ModelError",
     "Offline",
+    "ReasoningDelta",
     "UpstreamError",
     "Usage",
     "complete",

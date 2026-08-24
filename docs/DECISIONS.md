@@ -4438,3 +4438,97 @@ worth writing down: these boundary-A routes answer `list[dict[str, Any]]`, so th
 named component for them and the Python↔Rust field names are held by the e2e contract net's
 explicit schemas rather than by generation. That is a real gap against L36.8, and naming it is
 the first half of closing it.
+
+---
+
+## ADR-0081 — A reasoning model's thinking is a channel, not a missing answer (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L15.3, L23, L31, L36.8 ·
+**Builds on:** ADR-0040 (one router, two wires), ADR-0076, ADR-0078 (the chat vertical),
+ADR-0080 (local models)
+
+**Context — the measurement, first, because it is the whole argument.** A real `llama-server`
+(llama.cpp b10612) serving the catalogue's smallest row, Qwen3 0.6B, was asked for one short
+sentence with a 120-token budget:
+
+```
+finish_reason      : length
+message keys       : ['content', 'reasoning_content', 'role']
+content            : ''
+reasoning_content  : 'Okay, the user wants a short sentence about a local language model…'
+```
+
+and on the streaming path, which is the one the app uses: **29 frames of `reasoning_content`,
+zero frames of `content`.**
+
+Tempest read `content` and nothing else — `client.py`'s `_text_and_usage` on the non-stream
+path, `_sse_delta` on the stream. So the user typed a question, watched a spinner, and received
+**an empty bubble**: no text, no explanation, no error, nothing to do next. That is L15.3 (zero
+silent failures) and L23 (never a spinner, never a silent failure) failing together, and it
+lands on the models people are most likely to pick — both Qwen3 rows and the DeepSeek-R1
+distill in the shipped catalogue are reasoning models, and the smallest is the first click. The
+same prompt with a 900-token budget answers correctly, so the model was never the problem.
+
+**Decision.**
+
+**§1 — Two channels, read as two.** Reasoning models emit their deliberation separately from
+their reply, and the wires spell it three ways: `reasoning_content` (llama.cpp, DeepSeek,
+vLLM), `reasoning` (OpenRouter and several relays), and a `thinking_delta` inside
+`content_block_delta` on the Anthropic wire. All three are read. A channel whose presence
+depends on which relay happens to sit in front of the model is not a channel.
+
+`stream_events` gains a `ReasoningDelta` beside `TextDelta`; `Completion` gains `reasoning`
+beside `text`.
+
+**§2 — `stream()` stays text-only, on purpose.** The plain iterator feeds harness synthesis,
+which *compiles what it is handed*. A `ReasoningDelta` is dropped there exactly as `StreamUsage`
+already is. Folding a model's musings into generated adapter code is a defect waiting for a
+quiet Tuesday.
+
+**§3 — On the wire, thinking is upstream's `think` content part on its OWN run step.** The
+vocabulary already existed in the vendored tree and is not ours to invent: `ContentTypes.THINK`,
+`StepEvents.ON_REASONING_DELTA`, and a `Reasoning` component already imported by `Part.tsx`.
+**No client code changes.** The engine emits what the client has always been able to render.
+
+The separate run step is not decoration. The client indexes content parts by their step's
+`index` (`calculateContentIndex` in `useStepHandler.ts`), so two channels sharing one step
+would overwrite each other in the same slot. Index 0 stays the answer — it is emitted eagerly
+in the opening commit, the replay contract depends on it, and `agentturn` reserves it — and the
+thinking takes index 1, the same slot `agentturn`'s allocator gives its first extra part. The
+think step is emitted **lazily, on the first thinking delta**, so a model that never thinks
+produces byte-for-byte the frames it produced before this channel existed, and no empty content
+slot is ever opened.
+
+*The visible consequence, stated rather than discovered: the answer renders ABOVE the collapsed
+thinking.* The alternative — thinking first — would need index 0, which means dropping the
+eager opening step and rewriting the replay contract for a cosmetic gain. It is also the wrong
+way round for this product: the answer is what was asked for, and model narration is supporting
+material kept visually distinct from evidence (L31).
+
+**§4 — The persisted message mirrors the stream.** `[text, think]`, in that order, with the
+thinking wrapped as `{"type":"think","think":{"value":…}}` the way the sibling text part is
+wrapped. A reload renders what the stream rendered, or history is being rewritten. Delta
+batching (LC06) applies to both channels or to neither — a reload that replays two hundred
+frames where the live stream drew a handful is a different experience out of the same ledger.
+
+**§5 — And a turn that answers nothing SAYS so.** Showing the thinking is not by itself enough:
+with a tight budget there is still no answer, and a bubble containing only a collapsed
+accordion is a spinner that stopped. When a turn ends with no answer text, no error and no
+abort, the reply carries one sentence naming the cause and the way out — the budget when there
+is thinking to prove it, an empty reply otherwise. It is a plain message delta, so it streams,
+persists, and survives reload like any other text. **`text` never contains the thinking**:
+titles, forks and exports are built from `text`, and a conversation titled with the model's
+internal monologue is its own defect.
+
+**What this does NOT cover, said plainly.** Agent turns reach the model through `run_task`, not
+through `_run_turn`, so tool-bearing turns do not yet carry the thinking channel. The
+`stream_options` fallback arm (a strict server rejecting the usage knob) drops to `stream()` and
+loses thinking with it — the same trade, which is exactly why §5's note fires on an empty answer
+whether or not any thinking was seen. Both are named here rather than left to be found.
+
+**Evidence.** Six new engine pins against a real local wire peer, five new API pins against a
+real loopback SSE peer, all reproduced as failures first. Then the real thing: against
+`llama-server` + Qwen3 0.6B, the 120-token turn now yields 558 characters of thinking on its own
+channel where it yielded nothing, and the 900-token turn yields *"A local language model is
+trained on specific dialects to generate natural-sounding responses."* with 1,264 characters of
+reasoning carried beside it.
