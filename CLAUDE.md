@@ -171,7 +171,9 @@ trade dress (v2 failure mode 11).
 > The v3 convergence — LibreChat vendored as the platform base, the shipped product a desktop
 > app — is governed by `docs/TEMPEST-V3-MASTER-PROMPT.md` (normative), with `docs/PLAN-V3.md`
 > (phases C0–C12), `docs/MERGE-CONTRACT.md` (subsystem dispositions), `docs/FEATURES-V3.md`
-> (the parity ledger), and ADR-0063…ADR-0076. The full statements of L27–L36 are master prompt
+> (the parity ledger), and ADR-0063…ADR-0076. **Per-phase briefings live beside the plan:
+> `docs/C6-MASTER-PROMPT.md` is normative for the datastore cutover and is required reading
+> before any C6 work.** The full statements of L27–L36 are master prompt
 > §4; the summaries here are binding, and each law's gate is listed with it there.
 
 **L27 — Upstream mergeability is a shipped feature.** `packages/platform/**` preserves

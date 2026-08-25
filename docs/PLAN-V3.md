@@ -483,6 +483,11 @@ is for. Fix it before anything else lands.**
 
 ## Phase C6 — Datastore cutover
 
+> **▶ Read `docs/C6-MASTER-PROMPT.md` before touching this phase.** It carries the measured
+> ground truth (the control, the complete operator/index surface, the 17 hard call sites, what
+> the tests demand beyond data correctness), the build order, the gate definitions, and the traps
+> C6.0 already paid for. This section is the checklist; that file is the briefing.
+>
 > **Restructured 2026-08-25 (ADR-0090).** The five boxes below were written before anyone had
 > run LibreChat's data layer, and the first of them ("every model, method and migration green")
 > is a 90,889-line, 2,371-test target behind a store that does not exist yet. They are kept
