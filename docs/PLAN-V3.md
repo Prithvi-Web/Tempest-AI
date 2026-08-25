@@ -483,19 +483,254 @@ is for. Fix it before anything else lands.**
 
 ## Phase C6 — Datastore cutover
 
+> **Restructured 2026-08-25 (ADR-0090).** The five boxes below were written before anyone had
+> run LibreChat's data layer, and the first of them ("every model, method and migration green")
+> is a 90,889-line, 2,371-test target behind a store that does not exist yet. They are kept
+> verbatim as the phase's definition of done and each is now backed by numbered sub-items that
+> can be landed and gated one at a time. **Two of the original five could not survive contact
+> with the tree and say so below, with the ADR that records why.**
+
 - [ ] Every LibreChat model, method, and migration green against the store C1 selected.
-- [ ] Migration up/down parity test.
+- [ ] Migration up/down parity test.  ⚠️ **see C6.4 — no migration in the tree has a down path**
 - [ ] Their data-layer test suites run inside `make verify-v3` (merge contract §6 rule 4).
 - [ ] Redis interface backed by in-process LRU + engine SQLite; real Redis retained as config.
 - [ ] The five declared cross-store references implemented as opaque ids; `store_check` reads the
       table in `MERGE-CONTRACT.md`.
 
-**Gate:**
+### The measured shape of this phase (measured 2026-08-24/25)
+
+Counted before any of it was planned, because "every model, method and migration" is a size, not
+a sentence:
+
+| | |
+|---|---|
+| vendored data layer | 90,889 LOC TypeScript, 282 source files |
+| the gate | 66 spec files, **2,371 tests** — measured by running them, not counted from source (a static sweep says 2,252; 11 files use `it.each`) |
+| of those | 44 boot a real `mongod`, 22 run in-process; 19 reach past Mongoose to the raw driver |
+| query surface | **17** query + **12** update operators (`$bit` among them, only ever assigned dynamically; `$type`, `$all`, `$mod`, `$jsonSchema`, `$pop`, `$mul` used **zero** times) |
+| aggregation surface | **11** stages, **18** expression operators, `$$ROOT` and `$let`; 22 `.aggregate()` call sites (that one figure counts specs; every other number in this table excludes them) |
+| index surface | **235** declarations — 116 `schema.index()` + 119 field-level `index: true`; across both, 32 unique, 14 partial, 11 TTL, 6 sparse; **0** text, **0** collation (counted with comments stripped — upstream's prose about partial and TTL indexes inflates a naive grep) |
+| runnable today | **yes, as of C6.0** — it was in none of `pnpm-workspace.yaml`, the lockfile or CI, and had never once been run in this repository |
+
+### C6.0 — Join the data layer to the build and take the CONTROL measurement
+
+Nothing after this is interpretable without it. A test that fails against the Tempest store and
+also fails against real MongoDB has found nothing (trap 54: a differential check must ask both
+sides under the same conditions).
+
+- [x] `packages/platform/data` joins `pnpm-workspace.yaml`.
+- [x] The phantom imports are resolved by **our** workspace metadata, never a vendored edit.
+      Four files import packages their own manifest does not declare — `jest.globalSetup.mjs`
+      wants `mongodb-memory-server-core`, `babel.config.cjs` wants `@babel/core`,
+      `@babel/preset-env`, `@babel/preset-typescript` and
+      `babel-plugin-replace-ts-export-assignment`, and the specs want `uuid` and `mongodb`.
+      **`packageExtensions` is the wrong mechanism here and the reason is worth recording:**
+      it has no `devDependencies` field, so every entry would become a RUNTIME dependency —
+      and for `mongodb-memory-server-core` that is a runtime dependency able to fetch an SSPL
+      `mongod`, which is exactly what `store_check --no-sspl-binaries` forbids. They are
+      `publicHoistPattern` entries instead, which resolves the import while claiming nothing
+      untrue about the graph. Every one was already in the store; nothing new is fetched.
+      *(Two things learned the hard way and recorded so nobody pays twice: pnpm 11 reads these
+      settings from `pnpm-workspace.yaml`, not `.npmrc` — writing them to `.npmrc` leaves
+      `node_modules/.modules.yaml` recording `publicHoistPattern: []`; and changing the pattern
+      forces a full `node_modules` relink, which pnpm refuses without a TTY.)*
+- [x] `mongodb-memory-server`'s install-time download **denied** in `allowBuilds`, so no plain
+      `pnpm install` and no CI run ever fetches an SSPL binary; `MONGOMS_VERSION` pinned to
+      `8.2.6` so the control is a fixed point rather than whatever resolves today; and
+      `MONGOMS_DOWNLOAD_DIR` forced outside the repository by `scripts/data-control.sh`, which
+      **exits 2** if it resolves inside the tree.
+      *(The guard's first version compared the RAW value with a shell `case`, and a string test
+      is not a path test: `binaries`, `./mongo-bins`, `packages/../mongo-bins` and an absolute
+      in-repo path all sailed past it — found by review, and each of the four now refuses. The
+      value is resolved with `cd && pwd -P` first, so relative paths and symlinks are compared
+      as real absolute paths.)*
+- [x] **The gate that was supposed to be the backstop could not see the file.**
+      `store_check`'s SSPL name check compared a filename stem against exactly
+      `{mongod, mongos, mongosh}` — but `mongodb-memory-server` writes what it downloads as
+      `mongod-<arch>-<distro>-<version>`, whose stem is `mongod-arm64-darwin-8`. A 147 MB SSPL
+      server could sit in the tree — **committed** — under a gate printing "L33 holds", and a
+      review demonstrated it by planting the real filename. The check now matches a server name
+      followed by `-`/`_` or end-of-stem, in **both** name loops (tracked and walked, which
+      compute the stem separately). Four new pins: the real darwin name, the real Windows name,
+      a versioned `mongosh_2.3.1`, and `mongodump` + `mongodb-connection-string-url.js` which
+      must still PASS — a gate that fails on those is untrustworthy in the other direction.
+      The three failure pins are mutation-proven: reverted to exact equality, they fail; with
+      the fix, 35/35 green. (The gate predates C6, but C6 is the phase that downloads a file
+      with that exact name, so it is C6's to close.)
+- [x] One override was needed and it is a layout adaptation, not a behaviour change:
+      `tempest/jest.config.control.mjs` (a Tempest-owned seam file, so the vendored config stays
+      byte-exact) adds `\.pnpm` to upstream's `transformIgnorePatterns` exception list.
+      Upstream's regex is written for npm's FLAT `node_modules`; under pnpm the first
+      `/node_modules/` segment is `.pnpm`, the negative lookahead succeeds there, and every
+      ESM-only dependency is left untransformed — jest dies on `Cannot use import statement
+      outside a module`. With `.pnpm` excepted, the second `/node_modules/` position — the one
+      carrying the real package name — is the only decider, which is upstream's intent exactly.
+- [x] **The control, run and reproducible** (`./scripts/data-control.sh`):
+      ```
+      Test Suites: 66 passed, 66 total
+      Tests:       2371 passed, 2371 total
+      Time:        55.242 s
+      All files    |   77.84 |    73.82 |   82.83 |   78.02 |
+      CONTROL_EXIT=0
+      ```
+      MongoDB `8.2.6` (`mongod-arm64-darwin-8.2.6`). **2,371 tests, not the 2,252 the static
+      count predicted** — 11 files use `it.each`, so the run count is the higher one, and the
+      run count is the one that matters. Coverage moves by ~0.04 points between runs; the
+      control's claim is pass/fail, and it is not a coverage claim.
+- [ ] **Record the command stream while the control runs.** The driver emits `commandStarted`
+      for every operation it sends; a listener over the control run turns "what must the store
+      implement?" from a reading exercise into a measurement — the exact command names, their
+      option keys and their frequencies, taken from a real execution of 2,371 tests rather than
+      inferred from source. This inventory, not a spec document, is what C6.1 builds against.
+- [ ] `make verify` re-run in full afterwards — adding a workspace member re-resolves the whole
+      lockfile and the hoist change relinked every `node_modules` in the tree, while the vendored
+      client build chain is pinned by hand (React 18, axios 1.18.1, react-window 1.8.11). A green
+      tree before is not a green tree after.
+
+### C6.1 — `@tempest/docstore`: the store itself (ADR-0090)
+
+A MongoDB-wire-protocol server on a Unix domain socket, backed by SQLite via `node:sqlite`.
+Real, unmodified mongoose and the real native driver on the other side; **zero edits to
+`packages/platform/data/`**, so its delta-ledger row stays empty.
+
+- [ ] Wire layer: framing, `OP_MSG` (kind-0 and kind-1 sections) and `OP_QUERY`, the `hello`
+      handshake, cursors (`getMore`, `killCursors`).
+- [ ] Storage: documents in SQLite with a JSON mirror for expression indices, WAL, and a real
+      schema stamp — trap 37, *every open verifies the live schema and repairs or refuses
+      loudly*. Not inherited from a house convention, because there isn't one: of the tree's
+      four SQLite openers, `index/store.py` (`meta.schema_version`) and `db/local_store.py`
+      (`alembic_version` + a coded revision chain) stamp, and `agent/turnlog.py` and
+      `platformstore.py` do not. C6 puts a **second writer** on platformstore's file, which is
+      what turns its missing stamp from survivable into load-bearing (ADR-0090).
+- [ ] Query engine: the 47 measured operators. Nothing speculative — an operator with no call
+      site is not built.
+- [ ] Update engine: update documents, array modifiers (`$each` with a negative `$slice`
+      ring buffer is real and used 5 times), the positional `$`, `$bit`, and aggregation-pipeline
+      updates (2 call sites).
+- [ ] Aggregation engine: the 11 measured stages and their expression operators.
+- [ ] Index catalogue: unique, partial, TTL and sparse, enforced by **SQLite's own constraint
+      engine** — the C1 spike already showed a duplicate arriving at mongoose as a genuine
+      `MongoServerError code=11000`.
+- [ ] Explain: `EXPLAIN QUERY PLAN` translated into Mongo's vocabulary. **Truthful or absent —
+      emitting `IXSCAN` because a test wants to see it is a fabricated execution result and L4
+      forbids it** (ADR-0090).
+- [ ] **Sessions with real isolation, not just the command path.** `methods/mcpAuthority.spec.ts`
+      does not merely start a transaction — it asserts `startTransaction` was called with
+      `{ readPreference: 'primary', readConcern: { level: 'snapshot' }, writeConcern:
+      { w: 'majority' } }`, that a session was attached to 12 queries and 2 aggregations, that
+      `read`/`readConcern` were never called per-query, and that `find` was issued 7 times with
+      `singleBatch: true`. Snapshot isolation is the one to design for; SQLite gives it to a
+      reader inside a WAL transaction, so the mapping is natural — but it has to be the real
+      thing, because the test is checking that every read in the proof saw one consistent world.
+
+**Gate — upstream's own conformance suite, with its teeth checked before it is trusted.**
+LibreChat ships FerretDB/DocumentDB compat suites in `packages/platform/data/misc/`, driven by a
+URI env var and documented as runnable *"against MongoDB (for parity)"* — which is very nearly
+free conformance coverage for a non-Mongo backend. Three things had to be established before
+that could be a gate, and the first is disqualifying on its own:
+
+1. **It self-skips to green.** Ten of the eleven suites open with
+   `const describeIfFerretDB = FERRETDB_URI ? describe : describe.skip`. Point it at nothing and
+   jest reports success having executed no assertion — the exact shape of a gate that measures
+   its own absence. **The gate must assert a minimum executed-test count**, not merely exit 0.
+2. **It is not a pure URI swap.** `multiTenancy.ferretdb.spec.ts` shells out —
+   `execSync("docker exec ${PG_CONTAINER} psql …")` — and asserts on FerretDB's *PostgreSQL
+   catalog*, which is a fact about FerretDB's internals rather than about MongoDB behaviour.
+   That suite, and `sharding.ferretdb.spec.ts`, are out of scope for the Tempest store and are
+   excluded by name with the reason recorded, not silently.
+3. **It has no control side.** The C6.0 control ran the 66 suites under `src/`; `misc/` is
+   excluded by upstream's own `testPathIgnorePatterns`, so these have never run here against
+   real MongoDB either. Per trap 54, the conformance suites get their own control run first —
+   otherwise a red here cannot be told from a red anywhere.
+
 ```bash
-pnpm --filter "./packages/platform/data/**" test          # their suites, green
+# after the control side exists and the two FerretDB-internal suites are excluded by name
+FERRETDB_URI="mongodb://<uds>/tempest_conformance" \
+  npx jest --config misc/ferretdb/jest.ferretdb.config.mjs
+# and the gate FAILS unless the executed-test count matches the control's
+```
+
+### C6.2 — The 66 suites against the Tempest store, measured against the control
+
+- [ ] Their suites run against `@tempest/docstore` with **no vendored file edited**: a
+      Tempest-owned jest config maps `mongodb-memory-server` to a shim that boots the store and
+      returns its socket URI. The specs are byte-identical to upstream.
+- [ ] Every difference from the C6.0 control is either fixed or recorded as a named, reasoned
+      exception. **A suite that fails in both is not a finding; a suite that fails only here is.**
+- [ ] **Report the store-backed number, not the headline one.** Of the 66 suites, 44 stand up a
+      server and 22 run entirely in-process — 1,803 of the 2,252 static tests exercise the store
+      and **449 pass no matter what answers the wire**. "2,371 green against @tempest/docstore"
+      would therefore be true and misleading on the day the store could not serve a single query.
+      The number that means something is the store-backed one, and it is the one to publish.
+      *(1,803 + 449 = 2,252 is the static count; the run count is 2,371 because 11 files use
+      `it.each`. The split is measured statically because the runtime split needs per-suite
+      reporting the control does not emit — say which is which when quoting either.)*
+- [ ] Their suites join `make verify-v3` (merge contract §6 rule 4) and the CI `node` job.
+
+### C6.3 — Redis interface, backed by an in-process LRU + SQLite (ADR-0068 §4)
+
+- [ ] The cache interface adopted; LRU + SQLite behind it; real Redis retained as config for the
+      unbuilt server mode.
+
+### C6.4 — Migrations, and the honest replacement for "up/down parity"
+
+**The plan's gate cannot be satisfied as written, and this is the record of why.** The tree has
+four migrations and **not one has a down path** — `down`, `reverse`, `rollback` and `revert`
+appear nowhere in `src/migrations/`. `tenantIndexes.ts` drops **24** named indexes across 13
+collections and, though `collection.indexes()` hands it the full specs, it records only their
+*names* — never the key specs or options — so it is not reversible even in principle. Six further one-way migration scripts live in
+`packages/platform/config/`. Authoring reverse paths would mean editing vendored business logic,
+which L27 forbids and which would put the most schema-active package in the tree permanently off
+upstream.
+
+- [ ] Replace the up/down/up gate with the two properties that are true of these migrations and
+      testable: **idempotence** (running a migration twice leaves the same state as running it
+      once, which three of the four specs already assert) and **store-level round trip** (a
+      snapshot of the document store taken before, restored after, is byte-identical), which is
+      what a "down" was actually protecting.
+- [ ] Record it as an ADR-0090 amendment or a new ADR — **not** by quietly rewriting the
+      checkbox.
+
+### C6.5 — The cross-store references grow teeth
+
+- [ ] The five declared references implemented as opaque ids; `store_check` stops reading only
+      the *declaration* in `MERGE-CONTRACT.md` and starts checking it against the live store —
+      which is what its own docstring says C6 is for.
+
+**Gate (the phase's own, with one correction).** The gate line this plan shipped with —
+`pnpm --filter "./packages/platform/data/**" test` — could not run, for two reasons, and **C6.0
+fixed one of them.** The filter selected nothing while the package was not a workspace member;
+now that it is, `pnpm --filter "./packages/platform/data/**" list --depth -1` prints
+`@librechat/data-schemas@0.0.68` and the glob is fine. What remains is the script: the package's
+`test` is `jest --coverage --watch`, which never exits, so a gate invoking it would hang rather
+than pass or fail.
+
+**And `test:ci` — the obvious non-watching substitute, which an earlier draft of this line
+recommended — does not work either.** Measured rather than assumed:
+
+```
+$ pnpm --filter "@librechat/data-schemas" test:ci
+Test Suites: 7 failed, 59 passed, 66 total
+Tests:       2115 passed, 2115 total
+THEIR_GATE_EXIT=1        ● Test suite failed to run
+                           SyntaxError: Cannot use import statement outside a module
+```
+
+Seven suites cannot load at all, because `test:ci` runs the **vendored** `jest.config.mjs`,
+whose `transformIgnorePatterns` assumes npm's flat `node_modules` (see C6.0). The runnable form
+is the Tempest-owned seam config, which is what `scripts/data-control.sh` invokes:
+
+*(Two drafts of this paragraph were wrong before this one. The first claimed the `/**` glob
+still matched nothing — checked with `pnpm --filter … exec true`, which prints nothing whether
+it matches or not; a test that cannot fail is not a test, and a reviewer running `list` caught
+it. The second recommended `test:ci` without running it. Trap 45 twice over: a guard's argument
+is not a proof of the guard.)*
+```bash
+# their suites, green — via the seam config; `pnpm … test` watches and `test:ci` fails to load 7
+( cd packages/platform/data && npx jest --config tempest/jest.config.control.mjs --ci )
 python -m tempest.dev.store_check --no-sspl-binaries --no-proof-data-in-document-store
-python -m tempest.dev.perf_suite --enforce-budgets        # document-store p95 row
-# migration up → down → up parity, output pasted
+python -m tempest.dev.perf_suite --enforce-budgets         # document-store p95 row
+# migration idempotence + store round-trip, output pasted (C6.4)
 ```
 
 ---

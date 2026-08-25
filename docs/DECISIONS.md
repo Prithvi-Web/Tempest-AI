@@ -5341,3 +5341,188 @@ actually pinned instead of what was assumed to be.
 background/intent settings stay deferred to C8 by decision; preempt-arm was a decision rather than
 a deferral and is honoured in code; the repository picker shipped in ADR-0083; and this one is
 closed.
+
+---
+
+## ADR-0090 — The platform store speaks MongoDB's wire protocol; SQLite answers (2026-08-25)
+
+**Date:** 2026-08-25 · **Status:** accepted · **Law:** L4, L27, L33, L34 · **Phase:** C6 ·
+**Builds on:** ADR-0068 and its C1 amendment (the fallback, ENGAGED)
+
+**Context.** ADR-0068's amendment engaged the pre-approved fallback: LibreChat's Mongoose *models*
+and *methods* stay the public API, and a document-store adapter over SQLite answers underneath.
+It did not say **where the adapter attaches**, and that is the whole of C6's risk. Three seams
+were available, and the choice is not a matter of taste — each binds the product to a different
+thing for as long as the fork lives:
+
+| Seam | What it binds us to | Cost when upstream moves |
+|---|---|---|
+| **A** — alias the `mongodb` package to ours | the native driver's *internal* API: `client.s.options.hosts[0].host`, `Object.getOwnPropertyNames(Collection.prototype)` | breaks on a driver minor |
+| **B** — `mongoose.setDriver()` with our own driver | mongoose's driver contract: buffering queues, `_getCollection`, connection events | breaks on a mongoose minor |
+| **C** — speak the **MongoDB wire protocol** on a Unix socket | the wire protocol, which is versioned, documented, and stable across both | nothing; the real driver and real mongoose run unmodified |
+
+**The obvious objection, answered with evidence rather than silence.** Seam C means writing a
+MongoDB-wire server over SQLite — and **FerretDB 1.x is exactly that, already written, Apache
+2.0.** ADR-0068 dismissed it in one word ("legacy"), which is not a reason. Checked properly on
+2026-08-25: the last 1.x release is **v1.24.2, 27 May 2025**, its own release notes ask users who
+cannot move to v2 to explain why, and its release carries **18 assets — every one Linux
+(amd64/arm64/armv7, raw + deb + rpm), and not one darwin.** That is the identical wall the C1
+spike hit with 2.x, on the identical machine: the shipping OS has no supported artifact. What
+remains is building an unmaintained Go server from source and shipping it signed on every
+platform (L13), re-validated at every upstream merge, to get a 1.x-era compatibility surface —
+while LibreChat's own alternative-backend conformance suites are written against 2.x. Rejected on
+those grounds, and the numbers are here so the next person does not have to re-derive them.
+
+**Decision.** Seam **C**. The platform document store is a MongoDB-wire-protocol server listening
+on a **Unix domain socket** (never TCP), backed by SQLite, running in-process inside the
+supervised Node platform sidecar. Mongoose and the native driver are the real, unmodified
+packages. `packages/platform/data/` stays vendored byte-for-byte, and **no vendored file is
+edited to make the store work.**
+
+**The measurement that decided it.** Seam C's one genuinely unknown risk was the handshake — a
+driver that will not complete server discovery never reaches the interesting part. It was spiked
+*before* the decision, not after. Three spikes, all against real mongoose 8.24.1 and real
+mongodb 6.20.0 over a Unix socket to a ~170-line server. (Those are the versions the spike's own
+`node_modules` resolved, in a standalone scratch package; the repository itself installs mongoose
+**8.24.4**. The gap is the point rather than a caveat — a seam whose contract is the wire protocol
+is not supposed to care which patch release is on either side.)
+
+```
+CONNECTED — readyState 1
+INSERTED
+FOUND [{"name":"hello","n":41,"_id":"6a8d39c67401a775e5014d14","__v":0}]
+SPIKE_RESULT=PASS
+
+CONNECTED topology= Single
+SESSION_OK
+TRANSACTION_OK
+SPIKE_TX=PASS
+
+INDEX_CREATED
+CROSS_TENANT_INSERT_OK
+DUPLICATE_REJECTED name=MongoServerError code=11000
+SPIKE_UNIQUE=PASS
+```
+
+The third is the load-bearing one. `migrations/tenantIndexes.spec.ts` asserts exactly that
+behaviour — two `it`s, opened and read rather than cited from a filename: *"allows same email in
+different tenants after old index is dropped"* inserts `shared@example.com` under `tenant-a` and
+`tenant-b` and expects both to land, and *"still rejects duplicate email within same tenant"*
+expects the second insert to `rejects.toThrow(/E11000|duplicate key/)`. Both go through the **raw
+driver** (`mongoose.connection.db.collection('users')`), which is itself an argument for seam C.
+In the spike that behaviour is answered by **SQLite's own UNIQUE constraint**, surfaced through
+the unmodified driver as a genuine `MongoServerError code=11000`. Not an error we chose to throw
+(L4).
+
+**What the second spike does NOT prove, said plainly.** `SPIKE_TX=PASS` establishes that the
+session and transaction *command path* survives the seam — `startSession`, `withTransaction`, the
+commit — against a server that accepted the transaction fields and ignored them. It says nothing
+about isolation. Real semantics are C6.1's work and the bar is set by
+`methods/mcpAuthority.spec.ts`, which asserts `startTransaction` was called with
+`readConcern: { level: 'snapshot' }` and `writeConcern: { w: 'majority' }`, a session attached to
+12 queries and 2 aggregations, and 7 `find`s issued with `singleBatch: true`. Snapshot isolation
+is what a reader inside a WAL transaction already gets from SQLite, so the mapping is natural —
+but natural is not measured, and it is not claimed here.
+
+**Three facts from the tree made A and B unsafe, and they were measured, not assumed.**
+
+1. **19 of the 66 suites reach past the model layer to the raw driver** — 16 via
+   `Model.collection.*` and 3 via `connection.db`, and the two sets turn out to be disjoint
+   (16 + 3 = 19, and the union is also 19). Seam B never sees that traffic.
+2. **The suites spy on the driver itself.** `migrations/mcpServerNames.spec.ts` calls
+   `jest.spyOn(mongoose.mongo.Collection.prototype, 'find')` and asserts that
+   `readPreference: 'primary'` and `readConcern: { level: 'majority' }` arrive as options;
+   `methods/mcpAuthority.spec.ts` spies `mongoose.Aggregate.prototype.session` and asserts a
+   count of driver-level operations by name (`configs.aggregate`, `agents.aggregate`). Under
+   seam C `mongoose.mongo` **is** the real driver, so these pass unmodified. Under A or B they
+   are spying on us.
+3. **L27 is the point of the whole vendoring exercise.** A and B put an internals contract into
+   the merge path of the two most actively developed packages we depend on. C puts a wire
+   protocol there instead.
+
+**The constraint this ADR exists to state, and it is not stylistic.**
+
+> **A truthful explain, or none.** Two suites assert on query-planner output —
+> `methods/aclEntry.spec.ts:1225` requires the winning plan to contain `IXSCAN` and not
+> `COLLSCAN`; `methods/prompt.getPromptGroup.spec.ts:216` requires an `IDHACK` /
+> `EXPRESS_IXSCAN` / `IXSCAN{_id:1}` stage, `indexesUsed` containing `_id_`, and
+> `totalDocsExamined <= 1`. These are satisfiable, because SQLite reports its own real plan —
+> `SEARCH jdoc USING INDEX idx_…` / `SEARCH … USING PRIMARY KEY` / `SCAN jdoc`, verified
+> directly against `EXPLAIN QUERY PLAN` — and translating a real measurement into Mongo's
+> vocabulary is honest reporting.
+>
+> **Emitting `IXSCAN` because a test wants to see it is a fabricated execution result and L4
+> forbids it.** The explain surface reports what `EXPLAIN QUERY PLAN` actually said, including
+> `COLLSCAN` when nothing was indexed — and a test that then goes red has found a missing index,
+> which is the entire value of the assertion.
+
+**Consequences, stated honestly.**
+
+- We now own an implementation of a wire protocol and a query language. The surface is bounded
+  and it was counted before this was decided, by a key-position sweep of `data/src/**` with
+  `*.spec.ts` and `*.test.ts` excluded, false positives removed by opening each one:
+
+  | | count | note |
+  |---|---|---|
+  | query operators | **17** | four tokens look like operators to a sweep and are not: `$where`, `$op`, `$locals` and `$isDefault` are members of hand-written mongoose `Document` types |
+  | update operators | **12** | 11 in key position plus `$bit`, which is only ever *assigned* (`update.$bit = …` in `aclEntry.ts`) and so appears in no sweep. A checklist-driven implementation would have missed it |
+  | aggregation stages | **11** | every one of the 9 `$sort` occurrences is a pipeline stage; `$sort` is never used as a `$push` modifier here |
+  | aggregation expressions | **18** | plus `$$ROOT` and user-defined `$let` variables |
+  | index declarations | **235** | 116 `schema.index()` sites + 119 field-level `index: true`; across both forms, 32 `unique`, 14 `partialFilterExpression`, 11 `expireAfterSeconds`, 6 `sparse`, and **zero** text indexes and **zero** collation |
+
+  The four buckets plus the four false positives account for all 61 distinct `$`-tokens the
+  sweep finds, which is the arithmetic that makes the partition checkable rather than asserted.
+
+  **A first cut of this table filed `$min` and `$max` as update operators and inflated three of
+  the index options, and an adversarial review caught both.** `$min`/`$max` have **zero** update
+  call sites in this tree — all three real occurrences are `$group` accumulators in
+  `insights.ts`, and the one historical pipeline-update use is a comment in `conversationTag.ts`
+  describing something upstream *removed* for DocumentDB. The index over-counts (16/12/7 instead
+  of 14/11/6) came from grepping option names without stripping comments, so upstream's prose
+  about partial and TTL indexes counted as declarations of them. Both errors are recorded rather
+  than quietly corrected, because the second one is a method failure — a count taken over a tree
+  that documents itself heavily must strip comments before it means anything.
+
+  `$slice` is counted twice on purpose: it is a `$push` modifier *and* an unrelated aggregation
+  expression, and the store must dispatch on context rather than on name. Six operators the v3
+  prompt enumerates — `$type`, `$all`, `$mod`, `$jsonSchema`, `$pop`, `$mul` — are used **zero**
+  times, and are not built until something needs them.
+- **Zero extra processes and zero native dependencies.** The store is a module, not a sidecar:
+  `node:sqlite` — unflagged from Node 22.13.0, verified against that release's notes, and CI
+  pins `node-version: 22` which resolves above it — means no `better-sqlite3` build step. The
+  idle-RAM row in §10 gets easier, exactly as the C1 amendment predicted.
+- **One socket, and it is a Unix socket.** The posture boundary E already holds, supervised by
+  `supervisor.rs` under L34, with `orphan_check`'s zero-TCP-listener assertion unchanged.
+- The delta-ledger row for `packages/platform/data/` in `UPSTREAM.md` stays **empty**, which is
+  the strongest available outcome for that row and the reason seam C was worth the extra work.
+
+**And one thing this ADR found that the plan did not know about.**
+`packages/api/src/tempest_api/platformstore.py` already exists — 246 lines, written at C5, whose
+own docstring says it is shaped *"so C6's Mongoose-methods adapter lands on this exact schema
+rather than migrating it."* It is not a Mongo-compatible store: it is a purpose-built one with
+three query shapes (`get` by id, `find_equal` ordered, `list_ordered`) serving the Tempest agent
+surface's turns. Three consequences, all binding:
+
+1. **One platform store file, not two.** `@tempest/docstore` opens the same platform SQLite file
+   and adds its own tables beside C5's `documents` table. L33 counts *stores*; a second file
+   here would be the forbidden third one in everything but name.
+2. **`platformstore.py` is a BRIDGE and it gets a removal date.** Its `documents` table and
+   LibreChat's `conversations`/`messages` models are two sources of truth for one domain. The
+   bridge is retired at **C7**, when the conversation platform lands and LibreChat's models
+   become the single source; until then the Python store is frozen except for defect fixes.
+   A bridge with no removal date is two implementations wearing a trenchcoat (merge contract §6).
+3. **A defect this ADR inherits rather than creates.** `platformstore.py` has no schema-version
+   stamp and does no live-schema verification — it opens with `CREATE TABLE IF NOT EXISTS` and
+   trusts what it finds. Trap 37 is the rule it misses: *a schema stamp is a claim, not a fact;
+   every open verifies the live schema and repairs or refuses loudly.*
+
+   **A first draft of this ADR called that "the discipline every other Tempest SQLite store
+   follows", and checking it showed that is false — recorded here because the correction is the
+   useful part.** The tree has four SQLite openers and they split two-two: `index/store.py`
+   carries a `meta.schema_version` row and `db/local_store.py` carries `alembic_version` plus a
+   coded revision chain, while `agent/turnlog.py` and `platformstore.py` carry nothing. So this
+   is not a house rule one file broke; it is a gap in half the tree, and platformstore's half of
+   it is the half C6 makes load-bearing — a single implementation could get away with trusting
+   its own `CREATE TABLE IF NOT EXISTS`, and a second writer on the same file cannot. Fixed for
+   `platformstore.py` as part of C6.1; `turnlog.py` is noted, out of scope here, and belongs to
+   whoever next opens it.

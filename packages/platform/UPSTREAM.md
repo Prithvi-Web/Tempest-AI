@@ -50,7 +50,16 @@ Quarterly, gated, rehearsed for real in C12 (L27). Last executed: never (first v
    --3way` after path rewriting, or a `git subtree`-style pull once wired into the Makefile).
 3. Re-apply the brand-asset strip list below to any re-introduced brand file.
 4. Update **Adopted commit** above; the merge commit becomes the new **Vendor baseline**.
-5. `make verify-v3` (until it exists: `make verify` + the C-phase gates that are live).
+5. Re-verify the **workspace metadata that stands in for upstream's flat `node_modules`** —
+   `pnpm-workspace.yaml`'s `overrides`, `packageExtensions` and `publicHoistPattern`. None of it
+   is a delta (nothing vendored is edited), but all of it encodes what upstream's own code
+   imports, and upstream changes what it imports. The `publicHoistPattern` block is C6's: the
+   vendored data layer's `jest.globalSetup.mjs`, `babel.config.cjs` and specs import
+   `mongodb-memory-server-core`, `@babel/core`, `@babel/preset-env`, `@babel/preset-typescript`,
+   `babel-plugin-replace-ts-export-assignment`, `uuid` and `mongodb` without declaring any of
+   them. If a merge adds a phantom import, the failure is a module-not-found at test time, not a
+   merge conflict — so it is checked here rather than discovered later.
+6. `make verify-v3` (until it exists: `make verify` + the C-phase gates that are live).
 
 ## Brand-asset strip (performed in the vendoring commit — MIT does not license trademarks)
 
