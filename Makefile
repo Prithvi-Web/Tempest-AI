@@ -87,6 +87,11 @@ verify: verify-python verify-agent verify-node verify-desktop verify-contract ve
 # The C-phase convergence gates (docs/PLAN-V3.md), live as each phase makes them runnable.
 # C1: attribution over the vendored platform tree (L36.11), the SSPL/proof-data store law
 # (L33), and upstream mergeability (L27) — plus the brand-asset grep from the C1 gate block.
+# C5: the feature ledger as an INSTRUMENT — every row classified (L30), no PLATFORM row
+# borrowing the verdict vocabulary (L31), every finished row citing a test that exists, and
+# no unfinished row owned by a phase whose boxes are all ticked; then parity measured and
+# cross-checked against the number the README publishes (L35). Both pulled forward from
+# C10/C12 by ADR-0088.
 # C3: the reserved-verdict vocabulary lint over the vendored tree (L31), and the local-first
 # audit over the platform tree (L32) — every telemetry and egress surface off by default, and
 # the whole boot surface answered with the network unplugged. The L32 gate's OTHER leg
@@ -99,6 +104,10 @@ verify-convergence:
 	uv run python -m tempest.dev.egress_check --platform-tree --deny-all --airplane-mode-full-function
 	uv run python -m tempest.dev.runtime_check --single-orchestrator --single-tool-registry
 	uv run python -m tempest.dev.gate_audit --enumerate-paths --require-forge-test-per-path
+	uv run python -m tempest.dev.feature_ledger --every-feature-classified \
+		--no-verdict-vocab-in-platform --verifying-tests-resolve \
+		--no-unfinished-rows-in-closed-phases
+	uv run python -m tempest.dev.parity_ledger --print-percentage
 	@! grep -ri "librechat" packages/platform/client/public packages/desktop/src \
 		--include='*.svg' --include='*.png' \
 		|| (echo 'brand asset found — MIT does not license trademarks'; exit 1)

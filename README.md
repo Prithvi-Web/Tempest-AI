@@ -91,6 +91,13 @@ abstraction, resumable streaming, and production-grade MCP client behaviour — 
 those capabilities under the MIT licence, re-implemented for a local-first Rust/Tauri + Python
 desktop application and wired into the proof engine.
 
+**LibreChat feature parity: 15 / 78 capabilities (19.2%)** — 11 adopted and re-targeted onto the
+proof engine, 4 already satisfied by pre-existing Tempest features. The denominator is every
+LibreChat capability the convergence tracks, and it moves upward as upstream ships; the number is
+computed from `docs/FEATURES-V3.md` by `python -m tempest.dev.parity_ledger --print-percentage`,
+which fails the build if this line and the ledger disagree. 100% is required at GA (Law L35).
+Publishing it is the point: an unpublished parity number is an unmeasured claim.
+
 Tempest is **not affiliated with or endorsed by LibreChat**, and uses none of its trademarks,
 logos, or brand assets. Full attribution, the licence text, and a per-module derivation table
 live in [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the adoption scope — including
