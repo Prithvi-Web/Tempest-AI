@@ -4958,3 +4958,386 @@ a long start" *because* readiness returned instantly, which was true, and was th
 the probe made that complaint real, and it is fixed in ADR-0086. A reader who had trusted the
 severities without measuring would have spent the session on the wrong one and shipped the
 right one.
+
+## ADR-0088 — The ledger becomes an instrument, and what it found (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L30, L31, L35, L36.3 ·
+**Builds on:** ADR-0079, ADR-0080, ADR-0081, ADR-0083
+
+**Context.** `docs/FEATURES-V3.md` opens by calling itself *"normative and machine-read"* and
+names two modules as its readers: `tempest.dev.parity_ledger` parses it, and
+`tempest.dev.feature_ledger` enforces that every row carries an L30 relationship. **Neither
+module existed.** `docs/PLAN-V3.md` scheduled them for C10 and C12 — three and five phases away
+— so for the whole convergence to date, L30's "every adopted feature declares its proof
+relationship" and L35's "parity is measured, not asserted" were enforced by nothing at all.
+C5's seven boxes were ticked and its gates were green, and no one could check the file that
+says what C5 delivered.
+
+**§1 — Both modules are pulled forward to C5.** Building the instrument at C10 would have meant
+three more phases of rows nothing reads, in a file whose own header claims otherwise. The
+schedule change is recorded in the plan's gate-module table rather than made silently.
+
+**§2 — What "green the first time" would have meant.** A gate that passes on its first run over
+a file nobody has been enforcing is a gate that is not looking. This one was written test-first
+against a fixture, and its first run against the real tree returned **12 problems**. Every arm
+is proven to fail on a violating ledger; the arms that matter most are the anti-vacuity ones,
+because the characteristic failure of a ledger gate is not a wrong answer but a silent zero — a
+renamed column, and the parser matches nothing and reports green over a file it never read.
+An unrecognised table header therefore FAILS rather than being skipped.
+
+**§3 — The arm that made it an instrument rather than a document-checker.**
+`--verifying-tests-resolve` reads the ledger against the TREE: a row claiming `ADOPTED` or
+`SHIPPED` must cite, in backticks, a name that is DEFINED in Tempest's own trees — a function,
+a class, a Rust `fn`, a spec title, a gate module. Eleven finished rows cited no test by name at
+all. Its scope is stated exactly: this proves the cited name is not fiction, **not** that the
+test ran, passed, or covers what the row claims. Running it is the phase gate's job.
+
+The arm was strengthened once, by its own author's mistake. Correcting LC03 this session, the
+citation `test_platform_catalog` was invented — and passed, because `provider_matrix` resolved
+in the same cell under a rule that asked only that *one* identifier exist. A token shaped like a
+test (`test_*`, `Test*`, `*_bench|check|suite|test`) must now resolve on its own account, with a
+counter-test proving that ordinary identifiers — a `Range:` header, `llamacpp` — still may not.
+The failure this arm exists to catch caught the person building it, which is the strongest
+evidence available that it was worth building.
+
+**§4 — The disagreement nobody could previously see.**
+`--no-unfinished-rows-in-closed-phases` reads `docs/PLAN-V3.md`'s own checkboxes. An unfinished
+row must name a phase that is still open. Five unfinished rows were owned by C4 and two by C3;
+either those phases closed too early or the rows were stale, and **neither document could answer
+it alone** — the plan says a phase is done, the ledger says work remains inside it, and the two
+files were never read together.
+
+**§5 — What it found, in both directions.** A ledger nothing reads goes stale both ways at once.
+
+*Rows that claimed a capability their own verifying test does not verify:*
+
+| Row | Claimed | Measured |
+|---|---|---|
+| **LC11** `SKILL.md` bundles | `SHIPPED (P3)` on *"Proof Skill floor holds when the model is told to ignore it"* | That is **T16's** test, for F15's behavioural rules. P3 shipped the engine-enforced FLOOR, merged into `rules.py`, which reads `.tempest/rules/*.toml`. The row's status was discharging itself with another capability's test. → `IN_PROGRESS`, C8 (see §5a) |
+| **LC34** Web search | `SHIPPED (P9)` on `redteam --injection` | That gate proves P9's proof-native WIRING — retrieved bytes treated as hostile — via a file, a tool result and an MCP response, which is precisely what PLAN-V2's P9 checkbox claims. It does not exercise a web search, and Tempest's own boundary-D manifest holds seven tools with no `web_search` among them. → `IN_PROGRESS`, C8 (see §5a) |
+| **LC52** Resumable streams | `SHIPPED (P2)`, text including *"multi-tab and multi-device sync"* | `resume_test` proves survival of the PROCESS. No `BroadcastChannel`, storage-event or device-sync path exists. Split on the LC19b precedent; **LC52b** carries the unbuilt half |
+
+*Rows the ledger UNDER-claimed:* **LC04** was `NOT_STARTED` while ADR-0081 had shipped the
+reasoning channel, its pins were green, and it had been driven by hand. **LC03** looked like the
+same case — C4 had recorded model specs and per-endpoint parameter UI as done — and was promoted
+to `ADOPTED` on that reading. It should not have been; see §5a. **LC01** and
+**LC02** were neither: four of LC01's seven named endpoints exist (AWS Bedrock, Vertex AI and the
+OpenAI Responses API have no registry row), and LC02's *"any"* is not yet true for a user, since
+C4's own scope note carries user-authored custom endpoints to C6/C10. Both are now `IN_PROGRESS`,
+which counts toward nothing and overstates nothing.
+
+*Rows pointing at finished phases:* LC15 → C8 (ADR-0079 recorded that deferral; it is **not**
+rebuilt here). LC53 and LC76 → C12: the vendored client has rendered both since C3, but
+`99-screenshots.spec` CAPTURES without COMPARING — there is no committed baseline, so no visual
+regression can fail, and under ledger rule 1 that is not a green verifying test.
+
+Also corrected: **T37**'s scope sentence still said no `llama-server` existed on this machine and
+that a real model had never been served, and that the refusal named `brew install llama.cpp`;
+both were overtaken on 24 Aug. **T34** carried no note at all. **T36** was checked and left alone.
+
+**§5a — What an independent audit refuted, and what that cost.** The reconciliation above was
+handed to an agent whose only instruction was to disagree where the evidence warranted. It
+refuted two of these findings and one of the promotions, and re-measurement confirmed the
+refutation in every case. Recorded here rather than quietly fixed, because the shape of the
+mistake is the more useful artifact:
+
+* **The searches that produced LC11 and LC34 excluded `packages/platform`** — the vendored tree.
+  Written as "Tempest's own trees", which is the right scope for *whose code it is*, and the wrong
+  scope entirely for *does this capability exist*. It does. `parseSkillMd` and an
+  `InvocationModePicker` ship inside the mounted client; the manual/automatic/always-on triad
+  (`userInvocable` / `disableModelInvocation` / `alwaysApply`) is in the built provider package;
+  `SearchProvider`, `ScraperProvider`, `RerankerType` and a configurable `jinaApiUrl` are declared
+  there too. The rows are `IN_PROGRESS`, not `NOT_STARTED`: `NOT_STARTED` asserts nothing exists,
+  and that assertion is false. What IS true, and is what keeps them out of the numerator, is that
+  `packages/platform/api` — the half that would serve either feature — is not in
+  `pnpm-workspace.yaml` until C5/C6, so neither capability is reachable in the shipped app.
+  The precedent was already in the file: LC53 counts vendored client code as `IN_PROGRESS`.
+* **PLAN-V2's P9 checkbox was not over-claimed.** It reads "retrieved content as hostile input —
+  `redteam --injection`, 30/30", which is exactly what shipped. A summary bullet elsewhere in that
+  file compresses it to "P9 web search"; the checkbox and the exit gate are both accurate.
+* **LC03's promotion to `ADOPTED` re-committed the defect this ADR exists to eliminate.** Both
+  tests it cited exist — so `--verifying-tests-resolve` passed them — and neither verifies the
+  capability: `test_the_catalog_cross_checks_both_wires_against_the_manifest` is about the AGENT
+  TOOL catalog, and `the_host_decorates_catalog_rows_with_badge_urls_by_provider_id` asserts icon
+  badge URLs. LC03 is `IN_PROGRESS` until a test reads the catalog route and asserts model-spec
+  and per-endpoint parameter shapes.
+
+**The limitation this exposes is structural, and worth stating plainly.** The resolver proves a
+cited name EXISTS. It cannot prove the named test verifies the row it is cited under, and no
+parser can — that is a semantic judgement about what a test means. Twice in one session the
+author cited a test that resolved and did not verify: once a name that was pure invention
+(`test_platform_catalog`, §3), once two real tests about the wrong subject. **The gate raises the
+floor; it does not replace review**, and a row's promotion should be read by someone who opens the
+test. Running a row's cited test and asserting it covers the row is not mechanisable; running it
+at all is a C12 concern, recorded at the end of this ADR.
+
+**§6 — `SHIPPED` counts toward parity.** The question a parity number is asked is *"does Tempest
+have this capability?"*, and for a LibreChat capability a pre-existing Tempest feature already
+satisfies — subagents by P4, resumable streams by P2, the MCP client by P5/F16 — the answer is
+yes. Excluding `SHIPPED` would understate parity and, worse, would reward re-implementing
+something the product already has in order to move a number. The alternative reading is
+defensible; an unstated one is not, so the rule is declared in the ledger's own header, restated
+in the module, and cross-checked by the gate — the document and the code may not disagree about
+what parity MEANS, and changing it takes an ADR plus both edits, never one. The denominator is
+**Part 1 only**: counting Part 2 would let Tempest raise its LibreChat-parity score by shipping
+features LibreChat does not have.
+
+**§7 — The number is published, which L35 had never once had.** README.md now carries
+**15 / 78 = 19.2%** (11 `ADOPTED` + 4 `SHIPPED`), and `parity_ledger` fails the build when that
+line and the ledger disagree — in either direction, including a fraction that disagrees with its
+own percentage. Both halves of L35 are load-bearing: a percentage computed but unpublished is a
+number nobody can be held to, and one published but uncomputed is the assertion L35 exists to
+stop.
+
+**Consequences.** Parity moved 16/77 → 15/78. Three rows left the numerator (LC11 and LC34,
+which were discharging themselves with other capabilities' tests, and LC03, whose promotion did
+the same thing in reverse); one joined it (LC04, genuinely shipped and pinned); the denominator
+grew by LC52b. Seven rows changed meaning and the aggregate moved by one and a third points,
+which is the whole argument for measuring it: **the number was never the thing that was wrong.**
+The gate caught the stale README the moment the recount landed, which is the second half of L35
+doing its job on its first day.
+
+**§8 — The gate was then attacked, and lost twenty-three times.** A gate written to stop
+unmeasured claims is worth exactly what it cannot be talked out of, so it was handed to an
+adversary whose only brief was to make a false thing report green. It did, repeatedly, and every
+one of these was a demonstrated exploit rather than a theory:
+
+* **Invisible-to-the-parser was not an error.** A complete table wrapped in `<!-- -->` parsed as
+  ten `ADOPTED` capabilities and moved published parity nine points on rows no reader can see. An
+  indented table — a literal code block on GitHub — counted as structure while the fenced form was
+  correctly treated as documentation. In the other direction, a row that merely omitted its outer
+  pipes, or sat in a blockquote, still rendered to a reader and was silently skipped; de-piping the
+  whole known-open table made the gate report *"0 open items carried with a phase and a reason"*
+  without one complaint, smuggled status word included.
+* **Membership was decided by the nearest heading's TEXT.** One inserted `## ` heading re-parented
+  fourteen LibreChat rows out of the parity denominator — deleting nothing, moving no row — and
+  raised published parity three points. Membership is positional now, between the two part
+  headings, and both must appear exactly once.
+* **First-match-wins, twice.** A second `**Denominator:**` claim let the number a reader sees say
+  anything; a Part 1 row placed after the claim was counted by a claim that predates it. Same in
+  the README: a correct fraction inside a code fence, or an HTML comment, satisfied "published"
+  while the visible prose claimed **91%**. Both files are now read through the same stripper, and
+  more than one claim is itself the failure.
+* **The resolver accepted ordinary English.** `_DEFINITIONS` indexed every definition of any kind,
+  so a row reading *"proven by the `read` path end to end"* resolved — as did `done`, `state`,
+  `value`, `open`, `close`, `verify` and `check`. Worse, `\bfn NAME` was unanchored and matched
+  inside comments, so `# TODO: … fn test_only_in_a_comment` MADE that fiction resolve. The index
+  now holds only tests and gates (Python `test_*`/`Test*`, Rust functions carrying `#[test]`,
+  spec titles, and the stems of test modules, gate modules, scripts and workflows), which shrank
+  it from 7,710 names to 3,907 and closed the whole class.
+* **The closed-phase arm had no tests and six silencers.** An unticked box inside a fenced block,
+  `- [X]` in the other case, a `*` bullet, a reformatted phase heading bleeding onto its
+  predecessor, an ordinary "Notes on C4" section donating a box backwards, and a ledger phase
+  written `C05` or as a bare number. All closed; the arm now has the tests it should have had.
+
+Twenty-three exploits, twenty-three regression tests. The lesson is the one this ADR already
+carries in §3: **the first version of a gate is a hypothesis.** This one had been run against a
+single file, agreed with itself, and would have gone on agreeing.
+
+**A second pass then found that four of the arms were themselves unpinned** — they worked, but no
+test DISCRIMINATED them, so neutering the real arm left the suite green. Each pin that named an
+arm was passing through a different one: the two tests for "an unrecognised table header fails"
+renamed a *Part 1* header, so the dropped rows also broke the denominator and the failure came
+from there; rename a *Part 2* header instead and the gate silently dropped eight shipped rows while
+printing "L30 holds". Likewise the stray-heading test passed on a table-splitting side effect
+rather than on positional membership, the zero-feature-rows anti-vacuity arm had nothing at all,
+and `parity_ledger`'s "one parser, one truth" hand-off was covered only via the empty-denominator
+guard. All four now have tests that fail when — and only when — their own arm is removed. **This
+is the same defect these gates exist to catch, one level up: a check that cannot fail.**
+
+**Not done here, deliberately:** `--verifying-tests-resolve` does not RUN the tests it resolves,
+and a row citing a real test that no longer covers its capability would still pass — §5a is the
+worked example of that limit biting. Closing it means executing a named test per row and is a C12
+concern, not a C5 one; it is recorded rather than attempted.
+
+## ADR-0079 amendment — the deferral list, audited against what shipped (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Amends:** ADR-0079 (Consequences) ·
+**Builds on:** ADR-0083, ADR-0088
+
+ADR-0079 closed with four named deferrals. A deferral list is a promise about the future, and
+like the ledger it goes stale silently — two of these were overtaken by work that landed within
+days, and nothing pointed at them. Audited, one by one:
+
+1. **Per-tool background/intent settings (C8, with background execution)** — **still deferred,
+   unchanged.** The decision exists and is not to be revisited inside C5. `FEATURES-V3.md`'s
+   LC15 had drifted to phase `C5` against this ADR's own text; corrected to `C8` (ADR-0088).
+   It is *not* to be built here — the recorded decision is the deliverable.
+
+2. **Preempt-arm answers `PREEMPT_UNSUPPORTED`** (this ADR §4) — **not a deferral, a decision,
+   and it is honoured in code.** `agent_chat.rs` answers `{"armed": false, "code":
+   "PREEMPT_UNSUPPORTED"}` and `resume_and_steer_are_never_mis_started` pins it. LC17 now cites
+   that test by name instead of describing it in prose.
+
+3. **The builder's repository picker UI** (*"`tempest_repo` is API-set until the conversation
+   platform"*) — **DISCHARGED by ADR-0083**, hours after this ADR was written. The picker
+   shipped, and the deferral outlived the thing it deferred by long enough for ADR-0087 §1 to
+   find a refusal still telling users the field did not exist. That refusal is fixed; this line
+   is the record that the deferral is closed, so the next reader does not re-defer a shipped
+   feature. Remaining, and narrower: the field takes a pasted absolute path, because a folder
+   picker needs a new Tauri command and a boundary-B shape (ADR-0083 closes on this).
+
+4. **An agent-stream-specific fault-injection pin beyond e2e 06's engine-SIGKILL coverage** —
+   **still open at the time of this amendment**; see the second amendment below, which closes it.
+
+**Why this is written down at all.** ADR-0088 built a gate that reads the ledger against the
+tree and against the plan. Nothing reads an ADR's Consequences paragraph, and this one had
+carried a discharged deferral and a drifted phase for a week. The cheap defence is an audit at
+the moment a phase closes, which is what this is.
+
+## ADR-0089 — The lost `created` frame, and the breaker nobody was reading (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L15.1, L15.3, L23, L36.5 ·
+**Builds on:** ADR-0078, ADR-0079
+
+**Context.** On some turns nothing rendered at all — no text, no error, no timeout, a spinner
+that never stopped. Pre-existing C5 code, carried into this session as the one known
+outstanding behavioural defect. Two independent mechanisms turned out to produce that identical
+symptom, and only the first was known.
+
+**§1 — The `created` frame could be lost, and then discarded.**
+
+Reproduced deterministically before anything was changed, which mattered: the reported repro was
+"10–15 turns against a slow model", and a fix for a race nobody has watched is a guess. The
+scripted host in `tempestSSE.test.ts` already had the hooks, so the whole race is one test with
+no sleeps and no model.
+
+The mechanism, file by file:
+
+1. `spawn_poller` was called inside the POST handler **before the ack was returned**, at cursor 0.
+   Its first push therefore carried seq 1..k, *including* `created`.
+2. `TempestSSE.attach()` reaches `host.listen()` only after `await hostLoader()`, a dynamic
+   `import()` of the generated bindings, and a tauri IPC — reliably slower than a Rust thread
+   already running. Tauri does not replay events to listeners that register afterwards, so that
+   first push went to nobody.
+3. `attach` then replayed from its own high-water mark and **discarded** the page whenever a push
+   had landed during the round trip, re-asking from the higher cursor. That discard was correct
+   on its own terms: coalesced deltas carry their run's LAST seq, so a page computed from a lower
+   cursor merges a LONGER run than the push did, and a seq membership set cannot collapse the
+   overlap. But the page it discarded was the last remaining copy of seq 1..k.
+4. Without `created`, `useResumableSSE` buffers every later frame into `preCreatedStepEvents` and
+   replays them from exactly one place — the `data.created != null` branch. No `created`, no
+   replay, no render, and nothing anywhere to time out.
+
+**The two candidate fixes are not alternatives.** They were carried as an either/or, and
+measurement showed each fails on its own:
+
+* **(a) alone — start the poller only once the webview has subscribed.** Removes the lost push, so
+  a discarded page is always safe. But it leaves the discard, and therefore leaves a design in
+  which the correct behaviour depends on a race being won.
+* **(b) alone — make the first replay authoritative and hold pushes until it lands.** Rescues
+  `created`, then duplicates text: a held frame ending at seq S can cover a run that *starts*
+  below the page's last seq, and releasing it renders that overlap twice. Exactly the hazard the
+  discard existed to prevent.
+
+**Adopted: one invariant, enforced from both sides.** *The replay is the authority, and the live
+feed begins strictly above the page it served.*
+
+* **Host.** `replay_chat_turn` — which the webview calls only after subscribing — computes the
+  page and then starts the feed at `resume_cursor(after, &events)`: the page's last seq, or the
+  caller's cursor when the page is empty, never 0. The POST handler no longer starts anything.
+  A predecessor is superseded rather than re-pointed, and re-checks its claim immediately before
+  emitting, so a page computed from a stale cursor cannot land after a reposition. Generations
+  are now minted from a counter instead of the engine's turn timestamp, which was doing double
+  duty as an identity token and could collide inside one millisecond.
+* **Client.** `attach` makes ONE replay, delivers the page whole, and releases what the feed
+  pushed meanwhile — dropping anything at or below the page's last seq, which the page's own
+  last-seq promise says is already on screen. The four-attempt retry loop is gone: with the feed
+  positioned above the page, nothing can overtake the request it was written for.
+
+A client-side watchdog was **not** taken. It is a mitigation rather than a fix, and it would have
+been a vendored delta in `useResumableSSE.ts`; both halves above live in Tempest's own code and
+the declared seam.
+
+**§2 — The breaker fired for thirty seconds into a function that never read it.**
+
+Investigating ADR-0079's last deferral — *"an agent-stream-specific fault-injection pin beyond
+e2e 06's engine-SIGKILL coverage"* — found a defect rather than a missing test.
+
+When the poller has failed for longer than `POLL_FAILURE_GRACE`, it emits a push with
+`status: "error"` and **no events**: a purpose-built distress signal, added precisely so a person
+is told rather than left watching a live-looking view that never moves. It crossed boundary B
+fully typed and changed nothing. `status` was declared on `StreamPush` and **read nowhere in the
+transport**; every reader was frame-driven, and a push with an empty event list runs the loop body
+zero times. So `readyState` stayed OPEN, no error event fired, and `handleTransportFailure` — the
+reconnect-and-adjudicate ladder — never armed. The outcome was the exact symptom the 30-second
+deadline exists to prevent, and the same spinner as §1 by a completely different route.
+
+`deliver` now honours it. Six lines, reusing the existing `fail()`.
+
+**Why nothing caught it, which is the part worth keeping.** `TempestSSE.ts` is held at **100%
+statements, branches, functions and lines**. Coverage could not have found this, because *the
+branch did not exist to be missed* — an unread field is invisible to every green signal the repo
+has. The two cargo tests LC22 cited as its evidence (`the_stream_gives_up_on_a_missing_engine_…`,
+`the_breaker_outlasts_a_restart_…`) inject nothing: they are arithmetic over synthetic `Instant`s
+and never enter `spawn_poller`. And e2e 06, cited beside them, drives the masthead health probe on
+`/tempest` with no chat turn in flight — it never touches this path at all. Three green signals
+over one dead wire. LC22's evidence cell has been corrected to say so.
+
+**§2a — And escalating on `"error"` alone was still not enough.** An adversarial pass over this
+very fix found the door next to the one it had just closed, and substantiated it by running the
+real engine and the real transport rather than by reasoning about them.
+
+The poller's cursor tracks the LIVE in-memory ledger, while the engine flushes to the durable
+store only every 25 frames or 250 ms — so the poller normally sits ABOVE the durable maximum. Now
+let the sidecar die mid-turn and come back inside the supervisor's backoff, which is 500 ms to 8 s
+against a 30-second grace window, so the breaker never fires. The engine reconciles the dead turn
+by writing its aborted `final` at `durable_max + 1` — at or below the poller's cursor — and then
+filters it out as not-after-the-cursor. The poller's last word is an EMPTY page with
+`status: "aborted"`. `deliver` read only `"error"`, so: no frame, no event, `readyState` still
+OPEN, the reconnect ladder never armed. **The same frozen spinner, one status word to the left.**
+
+The rule is now the general one it should always have been: a page that is terminal AND drained is
+the poller's last word, and if the stream is still open at that point the `final` frame is never
+coming. A terminal page that still CARRIES frames is deliberately not escalated — the poller emits
+those before its drained read and the `final` may be in the next one. Both directions are pinned,
+because a fix for this that fires one page early truncates every turn in the product.
+
+**§2b — And the fix in §2 introduced a defect of its own.** Once the client ACTS on
+`status: "error"`, a stale emit stops being harmless. The success path had gained a claim re-check
+immediately before emitting; the breaker's emit had not. A predecessor poller that spent its grace
+window dying could therefore kill the healthy stream that had superseded it — a new escalation
+turning a previously-inert stale push into a user-visible failure. The re-check is now on both
+paths.
+
+**§3 — Evidence.** Every arm mutation-proven, because a regression test that cannot fail is a
+comment. Reverting the hold-and-release to immediate delivery fails 5 of 20; removing the
+`status` check fails the 2 breaker pins; restored, 20/20. `resume_cursor` and the generation
+counter carry their own cargo pins.
+
+**Consequences.** `packages/platform/UPSTREAM.md` is untouched: both halves live in
+`agent_chat.rs` / `commands.rs` (ours) and `client/tempest/stream/TempestSSE.ts` (a declared
+seam). ADR-0079's fourth deferral is closed by §2 — see the amendment below.
+
+**Not closed here:** the e2e harness still answers the stream over real SSE via
+`platform-server.mjs`, so the boundary-B transport's failure arm is pinned by the vitest state
+machine rather than end to end. Making the two legs symmetric on failure needs a bridge fault
+endpoint and belongs with the e2e work in C12.
+
+## ADR-0079 second amendment — the last deferral, closed (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Amends:** ADR-0079 (Consequences, item 4) ·
+**Builds on:** ADR-0089
+
+The fourth and last of ADR-0079's named deferrals — *"an agent-stream-specific fault-injection pin
+beyond e2e 06's engine-SIGKILL coverage"* — is **closed, and it was not a formality.**
+
+Scoping it established three things the ledger had assumed otherwise:
+
+1. **e2e 06 does not exercise the agent stream.** Its three tests drive the masthead health probe
+   and query invalidation on `/tempest`; no chat turn is in flight, and the Rust host binary does
+   not run in e2e at all.
+2. **The two cargo tests named as the breaker's evidence inject no fault.** Both are arithmetic
+   over synthetic `Instant`s and never reach `spawn_poller`'s emit. Nothing in the repository had
+   ever driven the push the breaker produces.
+3. **Because nothing drove it, it was broken** — the transport never read `status`. ADR-0089 §2.
+
+The pin now exists on the arm that was missing: a `status: "error"` push with no events must reach
+the reader as a closed stream and an error event, including when it arrives while the first replay
+page is still in flight. Both are mutation-proven, and LC22's evidence cell now describes what is
+actually pinned instead of what was assumed to be.
+
+**All four of ADR-0079's deferrals are now discharged or explicitly re-homed:** per-tool
+background/intent settings stay deferred to C8 by decision; preempt-arm was a decision rather than
+a deferral and is honoured in code; the repository picker shipped in ADR-0083; and this one is
+closed.

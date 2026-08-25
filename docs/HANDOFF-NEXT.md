@@ -1,122 +1,115 @@
-# ⚡ SESSION HANDOFF — updated 2026-08-24 (THE INTEGRATION SESSION), READ THIS BEFORE §0
+# ⚡ SESSION HANDOFF — updated 2026-08-24 (THE MEASUREMENT SESSION), READ THIS BEFORE §0
 #
-# TREE CLEAN · **SAFE TO PUSH** · then WATCH THE 7 CI JOBS. Confirm the tip yourself — a
-# handoff that hard-codes its own SHA is stale the moment the handoff itself is committed:
+# TREE CLEAN · **SAFE TO PUSH** · then WATCH THE 7 CI JOBS. Confirm the tip yourself — a handoff
+# that hard-codes its own SHA is stale the moment the handoff itself is committed:
 #   git rev-parse --short HEAD && git log --oneline origin/main..HEAD | wc -l && git status --short | wc -l
 #
-# **C5 IS CLOSED AND THE OWNER'S INTEGRATION COMPLAINT IS ANSWERED.** ADR-0081 … ADR-0087.
-# The app was DRIVEN BY HAND on the real macOS desktop (screen access granted): Models on the
-# rail → Serve → a real answer from Qwen3 with its reasoning in a Thoughts block, the model
-# named in the header, the proof surface, the one settings home, the agent builder's preset
-# and repository field. Screenshots of each step are in the session transcript.
+# **C5 IS CLOSED FOR THE SECOND TIME, AND THIS TIME IT IS MEASURED RATHER THAN ASSERTED.**
+# ADR-0088 (the ledger becomes an instrument) · ADR-0089 (the frozen spinner, twice over) ·
+# two ADR-0079 amendments (all four of its deferrals are now discharged).
 #
-# GATES, THIS SESSION, AT THIS TIP (watched, not remembered — every number read from the line
-# echoed into that gate's own log, never from a completion notification, trap 40):
-#   make verify                    MAKE_EXIT=0 · 100.00% combined (11032 stmts, 3064 branches,
-#                                  ZERO missed) · 2489 passed
-#   make verify-linux-denominator  LINUX_EXIT=0 · 2482 passed, 1 skipped
+# THE ONE-LINE VERSION: `docs/FEATURES-V3.md` opened by calling itself "machine-read" and named
+# two modules as its readers. Neither existed. They exist now, they run inside `make verify` and
+# in CI, and the first thing they did was prove the ledger wrong in BOTH directions.
+#
+# **PARITY IS PUBLISHED FOR THE FIRST TIME** — README.md carries 15/78 = 19.2%, and
+# `parity_ledger` fails the build if that line and the ledger ever disagree. L35 has required
+# this since it was written and it had never once been satisfied.
+#
+# GATES AT THIS TIP (watched, not remembered — every number read from the line echoed into that
+# gate's own log, never from a completion notification, trap 40):
+#   make verify                    MAKE_EXIT=0 · 2585 passed · 100.00% coverage
+#   make verify-linux-denominator  LINUX_EXIT=0 · 2578 passed, 1 skipped, 6 deselected · 100.00%
 #   agent-gates.sh (inside verify) agent_bench 55/55 · intent_bench 54/54, 0 false ·
 #                                  repair_bench 22/28 + 11/11 cheats refused · resume_test 15/15 ·
 #                                  subagent_bench 13/13 · retrieval_bench 40/40 + 15/15 ·
 #                                  redteam 35/35 · mcp_check 16/16 · mcp_client_check 11/11 ·
 #                                  compose_bench 11/11 · escape_suite 0
-#   runtime_check / gate_audit     RUNTIME_EXIT=0 · GATEAUDIT_EXIT=0 (6 declared paths)
-#   egress_check                   EGRESS_EXIT=0 — 270 platform surfaces, L32 holds
-#   upstream_check                 UPSTREAM_EXIT=0 — 27 inline deltas / cap 40, all declared
-#   cargo 151 · clippy -D warnings clean · vitest 116 · playwright 76 passed
+#   feature_ledger                 111 feature rows, all classified, 78 in the denominator  (NEW)
+#   parity_ledger                  15/78 = 19.2%, published and matching                    (NEW)
+#   runtime_check / gate_audit     0 / 0 (6 declared paths) · egress_check 0 (272 surfaces)
+#   upstream_check                 0 — 27 inline deltas / cap 40, all declared
+#   cargo 153 · clippy -D warnings clean · vitest 121 · ts-sidecar 27 · playwright 75 + 1 skipped
 #   parity --cli-vs-desktop        PARITY_EXIT=0 — byte-identical bundles
-#   orphan_check --after-sigkill   ORPHAN_EXIT=0 — 3 descendants, ZERO TCP listeners, 2.0s
-#   app bundle                     rebuilt + installed 24 Aug 18:55, then driven by hand
+#   orphan_check --after-sigkill   ORPHAN_EXIT=0 — 3 descendants, ZERO TCP listeners, cleared 2.5 s (bar 15 s)
+#   app bundle                     rebuilt + installed 24 Aug 20:48, relaunched 20:50, then
+#                                  DRIVEN BY HAND: Models rail -> Serve -> a real llama-server
+#                                  child (pid parented to tempest-desktop, own process group,
+#                                  127.0.0.1:8080 only) -> SIX consecutive Qwen3 turns, every one
+#                                  rendered with its Thoughts block, zero frozen spinners ->
+#                                  graceful quit swept the child and released the port.
+#                                  RE-DONE after the second review round on the 22:19 bundle:
+#                                  five more turns, same result.
 #
-# WHAT THIS SESSION DID (the owner: "it seems like two different apps… I want everything to be
-# more integrated completly", and "I want to be able to chat with a local model")
-#   ADR-0081  A reasoning model's THINKING is its own content channel. Measured: 29 frames of
-#             `reasoning_content`, ZERO of `content`, and Tempest read only `content` — so the
-#             catalogue's most likely first click answered with an EMPTY BUBBLE. No client code
-#             changed; the vendored client always could render a `think` part.
-#   ADR-0082  ONE settings home: Models + Proof engine tabs in the app's own dialog, upstream's
-#             provider keys moved in beside the local models, a Models entry on the main rail,
-#             `/tempest/settings` a deep link. Settings search now spans both halves.
-#   ADR-0083  The assistant can USE Tempest: `tempest_repo` had NO UI, so a tool-bearing agent
-#             could not be pointed at a checkout from inside the app. Plus a blank-slate preset.
-#   ADR-0084  The proof surface owns the window — it carried THREE nav columns; the middle one
-#             applied to nothing on screen and was the widest.
-#   ADR-0085  Serving a model tells the PICKER. Found by pressing the button: the banner said
-#             "pick llama.cpp server (local) in the model list" and the model was not in it,
-#             because both client model caches are `staleTime: Infinity` and are fetched before
-#             any server exists. The instruction could not be followed by anyone, ever.
-#   ADR-0086  READY means the model is LOADED. Measured: TCP accepts at 0.00 s, `/health` says
-#             ok at 0.99 s for the SMALLEST row; the largest is 5.03 GB. Also: both child pipes
-#             are drained now (a 64 KB fuse), and a file is not a runner unless it can be
-#             executed.
-#   ADR-0087  What a 23-agent adversarial audit found in THIS session's own code: a refusal that
-#             told the user the repository picker did not exist yet (it shipped hours earlier),
-#             a field that accepted `~/…` which pathlib never expands, and a key panel that
-#             could assert a key that the Revoke button beside it had just destroyed.
+# WHAT THIS SESSION DID
+#   ADR-0088  The ledger becomes an INSTRUMENT. `feature_ledger` (L30/L31/L36.3) and
+#             `parity_ledger` (L35) built TDD and pulled forward from C10/C12. First run against
+#             the real tree: 12 findings. Three rows claimed a LibreChat capability on the
+#             strength of a test that verifies a DIFFERENT one (LC11 cited T16's test; LC34 cited
+#             an injection suite; LC52 bundled a real half with an unbuilt one). Two rows the
+#             ledger UNDER-claimed (LC03, LC04). Seven unfinished rows were owned by phases whose
+#             every box was ticked — a disagreement neither document could show alone.
+#   ADR-0089  The frozen spinner, from TWO independent mechanisms. (1) The `created` frame was
+#             emitted before the webview subscribed and then DISCARDED by the overtaken-cursor
+#             retry. Fixed by one invariant enforced from both sides: the replay is the authority
+#             and the live feed begins strictly above the page it served. The two candidate fixes
+#             carried in the prompt are NOT alternatives — measured, neither works alone.
+#             (2) The host's 30-second circuit breaker emitted `status:"error"` and the transport
+#             never read `status`. Closes ADR-0079's last deferral.
+#             (3) §2a/§2b, found by a review OF THE FIX: escalating on "error" alone still left
+#             the spinner reachable. When the sidecar restarts INSIDE the 30 s grace the breaker
+#             never fires; the engine reconciles the dead turn by writing its aborted `final` at
+#             `durable_max + 1`, BELOW a poller whose cursor tracks the live in-memory ledger, so
+#             the engine filters it out and the last push is an EMPTY page with status "aborted".
+#             Any terminal AND drained page now ends the stream; a terminal page still carrying
+#             frames deliberately does NOT (that would truncate every turn). And the fix itself
+#             had introduced one: once the client ACTS on "error", a superseded poller's breaker
+#             emit could kill a healthy stream — the claim re-check is now on both emit paths.
 #
-# **THE ONE THING WORTH DOING FIRST NEXT SESSION** — a P1 that survived refutation, is
-# PRE-EXISTING (C5, not introduced here), and was deliberately not attempted at the end of a
-# long session because it is SSE ordering surgery:
+# **THREE THINGS THE NEXT SESSION SHOULD NOT HAVE TO REDISCOVER**
+#   1. **`--verifying-tests-resolve` proves a cited test EXISTS. It cannot prove that test
+#      verifies the row it is cited under**, and no parser can. That limit bit twice in ONE
+#      session (ADR-0088 §3 and §5a): once on a name that was pure invention, once on two real
+#      tests about the wrong subject. A promotion to ADOPTED still needs a human to open the test.
+#   2. **Vendored code counts, and "Tempest's own trees" is the wrong scope for "does this
+#      exist".** `packages/platform` holds working LibreChat implementations of things Tempest has
+#      not wired — skills (`parseSkillMd`, an `InvocationModePicker`, the whole invocation triad)
+#      and web search (serper/searxng/tavily, firecrawl, jina rerankers). Two rows were demoted to
+#      `NOT_STARTED` on that mistake and corrected to `IN_PROGRESS`. The distinction that matters
+#      is `pnpm-workspace.yaml`: `platform/api` and `platform/server` are NOT built, so those
+#      features are present and unreachable.
+#   3. **A gate's first version is a hypothesis, and so is its SECOND.** An adversarial pass
+#      found **23 demonstrated ways** to make these two new gates report green over a false claim — a whole table hidden
+#      in an HTML comment counted as ten shipped capabilities; ordinary English (`read`, `done`,
+#      `verify`) passed as test citations; six separate ways to silence the closed-phase check
+#      from the plan file. A SECOND pass then found four of the arms were themselves unpinned —
+#      they worked, but every test naming them passed through a DIFFERENT arm, so neutering the
+#      real one left the suite green. Rename a Part 2 header and the gate silently dropped eight
+#      shipped rows while printing "L30 holds". All closed, all pinned, every pin mutation-proven
+#      (ADR-0088 §8).
 #
-#   **A lost `created` frame leaves a spinner that never stops.** `agent_chat.rs::spawn_poller`
-#   starts inside the POST handler, before the ack returns, at cursor 0. `TempestSSE.attach()`
-#   only reaches `host.listen()` after two lazy chunk imports plus an IPC — reliably slower —
-#   so the poller's first push (seq 1..k, containing `created`) can be emitted before anyone is
-#   listening, and Tauri does not replay to late listeners. `attach` then replays from its own
-#   high-water mark; if a push lands DURING that round trip the page is discarded (correctly —
-#   coalesced deltas carry their run's LAST seq, so a membership set cannot dedupe the overlap)
-#   and re-requested from the higher cursor. Seq 1..k are then unreachable. Without `created`,
-#   `useResumableSSE` buffers every later frame into `preCreatedStepEvents` and never replays
-#   them: nothing renders, no error, no timeout.
-#   REPRO: devtools console in the real app, 10-15 turns against a slow model; the bug fires on
-#   any turn where "ResumableSSE Received CREATED event" never appears.
-#   TWO CANDIDATE FIXES, neither cheap: (a) do not start the poller until the webview has
-#   subscribed; (b) make the first replay authoritative and suppress pushes until it lands.
-#
-# ALSO RECORDED, NOT FIXED (each survived refutation; see ADR-0086's closing section)
-#   * An orphaned `llama-server` after a FORCE-QUIT holds 8080 for ever: `sweep_on_exit` only
-#     runs on a graceful quit, and every later Serve answers PortBusy telling a non-coder to
-#     "stop whatever is using that port". Adopting a foreign listener is what ADR-0080 §1
-#     forbids, so the fix is a RECOGNITION path and needs its own decision.
-#   * `servingThisRow` compares a canonicalized host path with the engine's unresolved one
-#     (P3). Fine on a stock install; a symlink in the data-dir path breaks it, and the damaging
-#     consequence is that Remove's stop-the-server-first guard stops firing.
-#   * `stop_model_server` and `model_server_status` are SYNC commands that can reach a ~1 s
-#     teardown on the IPC thread, while `start_model_server` was made async for that reason.
-#   * `NeverReady` says "see the log", and the log is an `eprintln!` a Finder-launched .app
-#     discards. Together with the runner-install remedy (an archive of ~30 dylibs, plus
-#     Gatekeeper quarantine on a browser download) this is **T38** — bundle a signed runner.
-#   * The e2e harness's `/api/endpoints` and `/api/models` are still STATIC except for the
-#     local-runner row, which now comes from the real engine (ADR-0085). Everything else there
-#     cannot catch a catalog regression.
+# ALSO RECORDED, NOT FIXED
+#   * The e2e harness answers the stream over REAL SSE, so boundary B's failure arm is pinned by
+#     the vitest state machine and not end to end. Symmetric failure legs need a bridge fault
+#     endpoint — C12.
+#   * `LC03` is the worked example of the resolver's limit: obviously built, no test that verifies
+#     it, therefore `IN_PROGRESS`. Writing that test is the cheapest parity point available.
+#   * `.claude/worktrees/` holds ~1.3 GB of stale agent worktrees carrying a DIFFERENT copy of
+#     packages/platform. Gitignored, harmless to the repo, and it poisons greps. Delete when convenient.
+#   * Everything in ADR-0086's closing section still stands (force-quit orphan holding 8080,
+#     `servingThisRow` symlink path, the two sync commands, T38).
 #
 # TRAPS PAID THIS SESSION (do not repay)
-#   * **CHECK THE APP YOU ARE DEMOING IS THE APP YOU BUILT.** The running instance had started
-#     at 11:12; the bundle was installed at 15:00. `ps -p <pid> -o lstart` against the bundle's
-#     mtime, every time.
-#   * **A LEFTOVER `llama-server` ON 8080 SILENTLY SKIPS THREE CARGO TESTS.** They print
-#     "skipping" and the suite still says ok. The whole modelserver run dropped from 2.6 s to
-#     0.16 s — the runtime is the tell.
-#   * **The seam's tsconfig is NOT the whole type story.** `tempest/tsconfig.views.json` was
-#     green while `pnpm --filter './packages/desktop' typecheck` was RED on the same file: two
-#     copies of `@types/react`, and a seam file imported by a desktop TEST is compiled by both.
-#     Name `ReactNode` through the import, never `React.ReactNode`.
-#   * **Importing a vendored type into the seam destroys the seam's type gate** — it pulls a
-#     baseline-red tree into the project. Mirror the shape and hold it with a test.
-#   * **lucide icons will not typecheck in the seam** for the same reason: draw inline SVG.
-#   * **Audit severities are claims, not measurements.** The two loudest findings were both
-#     P0: measurement REFUTED one (the runner writes nothing to stdout) and CONFIRMED the other
-#     to the tenth of a second. One refuter dismissed "no pending UI on a long start" *because*
-#     readiness returned instantly — which was true, and was the bug.
-#   * **`registry.tsx` is in the MAIN chunk**: anything it imports statically drags
-#     `@tauri-apps/api` into every build. Every settings panel is `React.lazy`, with a test.
-#   * **A boundingBox() read catches a CSS transition mid-slide.** Poll it.
-#   * Coverage litter (`packages/platform/client/coverage/`, `junit.xml`,
-#     `packages/desktop/test-results/`) breaks `upstream_check`: `rm` it first.
-#   * **`make platform-client-dist` after ANY seam change**, or the e2e drives a stale bundle.
+#   * **Searching only Tempest's own trees to prove a capability absent.** See item 2 above.
+#   * **Citing a test by a name you did not open.** Twice. The gate caught one; an agent caught
+#     the other.
+#   * zsh does NOT word-split unquoted variables, and `${PIPESTATUS[0]}` is a bash-ism —
+#     it is `$pipestatus[1]` here. A gate's exit line came back blank because of it.
+#   * The Linux denominator run takes ~16 min alone and far longer if an app build is running
+#     beside it. Do not interleave them.
 #
-# NEXT SESSION: the created-frame race above, then C6 (datastore cutover) — the first unchecked
-# phase. Also sharpened here: the agent-repository folder picker, the thinking channel for
+# NEXT SESSION: C6 (datastore cutover) — the first unchecked phase.
+ Also sharpened here: the agent-repository folder picker, the thinking channel for
 # AGENT turns (they go through run_task, not _run_turn), and T38.
 
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;

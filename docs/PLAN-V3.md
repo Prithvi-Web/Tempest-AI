@@ -340,9 +340,15 @@ python -m tempest.dev.perf_suite   --enforce-budgets     # cold launch, merged-a
       client edits. Honest scope note: user-authored `librechat.yaml` custom-endpoint entries join
       when the real Config service lands (C6/C10); until then "adding a provider" is ADR-0076's own
       mechanism — one registry row, no feature code.**
-- [ ] Adaptive provider smoothing and delta batching adopted onto the single router.
-      **Deliberately open: its surface is the STREAMED chat turn, which arrives with the C5 agent
-      runtime — smoothing adopted before any stream exists would be decoration. Carried to C5.**
+- [x] Adaptive provider smoothing and delta batching adopted onto the single router.
+      **Was deliberately open: its surface is the STREAMED chat turn, which arrives with the C5
+      agent runtime — smoothing adopted before any stream exists would be decoration. Carried to
+      C5. DISCHARGED there (ADR-0079 §7): a read-side, seq-preserving merge that coalesces
+      adjacent text deltas for one step into a frame carrying the run's LAST seq, applied
+      identically on the live and store-replay paths. LC06 is `ADOPTED` with its concatenation,
+      cursor and no-hole pins. Ticked 2026-08-24 (ADR-0088) — the box had stayed open while the
+      work it describes was finished and ledgered, which is the plan disagreeing with the
+      ledger in the under-claiming direction.**
 - [x] `credentials.ts` replaced by the OS keychain path (`keychain.rs`). No plaintext key storage,
       no exception for dev builds.
       **Done (`c2efc6b`/`5af38d1`): the protocol intercepts `/api/keys` and answers from the OS
@@ -438,10 +444,31 @@ not let anything else land while it is in flight.
       shown by its NAME rather than by the absolute path llama.cpp reports, which was the
       user's home directory in a dropdown.
 
+- [x] **The `created`-frame race is fixed, and a second route to the same symptom with it**
+      (ADR-0089). A spinner that never stopped, from two independent mechanisms. The poller was
+      started inside the POST handler at cursor 0, so the push carrying `created` was emitted
+      before the webview had subscribed and was lost — and the replay page that still held it
+      was then discarded by the overtaken-cursor retry. Fixed by ONE invariant enforced from
+      both sides: the replay is the authority and the live feed begins strictly above the page
+      it served. Reproduced deterministically first, and mutation-proven after. Separately,
+      the host's 30-second circuit breaker emitted `status: "error"` with no events and the
+      transport read only frames, so the breaker changed nothing — `readyState` stayed OPEN
+      and the reconnect ladder never armed. That closes ADR-0079's last deferral.
+- [x] **The ledger becomes an instrument** (ADR-0088, pulled forward from C10/C12). Build
+      `tempest.dev.feature_ledger` (L30/L31/L36.3) and `tempest.dev.parity_ledger` (L35), wire
+      both into `make verify`, and reconcile every disagreement they surface. First run against
+      the real tree: 12 findings, including three rows claiming a LibreChat capability on a test
+      that verifies a different one (LC11, LC34, LC52's unbuilt half) and two the ledger had
+      UNDER-claimed (LC03, LC04). Parity is now published in the README — 16/78 = 20.5% — which
+      L35 has required since it was written and had never once been satisfied.
+
 **Gate:**
 ```bash
 python -m tempest.dev.runtime_check --single-orchestrator --single-tool-registry
 python -m tempest.dev.gate_audit    --enumerate-paths --require-forge-test-per-path
+python -m tempest.dev.feature_ledger --every-feature-classified --no-verdict-vocab-in-platform \
+                                     --verifying-tests-resolve --no-unfinished-rows-in-closed-phases
+python -m tempest.dev.parity_ledger  --print-percentage
 ./scripts/agent-gates.sh                                              # all four, through the NEW surface
 python -m tempest.dev.agent_bench  --tasks 50 --require-verdict-coverage 1.0   # must still be 55/55
 python -m tempest.dev.intent_bench --min-accuracy 0.90 --max-false-intended 0  # must still be 54/54, 0 false
@@ -684,8 +711,14 @@ C0 → C1 → C2 → C3 → C4 → C5 ┬→ C6 → C7 → C8 → C9 → C10 →
 | `vocab_check` | C3 | L31 |
 | `runtime_check` | C5 | L29 |
 | `gate_audit` | C5 | L28 |
-| `feature_ledger` | C10 | L30 |
-| `parity_ledger` | C12 | L35 |
+| `feature_ledger` | ~~C10~~ **C5** | L30 |
+| `parity_ledger` | ~~C12~~ **C5** | L35 |
+
+> **Both pulled forward to C5 on 2026-08-24 (ADR-0088).** `docs/FEATURES-V3.md` opens by
+> calling itself machine-read and naming these two modules as its readers. Neither existed,
+> so for five phases C5's completeness was asserted rather than measured — and the first run
+> of `feature_ledger` against the real tree found the ledger wrong in both directions.
+> Building the instrument at C10/C12 would have meant three more phases of unmeasured rows.
 
 **Also not built yet — inherited from the v2 plan, and this plan uses them in gates.** Verified
 absent from `tempest/dev/` on 2026-08-21: `mutation_bench`, `deadcode_trap`, `migration_bench`,
