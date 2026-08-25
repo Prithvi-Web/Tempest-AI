@@ -12,9 +12,11 @@ violating tree.
 1. **No file carrying a MongoDB server's canonical name** (`mongod`/`mongos`/`mongosh` stem)
    anywhere in the scanned set — which is the working tree (build/tooling directories skipped
    by name) UNIONED with every git-tracked file, so tracked content inside a directory named
-   `dist/` or `build/` is still scanned. Scope stated exactly: matching is by canonical name;
-   a server binary renamed to something else is out of this check's reach — the licence-text
-   and downloader checks below are the layers behind it.
+   `dist/` or `build/` is still scanned. Scope stated exactly: matching is by canonical name
+   **or that name followed by `-`/`_`**, which is how `mongodb-memory-server` writes what it
+   downloads (`mongod-arm64-darwin-8.2.6`); a server binary renamed to something with a
+   different first word is out of this check's reach — the licence-text and downloader checks
+   below are the layers behind it.
 2. **No SSPL licence text** in any LICENSE/LICENCE/COPYING file — a vendored component under
    the Server Side Public License is the same problem wearing a different filename.
 3. **No runtime dependency that downloads the SSPL server** — `mongodb-memory-server` in a
@@ -46,6 +48,15 @@ import sys
 from pathlib import Path
 
 _SSPL_NAMES = {"mongod", "mongos", "mongosh"}
+#: A server binary is recognised by its NAME STEM followed by a separator or the end of the
+#: stem — not by exact equality. `mongodb-memory-server` writes the file it downloads as
+#: `mongod-<arch>-<distro>-<version>` (`mongod-arm64-darwin-8.2.6` here, `mongod-x64-win32-
+#: 8.2.6.exe` on Windows), whose `split(".")[0]` stem is `mongod-arm64-darwin-8`. Exact
+#: equality therefore missed the only filename the downloader this module names actually
+#: produces, and a 147 MB SSPL binary could sit in the tree — committed, even — under a gate
+#: reporting "L33 holds". Found by an adversarial review of C6.0, which planted the real
+#: filename and watched the gate pass it.
+_SSPL_NAME_RE = re.compile(r"^(?:" + "|".join(sorted(_SSPL_NAMES)) + r")(?:[-_]|$)")
 _SSPL_TEXT = "Server Side Public License"
 _DOWNLOADER = "mongodb-memory-server"
 _CLIENT_MODULES = {"pymongo", "motor", "mongoengine", "bson"}
@@ -130,7 +141,7 @@ def _check_sspl(root: Path, fail: list[str]) -> None:
     # machine where the walk cannot see what the repository ships.
     for rel in tracked:
         stem = rel.rsplit("/", 1)[-1].split(".")[0].lower()
-        if stem in _SSPL_NAMES:
+        if _SSPL_NAME_RE.match(stem):
             fail.append(f"{rel}: a MongoDB server binary name is tracked — SSPL never ships")
     paths = _walk_files(root)
     for rel in tracked:
@@ -141,7 +152,7 @@ def _check_sspl(root: Path, fail: list[str]) -> None:
         rel_path = path.relative_to(root)
         if str(rel_path) not in tracked_set:
             stem = path.name.split(".")[0].lower()
-            if stem in _SSPL_NAMES:
+            if _SSPL_NAME_RE.match(stem):
                 fail.append(
                     f"{rel_path}: a MongoDB server binary name in the tree — SSPL never ships"
                 )

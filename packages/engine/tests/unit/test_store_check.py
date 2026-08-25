@@ -77,6 +77,38 @@ class TestSsplBinaries:
         (tree / "mongos.exe").write_bytes(b"MZ")
         assert _run(tree) == 1
 
+    def test_the_downloaders_real_output_name_fails(self, tree: Path) -> None:
+        """The name `mongodb-memory-server` ACTUALLY writes, not the canonical one.
+
+        It stores what it downloads as `mongod-<arch>-<distro>-<version>`, so the stem is
+        `mongod-arm64-darwin-8` and exact-equality matching let a 147 MB SSPL server sit in the
+        tree under a gate printing "L33 holds". Both name loops are pinned — the walked one
+        here and the TRACKED one below — because they compute the stem separately.
+        """
+        (tree / "packages" / "platform" / "data" / "mongod-arm64-darwin-8.2.6").write_bytes(
+            b"\x7fELF"
+        )
+        assert _run(tree) == 1
+
+    def test_the_downloaders_windows_output_name_fails(self, tree: Path) -> None:
+        (tree / "mongod-x64-win32-8.2.6.exe").write_bytes(b"MZ")
+        assert _run(tree) == 1
+
+    def test_a_versioned_shell_binary_fails(self, tree: Path) -> None:
+        (tree / "mongosh_2.3.1").write_bytes(b"\x7fELF")
+        assert _run(tree) == 1
+
+    def test_a_word_merely_starting_with_a_server_name_still_passes(self, tree: Path) -> None:
+        """The separator in the pattern is what keeps this from being a substring match.
+
+        `mongodump` and `mongodb-connection-string-url` begin with `mongod`/`mongos` letters
+        but are not servers, and a gate that fails on them would be untrustworthy in the
+        opposite direction — the cost of a false positive here is a build nobody can green.
+        """
+        (tree / "mongodump").write_bytes(b"\x7fELF")
+        (tree / "mongodb-connection-string-url.js").write_text("module.exports = {};\n")
+        assert _run(tree) == 0
+
     def test_sspl_license_text_fails(self, tree: Path) -> None:
         (tree / "packages" / "platform" / "data" / "LICENSE-server.txt").write_text(
             "Server Side Public License\nVERSION 1\n"
