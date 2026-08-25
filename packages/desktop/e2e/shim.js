@@ -177,28 +177,39 @@
       // starting a real server. Serving is pinned in Rust, where it lives — the argv the child
       // is given, the busy-port refusal, the liveness of `status`, the exit sweep's membership
       // — because a fake server would only ever prove the fake.
-      if (cmd === "model_server_status") {
-        return {
-          running: false,
-          model_path: null,
-          runner: null,
-          runner_problem:
+      if (cmd === "model_server_status" || cmd === "start_model_server" || cmd === "stop_model_server") {
+        // ADR-0085: the host's ANSWER is stood in for; the server still is not.
+        //
+        // By default this is a machine with no runner, which is what every other spec here
+        // asserts. A spec that arms `/admin/local-peer` is saying "a server is up" — and the
+        // half that matters then runs for real: the ENGINE probes the bridge's real loopback
+        // `/models` peer, and the panel's cache invalidation is the thing under test. What is
+        // still NOT exercised here is starting a real child, and that stays pinned in Rust
+        // where it lives (the argv, the busy-port refusal, the exit sweep) — a fake server
+        // would only ever prove the fake.
+        const armed = await fetch(`${bridgeUrl}/admin/local-peer`).then((r) => r.json());
+        const serving = cmd !== "stop_model_server" && armed.models.length > 0;
+        if (!serving) {
+          const problem =
             "no `llama-server` was found on your PATH. Tempest does not bundle one yet, so " +
             "serving a downloaded model needs it installed — `brew install llama.cpp` on " +
-            "macOS. Your downloaded models are kept and will work as soon as it is there.",
+            "macOS. Your downloaded models are kept and will work as soon as it is there.";
+          if (cmd === "start_model_server") {
+            throw { code: -3, message: problem };
+          }
+          return {
+            running: false,
+            model_path: null,
+            runner: null,
+            runner_problem: cmd === "stop_model_server" ? "" : problem,
+          };
+        }
+        return {
+          running: true,
+          model_path: args.modelPath ?? armed.models[0],
+          runner: "/harness/llama-server",
+          runner_problem: "",
         };
-      }
-      if (cmd === "start_model_server") {
-        // The real command refuses for the same reason, before it touches the port.
-        throw {
-          code: -3,
-          message:
-            "no `llama-server` was found on your PATH. Tempest does not bundle one yet, so " +
-            "serving a downloaded model needs it installed — `brew install llama.cpp` on macOS.",
-        };
-      }
-      if (cmd === "stop_model_server") {
-        return { running: false, model_path: null, runner: null, runner_problem: "" };
       }
       // Host-side (commands.rs read_project_file): no sidecar behind it. The bridge does a real
       // read; the guard's rules live in Rust and are pinned there.

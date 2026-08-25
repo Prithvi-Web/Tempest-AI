@@ -182,6 +182,16 @@ export function useAiKeyStatus() {
   return useSidecarQuery({
     queryKey: ["aiKeyStatus"],
     queryFn: () => unwrap(commands.aiKeyStatus()),
+    // Polled, because this panel no longer owns the only control that can change this key
+    // (ADR-0087). ADR-0082 put it in the same settings section as upstream's provider-key
+    // rows — and ADR-0076 made the account name the provider's own environment variable, so
+    // Anthropic's chat key and the proof engine's key ARE one keychain item, on purpose.
+    // Pressing "Revoke all keys" a few pixels away therefore deletes this key, and without a
+    // poll the panel went on rendering "Key configured · ends in 1234" for a secret that no
+    // longer existed. A settings panel asserting something untrue is the one thing this
+    // product cannot afford, and the two controls are now neighbours because of a decision
+    // made this session.
+    refetchInterval: KEY_STATUS_POLL_MS,
   });
 }
 
@@ -322,6 +332,14 @@ const DOWNLOAD_POLL_MS = 500;
  * the redundancy read as a bug convincingly enough to cost a review lens its whole budget.
  * The function form is what the library provides for exactly this: it is re-evaluated on every
  * query update, so the poll starts when a download appears and stops when it ends. */
+/** How often the engine key's presence is re-read while its panel is on screen (ADR-0087).
+ *
+ * Two seconds is a compromise with a reason on each side: fast enough that the panel cannot
+ * be caught lying for longer than someone takes to look back at it after pressing Revoke, and
+ * slow enough that a keychain read every tick is not a cost. It only ticks while the Models
+ * tab is open — the panel is lazy and unmounts with the dialog. */
+const KEY_STATUS_POLL_MS = 2_000;
+
 export function useModelCatalog() {
   return useQuery<ModelCatalogRow[], SidecarError>({
     queryKey: ["modelCatalog"],

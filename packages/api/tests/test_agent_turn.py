@@ -282,6 +282,60 @@ class TestPersonaAgents:
         assert "agent_nope" in resp.text
 
 
+class TestTheRepositoryAgentsWorkIn:
+    """`tempest_repo` — the field the builder now has, and the refusals a person can act on.
+
+    The builder's Repository field landed in ADR-0083 and this refusal did not move with it:
+    it said "none is configured" for a path that WAS configured, told the user the picker
+    "arrives with the conversation platform" when they had just typed into it, and pointed a
+    non-coder at `PATCH /api/agents/{id}`. Found by an adversarial audit of the real-app path
+    (ADR-0087).
+    """
+
+    def test_a_path_with_a_tilde_is_the_path_a_person_typed(
+        self, api: Any, agent_env: AgentPeer, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`pathlib` does not expand `~`, so a tilde path was stored happily by the builder
+        and then refused here as though nothing had been set. Home is where the user's code
+        lives; a field that rejects the way they write it is the field's problem."""
+        monkeypatch.setenv("HOME", str(repo.parent))
+        agent = _make_agent(
+            api,
+            tools=["read_file"],
+            tempest_repo=f"  ~/{repo.name}  ",  # whitespace too: a paste carries it
+        )
+        agent_env.script = [{"text": "Read it."}]
+        payload = _wait_terminal(api, _start(api, agent["id"])["streamId"])
+        assert payload["status"] == "complete", _frames(payload)[-1]
+
+    def test_a_folder_that_is_not_there_says_WHICH_folder(
+        self, api: Any, agent_env: AgentPeer
+    ) -> None:
+        """The two refusals are different problems and must read differently: nothing set at
+        all, versus a path that points nowhere. The second one quotes the path back, because
+        "no repository" for a path the user can see in the field is a refusal that names the
+        wrong thing."""
+        agent = _make_agent(api, tools=["read_file"], tempest_repo="/nope/not/a/folder")
+        payload = _wait_terminal(api, _start(api, agent["id"])["streamId"])
+        text = json.dumps(_frames(payload))
+        assert "/nope/not/a/folder" in text, text[:400]
+        assert "no folder there" in text
+        assert "builder" in text, "the way out names the surface that has the field"
+        # The stale instructions are gone: no REST endpoint, and no claim the picker is unbuilt.
+        assert "PATCH /api/agents" not in text
+        assert "arrives with the conversation platform" not in text
+
+    def test_no_repository_at_all_points_at_the_builder(
+        self, api: Any, agent_env: AgentPeer
+    ) -> None:
+        agent = _make_agent(api, tools=["read_file"])
+        payload = _wait_terminal(api, _start(api, agent["id"])["streamId"])
+        text = json.dumps(_frames(payload))
+        assert "none is configured" in text
+        assert "builder" in text
+        assert "PATCH /api/agents" not in text
+
+
 class TestToolBearingTurns:
     def test_the_turn_dispatches_through_the_one_runtime(
         self, api: Any, agent_env: AgentPeer, repo: Path

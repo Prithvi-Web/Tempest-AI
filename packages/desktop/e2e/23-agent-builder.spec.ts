@@ -184,6 +184,32 @@ test("the blank slate offers a proof agent, and gets out of the way once used", 
   await expect(preset).toHaveCount(0);
 });
 
+test("a repository that cannot work says so while you are typing it", async ({ page }) => {
+  // ADR-0087. The field accepted anything and stored it verbatim: `my-repo` (relative to a
+  // working directory that is the ENGINE's, not the user's) and a pasted path with trailing
+  // whitespace were both taken happily, then refused at the first message. Neither is a thing
+  // a person can debug from the refusal.
+  await page.goto("/");
+  await page.getByRole("button", { name: "Agent Builder" }).click();
+  await page.getByTestId("use-proof-agent-preset").click();
+  const field = page.getByTestId("tempest-repo-input");
+
+  await field.fill("my-repo");
+  await expect(page.getByTestId("tempest-repo-unrooted")).toBeVisible();
+  // …and it is not ALSO nagging that the field is empty; one problem, one sentence.
+  await expect(page.getByTestId("tempest-repo-missing")).toHaveCount(0);
+
+  // A home-rooted path is fine — the engine expands it (the builder's own users keep their
+  // code under ~, and pathlib does not expand a tilde, which is why this needed saying).
+  await field.fill("~/code/thing");
+  await expect(page.getByTestId("tempest-repo-unrooted")).toHaveCount(0);
+
+  // Pasted whitespace is trimmed on the way out rather than stored and refused later.
+  await field.fill("   /Users/someone/code/thing   ");
+  await field.blur();
+  await expect(field).toHaveValue("/Users/someone/code/thing");
+});
+
 test("the preset never appears over work someone has already started", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Agent Builder" }).click();

@@ -4773,3 +4773,188 @@ width in both routes with a lower bound on the chat side, so a "collapsed everyw
 regression cannot make it pass by accident. Its first version read the width once and caught a
 CSS transition mid-slide at 176px of a value that settles above 200 — it polls now, because
 that was a test about frame timing rather than about layout.
+
+---
+
+## ADR-0085 — Serving a model tells the picker (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L15.3, L23 ·
+**Builds on:** ADR-0080 (local models), ADR-0082 (one settings home)
+
+**Context — found by pressing the button.** With screen access granted, the shipped app was
+driven by hand for the first time. Serve worked: the managed runner resolved, `llama-server`
+started as a child of `tempest-desktop` in its own process group on 127.0.0.1:8080, and the
+panel said *"Serving on 127.0.0.1 — pick llama.cpp server (local) in the model list to chat
+with it."*
+
+**The model was not in the model list.** Searching the picker for it returned "No results",
+and the chat header read `default` rather than naming the model.
+
+Both `[QueryKeys.endpoints]` and `[QueryKeys.models]` are declared
+`staleTime: Infinity, refetchOnMount: false` — read once at boot and never again. The model
+server is off by default and starts only when a person asks, so the model world is *always*
+fetched before any local model exists. `ModelsPanel.act()` invalidated `["modelCatalog"]` and
+`["modelServer"]` — the panel's own caches — and nothing told the client's. Restarting does not
+help: the server is a child of the app and dies with it, so the next boot probes an empty port
+again. **The instruction on screen could not be followed, by anyone, ever.**
+
+**Decision.** Starting or stopping the local model server invalidates the client's endpoints
+and models queries. Stopping too, in reverse: a model that is no longer served must stop being
+offered.
+
+The two key strings live in `settings/modelWorld.ts` rather than at the call site, and are
+checked against the vendored `QueryKeys` enum by a unit test — because a wrong key **fails
+silently**: `invalidateQueries` on a key nothing uses does nothing, and the symptom is
+identical to not calling it.
+
+**The harness had to become more faithful to hold this.** `platform-server.mjs` answered
+`/api/endpoints` and `/api/models` from a hardcoded object, so no e2e could ever have caught
+this: a static answer can only say "no" to "did serving a model change the picker". Its
+**local-runner row** now comes from the engine's real `getPlatformCatalog` through the bridge,
+exactly as `platform_web.rs::catalog_response` does in the shipped app, and the bridge points
+the engine's `llamacpp` base URL at a real loopback `/v1/models` peer. So the discovery probe
+and the path→name shortening under test are the engine's real code, not a second implementation
+in the harness that could agree with itself while production drifts. Only the HOST's answer to
+"did the server start" is stood in for; starting a real child stays pinned in Rust.
+
+The rest of that catalog is still static, and that is a known remaining divergence — recorded
+here rather than discovered again.
+
+---
+
+## ADR-0086 — Ready means the model is loaded (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L15.3, L23, L34 ·
+**Builds on:** ADR-0080 §1, ADR-0085
+
+**Context.** A four-lens adversarial audit of this session's work, run against the question
+"what breaks only in the real app, which the browser harness cannot see", returned ten
+candidates. Two survived contact with a measurement, and one of the two was refuted by one.
+
+**§1 — Readiness was a bare TCP connect, and llama-server listens before it loads.**
+
+Measured against llama.cpp b10612 with the catalogue's **smallest** row (Qwen3 0.6B, 0.64 GB):
+
+```
+TCP connect succeeded at : 0.00s   <-- what port_answers() checked
+/health said ok at       : 0.99s   <-- when the model could actually answer
+```
+
+llama-server binds and starts serving `503 {"error":{"message":"Loading model"}}` on a thread
+*before* loading the weights — deliberately, so a client can tell the two apart. The largest
+row in the catalogue is 5.03 GB, so that window is tens of seconds on a real machine.
+
+In it: `ready` was set within microseconds of the spawn, `start()` returned Ok, and the panel
+announced "Serving". The picker was empty (the engine's discovery probe gets the same 503 and
+honestly lists nothing), and any turn the user managed to send failed with a raw "Loading
+model". `READY_TIMEOUT` and the entire `NeverReady` arm were unreachable except when the bind
+itself failed — 120 seconds of dead code guarding nothing.
+
+**Decision:** readiness asks the server. The rule is *"answers HTTP with something other than
+still loading"*, not *"answers `/health` with ok"* — a runner that does not implement `/health`
+returns 404 and is treated as ready, which preserves the old intent for an unfamiliar runner
+while reading llama.cpp's 503 correctly. `port_answers()` keeps its bare connect for the
+**squatter** check, which is a different question and where a bare connect is right: a dev
+server that will never speak this protocol still owns the port.
+
+*This fix created a second problem and it is fixed with it.* `start()` now genuinely takes one
+second to tens of seconds, and the panel greyed every control out and said nothing for that
+long. It now says what it is doing. **An audit lens had refuted exactly this complaint on the
+grounds that Serve returns in under a second — which was true, and was the bug.**
+
+**§2 — Both pipes are drained.** `server_command` pipes stdout and stderr; only stderr was
+read. A piped fd nobody drains is a 64 KB fuse: the child blocks in `write()` for ever, the
+port stays open, `try_wait()` still reports it alive, and every turn hangs with no error.
+
+The audit called this a P0 deadlock. **Measurement refuted the P0**: b10612 writes **0 bytes**
+to stdout and ~11 KB to stderr across a model load and ten turns. It is not biting today. It is
+one log-level change, one build, or one user-supplied runner away, and draining costs one
+thread — so the class is closed rather than argued about. The test floods 256 KB (four times
+the buffer) through a stub; with the drain removed it hangs for the full 120 s timeout and
+fails, which is what the defect would have looked like.
+
+**§3 — A file is not a runner unless it can be executed.** `resolve_runner` accepted the
+managed path on `is_file()` alone, and `which_in` filtered PATH the same way. A half-extracted
+archive or a copy made without `chmod +x` was reported as `runner: Some(path)` with an empty
+`runner_problem` — which **enables Serve and hides the install note** — and the click then
+failed with "Permission denied". The reason arrived after the affordance, which is the one
+thing resolving on every status read exists to prevent. It also *shadowed* a working
+`llama-server` on PATH, because the managed check returned early; it falls through now.
+
+Two existing tests failed on this change because their fixtures were never executable. That is
+the change working: a real runner is.
+
+**What is recorded and NOT fixed here**, each surviving refutation on the code but judged to
+need design rather than haste:
+
+- **An orphaned `llama-server` after a host crash makes Serve fail for ever** (P2). The child is
+  its own process group and `sweep_on_exit` only runs on a graceful quit, so a force-quit leaves
+  it holding 8080; every later Serve answers PortBusy telling a non-technical user to "stop
+  whatever is using that port", with no reclaim affordance. Adopting a foreign listener is
+  exactly what ADR-0080 §1 forbids, so the fix is a *recognition* path — is this listener our
+  own runner? — and that deserves its own decision.
+- **`servingThisRow` compares a canonicalized host path with the engine's unresolved one** (P3).
+  It matches on a stock install; a symlink anywhere in the data-dir path breaks it, and the
+  damaging consequence is that Remove's stop-the-server-first guard stops firing.
+- **`stop_model_server` and `model_server_status` are synchronous commands** that can reach a
+  ~1 s teardown on the IPC thread (P2), while `start_model_server` was deliberately made async
+  for that exact reason.
+- **The runner install remedy dead-ends on a shipped Mac** (P1): the archive is a binary plus
+  ~30 dylibs, a browser download carries `com.apple.quarantine`, and both failures surface only
+  on a stderr a Finder-launched app discards. This is ADR-0080 §6 / **T38** — bundling a signed
+  runner — and is the honest answer to all three.
+
+---
+
+## ADR-0087 — What the audit found in this session's own code (2026-08-24)
+
+**Date:** 2026-08-24 · **Status:** accepted · **Law:** L15.3, L23 ·
+**Builds on:** ADR-0076, ADR-0082, ADR-0083, ADR-0086
+
+A four-lens adversarial audit, each finding then handed to an independent refuter, was run over
+this session's changes with one question: *what breaks only in the real app, which the browser
+harness cannot see?* Twenty-three agents; ten findings survived refutation. ADR-0086 covers the
+model-server ones. These three are defects **this session introduced**, and each is a case of a
+correct local decision creating a wrong global one.
+
+**§1 — A refusal that contradicted the feature shipped beside it.** `agentturn.py` refused a
+tool-bearing turn with: *"Set `tempest_repo` on the agent (PATCH /api/agents/{id}); the
+builder's repository picker arrives with the conversation platform."* ADR-0083 built that
+picker hours earlier. A person who had just typed a path into it was told the field did not
+exist and pointed at a REST endpoint.
+
+Worse, the check was `Path(repo).is_dir()` with no `expanduser()`. **`pathlib` does not expand
+a tilde**, so `~/code/thing` — how anyone with their code under home writes it — was accepted
+by the field, stored, and then refused as *"none is configured"*, which names the wrong
+problem entirely. Pasted whitespace did the same.
+
+Now: `~` is expanded, the value is trimmed, and the two failures read differently because they
+are different — nothing set at all points at the builder; a path that points nowhere **quotes
+the path back**, because "no repository" for a path the user can see in the field is not a
+refusal they can act on.
+
+**§2 — The field accepted what it could not use.** No validation at all: `my-repo` or
+`./thing` was stored verbatim and resolved against the *engine's* working directory, not the
+user's. The field now says so while they are typing, and trims on blur rather than on every
+keystroke — trimming as you type eats the space before you have finished typing it.
+
+**§3 — A panel that could assert a key it no longer had.** ADR-0082 put upstream's provider-key
+rows and the engine's key panel in one section, on the argument that they are one decision.
+They are — more so than intended: ADR-0076 makes the keychain account name the provider's own
+environment variable, so **`ANTHROPIC_API_KEY` is a single secret** that `engine_env` injects
+at spawn and both chat and harness synthesis spend.
+
+That is deliberate and correct. What was not: pressing "Revoke all keys" a few pixels away
+deletes that key, and `useAiKeyStatus` had no refetch — so the panel went on rendering *"Key
+configured · ends in 1234"* for a secret that had just been destroyed, with the next proof
+silently reporting UNPROVEN. It polls now. The panel's own header comment claimed the two keys
+were different, which was simply false; it has been corrected rather than deleted, because the
+next reader deserves to know they are one item and why.
+
+**On the audit itself, honestly.** Its two loudest findings were a P0 deadlock and a P0
+readiness bug. **Measurement refuted the first** — the runner writes nothing to stdout — and
+**confirmed the second** to the tenth of a second. One refuter dismissed "no pending UI during
+a long start" *because* readiness returned instantly, which was true, and was the bug; fixing
+the probe made that complaint real, and it is fixed in ADR-0086. A reader who had trusted the
+severities without measuring would have spent the session on the wrong one and shipped the
+right one.

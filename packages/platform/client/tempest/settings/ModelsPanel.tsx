@@ -36,6 +36,7 @@ import {
   useModelServerStatus,
 } from "../views/hooks";
 import { gb } from "./format";
+import { MODEL_WORLD_KEYS } from "./modelWorld";
 
 /** One line of state under a row — the panel's whole vocabulary for "what is true here". */
 function Note({
@@ -74,6 +75,14 @@ export default function ModelsPanel(): JSX.Element {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  /** The row whose server is being STARTED, which is now a wait worth narrating (ADR-0086).
+   *
+   * It used to be instant — and wrong: readiness was a bare TCP connect, so `start` returned
+   * in about 200 ms while llama-server was still loading the weights. Now that readiness
+   * means the model can actually answer, this is a real 1 s (0.6 GB) to tens of seconds
+   * (5 GB) of waiting, and a panel that greys every button out and says nothing for that long
+   * looks broken. Fixing the probe is what created the need to say so. */
+  const [starting, setStarting] = useState<string | null>(null);
 
   // One observer; the poll turns itself on while a download is running (see useModelCatalog).
   const catalog = useModelCatalog();
@@ -86,10 +95,26 @@ export default function ModelsPanel(): JSX.Element {
       await work();
       await queryClient.invalidateQueries({ queryKey: ["modelCatalog"] });
       await queryClient.invalidateQueries({ queryKey: ["modelServer"] });
+      // …and the CLIENT's own model world, which is a different cache and does not expire
+      // on its own (ADR-0085).
+      //
+      // Found by pressing Serve in the real app. Both `[QueryKeys.endpoints]` and
+      // `[QueryKeys.models]` are declared `staleTime: Infinity, refetchOnMount: false`, so
+      // they are read once at boot and never again. The model world is fetched before a
+      // server exists — the app starts one only when a person asks — so serving a model left
+      // the picker exactly as empty as it was at launch, and the header read "default"
+      // instead of naming the model. The engine had it right the whole time; nobody asked.
+      //
+      // Invalidating on STOP too, for the same reason in reverse: a model that is no longer
+      // being served must stop being offered.
+      for (const key of MODEL_WORLD_KEYS) {
+        await queryClient.invalidateQueries({ queryKey: [key] });
+      }
     } catch (err) {
       setProblem(err instanceof Error ? err.message : whenItFails);
     } finally {
       setBusy(null);
+      setStarting(null);
     }
   }
 
@@ -194,6 +219,17 @@ export default function ModelsPanel(): JSX.Element {
                 will not serve a file it cannot identify.
               </Note>
             )}
+            {starting === row.id && (
+              <p
+                className="flex items-center gap-2 text-sm text-text-secondary"
+                role="status"
+                data-testid={`starting-${row.id}`}
+              >
+                <Spinner className="size-4" />
+                Loading the model into memory. A small one takes a second; several gigabytes can
+                take a minute. It is ready when this says Serving.
+              </p>
+            )}
             {isDownloading && (
               <div className="flex flex-col gap-1.5">
                 <Progress value={percent} aria-label={`Downloading ${row.label}`} />
@@ -246,13 +282,14 @@ export default function ModelsPanel(): JSX.Element {
                   data-testid={`serve-${row.id}`}
                   onClick={() => {
                     setBusy(row.id);
+                    setStarting(row.id);
                     void act(
                       () => startModelServer(row.installedPath ?? ""),
                       "the model server could not be started",
                     );
                   }}
                 >
-                  {servingThisRow ? "Serving" : "Serve"}
+                  {starting === row.id ? "Starting…" : servingThisRow ? "Serving" : "Serve"}
                 </Button>
               )}
               {anythingOnDisk && !isDownloading && (

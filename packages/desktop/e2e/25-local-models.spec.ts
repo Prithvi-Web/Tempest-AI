@@ -18,7 +18,7 @@
  * explicit loopback base, and the engine refuses that variable if it names anything else.
  */
 import { expect, test } from "./fixtures";
-import { openModelsFromRail, settingsPanel } from "./settings-home";
+import { closeSettings, openModelsFromRail, settingsPanel } from "./settings-home";
 
 const BRIDGE_URL = `http://127.0.0.1:${process.env.E2E_BRIDGE_PORT ?? 39755}`;
 const ROW = "tempest-e2e-tiny";
@@ -219,4 +219,93 @@ test("a keyless turn offers the local-model way out, and it goes to the panel", 
   await expect(panel.getByRole("heading", { name: "Local models" })).toBeVisible();
   await expect(panel.getByTestId(`model-${ROW}`)).toBeVisible();
   await expect(page.getByTestId("local-model-remedy")).toBeVisible(); // still in the chat behind
+});
+
+/** Arm the bridge's local-discovery peer: the model ids a running `llama-server` would report
+ * from `GET /v1/models` — which are FILE PATHS, the shape ADR-0085's naming fix turns into
+ * names on the way to the picker. An empty list is a machine with nothing serving. */
+/** Open the model picker and search it, the way a person does.
+ *
+ * The search control is a `combobox` that the picker AUTO-FOCUSES on open, and the visible
+ * "Search models…" is a sibling label rather than a placeholder attribute — so
+ * `getByPlaceholder` waits for an element that does not exist, and the test times out on the
+ * fill rather than on anything it is about. Typing at the keyboard is both correct and what
+ * the user actually does.
+ */
+async function searchModels(page: import("@playwright/test").Page, text: string) {
+  await page.getByTestId("model-selector-button").click();
+  await expect(page.getByRole("combobox").first()).toBeFocused();
+  await page.keyboard.type(text);
+  return page.getByRole("option", { name: new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) });
+}
+
+async function armLocalPeer(models: string[]): Promise<void> {
+  const reply = await fetch(`${BRIDGE_URL}/admin/local-peer`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ models }),
+  });
+  if (!reply.ok) throw new Error(`local-peer arm failed: ${reply.status}`);
+}
+
+test("serving a model makes it PICKABLE, without a reload", async ({ page }) => {
+  // ADR-0085, found by pressing Serve in the real shipped app.
+  //
+  // The client's `[endpoints]` and `[models]` queries are both `staleTime: Infinity,
+  // refetchOnMount: false` — read once at boot and never again. The model server is off by
+  // default and starts only when a person asks, so the model world is always fetched BEFORE
+  // any local model exists. Serving one therefore left the picker exactly as empty as it was
+  // at launch, and the chat header read "default" instead of naming the model. Quitting and
+  // relaunching does not help: the server is a child of the app and dies with it, so the next
+  // boot probes an empty port again. Without this the local model could never be chosen by
+  // name at all.
+  //
+  // What is real here and what stands in, stated: the ENGINE's discovery is real, against the
+  // bridge's real loopback `/v1/models` peer over real HTTP. Only the HOST's answer to
+  // "did the server start" is the harness's, because starting a real child is Rust's job and
+  // is pinned there (shim.js says so at the branch).
+  const gguf =
+    "/Users/someone/Library/Application Support/com.prithvi.tempest/models/x/Qwen3-0.6B-Q8_0.gguf";
+  await armLocalPeer([]);
+  await page.goto("/");
+
+  // Before: nothing is served, so the picker offers no local model — and says so by having
+  // no result for it rather than by rendering an empty row.
+  await expect(await searchModels(page, "Qwen3-0.6B")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // A server comes up, and the user presses Serve in the one settings home.
+  await armLocalPeer([gguf]);
+  const panel = await openModelsFromRail(page);
+  const serve = panel.getByTestId(`serve-${ROW}`);
+  if ((await serve.count()) === 0) {
+    // This spec can run alone; install the loopback row first if an earlier one did not.
+    await armPeer({ chunks: 1, delayMs: 0 });
+    await panel.getByTestId(`download-${ROW}`).click();
+    await expect(panel.getByTestId(`installed-${ROW}`)).toBeVisible({ timeout: 30_000 });
+  }
+  await panel.getByTestId(`serve-${ROW}`).click();
+  await expect(panel.getByTestId("server-running")).toBeVisible({ timeout: 15_000 });
+  await closeSettings(page);
+
+  // After: the picker knows. No reload, no restart — the SAME page that could not see it a
+  // moment ago now offers it, BY NAME rather than by the absolute path the runner reports.
+  await expect(await searchModels(page, "Qwen3-0.6B")).toHaveCount(1, { timeout: 15_000 });
+  await expect(page.getByRole("option", { name: "Qwen3-0.6B-Q8_0" })).toBeVisible();
+  // The user's home directory is not the label (ADR-0085's other half).
+  await expect(page.getByText("/Users/someone/Library")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // And the ENGINE was really re-asked since the server came up — the name did not come out
+  // of a cache, a fixture, or the harness's own idea of what a model is called. The counter
+  // is reset by the arm above, so this is a claim about THIS serve.
+  const peer = await fetch(`${BRIDGE_URL}/admin/local-peer`).then((r) => r.json());
+  expect(peer.probes).toBeGreaterThan(0);
+
+  // Stopping puts it back: a model that is no longer served must stop being offered.
+  const again = await openModelsFromRail(page);
+  await again.getByTestId("stop-server").click();
+  await armLocalPeer([]);
+  await closeSettings(page);
+  await expect(await searchModels(page, "Qwen3-0.6B")).toHaveCount(0, { timeout: 15_000 });
 });

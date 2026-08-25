@@ -131,6 +131,46 @@ const CATALOG_ENDPOINTS = {
 };
 const CATALOG_MODELS = { anthropic: [], "Ollama (local)": ["test-model"], agents: [] };
 
+/** The endpoint key the engine's registry uses for a local `llama-server`. */
+const LOCAL_ENDPOINT = "llama.cpp server (local)";
+
+/**
+ * The catalog, with the LOCAL-RUNNER row taken from the engine (ADR-0085).
+ *
+ * The rest of this object is static and that is fine — the proof views never read the
+ * catalog, and the chat shell's boot only needs valid shapes. The local row cannot be
+ * static, because the whole question it answers is "did serving a model change what the
+ * picker offers", and a hardcoded answer can only ever say "no".
+ *
+ * So this row comes from the engine's real `getPlatformCatalog`, through the bridge, exactly
+ * as `platform_web.rs::catalog_response` does in the shipped app — which means the live
+ * discovery probe and the path→name shortening are the ENGINE's real code, not a second
+ * implementation living in the harness that could agree with itself while production drifts.
+ *
+ * A bridge that cannot answer degrades to the static catalog rather than failing the boot:
+ * every spec that does not care about local models must keep working.
+ */
+async function catalogWithLocalRow(route) {
+  const base = route === "/api/endpoints" ? CATALOG_ENDPOINTS : CATALOG_MODELS;
+  let engine;
+  try {
+    const reply = await fetch(`${BRIDGE}/admin/engine-catalog`).then((r) => r.json());
+    engine = reply?.data;
+  } catch {
+    return base;
+  }
+  if (!engine) return base;
+  const row =
+    route === "/api/endpoints" ? engine.endpoints?.[LOCAL_ENDPOINT] : engine.models?.[LOCAL_ENDPOINT];
+  if (row === undefined) return base;
+  if (route === "/api/endpoints") {
+    // The icon is a HOST detail in the real app (`decorate_endpoint_icons`); mirror it, or
+    // the row renders with a broken image the console-clean gate would catch.
+    return { ...base, [LOCAL_ENDPOINT]: { ...row, iconURL: "/tempest-assets/providers/llamacpp.svg" } };
+  }
+  return { ...base, [LOCAL_ENDPOINT]: row };
+}
+
 function keysResponse(res, method) {
   switch (method) {
     case "GET":
@@ -483,12 +523,16 @@ const server = http.createServer((req, res) => {
 
   // The C4 provider bridge families, before anything reaches the local seam.
   if (route === "/api/endpoints" || route === "/api/models") {
-    respond(
-      res,
-      200,
-      "application/json",
-      JSON.stringify(route === "/api/endpoints" ? CATALOG_ENDPOINTS : CATALOG_MODELS),
-    );
+    catalogWithLocalRow(route)
+      .then((payload) => respond(res, 200, "application/json", JSON.stringify(payload)))
+      .catch(() =>
+        respond(
+          res,
+          200,
+          "application/json",
+          JSON.stringify(route === "/api/endpoints" ? CATALOG_ENDPOINTS : CATALOG_MODELS),
+        ),
+      );
     return;
   }
   if (route === "/api/keys" || route.startsWith("/api/keys/")) {

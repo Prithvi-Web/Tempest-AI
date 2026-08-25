@@ -190,16 +190,26 @@ def spec_for(
     designed acceptance flow (composer / shadow.accept) is how work lands between turns.
     The task id carries the generation so a regenerate on the same stream is a new task.
     """
-    repo = str(agent.get("tempest_repo") or "")
-    if not repo or not Path(repo).is_dir():
+    # `~` and stray whitespace are what a person actually types (ADR-0087). `pathlib` does not
+    # expand a tilde, so `~/code/thing` was accepted by the builder's field, stored, and then
+    # refused here as "none is configured" — a refusal naming the wrong problem.
+    repo = str(agent.get("tempest_repo") or "").strip()
+    resolved = Path(repo).expanduser() if repo else None
+    if resolved is None:
         raise AgentTurnRejected(
             "this agent has tools, and tools need a repository to work in — none is "
-            "configured. Set `tempest_repo` on the agent (PATCH /api/agents/{id}); the "
-            "builder's repository picker arrives with the conversation platform."
+            "configured. Open the agent in the builder and set its Repository to the folder "
+            "you want it to work in."
+        )
+    if not resolved.is_dir():
+        raise AgentTurnRejected(
+            f"this agent's Repository is set to {repo!r}, and there is no folder there. "
+            "Open the agent in the builder and set it to a folder that exists — the full "
+            "path, the way Finder's Get Info shows it."
         )
     tools = [str(t) for t in (agent.get("tools") or [])]
     return TaskSpec(
-        repo=Path(repo),
+        repo=resolved,
         task_id=f"chat-{job.stream_id[:12]}-{job.generation_created_at}",
         prompt=prompt,
         provider=provider.id,

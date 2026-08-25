@@ -6,9 +6,16 @@
  * the owner's requirement is that a person choosing how the assistant thinks should not have
  * to know whether the answer is "download this" or "paste a key".
  *
- * It is NOT the same key as the chat provider keys above it, and the copy says so: this one
- * is spent on harness synthesis inside the proof engine, and a user who has a chat key
- * configured would otherwise reasonably assume proving was already funded.
+ * **It IS the same keychain item as the Anthropic chat key above it, and that is deliberate.**
+ * The comment here used to claim the opposite, which was simply wrong: ADR-0076 makes the
+ * keychain account name the provider's own environment variable, so `ANTHROPIC_API_KEY` is one
+ * secret that `engine_env` injects at sidecar spawn — the chat turn and harness synthesis
+ * spend the same key. Setting it in either place funds both; removing it in either place
+ * removes both. For the other eleven providers there is no overlap at all: an OpenAI or groq
+ * chat key does not fund proving, which is why this panel exists and says what the key is for.
+ *
+ * The consequence of ADR-0082 putting these controls in one section is that "Revoke all keys"
+ * a few pixels away deletes this one. `useAiKeyStatus` polls for exactly that reason.
  *
  * Two honesty rules survive the move. The key lives in the macOS Keychain and nowhere else —
  * the webview only ever learns `{configured, last4}` (L9). And the plaintext leaves the page

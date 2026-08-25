@@ -4,101 +4,120 @@
 # handoff that hard-codes its own SHA is stale the moment the handoff itself is committed:
 #   git rev-parse --short HEAD && git log --oneline origin/main..HEAD | wc -l && git status --short | wc -l
 #
-# **C5 IS CLOSED AND THE OWNER'S INTEGRATION COMPLAINT IS ANSWERED.** ADR-0081 … ADR-0084.
-# A local model can be downloaded, served and CHATTED WITH — proven against the real
-# `llama-server` and the real Qwen3 0.6B, through the SHIPPED binary.
+# **C5 IS CLOSED AND THE OWNER'S INTEGRATION COMPLAINT IS ANSWERED.** ADR-0081 … ADR-0087.
+# The app was DRIVEN BY HAND on the real macOS desktop (screen access granted): Models on the
+# rail → Serve → a real answer from Qwen3 with its reasoning in a Thoughts block, the model
+# named in the header, the proof surface, the one settings home, the agent builder's preset
+# and repository field. Screenshots of each step are in the session transcript.
 #
-# GATES, THIS SESSION, AT THIS TIP (watched, not remembered — every one read from the line
-# echoed into its own log, never from a notification, trap 40):
-#   make verify                    MAKE_EXIT=0 · 100.00% combined (11029 stmts, 3062 branches,
-#                                  ZERO missed) · 2486 passed
-#   make verify-linux-denominator  LINUX_EXIT=0 · 100.00% · 2479 passed, 1 skipped
+# GATES, THIS SESSION, AT THIS TIP (watched, not remembered — every number read from the line
+# echoed into that gate's own log, never from a completion notification, trap 40):
+#   make verify                    MAKE_EXIT=0 · 100.00% combined (11032 stmts, 3064 branches,
+#                                  ZERO missed) · 2489 passed
+#   make verify-linux-denominator  LINUX_EXIT=0 · 2482 passed, 1 skipped
 #   agent-gates.sh (inside verify) agent_bench 55/55 · intent_bench 54/54, 0 false ·
-#                                  repair_bench 22/28 (79%) + 11/11 cheats refused ·
-#                                  resume_test 15/15 · subagent_bench 13/13 ·
-#                                  retrieval_bench 40/40 + 15/15 · redteam 35/35 ·
-#                                  mcp_check 16/16 · mcp_client_check 11/11 ·
+#                                  repair_bench 22/28 + 11/11 cheats refused · resume_test 15/15 ·
+#                                  subagent_bench 13/13 · retrieval_bench 40/40 + 15/15 ·
+#                                  redteam 35/35 · mcp_check 16/16 · mcp_client_check 11/11 ·
 #                                  compose_bench 11/11 · escape_suite 0
-#   runtime_check                  RUNTIME_EXIT=0 — one orchestrator, one tool registry
-#   gate_audit                     GATEAUDIT_EXIT=0 — 6 declared paths, every forge collecting
-#   egress_check                   EGRESS_EXIT=0 — 269 platform surfaces, L32 holds
-#   upstream_check                 UPSTREAM_EXIT=0 — 27 inline deltas / cap 40, every one declared
-#   cargo 148 · clippy -D warnings clean · vitest 113 · playwright 75 passed (73 + 1 skipped
-#                                  inside verify; the full suite run separately is 75)
+#   runtime_check / gate_audit     RUNTIME_EXIT=0 · GATEAUDIT_EXIT=0 (6 declared paths)
+#   egress_check                   EGRESS_EXIT=0 — 270 platform surfaces, L32 holds
+#   upstream_check                 UPSTREAM_EXIT=0 — 27 inline deltas / cap 40, all declared
+#   cargo 151 · clippy -D warnings clean · vitest 116 · playwright 76 passed
 #   parity --cli-vs-desktop        PARITY_EXIT=0 — byte-identical bundles
-#   orphan_check --after-sigkill   ORPHAN_EXIT=0 — 3 descendants, ZERO TCP listeners, cleared 2.0s
-#   app bundle                     rebuilt and installed 24 Aug 15:00
+#   orphan_check --after-sigkill   ORPHAN_EXIT=0 — 3 descendants, ZERO TCP listeners, 2.0s
+#   app bundle                     rebuilt + installed 24 Aug 18:55, then driven by hand
 #
-# WHAT THIS SESSION DID — the owner's words were "right now it seems like two different apps…
-# I want everything to be more integrated completly", and every item below answers a clause.
+# WHAT THIS SESSION DID (the owner: "it seems like two different apps… I want everything to be
+# more integrated completly", and "I want to be able to chat with a local model")
+#   ADR-0081  A reasoning model's THINKING is its own content channel. Measured: 29 frames of
+#             `reasoning_content`, ZERO of `content`, and Tempest read only `content` — so the
+#             catalogue's most likely first click answered with an EMPTY BUBBLE. No client code
+#             changed; the vendored client always could render a `think` part.
+#   ADR-0082  ONE settings home: Models + Proof engine tabs in the app's own dialog, upstream's
+#             provider keys moved in beside the local models, a Models entry on the main rail,
+#             `/tempest/settings` a deep link. Settings search now spans both halves.
+#   ADR-0083  The assistant can USE Tempest: `tempest_repo` had NO UI, so a tool-bearing agent
+#             could not be pointed at a checkout from inside the app. Plus a blank-slate preset.
+#   ADR-0084  The proof surface owns the window — it carried THREE nav columns; the middle one
+#             applied to nothing on screen and was the widest.
+#   ADR-0085  Serving a model tells the PICKER. Found by pressing the button: the banner said
+#             "pick llama.cpp server (local) in the model list" and the model was not in it,
+#             because both client model caches are `staleTime: Infinity` and are fetched before
+#             any server exists. The instruction could not be followed by anyone, ever.
+#   ADR-0086  READY means the model is LOADED. Measured: TCP accepts at 0.00 s, `/health` says
+#             ok at 0.99 s for the SMALLEST row; the largest is 5.03 GB. Also: both child pipes
+#             are drained now (a 64 KB fuse), and a file is not a runner unless it can be
+#             executed.
+#   ADR-0087  What a 23-agent adversarial audit found in THIS session's own code: a refusal that
+#             told the user the repository picker did not exist yet (it shipped hours earlier),
+#             a field that accepted `~/…` which pathlib never expands, and a key panel that
+#             could assert a key that the Revoke button beside it had just destroyed.
 #
-#   ADR-0081  A reasoning model's THINKING is its own content channel. Measured against a real
-#             llama-server + Qwen3 0.6B: 29 frames of `reasoning_content`, ZERO of `content`,
-#             and Tempest read only `content` — so the catalogue's most likely first click
-#             answered with an EMPTY BUBBLE. No client code changed; the vendored client has
-#             always been able to render a `think` part. A turn that answers nothing now says
-#             so, and `text` never carries the thinking (titles and exports are built from it).
-#   ADR-0082  ONE settings home. Tempest's settings are two tabs in the app's own dialog
-#             (Models · Proof engine); upstream's three provider-key panels moved into the
-#             Models tab beside the local models; the main rail gained a Models entry;
-#             `/tempest/settings` is a deep link, not a second home. Settings search now spans
-#             both halves of the product, which two settings pages cannot do at any price.
-#   ADR-0083  The assistant can actually USE Tempest. `tempest_repo` had NO UI at all, so a
-#             tool-bearing agent could not be pointed at a checkout from inside the app and
-#             refused its first message. Now a Repository field in the builder (warning while
-#             you build, not when you send), plus a blank-slate preset for an agent that knows
-#             when to run `prove` and never to author a verdict.
-#   ADR-0084  The proof surface owns the window. It carried THREE nav columns; the middle one
-#             ("Projects / Chats") applied to nothing on screen and was the widest. It is a
-#             full-width route now, exactly as `/insights` already was.
-#   Also      A local model is shown by its NAME, not the absolute path llama.cpp reports —
-#             which was the user's home directory in a dropdown, and in every stored
-#             conversation and export.
+# **THE ONE THING WORTH DOING FIRST NEXT SESSION** — a P1 that survived refutation, is
+# PRE-EXISTING (C5, not introduced here), and was deliberately not attempted at the end of a
+# long session because it is SSE ordering surgery:
 #
-# WHAT IS **NOT** PROVEN, said plainly
-#   * **The app was never DRIVEN by hand.** Screen access was requested and DECLINED, so the
-#     physical Serve click and the physical send were not exercised. What IS proven: the Serve
-#     button's own code path against the real runner and the real model (the `#[ignore]` probe
-#     in `modelserver.rs`, output in its commit), and a full conversation through the SHIPPED
-#     `tempest-server` binary on the app's own port 8080 — answer, thinking on its own channel,
-#     434 measured tokens, both content parts persisted. The gap is the click, nothing else.
-#   * **Agent turns do not carry the thinking channel.** They reach the model through
-#     `run_task`, not `_run_turn` (ADR-0081 names it). So does the `stream_options` fallback
-#     arm. Both are stated in the ADR rather than left to be found.
-#   * **The repository is a pasted absolute path.** A folder picker is the only step in the
-#     agent flow that still asks a person to know something a dialog could tell them; it needs
-#     a new Tauri command and a boundary-B shape (ADR-0083 closes on this).
-#   * **Boundary A still carries the model shapes untyped** — unchanged from the last handoff.
+#   **A lost `created` frame leaves a spinner that never stops.** `agent_chat.rs::spawn_poller`
+#   starts inside the POST handler, before the ack returns, at cursor 0. `TempestSSE.attach()`
+#   only reaches `host.listen()` after two lazy chunk imports plus an IPC — reliably slower —
+#   so the poller's first push (seq 1..k, containing `created`) can be emitted before anyone is
+#   listening, and Tauri does not replay to late listeners. `attach` then replays from its own
+#   high-water mark; if a push lands DURING that round trip the page is discarded (correctly —
+#   coalesced deltas carry their run's LAST seq, so a membership set cannot dedupe the overlap)
+#   and re-requested from the higher cursor. Seq 1..k are then unreachable. Without `created`,
+#   `useResumableSSE` buffers every later frame into `preCreatedStepEvents` and never replays
+#   them: nothing renders, no error, no timeout.
+#   REPRO: devtools console in the real app, 10-15 turns against a slow model; the bug fires on
+#   any turn where "ResumableSSE Received CREATED event" never appears.
+#   TWO CANDIDATE FIXES, neither cheap: (a) do not start the poller until the webview has
+#   subscribed; (b) make the first replay authoritative and suppress pushes until it lands.
+#
+# ALSO RECORDED, NOT FIXED (each survived refutation; see ADR-0086's closing section)
+#   * An orphaned `llama-server` after a FORCE-QUIT holds 8080 for ever: `sweep_on_exit` only
+#     runs on a graceful quit, and every later Serve answers PortBusy telling a non-coder to
+#     "stop whatever is using that port". Adopting a foreign listener is what ADR-0080 §1
+#     forbids, so the fix is a RECOGNITION path and needs its own decision.
+#   * `servingThisRow` compares a canonicalized host path with the engine's unresolved one
+#     (P3). Fine on a stock install; a symlink in the data-dir path breaks it, and the damaging
+#     consequence is that Remove's stop-the-server-first guard stops firing.
+#   * `stop_model_server` and `model_server_status` are SYNC commands that can reach a ~1 s
+#     teardown on the IPC thread, while `start_model_server` was made async for that reason.
+#   * `NeverReady` says "see the log", and the log is an `eprintln!` a Finder-launched .app
+#     discards. Together with the runner-install remedy (an archive of ~30 dylibs, plus
+#     Gatekeeper quarantine on a browser download) this is **T38** — bundle a signed runner.
+#   * The e2e harness's `/api/endpoints` and `/api/models` are still STATIC except for the
+#     local-runner row, which now comes from the real engine (ADR-0085). Everything else there
+#     cannot catch a catalog regression.
 #
 # TRAPS PAID THIS SESSION (do not repay)
-#   * **The seam's tsconfig is NOT the whole type story.** `tsc -p tempest/tsconfig.views.json`
-#     was green while `pnpm --filter './packages/desktop' typecheck` was RED on the same file:
-#     two copies of `@types/react` resolve here, and a seam file imported by a desktop TEST is
-#     compiled by both projects. Name `ReactNode` through the import, never `React.ReactNode`.
-#     Only `make verify` runs the second one.
-#   * **Importing a vendored type into the seam destroys the seam's type gate.** One
-#     `import type … from '~/components/…'` pulls the whole vendored tree — red at baseline,
-#     thousands of errors — into `tsconfig.views.json`. Mirror the shape and hold it with a
-#     test instead (`settingsManifest.test.ts`, mutation-proven four ways).
-#   * **lucide icons will not typecheck in the seam** for the same two-copies reason. Draw
-#     inline SVG, as `TempestViews.tsx` already does.
-#   * **A stray `llama-server` on 8080 breaks `cargo test`** — and the test it broke had an arm
-#     that could not test its own subject (it skipped the PathGuard, so `start()` refused for
-#     RunnerMissing before ever reaching the port check). Fixed, but kill strays anyway.
-#   * **A boundingBox() read catches a CSS transition mid-slide.** The sidebar assertion read
-#     176px of a value that settles above 200. Poll it.
-#   * **`registry.tsx` is in the MAIN chunk.** Anything it imports statically drags
-#     `@tauri-apps/api` into every build including the browser harness. Every settings panel is
-#     `React.lazy`; there is a test asserting it.
+#   * **CHECK THE APP YOU ARE DEMOING IS THE APP YOU BUILT.** The running instance had started
+#     at 11:12; the bundle was installed at 15:00. `ps -p <pid> -o lstart` against the bundle's
+#     mtime, every time.
+#   * **A LEFTOVER `llama-server` ON 8080 SILENTLY SKIPS THREE CARGO TESTS.** They print
+#     "skipping" and the suite still says ok. The whole modelserver run dropped from 2.6 s to
+#     0.16 s — the runtime is the tell.
+#   * **The seam's tsconfig is NOT the whole type story.** `tempest/tsconfig.views.json` was
+#     green while `pnpm --filter './packages/desktop' typecheck` was RED on the same file: two
+#     copies of `@types/react`, and a seam file imported by a desktop TEST is compiled by both.
+#     Name `ReactNode` through the import, never `React.ReactNode`.
+#   * **Importing a vendored type into the seam destroys the seam's type gate** — it pulls a
+#     baseline-red tree into the project. Mirror the shape and hold it with a test.
+#   * **lucide icons will not typecheck in the seam** for the same reason: draw inline SVG.
+#   * **Audit severities are claims, not measurements.** The two loudest findings were both
+#     P0: measurement REFUTED one (the runner writes nothing to stdout) and CONFIRMED the other
+#     to the tenth of a second. One refuter dismissed "no pending UI on a long start" *because*
+#     readiness returned instantly — which was true, and was the bug.
+#   * **`registry.tsx` is in the MAIN chunk**: anything it imports statically drags
+#     `@tauri-apps/api` into every build. Every settings panel is `React.lazy`, with a test.
+#   * **A boundingBox() read catches a CSS transition mid-slide.** Poll it.
 #   * Coverage litter (`packages/platform/client/coverage/`, `junit.xml`,
-#     `packages/desktop/test-results/`) still breaks `upstream_check`: `rm` it first.
-#   * **`make platform-client-dist` after ANY seam change**, or the e2e drives a bundle from
-#     before the feature existed.
+#     `packages/desktop/test-results/`) breaks `upstream_check`: `rm` it first.
+#   * **`make platform-client-dist` after ANY seam change**, or the e2e drives a stale bundle.
 #
-# NEXT SESSION'S WORK: C6 (datastore cutover) is the first unchecked phase. Sharpened here and
-# worth taking early: the agent-repository folder picker (ADR-0083), the thinking channel for
-# agent turns (ADR-0081), and T38 (bundle a signed llama-server) — the runner still lives in
-# `<data>/runners/` because the user installed it by hand.
+# NEXT SESSION: the created-frame race above, then C6 (datastore cutover) — the first unchecked
+# phase. Also sharpened here: the agent-repository folder picker, the thinking channel for
+# AGENT turns (they go through run_task, not _run_turn), and T38.
 
 # HANDOFF-NEXT — the fresh session's single entry point (rewritten 2026-08-20, second session;
 # **19, 19a, 20, 21 and 22 COMPLETE · 23 PART ONE · 24 and 25 NOT STARTED** — §0 is the only

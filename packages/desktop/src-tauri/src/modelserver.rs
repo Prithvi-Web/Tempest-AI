@@ -148,7 +148,13 @@ pub(crate) fn managed_runner(data_dir: &std::path::Path) -> std::path::PathBuf {
 pub(crate) fn resolve_runner(data_dir: Option<&std::path::Path>) -> Result<String, ModelServerError> {
     if let Some(dir) = data_dir {
         let managed = managed_runner(dir);
-        if managed.is_file() {
+        // `is_runnable`, not `is_file` — and NOT an early return on a file that merely exists.
+        // A half-extracted archive, a copy made without `chmod +x`, or a text file with that
+        // name used to be reported as a runner with an empty `runner_problem`, which ENABLED
+        // the Serve button and hid the install note; the click then failed with "Permission
+        // denied" (ADR-0086). It also shadowed a perfectly good `llama-server` on PATH, so a
+        // broken file here made a working one unreachable. Falling through fixes both.
+        if is_runnable(&managed) {
             return Ok(managed.to_string_lossy().into_owned());
         }
     }
@@ -198,15 +204,44 @@ fn resolve_runner_in(
 fn which_in(search: &std::ffi::OsStr, program: &str) -> Option<String> {
     std::env::split_paths(search)
         .map(|dir| dir.join(program))
-        .find(|candidate| candidate.is_file())
+        .find(|candidate| is_runnable(candidate))
         .map(|candidate| candidate.to_string_lossy().into_owned())
+}
+
+/// A file this process could actually execute.
+///
+/// The execute bit is checked, not merely existence, because "found" here is a claim the panel
+/// acts on: `model_server_status` turning a path into `runner: Some(..)` with an empty
+/// `runner_problem` is what enables Serve and hides the install note. A file that cannot be
+/// executed is not a runner, and saying so before the click is the whole point of resolving on
+/// every status read (L23: the reason arrives with the affordance, not after it).
+///
+/// `RunnerStatus::found` already documents exactly this rule for the EDITOR runners
+/// (`runners.rs`); this is the same rule, finally applied to the model runner too.
+fn is_runnable(candidate: &std::path::Path) -> bool {
+    if !candidate.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(candidate)
+            .map(|meta| meta.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 
 
-/// True when something is answering on the model port. Used as the readiness probe and by the
-/// status call — an HTTP server's readiness cannot be observed on a pipe that does not exist,
-/// which is the whole reason this child needed its own supervision struct.
+/// True when something is answering on the model port.
+///
+/// This is the SQUATTER question — "is anything here before I spawn?" — and a bare connect is
+/// exactly right for it: a dev server that will never speak our protocol still owns the port.
+/// It is NOT the readiness question; see `responds_ready`.
 pub(crate) fn port_answers() -> bool {
     std::net::TcpStream::connect_timeout(
         &format!("{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT}")
@@ -215,6 +250,72 @@ pub(crate) fn port_answers() -> bool {
         Duration::from_millis(250),
     )
     .is_ok()
+}
+
+/// True when the server on the port is ready to answer a chat turn.
+///
+/// **`port_answers()` was used for this and it is the wrong question.** Measured against
+/// llama.cpp b10612 with the catalogue's SMALLEST row (Qwen3 0.6B, 0.64 GB): the TCP connect
+/// succeeds at **0.00 s** and `/health` only says `ok` at **0.99 s** — llama-server binds and
+/// starts serving 503 `{"error":{"message":"Loading model"}}` on a thread *before* it loads
+/// the weights, deliberately, so a client can tell the two apart. The largest row in the
+/// catalogue is 5.03 GB, so that window is tens of seconds on a real machine.
+///
+/// What the old probe produced in that window: `ready` set within microseconds of the spawn,
+/// `start()` returning Ok, and the panel rendering "Serving on 127.0.0.1 — pick llama.cpp
+/// server (local) in the model list" over a model that cannot answer. The picker was empty
+/// (the engine's discovery probe gets the same 503 and honestly lists nothing), and any turn
+/// the user managed to send failed with a raw "Loading model". `READY_TIMEOUT` and the whole
+/// `NeverReady` arm were unreachable except when the bind itself failed.
+///
+/// The rule is "answers HTTP with something other than *still loading*", not "answers
+/// `/health` with ok". A runner that does not implement `/health` answers 404 and is treated
+/// as ready — the old behaviour's intent, and better than refusing to serve an unfamiliar
+/// runner — while llama.cpp's 503-while-loading is correctly read as not yet.
+fn responds_ready() -> bool {
+    use std::io::{Read, Write};
+
+    let address = format!("{MODEL_SERVER_HOST}:{MODEL_SERVER_PORT}")
+        .parse()
+        .expect("a literal loopback address parses");
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&address, Duration::from_millis(250))
+    else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(750)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(750)));
+    let request = format!(
+        "GET /health HTTP/1.1\r\nHost: {MODEL_SERVER_HOST}:{MODEL_SERVER_PORT}\r\n\
+         Connection: close\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    // The status line is all that is needed, and reading only a prefix means a server that
+    // holds the connection open cannot stall this probe behind its whole body.
+    let mut head = [0u8; 64];
+    let Ok(read) = stream.read(&mut head) else {
+        return false;
+    };
+    if read == 0 {
+        return false; // accepted the connection and said nothing: still coming up
+    }
+    let status = String::from_utf8_lossy(&head[..read]);
+    !status.starts_with("HTTP/1.1 503") && !status.starts_with("HTTP/1.0 503")
+}
+
+/// The two pipes a spawned runner writes to. Both are drained; see the loop in `start`.
+enum DrainSource {
+    Out(std::process::ChildStdout),
+    Err(std::process::ChildStderr),
+}
+
+/// Read a child pipe to EOF, echoing each line. Never returns while the child lives, which is
+/// the point: an undrained pipe wedges the writer at 64 KB.
+fn drain<R: std::io::Read>(handle: R) {
+    for line in BufReader::new(handle).lines().map_while(Result::ok) {
+        eprintln!("[llama-server] {line}");
+    }
 }
 
 /// The exact command a server is started with. Split out so a test can read the ARGV.
@@ -292,13 +393,22 @@ pub(crate) fn start(
         .spawn()
         .map_err(|err| ModelServerError::Spawn(format!("could not start {runner}: {err}")))?;
     let pgid = child.id() as i32;
-    if let Some(stderr) = child.stderr.take() {
+    // BOTH pipes are drained. stderr is where llama.cpp b10612 actually writes — measured,
+    // 0 bytes to stdout and ~11 KB to stderr across a load and ten turns — but stdout is
+    // piped too, and a piped fd nobody reads is a 64 KB fuse: once the buffer fills the
+    // child blocks in `write()` for ever, the port stays open, `try_wait()` still says it is
+    // alive, and every turn hangs with no error. A different build, a different log level,
+    // or a runner someone else supplies is all it would take. Draining costs one thread.
+    for (label, pipe) in [
+        ("stderr", child.stderr.take().map(DrainSource::Err),),
+        ("stdout", child.stdout.take().map(DrainSource::Out),),
+    ] {
+        let Some(source) = pipe else { continue };
         std::thread::Builder::new()
-            .name("model-server-stderr".into())
-            .spawn(move || {
-                for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                    eprintln!("[llama-server] {line}");
-                }
+            .name(format!("model-server-{label}"))
+            .spawn(move || match source {
+                DrainSource::Err(handle) => drain(handle),
+                DrainSource::Out(handle) => drain(handle),
             })
             .ok();
     }
@@ -318,7 +428,7 @@ pub(crate) fn start(
 
     let deadline = Instant::now() + READY_TIMEOUT;
     loop {
-        if port_answers() {
+        if responds_ready() {
             let mut slot = running().lock().expect("model server lock");
             match slot.as_mut() {
                 Some(current) => current.ready = true,
@@ -509,6 +619,12 @@ mod tests {
         std::fs::create_dir_all(&runners).expect("a temp data dir");
         let runner = runners.join("llama-server");
         std::fs::write(&runner, b"#!/bin/sh\nexit 0\n").expect("a managed runner");
+        // Executable, because a real runner is and `is_runnable` now requires it (ADR-0086).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&runner, std::fs::Permissions::from_mode(0o755)).ok();
+        }
 
         let found = resolve_runner(Some(&data)).expect("the managed runner is found");
         assert_eq!(found, runner.to_string_lossy());
@@ -526,6 +642,50 @@ mod tests {
     }
 
     #[test]
+    fn a_file_that_cannot_be_executed_is_not_a_runner_and_does_not_shadow_the_path() {
+        // ADR-0086. `is_file()` alone made a half-extracted archive, a copy made without
+        // `chmod +x`, or a text file named `llama-server` look like a runner: the panel
+        // enabled Serve and hid the install note, and the click failed with "Permission
+        // denied" — the refusal arriving AFTER the affordance, which is the one thing
+        // resolving on every status read exists to prevent.
+        let data = std::env::temp_dir().join(format!("tempest-noexec-{}", std::process::id()));
+        let runners = data.join("runners");
+        std::fs::create_dir_all(&runners).expect("a temp data dir");
+        let managed = runners.join("llama-server");
+        std::fs::write(&managed, b"not a program\n").expect("a non-executable file");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&managed, std::fs::Permissions::from_mode(0o644)).ok();
+        }
+
+        // With nothing on PATH either, this is a refusal rather than a false positive.
+        assert!(
+            resolve_runner_in(std::ffi::OsStr::new(""), Some(managed_runner(&data))).is_err(),
+            "a file with no execute bit is not a runner"
+        );
+
+        // And it must not SHADOW a real one: the managed check falls through to PATH rather
+        // than returning early, so a broken file here cannot make a working runner
+        // unreachable.
+        let good = std::env::temp_dir().join(format!("tempest-goodrunner-{}", std::process::id()));
+        std::fs::create_dir_all(&good).expect("a temp dir");
+        let real = good.join("llama-server");
+        std::fs::write(&real, b"#!/bin/sh\nexit 0\n").expect("an executable stub");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).ok();
+        }
+        let _guard = PathGuard::prepending(&good);
+        let found = resolve_runner(Some(&data)).expect("the PATH runner is still reachable");
+        assert_eq!(found, real.to_string_lossy());
+
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&good);
+    }
+
+    #[test]
     fn a_runner_is_found_when_the_search_path_holds_one() {
         // The other side of the same decision: a directory containing an executable of that
         // name resolves to it, so the refusal above is about absence and not about the search
@@ -534,6 +694,12 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("a temp dir");
         let runner = dir.join("llama-server");
         std::fs::write(&runner, b"#!/bin/sh\nexit 0\n").expect("a file named llama-server");
+        // Executable, because a real runner is and `is_runnable` now requires it (ADR-0086).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&runner, std::fs::Permissions::from_mode(0o755)).ok();
+        }
         let found = resolve_runner_in(dir.as_os_str(), None).expect("the runner in the search path");
         assert_eq!(found, runner.to_string_lossy());
         let _ = std::fs::remove_dir_all(&dir);
@@ -655,6 +821,104 @@ mod tests {
              {}s leaves an orphan no code path can reach",
             READY_TIMEOUT.as_secs()
         );
+    }
+
+    #[test]
+    fn readiness_waits_for_the_model_to_load_not_merely_for_the_port_to_open() {
+        // ADR-0086. Measured against llama.cpp b10612 with the catalogue's SMALLEST row
+        // (Qwen3 0.6B): the TCP connect succeeds at 0.00 s and `/health` says ok at 0.99 s,
+        // because llama-server binds and answers 503 `Loading model` on a thread BEFORE it
+        // loads the weights. The largest catalogue row is 5.03 GB, so that window is tens of
+        // seconds on a real machine — during which the old probe reported "Serving on
+        // 127.0.0.1", the picker was empty, and every turn failed with a raw "Loading model".
+        //
+        // The stub reproduces exactly that protocol. The assertion is not "start took a
+        // while": it is that the PORT was open long before `start` returned, which is the
+        // difference between the two probes and nothing else.
+        let _shared = SHARED_PORT.lock().unwrap_or_else(|e| e.into_inner());
+        stop();
+        if port_answers() {
+            eprintln!("skipping: {MODEL_SERVER_PORT} is held by something else on this machine");
+            return;
+        }
+        let Some(stub) = StubRunner::on_path() else {
+            eprintln!("skipping: no python3 to build a stub runner with");
+            return;
+        };
+        // Long enough to be unmistakable, short enough to keep the suite quick.
+        let loading = Duration::from_millis(1_200);
+        std::env::set_var("TEMPEST_STUB_LOADING_MS", loading.as_millis().to_string());
+
+        let model = a_real_file();
+        let began = Instant::now();
+        // The port opens almost immediately; watch for it on another thread so the claim is
+        // measured rather than assumed.
+        let port_open_at = std::thread::spawn(move || {
+            let watching = Instant::now();
+            while watching.elapsed() < Duration::from_secs(10) {
+                if port_answers() {
+                    return Some(watching.elapsed());
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            None
+        });
+
+        let started = start(&model, None);
+        let took = began.elapsed();
+        let opened = port_open_at.join().expect("the watcher thread").expect("the port opened");
+        std::env::remove_var("TEMPEST_STUB_LOADING_MS");
+        stop();
+        drop(stub);
+
+        assert!(started.is_ok(), "the stub eventually becomes ready: {started:?}");
+        assert!(
+            opened < loading / 2,
+            "the port must open EARLY for this test to be about anything — opened at {opened:?}"
+        );
+        assert!(
+            took >= loading,
+            "start() returned after {took:?}, before the stub finished loading ({loading:?}) — \
+             readiness is measuring the socket again, not the model"
+        );
+    }
+
+    #[test]
+    fn a_runner_that_floods_stdout_is_drained_rather_than_wedged() {
+        // ADR-0086. `server_command` pipes BOTH stdout and stderr, and only stderr was read.
+        // A piped fd nobody drains is a 64 KB fuse: the child blocks in `write()` for ever,
+        // the port stays open, `try_wait()` still reports it alive, and every chat turn hangs
+        // with no error — the silent failure L23 forbids.
+        //
+        // Measured first: llama.cpp b10612 writes 0 bytes to stdout and ~11 KB to stderr
+        // across a load and ten turns, so this is not what is biting today. It is one log-level
+        // change, one build, or one user-supplied runner away, and the whole class goes away
+        // by draining. 256 KB is four times the buffer — enough that an undrained pipe cannot
+        // finish the write.
+        let _shared = SHARED_PORT.lock().unwrap_or_else(|e| e.into_inner());
+        stop();
+        if port_answers() {
+            eprintln!("skipping: {MODEL_SERVER_PORT} is held by something else on this machine");
+            return;
+        }
+        let Some(stub) = StubRunner::on_path() else {
+            eprintln!("skipping: no python3 to build a stub runner with");
+            return;
+        };
+        std::env::set_var("TEMPEST_STUB_STDOUT_BYTES", (256 * 1024).to_string());
+
+        let model = a_real_file();
+        let started = start(&model, None);
+        std::env::remove_var("TEMPEST_STUB_STDOUT_BYTES");
+        let (up, _) = status();
+        stop();
+        drop(stub);
+
+        assert!(
+            started.is_ok(),
+            "a runner that writes 256 KB to stdout before binding must still start: {started:?}"
+        );
+        assert!(up, "and must still be alive afterwards rather than blocked in write()");
     }
 
     #[test]
@@ -795,16 +1059,32 @@ mod tests {
             // nested quotes is where the first cut of this went wrong, and a stub that fails to
             // parse reports as "the runner exited before it was ready", which reads like the
             // code under test rather than the fixture.
+            //
+            // It speaks llama-server's READINESS PROTOCOL, because that is now the thing under
+            // test: bind and start answering immediately, 503 `Loading model` for
+            // `TEMPEST_STUB_LOADING_MS`, then 200 `{"status":"ok"}`. A stub that answered ok
+            // from the first byte could not tell the old bare-connect probe from the new one.
+            // `TEMPEST_STUB_STDOUT_BYTES` floods stdout before binding, for the pipe-drain test.
             let server = dir.join("stub_server.py");
             std::fs::write(
                 &server,
                 format!(
-                    "import socketserver\n\n\
-                     class Quiet(socketserver.BaseRequestHandler):\n\
+                    "import os, socketserver, sys, time\n\
+                     LOADING_MS = int(os.environ.get('TEMPEST_STUB_LOADING_MS', '0'))\n\
+                     FLOOD = int(os.environ.get('TEMPEST_STUB_STDOUT_BYTES', '0'))\n\
+                     if FLOOD:\n\
+                     \x20   sys.stdout.write('x' * FLOOD)\n\
+                     \x20   sys.stdout.flush()\n\
+                     START = time.monotonic()\n\n\
+                     class Health(socketserver.StreamRequestHandler):\n\
                      \x20   def handle(self):\n\
-                     \x20       pass\n\n\
+                     \x20       self.rfile.readline()\n\
+                     \x20       loading = (time.monotonic() - START) * 1000 < LOADING_MS\n\
+                     \x20       body = b'{{\"error\":{{\"message\":\"Loading model\"}}}}' if loading else b'{{\"status\":\"ok\"}}'\n\
+                     \x20       line = b'HTTP/1.1 503 Service Unavailable' if loading else b'HTTP/1.1 200 OK'\n\
+                     \x20       self.wfile.write(line + b'\\r\\nContent-Length: ' + str(len(body)).encode() + b'\\r\\nConnection: close\\r\\n\\r\\n' + body)\n\n\
                      socketserver.TCPServer.allow_reuse_address = True\n\
-                     socketserver.TCPServer(({MODEL_SERVER_HOST:?}, {MODEL_SERVER_PORT}), Quiet).serve_forever()\n"
+                     socketserver.TCPServer(({MODEL_SERVER_HOST:?}, {MODEL_SERVER_PORT}), Health).serve_forever()\n"
                 ),
             )
             .ok()?;

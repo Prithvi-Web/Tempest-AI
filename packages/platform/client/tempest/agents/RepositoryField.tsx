@@ -44,7 +44,13 @@ export default function RepositoryField(): JSX.Element {
       control={control}
       render={({ field }) => {
         const value = field.value ?? "";
-        const missing = needsRepo && value.trim() === "";
+        const typed = value.trim();
+        const missing = needsRepo && typed === "";
+        // A path that is neither absolute nor rooted at `~` cannot be resolved from anywhere
+        // in particular — the engine runs from its own working directory, not the user's — so
+        // `my-repo` or `./thing` is stored happily and refused at the first message. Said here,
+        // while they are still typing (ADR-0087).
+        const unrooted = typed !== "" && !typed.startsWith("/") && !typed.startsWith("~");
         return (
           <div className="mb-3 flex flex-col" data-testid="tempest-repo-field">
             <label
@@ -63,7 +69,13 @@ export default function RepositoryField(): JSX.Element {
               className="w-full rounded-lg border border-border-light bg-surface-secondary px-3 py-2 font-mono text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-border-xheavy"
               value={value}
               onChange={(event) => field.onChange(event.target.value)}
-              onBlur={field.onBlur}
+              // Trimmed on the way OUT, not on every keystroke: trimming as they type eats the
+              // space before they have finished typing it. A pasted path routinely carries
+              // whitespace, and the engine used to store it verbatim and then refuse it.
+              onBlur={() => {
+                if (typed !== value) field.onChange(typed);
+                field.onBlur();
+              }}
               ref={field.ref}
             />
             <p className="mt-1 text-xs text-text-secondary">
@@ -72,6 +84,17 @@ export default function RepositoryField(): JSX.Element {
               <span className="font-medium text-text-primary">Prove</span> runs the change
               against the original to see whether behaviour actually differs.
             </p>
+            {unrooted && (
+              <p
+                className="mt-1 text-xs text-text-warning"
+                role="alert"
+                data-testid="tempest-repo-unrooted"
+              >
+                That needs to be a full path — one starting with{" "}
+                <span className="font-mono">/</span> or <span className="font-mono">~</span>.
+                Finder&apos;s Get Info shows it, and ⌥⌘C copies it.
+              </p>
+            )}
             {missing && (
               <p
                 className="mt-1 text-xs text-text-warning"

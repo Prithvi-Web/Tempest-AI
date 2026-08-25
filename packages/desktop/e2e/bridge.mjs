@@ -70,6 +70,11 @@ let chatPeer = {
 // them; a disagreement fails the download's real hash check rather than passing quietly.
 const HF_PAYLOAD = Buffer.from("tempest-e2e-gguf\n".repeat(262144), "utf8");
 const HF_PATH = "/hf-peer/tempest/e2e/resolve/main/tiny.gguf";
+
+/** The local-runner discovery peer (ADR-0085). Empty is the honest default: a machine with
+ * nothing serving. `probes` counts the engine's real `GET /models` requests, so a spec can
+ * assert the catalogue was re-read rather than merely that a name appeared. */
+let localPeer = { models: [], probes: 0 };
 let hfPeer = { chunks: 24, delayMs: 200, requests: [] };
 let stdoutBuf = Buffer.alloc(0);
 let nextRpcId = 1;
@@ -110,6 +115,12 @@ function spawnSidecar() {
       // ADR-0080: the e2e catalogue row's bytes come from the peer below. Loopback, and the
       // engine refuses this variable if it is anything else.
       TEMPEST_DEV_MODEL_BASE: `http://127.0.0.1:${PORT}/hf-peer`,
+      // ADR-0085: the engine's LOCAL DISCOVERY probe (`GET {base}/models`) reaches the peer
+      // below. It answers an empty list until a spec arms it, which is exactly what a machine
+      // with no model server looks like — so the discovery half of "serve a model and it
+      // appears in the picker" is the REAL engine code against a REAL loopback peer, and only
+      // the host's own answer is stood in for (see shim.js).
+      TEMPEST_MODEL_BASE_URL_LLAMACPP: `http://127.0.0.1:${PORT}/local-peer/v1`,
     },
     stdio: ["pipe", "pipe", "inherit"],
     detached: true, // own process group, so engine-down can SIGKILL the whole tree
@@ -331,6 +342,48 @@ const server = http.createServer(async (req, res) => {
         json(res, 400, { error: String(err) });
       }
     });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/admin/local-peer") {
+    let raw = "";
+    req.on("data", (chunk) => (raw += chunk));
+    req.on("end", () => {
+      try {
+        const body = raw ? JSON.parse(raw) : {};
+        localPeer = {
+          // The ids a real `llama-server` reports: the FILE PATH it was started with
+          // (ADR-0085's naming fix turns these into names on the way to the picker).
+          models: Array.isArray(body.models) ? body.models : [],
+          // Reset with the arm, so a spec asserting `probes > 0` is claiming "the engine
+          // re-read the catalogue SINCE I armed this" rather than "at some point ever".
+          probes: 0,
+        };
+        json(res, 200, { armed: true, models: localPeer.models });
+      } catch (err) {
+        json(res, 400, { error: String(err) });
+      }
+    });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/admin/engine-catalog") {
+    // The ENGINE's own model world, for platform-server.mjs to merge its local row from
+    // (ADR-0085). The real host answers `/api/models` this way — `catalog_response` in
+    // `platform_web.rs` calls `getPlatformCatalog` and serves `catalog.models` — so this is
+    // the harness borrowing the host's actual source rather than inventing a second one.
+    try {
+      json(res, 200, { data: await call("getPlatformCatalog", {}) });
+    } catch (err) {
+      json(res, 200, { error: String(err) });
+    }
+    return;
+  }
+  if (req.method === "GET" && req.url === "/admin/local-peer") {
+    json(res, 200, { models: localPeer.models, probes: localPeer.probes });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/local-peer/v1/models") {
+    localPeer.probes += 1;
+    json(res, 200, { object: "list", data: localPeer.models.map((id) => ({ id, object: "model" })) });
     return;
   }
   if (req.method === "GET" && req.url === "/admin/hf-peer/state") {
