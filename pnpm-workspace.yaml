@@ -7,10 +7,47 @@ packages:
   - "packages/platform/provider"
   - "packages/platform/client-pkg"
   - "packages/platform/client"
+  # C6: the Mongoose data layer. It joins here so that its OWN 66 suites can be run — first
+  # against a real mongod to establish the control, then against @tempest/docstore, which is
+  # the only way a "green against the selected store" claim means anything (trap 54: a
+  # differential check must ask both sides under the same conditions).
+  - "packages/platform/data"
 
 # Upstream's `"*"` cross-deps must resolve to the VENDORED workspace packages, never
 # the registry copies of the same names (the silent-skew hazard).
 linkWorkspacePackages: true
+
+# C6: the vendored data layer's PHANTOM imports — files importing packages their own manifest
+# never declares. npm's flat hoisting resolved them upstream; pnpm's strict isolation does not,
+# and the vendored manifests must not be edited (L27).
+#
+# `packageExtensions` below is the sibling mechanism, and it is the wrong one here: it has no
+# `devDependencies` field, so every entry would have to be declared a RUNTIME dependency. For
+# `mongodb-memory-server-core` that would be an outright false statement — a runtime dependency
+# able to fetch an SSPL `mongod`, which is precisely what `store_check --no-sspl-binaries`
+# exists to forbid. Hoisting resolves the import while claiming nothing untrue about the graph.
+# Every package named here is ALREADY in the store, pulled in by a real dependency; this fetches
+# nothing new. (These settings live here, not in `.npmrc`: pnpm 11 reads its own configuration
+# from this file — `node_modules/.modules.yaml` recorded `publicHoistPattern: []` when the same
+# keys were written to `.npmrc`, which is how that was established rather than assumed.)
+#
+# Exactly the seven imports below, and nothing else. An earlier draft also listed `*eslint*` and
+# `*prettier*` on the grounds that they are pnpm's defaults and that naming any pattern replaces
+# them — measured, that was wrong twice: `node_modules/.modules.yaml` recorded
+# `publicHoistPattern: []` before this change, so nothing was being replaced, and restating them
+# newly hoisted `eslint` to the root of a repository where no manifest asks for it. A C6 change
+# has no business altering how eslint resolves.
+publicHoistPattern:
+  # jest.globalSetup.mjs imports it; package.json declares only `mongodb-memory-server`.
+  - "mongodb-memory-server-core"
+  # babel.config.cjs names these three, and babel-jest cannot run without @babel/core.
+  - "@babel/core"
+  - "@babel/preset-env"
+  - "@babel/preset-typescript"
+  - "babel-plugin-replace-ts-export-assignment"
+  # Imported directly by the vendored specs and one type declaration.
+  - "uuid"
+  - "mongodb"
 
 # Upstream root package.json's security/compat `overrides`, ported npm->pnpm selector
 # syntax at C3 (that root manifest is deliberately not vendored; the pins must not be
@@ -99,4 +136,10 @@ allowBuilds:
   # es5-ext's postinstall prints a message and builds nothing; allowed so the
   # install carries an explicit decision.
   es5-ext: true
-
+  # C6: DENIED, deliberately. mongodb-memory-server's postinstall downloads a MongoDB
+  # Community Server binary — ~100 MB of SSPL, which L33 keeps out of the product and which
+  # nothing in a plain `pnpm install` or a CI run has any use for. The vendored data layer's
+  # own jest globalSetup fetches it lazily via `MongoBinary.getPath()`, so the download
+  # happens exactly once, only when a person deliberately takes the C6.0 CONTROL measurement
+  # against real MongoDB, and never as a side effect of installing dependencies.
+  mongodb-memory-server: false

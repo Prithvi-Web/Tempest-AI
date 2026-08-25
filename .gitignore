@@ -54,3 +54,11 @@ bench/merged-metrics.json
 
 # the API sidecar's default dev database (sqlite, regenerable) — never tracked
 tempest-dev.db
+
+# C6: run artifacts of the vendored data layer's own jest harness — coverage, the jest-junit
+# report, and winston's daily-rotate log files. All three are written by upstream's config, so
+# they can only be ignored here: `packages/platform/data/.gitignore` is vendored and editing it
+# would be an inline delta for build output (L27).
+packages/platform/data/coverage/
+packages/platform/data/junit.xml
+packages/platform/data/logs/
