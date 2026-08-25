@@ -321,6 +321,7 @@ fn call_typed<T: serde::de::DeserializeOwned>(
 #[tauri::command]
 #[specta::specta]
 pub fn replay_chat_turn(
+    app: tauri::AppHandle,
     state: tauri::State<'_, Arc<Supervisor>>,
     stream_id: String,
     after: i32,
@@ -332,10 +333,18 @@ pub fn replay_chat_turn(
     // Serving from the caller's cursor makes the two windows disjoint by construction.
     let page: crate::generated::domain::TurnEventsOut =
         call_typed(&state, "listChatTurnEvents", json!({"stream_id": stream_id, "after": after}))?;
+    let events = crate::agent_chat::frames_from(&page);
+    // THIS call is where the live feed begins (ADR-0089). The webview subscribes, then
+    // replays; starting the poller here means it cannot emit `created` before anyone is
+    // listening, and starting it at the page's LAST seq means the feed and the page are
+    // disjoint by construction — the client never has to guess which half of an overlap it
+    // has already seen.
+    let resume_from = crate::agent_chat::resume_cursor(after, &events);
+    crate::agent_chat::follow_stream_from(&app, state.inner(), &stream_id, resume_from);
     Ok(crate::agent_chat::ChatTurnReplay {
         stream_id: page.stream_id.clone(),
         status: page.status.clone(),
-        events: crate::agent_chat::frames_from(&page),
+        events,
     })
 }
 

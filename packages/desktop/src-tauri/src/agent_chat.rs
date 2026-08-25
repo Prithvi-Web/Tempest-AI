@@ -16,6 +16,7 @@
 //! the transport layer).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -70,6 +71,57 @@ static POLLERS: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
 
 fn pollers() -> &'static Mutex<HashMap<String, i64>> {
     POLLERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Generation epochs are minted here rather than taken from the engine's turn timestamp.
+///
+/// They exist only to let a newer claim supersede an older one on the same stream id, and a
+/// counter says exactly that and nothing more. The engine's `generationCreatedAt` was doing
+/// double duty as an identity token, which meant two claims raised inside the same
+/// millisecond were indistinguishable.
+static NEXT_GENERATION: AtomicI64 = AtomicI64::new(1);
+
+fn next_generation() -> i64 {
+    NEXT_GENERATION.fetch_add(1, Ordering::SeqCst)
+}
+
+/// Where the live feed must resume so that it and the page just served are disjoint.
+///
+/// The page's LAST seq, or the cursor it was served from when the page is empty — never 0,
+/// and never the caller's cursor when the page carried anything, because either would let
+/// the feed re-emit frames the page already contains. Delta frames are coalesced and a merged
+/// frame carries its run's last seq, so "everything up to the last seq" is exactly the
+/// guarantee the page makes and exactly what the feed must skip.
+pub(crate) fn resume_cursor(after: i32, events: &[AgentStreamFrame]) -> i64 {
+    events.last().map_or(i64::from(after), |frame| i64::from(frame.seq))
+}
+
+/// Start (or re-point) the live feed for one stream so it resumes STRICTLY ABOVE `after`.
+///
+/// **This is the fix for the lost `created` frame (ADR-0089), and the reason it lives here
+/// rather than in the POST handler.** The poller used to be spawned inside the POST, before
+/// the ack was even returned, at cursor 0 — so its first push carried seq 1..k *including*
+/// `created`, and it was emitted before `TempestSSE.attach()` had finished a lazy module
+/// load, an IPC and `host.listen()`. Tauri does not replay events to listeners that register
+/// afterwards, so that push went to nobody, and the replay page that still held those frames
+/// was then discarded by the client's overtaken-cursor retry. Nothing rendered, with no error
+/// and no timeout.
+///
+/// Now the feed is started by `replay_chat_turn`, which the webview calls only AFTER it has
+/// subscribed — so no frame can be emitted into an empty room — and it is positioned at the
+/// last seq the replay just served, so the live feed and the page are disjoint by
+/// construction rather than by the client guessing at the overlap.
+///
+/// A predecessor is superseded rather than re-pointed: it stands down at its next check, and
+/// re-checks its claim again immediately before emitting, so a page it computed from a stale
+/// cursor cannot land after the reposition.
+pub(crate) fn follow_stream_from(
+    app: &tauri::AppHandle,
+    engine: &Arc<Supervisor>,
+    stream_id: &str,
+    after: i64,
+) {
+    spawn_poller(app.clone(), Arc::clone(engine), stream_id.to_string(), next_generation(), after);
 }
 
 const POLL_INTERVAL: Duration = Duration::from_millis(40);
@@ -429,14 +481,11 @@ pub fn handle_chat(
                         ));
                     }
                 };
-            if let (Some(app), Some(stream_id)) = (app, ack.get("streamId").and_then(Value::as_str))
-            {
-                let generation = ack
-                    .get("generationCreatedAt")
-                    .and_then(Value::as_i64)
-                    .unwrap_or_default();
-                spawn_poller(app.clone(), Arc::clone(engine), stream_id.to_string(), generation);
-            }
+            // The live feed is deliberately NOT started here. Starting it before the ack has
+            // even been returned means emitting `created` into a room the webview has not
+            // reached yet (ADR-0089); `replay_chat_turn` starts it once the webview has
+            // subscribed, positioned above the page it serves.
+            let _ = app;
             return Some(json_response(200, &ack));
         }
 
@@ -554,7 +603,13 @@ fn urlencoding_decode(segment: &str) -> String {
 /// Drain the engine's frame ledger for one turn at token cadence and push every batch to
 /// the webview. Exits after the terminal status has been delivered with a drained read; a
 /// dead engine is tolerated across supervisor restarts and reported honestly past the cap.
-fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: String, generation: i64) {
+fn spawn_poller(
+    app: tauri::AppHandle,
+    engine: Arc<Supervisor>,
+    stream_id: String,
+    generation: i64,
+    start_after: i64,
+) {
     {
         let mut live = pollers().lock().expect("poller lock");
         // Claim (or reclaim) the stream for THIS generation; a running predecessor sees its
@@ -562,7 +617,7 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
         live.insert(stream_id.clone(), generation);
     }
     std::thread::spawn(move || {
-        let mut after: i64 = 0;
+        let mut after: i64 = start_after;
         let mut first_failure: Option<std::time::Instant> = None;
         loop {
             {
@@ -587,6 +642,17 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
                     }
                     let drained = page.events.is_empty();
                     if !drained || terminal {
+                        {
+                            // Re-check the claim IMMEDIATELY before emitting. The check at the
+                            // top of the loop happened before the engine call; a reposition
+                            // that landed during it would otherwise let this thread emit a
+                            // page computed from a cursor that is now stale, overlapping the
+                            // replay that superseded it.
+                            let live = pollers().lock().expect("poller lock");
+                            if live.get(&stream_id) != Some(&generation) {
+                                return;
+                            }
+                        }
                         let push = AgentStreamEvent {
                             stream_id: stream_id.clone(),
                             status: page.status.clone(),
@@ -601,6 +667,18 @@ fn spawn_poller(app: tauri::AppHandle, engine: Arc<Supervisor>, stream_id: Strin
                 None => {
                     let started = *first_failure.get_or_insert_with(std::time::Instant::now);
                     if poll_grace_exhausted(started, std::time::Instant::now()) {
+                        {
+                            // The SAME re-check the success path makes, and it matters more
+                            // here: the client now ACTS on `status: "error"` by closing the
+                            // stream (ADR-0089 §2). Without this, a predecessor that spent its
+                            // grace window dying could kill the healthy stream that superseded
+                            // it — the new escalation turning a harmless stale emit into a
+                            // user-visible failure.
+                            let live = pollers().lock().expect("poller lock");
+                            if live.get(&stream_id) != Some(&generation) {
+                                return;
+                            }
+                        }
                         let _ = AgentStreamEvent {
                             stream_id: stream_id.clone(),
                             status: "error".to_string(),
@@ -723,6 +801,38 @@ mod tests {
         let reply = handle_chat(None, None, "GET", "/api/agents/chat/stream/abc", "", b"")
             .expect("stream is the seam's route");
         assert_eq!(reply.status(), 200);
+    }
+
+    #[test]
+    fn the_live_feed_resumes_where_the_replay_stopped_not_at_zero() {
+        // The host half of the created-frame fix (ADR-0089). The page the replay serves and
+        // the live feed that follows it must be DISJOINT: the page promises everything up to
+        // its last seq, so the feed has to begin above it. Starting at 0 — which is what the
+        // POST handler used to do — re-emits frames the page already carried, under seqs a
+        // membership set cannot collapse because coalesced deltas carry their run's LAST seq.
+        let page = vec![
+            AgentStreamFrame { seq: 1, frame_json: "{}".into() },
+            AgentStreamFrame { seq: 2, frame_json: "{}".into() },
+            AgentStreamFrame { seq: 10, frame_json: "{}".into() },
+        ];
+        assert_eq!(resume_cursor(0, &page), 10, "the feed must resume at the page's LAST seq");
+
+        // An empty page means the ledger held nothing above the caller's cursor, so the feed
+        // stays where the caller already was. Answering 0 here would rewind a resumed stream
+        // to the beginning of the turn.
+        assert_eq!(resume_cursor(7, &[]), 7);
+        assert_eq!(resume_cursor(0, &[]), 0);
+    }
+
+    #[test]
+    fn a_generation_is_never_reused() {
+        // Generations are identity tokens for the supersede check, which compares by
+        // equality. Two claims raised in the same millisecond used to be indistinguishable
+        // when this was the engine's turn timestamp; a counter cannot collide with itself.
+        let first = next_generation();
+        let second = next_generation();
+        assert_ne!(first, second);
+        assert!(second > first);
     }
 
     #[test]

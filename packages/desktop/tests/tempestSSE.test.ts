@@ -205,8 +205,13 @@ describe("coalesced overlap", () => {
     await settled();
 
     expect(deltaText(seen.message)).toBe("Hello world! Bye");
-    // …and it got there by re-asking from the cursor, not by filtering after the fact.
-    expect(host.cursors).toEqual([0, 5]);
+    // ONE round trip now, not two. The overlap is resolved by the page's own last-seq
+    // promise — everything at or below seq 6 is on screen, so the held push's 1, 2 and 5 are
+    // dropped rather than re-asked for. The host makes the same guarantee from the other
+    // side by starting the feed at the page's last seq (`resume_cursor`), so in the real
+    // system this push cannot even be built; the drop is the reading side of one invariant
+    // (ADR-0089).
+    expect(host.cursors).toEqual([0]);
   });
 
   it("still delivers genuinely new text that arrives after the replay", async () => {
@@ -265,38 +270,113 @@ describe("the replay's own edges", () => {
     expect(seen.error).toHaveLength(0); // an abandoned replay is not a failure
   });
 
-  it("a feed that overtakes every replay still delivers, bounded", async () => {
-    // The pathological case the attempt bound exists for: a push lands during EVERY round
-    // trip, so the cursor never matches what was asked for. Without a bound this is an
-    // infinite retry against a busy stream; with one, the last page is served from the
-    // furthest cursor — frames at or below the high-water mark are already on screen, and
-    // anything above it is genuinely new.
+  it("holds what the feed pushes until the page lands, then releases it in order", async () => {
+    // What replaced the bounded-retry loop. The loop existed because a push landing during
+    // the round trip moved the cursor under the request, so the page was discarded and
+    // re-asked for from higher up — which is exactly what LOST `created` when the poller's
+    // first push had already gone to nobody (ADR-0089).
+    //
+    // Now a push that lands mid-round-trip is HELD, the page is delivered whole, and the
+    // held frames follow it. One replay, one cursor, nothing discarded.
     const host = new ScriptedHost("c-10");
+    host.replayControlled = true;
     setHostLoaderForTest(async () => host);
     const sse = new TempestSSE("/api/agents/chat/stream/c-10");
     const seen = collect(sse);
 
-    let tick = 0;
-    host.onReplay = () => {
-      tick += 1;
-      // A push mid-round-trip, every time: the cursor moves under the request.
-      host.handler?.({
-        stream_id: "c-10",
-        status: "active",
-        events: [delta(10 * tick, "step_0", `chunk${tick} `)],
-      });
-    };
-    host.replayPush = { stream_id: "c-10", status: "active", events: [] };
-
     sse.stream();
-    await settled();
+    await host.replayRequested;
+
+    // Two pushes land while the page is in flight. In the real system the feed was started
+    // by this very replay call, positioned at the page's last seq — so both are above it.
+    host.handler?.({
+      stream_id: "c-10",
+      status: "active",
+      events: [delta(11, "step_0", "second ")],
+    });
+    host.handler?.({
+      stream_id: "c-10",
+      status: "active",
+      events: [delta(12, "step_0", "third")],
+    });
+    // Nothing from the feed may reach the reader before the page it belongs after.
+    expect(seen.message).toHaveLength(0);
+
+    host.settleReplayNow({
+      stream_id: "c-10",
+      status: "active",
+      events: [
+        frame(1, { created: true }),
+        frame(2, { event: "on_run_step" }),
+        delta(10, "step_0", "first "),
+      ],
+    });
     await settled();
 
-    // It gave up re-asking rather than spinning, and it asked from a MOVING cursor.
-    expect(host.cursors.length).toBe(5); // four attempts, then the final serve
-    expect(host.cursors).toEqual([0, 10, 20, 30, 40]);
-    // Every pushed chunk still reached the reader exactly once.
-    expect(deltaText(seen.message)).toBe("chunk1 chunk2 chunk3 chunk4 chunk5 ");
+    expect(host.cursors).toEqual([0]); // one replay, never re-asked
+    expect(deltaText(seen.message)).toBe("first second third");
+    const created = seen.message.filter(
+      (raw) => (JSON.parse(raw) as { created?: boolean }).created === true,
+    );
+    expect(created).toHaveLength(1);
+  });
+});
+
+describe("the created-frame race (ADR-0089)", () => {
+  it("delivers `created` even when the poller's FIRST push was emitted before anyone listened", async () => {
+    // The P1 that produced a spinner which never stops, reproduced without a slow model.
+    //
+    // `spawn_poller` is called inside the POST handler, before the ack is even returned, and
+    // starts at cursor 0 — so its first push carries seq 1..k, INCLUDING `created`.
+    // `attach()` only reaches `host.listen()` after a lazy module load plus an IPC, reliably
+    // slower, and tauri does not replay events to listeners that register afterwards. That
+    // first push is simply lost, which the scripted host models by never calling the handler
+    // for it.
+    //
+    // Then the second push lands DURING the replay's round trip. The cursor has moved, so
+    // attach discards the page it asked for from 0 — correctly, because a coalesced delta
+    // carries its run's LAST seq and a membership set cannot dedupe the overlap — and
+    // re-asks from the higher cursor. Seq 1..2 are now unreachable from either path.
+    //
+    // Downstream, `useResumableSSE` buffers every later frame into `preCreatedStepEvents` and
+    // replays them from exactly one place: the `data.created != null` branch. No `created`
+    // means no replay, no render, no error, and no timeout.
+    const host = new ScriptedHost("c-race");
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("/api/agents/chat/stream/c-race");
+    const seen = collect(sse);
+
+    // What the engine's ledger can serve, per cursor. From 0 it still holds `created`.
+    host.replayControlled = true;
+    sse.stream();
+    await host.replayRequested;
+
+    // The poller's push. Under the fix the feed is started BY this replay call and
+    // positioned at the page's last seq, so it lands ABOVE the page instead of before it.
+    host.handler?.({
+      stream_id: "c-race",
+      status: "active",
+      events: [delta(12, "step_0", "world")],
+    });
+
+    // The page the replay serves — still holding `created`, and no longer discarded.
+    host.settleReplayNow({
+      stream_id: "c-race",
+      status: "active",
+      events: [
+        frame(1, { created: true }),
+        frame(2, { event: "on_run_step" }),
+        delta(10, "step_0", "hello "),
+      ],
+    });
+    await settled();
+
+    const created = seen.message.filter(
+      (raw) => (JSON.parse(raw) as { created?: boolean }).created === true,
+    );
+    expect(created).toHaveLength(1);
+    // …and the text still arrives exactly once, which is what the discard protects.
+    expect(deltaText(seen.message)).toBe("hello world");
   });
 });
 
@@ -444,11 +524,113 @@ describe("failure arms", () => {
     sse.stream();
     await host.replayRequested; // the replay is now parked, awaiting the test's verdict
     host.handler?.({ stream_id: "c-7", status: "complete", events: [frame(1, { final: true })] });
-    expect(sse.readyState).toBe(TempestSSE.CLOSED);
-    host.failReplayNow(new Error("replay broke")); // the LATE failure, after the honest close
+    // The final is HELD while the page is in flight, so the close lands when the queue is
+    // released rather than the instant the push arrives (ADR-0089). What must NOT change is
+    // the outcome: a turn that genuinely finished is never reported as an error because the
+    // replay behind it failed — so the queue is released BEFORE the failure is reported.
+    expect(sse.readyState).toBe(TempestSSE.OPEN);
+    host.failReplayNow(new Error("replay broke")); // the LATE failure, after an honest final
     await settled();
+    expect(sse.readyState).toBe(TempestSSE.CLOSED);
     expect(seen.error).toHaveLength(0);
     expect(seen.message).toHaveLength(1);
+  });
+
+  it("the host's circuit breaker reaches the reader as an error, not a frozen stream", async () => {
+    // ADR-0079's last named deferral — "an agent-stream-specific fault-injection pin beyond
+    // e2e 06's engine-SIGKILL coverage". It was hiding a live defect rather than a missing
+    // test: e2e 06 exercises the masthead health probe on /tempest with no chat turn in
+    // flight, and the two cargo tests LC22 named are arithmetic over `Instant`s that never
+    // reach `spawn_poller`'s emit. Nothing anywhere drove this push.
+    //
+    // The host emits it once the poller has failed for longer than POLL_FAILURE_GRACE: an
+    // empty event list and `status: "error"`. Before the fix `deliver` read frames only, the
+    // loop ran zero times, and the breaker changed nothing — readyState stayed OPEN and the
+    // reconnect ladder never armed (ADR-0089 §2).
+    const host = new ScriptedHost("c-11");
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("/api/agents/chat/stream/c-11");
+    const seen = collect(sse);
+    sse.stream();
+    await settled();
+
+    host.handler?.({ stream_id: "c-11", status: "error", events: [] });
+
+    expect(sse.readyState).toBe(TempestSSE.CLOSED);
+    expect(seen.error).toHaveLength(1);
+    const reported = JSON.parse(seen.error[0] ?? "{}") as { error?: string };
+    expect(reported.error).toContain("the live stream stopped");
+    expect(seen.abort).toHaveLength(0); // a breaker is not a user-initiated close
+  });
+
+  it("a breaker that fires while the page is in flight is not lost to the hold queue", async () => {
+    // The interaction between the two fixes: an error push arriving before the page is held,
+    // and must still reach the reader when the queue releases.
+    const host = new ScriptedHost("c-12");
+    host.replayControlled = true;
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("/api/agents/chat/stream/c-12");
+    const seen = collect(sse);
+    sse.stream();
+    await host.replayRequested;
+
+    host.handler?.({ stream_id: "c-12", status: "error", events: [] });
+    expect(seen.error).toHaveLength(0); // held, not dropped
+
+    host.settleReplayNow({ stream_id: "c-12", status: "active", events: [frame(1, { a: 1 })] });
+    await settled();
+
+    expect(seen.message).toHaveLength(1); // the page still rendered
+    expect(seen.error).toHaveLength(1); // …and the breaker still reported
+    expect(sse.readyState).toBe(TempestSSE.CLOSED);
+  });
+
+  it("a terminal page with no frames ends the stream even when the status is not `error`", async () => {
+    // The hole the `error`-only escalation left, and it is reachable for real. After a
+    // mid-turn sidecar restart the engine reconciles the dead turn by writing its aborted
+    // `final` at `durable_max + 1` — at or BELOW a poller whose cursor tracked the LIVE
+    // in-memory ledger (the store flushes every 25 frames or 250 ms, so it lags). The engine
+    // filters that frame out as not-after-the-cursor, and the poller's last word is an EMPTY
+    // page with `status: "aborted"`. Escalating only on "error" left readyState OPEN with no
+    // event at all: the same frozen spinner, one status word to the left.
+    const host = new ScriptedHost("c-13");
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("/api/agents/chat/stream/c-13");
+    const seen = collect(sse);
+    sse.stream();
+    await settled();
+
+    host.handler?.({ stream_id: "c-13", status: "aborted", events: [] });
+
+    expect(sse.readyState).toBe(TempestSSE.CLOSED);
+    expect(seen.error).toHaveLength(1);
+    const reported = JSON.parse(seen.error[0] ?? "{}") as { error?: string };
+    expect(reported.error).toContain("aborted");
+  });
+
+  it("a terminal page that still CARRIES frames is not ended early", async () => {
+    // The counter-test that keeps the rule above from firing on the happy path. The poller
+    // emits terminal pages that still have events BEFORE its drained read, and the turn's
+    // `final` frame may be in the next one — closing on the first would truncate every turn.
+    const host = new ScriptedHost("c-14");
+    setHostLoaderForTest(async () => host);
+    const sse = new TempestSSE("/api/agents/chat/stream/c-14");
+    const seen = collect(sse);
+    sse.stream();
+    await settled();
+
+    host.handler?.({ stream_id: "c-14", status: "complete", events: [delta(1, "s", "hi")] });
+    expect(sse.readyState).toBe(TempestSSE.OPEN);
+    expect(seen.error).toHaveLength(0);
+
+    // …and the real final, arriving next, closes it honestly with no error.
+    host.handler?.({ stream_id: "c-14", status: "complete", events: [frame(2, { final: true })] });
+    expect(sse.readyState).toBe(TempestSSE.CLOSED);
+    expect(seen.error).toHaveLength(0);
+
+    // The poller's drained tail push then lands on a closed stream and must stay silent.
+    host.handler?.({ stream_id: "c-14", status: "complete", events: [] });
+    expect(seen.error).toHaveLength(0);
   });
 
   it("removeEventListener detaches exactly the named listener", async () => {
