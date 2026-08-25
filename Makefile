@@ -6,7 +6,7 @@ export PATH := $(HOME)/.local/bin:$(HOME)/.cargo/bin:$(PATH)
 
 DESKTOP_MANIFEST := packages/desktop/src-tauri/Cargo.toml
 
-.PHONY: verify verify-python verify-agent verify-node verify-desktop verify-contract verify-grep-safe \
+.PHONY: platform-types verify verify-python verify-agent verify-node verify-desktop verify-contract verify-grep-safe \
 	gen-contracts ensure-sidecar sync bench bench-editor perf-gate
 
 sync:
@@ -44,9 +44,19 @@ verify-linux-denominator:
 # Everything any cargo step needs before it compiles: tauri's context macro resolves the
 # bundle resources at compile time, so packages/platform/client/dist must EXIST — on a fresh
 # checkout that means building it, exactly like build-server.sh stages the externalBin.
-platform-client-dist:
+# The vendored packages whose TYPES are a build output, not source. The seam's settings
+# panels import `@librechat/client`, and its types live in `dist/index.d.cts` — so a checkout
+# that has never built it cannot resolve the module at all. A desktop TEST imports those
+# panels, so the desktop project compiles them, which is how `make verify` stayed green on a
+# machine where the vendored client happened to be built while CI's byte-identical command
+# went red on a clean one. Declared as a prerequisite here and mirrored in ci.yml's node job,
+# because that job's own comment says the two must not drift — and they had, in a dimension
+# nobody was looking at: not WHICH packages are checked, but what must exist before checking.
+platform-types:
 	pnpm --filter librechat-data-provider build
 	pnpm --filter @librechat/client build
+
+platform-client-dist: platform-types
 	pnpm --filter @librechat/frontend exec vite build --config tempest/vite.config.mjs
 	# Upstream's own second build half: vite's publicDir is off in build mode, so
 	# public/assets/** (favicons, the login logo, provider art) reaches dist/ only through
@@ -181,7 +191,7 @@ verify-python:
 verify-agent:
 	./scripts/agent-gates.sh
 
-verify-node:
+verify-node: platform-types
 	# Scoped to OUR packages: the vendored platform packages joined the workspace at C3 for
 	# the client build chain, but their own suites join `make verify-v3` at the phases that
 	# make them green (merge contract §6 rule 4) — not silently via -r.

@@ -106,6 +106,13 @@ jobs:
           package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # `make verify-node`'s `platform-types` prerequisite, mirrored. The seam's settings
+      # panels import `@librechat/client`, whose types are a BUILD output (dist/index.d.cts),
+      # and a desktop test imports those panels — so without this the typecheck below cannot
+      # resolve the module and reports it as a cascade of implicit-any errors in vendored
+      # code. It passed locally only because a developer machine has already built it.
+      - run: pnpm --filter librechat-data-provider build
+      - run: pnpm --filter @librechat/client build
       # Scoped exactly like `make verify-node` (the two must not drift): the vendored
       # platform packages joined the workspace at C3 for the client build chain, but their
       # own suites join `make verify-v3` at the phases that make them green (merge contract
