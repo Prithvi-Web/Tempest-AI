@@ -4,9 +4,9 @@
 side by side, under identical deterministic conditions, and reports the concrete inputs where
 observable behavior diverges, each with a minimized reproduction.
 
-## Install (GitHub is the only distribution channel)
+## Install (GitHub is the only distribution channel) 
 
-The CLI, on any OS with [uv](https://docs.astral.sh/uv/) (or swap in `pipx`):
+The CLI, on any OS with [uv](https://docs.astral.sh/uv/) (or swap in `pipx`):      
 
 ```bash
 uv tool install "git+https://github.com/Prithvi-Web/Tempest-AI#subdirectory=packages/engine"
